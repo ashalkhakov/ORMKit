@@ -110,7 +110,7 @@
 
 - (void)setFlattensSubtypes:(BOOL)flag ofMapping:(NSString *)mappingId
 {
-	[self setMappingAttribute:@"FlattenSubtypes" value:flag ? @"true" : nil of:mappingId action:@"Set Subtype Mapping"];
+	[self setMappingAttribute:@"FlattenSubtypes" value:flag ? @"true" : @"false" of:mappingId action:@"Set Subtype Mapping"];
 }
 
 - (void)setValueSetsAsEntities:(BOOL)flag ofMapping:(NSString *)mappingId
@@ -171,9 +171,23 @@
 	     inMapping:mappingId action:@"Rename in Core Data"];
 }
 
+- (void)setStyle:(ORMMappingStyle)style ofMapping:(NSString *)mappingId
+{
+	/* The style's own defaults then hold: what was set for another is
+	 * cleared. */
+	[self group:@"Set Mapping Style" with:^{
+		[self setMappingAttribute:@"FlattenSubtypes" value:nil of:mappingId action:@"Set Mapping Style"];
+		[self setMappingAttribute:@"AbsorbIdentifierTypes" value:nil of:mappingId action:@"Set Mapping Style"];
+		[self setMappingAttribute:@"Style"
+		                    value:style == ORMStyleRelational ? @"Relational" : style == ORMStyleEntities ? @"Entities" : nil
+		                       of:mappingId
+		                   action:@"Set Mapping Style"];
+	}];
+}
+
 - (void)setAbsorbsIdentifierTypes:(BOOL)flag ofMapping:(NSString *)mappingId
 {
-	[self setMappingAttribute:@"AbsorbIdentifierTypes" value:flag ? @"true" : nil of:mappingId
+	[self setMappingAttribute:@"AbsorbIdentifierTypes" value:flag ? @"true" : @"false" of:mappingId
 	                   action:@"Set Identifier Type Mapping"];
 }
 

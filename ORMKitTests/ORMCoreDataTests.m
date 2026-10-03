@@ -82,10 +82,10 @@ ORMSquashed(NSString *name)
 	return out;
 }
 
-/* Rmap's grouping, adapted: with subtypes flattened and identifier-only
- * types absorbed, every table ActiveFacts' Rmap makes of Heath's models is
- * an entity, but for the types his CQL marks [separate] or [static] (a
- * modeller's choice, made here by mapping the type as an entity). */
+/* The Relational style is Rmap's grouping: every table ActiveFacts' Rmap
+ * makes of Heath's models is an entity, but for the types his CQL marks
+ * [separate] or [static] (a modeller's choice, made here by mapping the
+ * type as an entity). */
 - (void)testRmapModeMakesTheTablesRmapMakes
 {
 	NSSet *separate = [NSSet setWithArray:@[ @"coveragetype", @"incidenttype", @"insurer", @"vehicleincident" ]];
@@ -99,8 +99,7 @@ ORMSquashed(NSString *name)
 		}
 		NSString *sql = [[NSString alloc] initWithData:[self fixtureData:sqlName] encoding:NSUTF8StringEncoding];
 		ORMCDModel *mapped = [self map:name configuring:^(ORMEditor *editor, NSString *mapping) {
-			[editor setFlattensSubtypes:YES ofMapping:mapping];
-			[editor setAbsorbsIdentifierTypes:YES ofMapping:mapping];
+			[editor setStyle:ORMStyleRelational ofMapping:mapping];
 		}];
 		NSMutableSet *entities = [NSMutableSet set];
 		for (ORMCDEntity *entity in mapped.entities) {
@@ -184,13 +183,44 @@ ORMSquashed(NSString *name)
 	XCTAssertNotNil([mapped entityNamed:@"UnitOfMeasure"]);
 	/* Unaries are Booleans. */
 	XCTAssertEqualObjects([[product attributeNamed:@"isActive"] attributeType], @"Boolean");
-	/* A composite identifier is a composite uniqueness constraint. */
-	ORMCDEntity *street = [mapped entityNamed:@"Street"];
-	BOOL composite = NO;
-	for (NSArray *names in street.uniquenessConstraints) {
-		composite = composite || [names count] == 3;
+	/* What is no more than values is part of what uses it: a Warehouse's
+	 * Address (its id a surrogate, its street, city and the rest a key),
+	 * the Address's Street (three lines), named as the readings name them. */
+	XCTAssertNil([mapped entityNamed:@"Address"]);
+	XCTAssertNil([mapped entityNamed:@"Street"]);
+	ORMCDEntity *warehouse = [mapped entityNamed:@"Warehouse"];
+	for (NSString *name in @[ @"addressCity", @"addressPostalCode", @"addressStreetFirstStreetLine",
+	                          @"addressStreetSecondStreetLine", @"addressStreetThirdStreetLine" ]) {
+		XCTAssertNotNil([warehouse attributeNamed:name], @"%@", name);
 	}
-	XCTAssertTrue(composite, @"%@", street.uniquenessConstraints);
+	XCTAssertNotNil([warehouse relationshipNamed:@"addressCountry"]);
+}
+
+/* What the store is for decides what is absorbed: the Entities style
+ * keeps an Address an entity, as reports over addresses want it. */
+- (void)testTheStyleDecidesWhatIsAbsorbed
+{
+	ORMCDModel *entities = [self map:@"StockMate.orm" configuring:^(ORMEditor *editor, NSString *mapping) {
+		[editor setStyle:ORMStyleEntities ofMapping:mapping];
+	}];
+	XCTAssertNotNil([entities entityNamed:@"Address"]);
+	XCTAssertNotNil([entities entityNamed:@"Street"]);
+	XCTAssertNil([self momcRejects:entities]);
+	/* An object type's own mapping decides over the style. */
+	ORMCDModel *kept = [self map:@"StockMate.orm" configuring:^(ORMEditor *editor, NSString *mapping) {
+		[editor setMapping:ORMMapAsEntity ofObjectType:[[editor.model objectTypeNamed:@"Address"] identifier]
+		         inMapping:mapping];
+	}];
+	XCTAssertNotNil([kept entityNamed:@"Address"]);
+	XCTAssertNil([kept entityNamed:@"Street"]);
+	/* An objectification one to one with its player is folded into it. */
+	ORMCDModel *death = [self map:@"ActiveFacts/Death.orm" configuring:^(ORMEditor *editor, NSString *mapping) {
+		(void)editor;
+		(void)mapping;
+	}];
+	XCTAssertNil([death entityNamed:@"Death"]);
+	XCTAssertNotNil([death entityNamed:@"Person"]);
+	XCTAssertNil([self momcRejects:death]);
 }
 
 /* A model another tool wrote in NORMA's format maps as well. */

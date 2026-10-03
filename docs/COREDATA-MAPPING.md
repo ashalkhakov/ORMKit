@@ -62,6 +62,38 @@ Data types:
 | Other: Row ID, Object ID | UUID |
 | Unspecified | String, reported |
 
+## Styles: what the store is for
+
+There is often more than one good logical model of a conceptual one, and
+which is better depends on what the store is for. A mapping has a style
+that sets the defaults; its options and each object type's own mapping
+(Entity, Absorbed, Transformable, Ignored) decide over them.
+
+| Style | What is absorbed | For |
+| --- | --- | --- |
+| Application (default) | values; value-like entity types into what uses them; objectifications one to one with a player folded into it | an app's own store |
+| Relational | as Rmap groups tables: identifier-only types absorbed, subtypes flattened, a composite reference scheme absorbed where one fact type refers to it | a schema as a relational designer would draw it |
+| Entities | values only | reports and analysis over things in their own right |
+
+A **value-like** entity type is one with nothing to it but the values that
+identify it, several of them (an Address: street, city, postal code,
+region, country): its preferred identifier, or in the Application style
+an alternate key beside a generated id. It is absorbed where it is used,
+its values properties of the entity that refers to it
+(`Warehouse.addressCity`, `addressStreetFirstStreetLine`), a to-one
+relationship where a value is an entity. An Address kept as an entity
+makes a join of every order's address; absorbed, it is part of the
+order. Core Data's composite attributes would hold it as one; FreeCoreData
+has none yet, so it is flattened (or, mapped Transformable, a class of
+its own).
+
+An **objectification one to one with a player** (Death: Person is dead) is
+folded into the player: the objectified fact type maps as it would
+without one, and the objectification's fact types are the player's, made
+optional unless every player plays the role.
+
+An analytical (star schema) style, facts and dimensions, is for later.
+
 ## Rmap, adapted
 
 Halpin's Rmap groups fact types into relational tables. The mapping
@@ -72,24 +104,19 @@ departs from it where Core Data has more to say:
 | --- | --- |
 | A table per entity type with functional fact types, its columns those fact types | an entity, its attributes and to-one relationships those fact types |
 | A table per fact type of a compound uniqueness (many-to-many) | to-many relationships both ways; an entity for an objectified one or one of three roles or more |
-| Subtypes absorbed into the supertype's table (or kept separate) | an entity inheritance tree (one SQLite table, as Rmap's absorption), or flattened when asked |
-| An entity type with nothing but its identifier is no table: its identifier is a column wherever it is used | an entity, with its identity and its relationships; absorbed as attributes when asked |
+| Subtypes absorbed into the supertype's table (or kept separate) | an entity inheritance tree (one SQLite table, as Rmap's absorption), or flattened |
+| An entity type with nothing but its identifier is no table: its identifier is a column wherever it is used | an entity, with its identity and its relationships; absorbed in the Relational style or when asked |
+| A compositely identified type with nothing else: its identifying columns spread into the tables that refer to it | absorbed, its values properties of the entity that refers to it |
+| A nesting one to one with a player: folded into the player's table | folded into the player's entity |
 | A value type with a role of its own is a table keyed by the value | an entity keyed by the value |
 
-Rmap mode, subtypes flattened and identifier-only types absorbed
-(`AbsorbIdentifierTypes`), makes of Clifford Heath's 28 models every table
-his ActiveFacts makes, but for the types his CQL marks `[separate]` or
-`[static]`, a modeller's choice that is the per-type Entity mapping here
-(the test compares them). Rmap mode does not absorb an entity type whose
-identifier is generated (an auto counter: it cannot be supplied by what
-refers to it), nor flatten a subtype identified its own way.
-
-Rmap mode still makes entities Rmap does not: entity types identified by
-several fact types with nothing else to them (Address, Row), whose
-identifying columns Rmap spreads into the tables that refer to them, and
-objectified fact types one-to-one with a player (Death of a Person),
-which Rmap folds into the player's table. Both lose an identity Core Data
-keeps; whether to absorb them is for a later pass.
+In the Relational style the mapping makes of Clifford Heath's 28 models
+every table his ActiveFacts makes, but for the types his CQL marks
+`[separate]` or `[static]`, a modeller's choice that is the per-type
+Entity mapping here (a test compares them). It does not absorb an entity
+type whose identifier is generated (an auto counter cannot be supplied by
+what refers to it), nor flatten a subtype identified its own way, nor
+absorb a composite more than one fact type refers to.
 
 ## Names
 

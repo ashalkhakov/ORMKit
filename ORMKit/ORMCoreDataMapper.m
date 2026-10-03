@@ -26,6 +26,13 @@ typedef NS_ENUM(NSInteger, ORMResolved) {
 	/* A value type, or an entity type absorbed into attributes. */
 	ORMResolvedValue,
 	ORMResolvedIgnored,
+	/* An entity type identified by several fact types and nothing else
+	 * (an Address): absorbed into whatever refers to it, as its
+	 * identifying values. */
+	ORMResolvedComposite,
+	/* An objectified fact type one-to-one with a player (Death of a
+	 * Person): its properties are the player's. */
+	ORMResolvedFolded,
 };
 
 @implementation ORMCoreDataMapper
@@ -41,6 +48,9 @@ typedef NS_ENUM(NSInteger, ORMResolved) {
 	 * Core Data refuses a subentity's property named as its parent's. */
 	NSMutableDictionary<NSString *, NSMutableSet *> *_names;
 	NSMutableSet<NSString *> *_entityNames;
+	/* A folded objectification's id -> the role of the player it folds
+	 * into. */
+	NSMutableDictionary<NSString *, ORMRole *> *_folds;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping
@@ -332,12 +342,119 @@ ORMReservedNames(void)
 	return YES;
 }
 
+/* The roles an entity type is identified by when several fact types
+ * identify it (an external uniqueness over the far roles of binaries it
+ * plays): the far roles, in the constraint's order; nil otherwise. */
+- (NSArray<ORMRole *> *)compositeIdentificationOf:(ORMObjectType *)type
+{
+	/* Its preferred identifier, or an alternate key: an Address with a
+	 * generated id is still identified by its street, city and the rest. */
+	NSMutableArray *candidates = [NSMutableArray array];
+	if (type.preferredIdentifier != nil) {
+		[candidates addObject:type.preferredIdentifier];
+	}
+	/* Rmap goes by the reference scheme alone. */
+	for (ORMConstraint *constraint in self.mapping.style == ORMStyleRelational ? @[] : self.model.constraints) {
+		if (constraint.kind == ORMUniquenessConstraint && !constraint.isInternal && constraint != type.preferredIdentifier) {
+			[candidates addObject:constraint];
+		}
+	}
+	for (ORMConstraint *identifier in candidates) {
+		if (identifier.isInternal || [[identifier allRoles] count] < 2 || identifier.modality != ORMAlethic) {
+			continue;
+		}
+		BOOL fits = YES;
+		for (ORMRole *role in [identifier allRoles]) {
+			fits = fits && [[role.factType visibleRoles] count] == 2 && [role oppositeRole].player == type;
+		}
+		if (fits) {
+			return [identifier allRoles];
+		}
+	}
+	return nil;
+}
+
+/* Whether an entity type is no more than its identifying values, several
+ * of them (an Address): nothing functional on it beside them, no
+ * subtyping, objectification or independence, and used only as the value
+ * of what refers to it, never many of it. */
+- (BOOL)isCompositeValue:(ORMObjectType *)type
+{
+	NSArray *identifying = [self compositeIdentificationOf:type];
+	if (identifying == nil || type.nestedFactType != nil || type.isIndependent || [type.subtypes count] > 0
+	    || [type.supertypes count] > 0) {
+		return NO;
+	}
+	NSMutableSet *identifyingFacts = [NSMutableSet set];
+	for (ORMRole *role in identifying) {
+		[identifyingFacts addObject:[NSValue valueWithNonretainedObject:role.factType]];
+	}
+	NSUInteger uses = 0;
+	for (ORMRole *role in type.playedRoles) {
+		ORMFactType *fact = role.factType;
+		if ([identifyingFacts containsObject:[NSValue valueWithNonretainedObject:fact]] || fact.kind == ORMFactTypeImplied
+		    || role.proxiedRole != nil || fact == type.referenceModeFactType) {
+			continue;
+		}
+		NSArray *roles = [fact visibleRoles];
+		if (fact.kind != ORMFactTypeOrdinary || [roles count] == 1 || role.isUnique) {
+			return NO;
+		}
+		/* The value of one instance at a time: the referring role is
+		 * functional (or the fact type is an entity of its own, of which
+		 * it is a column). */
+		if ([roles count] == 2 && fact.objectifyingType == nil && ![[role oppositeRole] isUnique]) {
+			return NO;
+		}
+		uses++;
+	}
+	/* Rmap, as ActiveFacts makes it, keeps a table for what more than
+	 * one fact type refers to. */
+	if (self.mapping.style == ORMStyleRelational && uses > 1) {
+		return NO;
+	}
+	return uses > 0;
+}
+
+/* The role an objectification is one-to-one with: the fact type's single
+ * role with a uniqueness of its own, played by an entity type; nil when
+ * it is not so. */
+- (ORMRole *)foldRoleOf:(ORMObjectType *)type
+{
+	ORMFactType *fact = type.nestedFactType;
+	if (fact == nil || type.isIndependent || [type.subtypes count] > 0 || [type.supertypes count] > 0) {
+		return nil;
+	}
+	NSArray *roles = [fact visibleRoles];
+	if ([roles count] > 2) {
+		return nil;
+	}
+	ORMRole *unique = nil;
+	for (ORMRole *role in roles) {
+		if (role.isUnique) {
+			if (unique != nil) {
+				return nil;
+			}
+			unique = role;
+		}
+	}
+	if (unique == nil || unique.player.kind == ORMValueType || unique.player == type) {
+		return nil;
+	}
+	return unique;
+}
+
 - (ORMObjectTypeMapping)automaticMappingOf:(ORMObjectType *)type
 {
 	if (type.kind == ORMValueType) {
 		return [self valueTypeHasRolesOfItsOwn:type] ? ORMMapAsEntity : ORMMapAbsorbed;
 	}
 	if (self.mapping.absorbsIdentifierTypes && [self isIdentifierOnly:type]) {
+		return ORMMapAbsorbed;
+	}
+	/* Identified by several values and no more: absorbed, as an address
+	 * is part of the order it is on. */
+	if (self.mapping.absorbsValueLikeTypes && ([self isCompositeValue:type] || [self foldRoleOf:type] != nil)) {
 		return ORMMapAbsorbed;
 	}
 	/* An entity type is absorbed when it is no more than a measure: a
@@ -376,6 +493,23 @@ ORMReservedNames(void)
 			ORMObjectTypeMapping mapping = [self.mapping mappingOfObjectType:type.identifier];
 			if (mapping == ORMMapAutomatically) {
 				mapping = [self automaticMappingOf:type];
+			}
+			BOOL composite = mapping == ORMMapAbsorbed && [self compositeIdentificationOf:type] != nil
+				&& [self isCompositeValue:type];
+			ORMRole *fold = mapping == ORMMapAbsorbed ? [self foldRoleOf:type] : nil;
+			if (composite || fold != nil) {
+				[_resolved setObject:@(composite ? ORMResolvedComposite : ORMResolvedFolded) forKey:type.identifier];
+				if (fold != nil) {
+					[_folds setObject:fold forKey:type.identifier];
+				}
+				[self note:ORMMappingAbsorbed
+				      text:composite ? [NSString stringWithFormat:@"%@ is absorbed: its identifying values are "
+				                                                   @"properties of whatever refers to it.", type.name]
+				                     : [NSString stringWithFormat:@"%@ is folded into %@: one to one with it, its "
+				                                                   @"properties are %@'s.", type.name, fold.player.name,
+				                                                   fold.player.name]
+				   element:type.identifier];
+				continue;
 			}
 			if (mapping == ORMMapAbsorbed && type.isEntity && type.referenceModeValueType == nil) {
 				[self note:ORMMappingWarning
@@ -492,6 +626,13 @@ ORMReservedNames(void)
 		}
 		[_out.entities addObject:entity];
 		[_entityOf setObject:entity forKey:type.identifier];
+	}
+	/* A folded objectification's properties are its player's. */
+	for (NSString *folded in _folds) {
+		ORMCDEntity *player = [self entityOf:[[_folds objectForKey:folded] player]];
+		if (player != nil) {
+			[_entityOf setObject:player forKey:folded];
+		}
 	}
 	/* A supertype its subtypes cover is abstract: an inclusive-or (or
 	 * exclusive-or) mandatory over the supertype roles of every subtype
@@ -734,6 +875,77 @@ ORMRegexEscape(NSString *value)
 	return entity;
 }
 
+/* Whether the role is mandatory where its property goes: a folded
+ * objectification's role is mandatory on its player only when the player
+ * always plays the role it is one to one with. */
+- (BOOL)mandatoryHere:(ORMRole *)role
+{
+	if (!role.isMandatory) {
+		return NO;
+	}
+	ORMRole *fold = [_folds objectForKey:role.player.identifier ?: @""];
+	return fold == nil || fold.isMandatory;
+}
+
+static NSString *
+ORMCapitalized(NSString *name)
+{
+	return [name length] > 0 ? [[[name substringToIndex:1] uppercaseString] stringByAppendingString:[name substringFromIndex:1]]
+	                         : name;
+}
+
+/* An absorbed composite's identifying values as properties of the entity
+ * that refers to it: "shippingAddressStreet", "shippingAddressCity" (a
+ * to-one relationship where the value is an entity). Their names. */
+- (NSArray<NSString *> *)absorb:(ORMObjectType *)type
+                           into:(ORMCDEntity *)entity
+                         prefix:(NSString *)prefix
+                         source:(NSString *)source
+                       optional:(BOOL)optional
+{
+	NSMutableArray *names = [NSMutableArray array];
+	for (ORMRole *component in [self compositeIdentificationOf:type]) {
+		ORMObjectType *player = component.player;
+		/* As the reading names it from the composite's side ("first
+		 * StreetLine"), as a property for the role would be named. */
+		NSString *base = [[self candidatesFor:component near:[component oppositeRole] toMany:NO] firstObject]
+			?: [ORMCoreDataMapper propertyNameFor:player.name ?: @"value"];
+		NSString *candidate = [prefix stringByAppendingString:ORMCapitalized(base)];
+		NSString *componentSource = [source stringByAppendingFormat:@"/%@", component.identifier];
+		ORMResolved resolved = [self resolved:player];
+		if (resolved == ORMResolvedComposite) {
+			[names addObjectsFromArray:[self absorb:player into:entity prefix:candidate source:componentSource
+			                                optional:optional]];
+		} else if (resolved == ORMResolvedValue) {
+			NSString *name = [self claimName:@[ candidate ] source:componentSource on:entity];
+			[entity.attributes addObject:[self attributeFor:[self valueTypeOf:player] name:name source:componentSource
+			                                       optional:optional roleConstraint:component.valueConstraint]];
+			[names addObject:name];
+		} else if (resolved == ORMResolvedEntity || resolved == ORMResolvedFolded) {
+			ORMCDEntity *target = [self entityOf:player];
+			NSString *name = [self claimName:@[ candidate ] source:componentSource on:entity];
+			NSString *plural = [ORMCoreDataMapper pluralOf:[ORMCoreDataMapper propertyNameFor:entity.name]];
+			NSString *backwardName = [self claimName:@[ [plural stringByAppendingFormat:@"As%@", ORMCapitalized(candidate)],
+			                                            plural ]
+			                                  source:[componentSource stringByAppendingString:@".inverse"]
+			                                      on:target];
+			ORMCDRelationship *forward = [self relationshipNamed:name source:componentSource to:target toMany:NO near:nil];
+			forward.optional = optional;
+			ORMCDRelationship *backward = [self relationshipNamed:backwardName
+			                                               source:[componentSource stringByAppendingString:@".inverse"]
+			                                                   to:entity toMany:YES near:nil];
+			forward.inverseName = backwardName;
+			backward.inverseName = name;
+			forward.deletionRule = @"Nullify";
+			backward.deletionRule = @"Nullify";
+			[entity.relationships addObject:forward];
+			[target.relationships addObject:backward];
+			[names addObject:name];
+		}
+	}
+	return names;
+}
+
 /* A relationship from one entity to another, for the far role. */
 - (ORMCDRelationship *)relationshipNamed:(NSString *)name
                                   source:(NSString *)source
@@ -746,8 +958,8 @@ ORMRegexEscape(NSString *value)
 	relationship.source = source;
 	relationship.destination = destination.name;
 	relationship.toMany = toMany;
-	relationship.optional = near == nil || !near.isMandatory;
-	if (toMany && near.isMandatory) {
+	relationship.optional = near == nil || ![self mandatoryHere:near];
+	if (toMany && [self mandatoryHere:near]) {
 		relationship.minCount = 1;
 	}
 	/* A frequency on the near role bounds how many. */
@@ -755,7 +967,7 @@ ORMRegexEscape(NSString *value)
 		if (constraint.kind == ORMFrequencyConstraint && [[constraint allRoles] count] == 1 && toMany) {
 			relationship.minCount = MAX(relationship.minCount, constraint.minFrequency);
 			relationship.maxCount = constraint.maxFrequency;
-			if (constraint.minFrequency > 0 && near.isMandatory == NO) {
+			if (constraint.minFrequency > 0 && ![self mandatoryHere:near]) {
 				[self note:ORMMappingWarning
 				      text:[NSString stringWithFormat:@"%@ holds at least %lu when it holds any; Core Data's "
 				                                      @"minimum applies only when it is not empty.",
@@ -768,6 +980,27 @@ ORMRegexEscape(NSString *value)
 }
 
 /* The names a property for the far role could take, best first. */
+/* The far role's player with the words a reading hyphen-binds to it
+ * ("first- {1}": "first StreetLine"); nil without such words. */
+- (NSString *)boundNameOf:(ORMRole *)far from:(ORMRole *)near
+{
+	ORMFactType *fact = far.factType;
+	ORMReadingOrder *order = [fact readingOrderStartingWithRole:near] ?: [[fact primaryReading] readingOrder];
+	ORMReading *reading = [order.readings firstObject];
+	if (reading.text == nil) {
+		return nil;
+	}
+	ORMReadingText *text = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
+	for (ORMReadingPart *part in text.parts) {
+		if (part.roleIndex < [order.roles count] && [order.roles objectAtIndex:part.roleIndex] == far
+		    && ([part.preBoundText length] > 0 || [part.postBoundText length] > 0)) {
+			return [NSString stringWithFormat:@"%@%@%@", part.preBoundText ?: @"", far.player.name ?: @"",
+			                                  part.postBoundText ?: @""];
+		}
+	}
+	return nil;
+}
+
 - (NSArray *)candidatesFor:(ORMRole *)far near:(ORMRole *)near toMany:(BOOL)toMany
 {
 	NSString *player = far.player.name ?: @"value";
@@ -776,6 +1009,11 @@ ORMRegexEscape(NSString *value)
 	NSMutableArray *candidates = [NSMutableArray array];
 	if ([far.name length] > 0) {
 		[candidates addObject:[ORMCoreDataMapper propertyNameFor:far.name]];
+	}
+	/* A name the reading binds to the player ("first StreetLine"). */
+	NSString *bound = [self boundNameOf:far from:near];
+	if (bound != nil) {
+		[candidates addObject:[ORMCoreDataMapper propertyNameFor:bound]];
 	}
 	/* The way back along a named role says which: an Account's work
 	 * orders as requestor and as assignee. */
@@ -810,6 +1048,22 @@ ORMDeletionRule(ORMRole *far)
 	}
 	ORMResolved a = [self resolved:first.player];
 	ORMResolved b = [self resolved:second.player];
+	/* A folded objectification is its player's entity. */
+	a = a == ORMResolvedFolded ? ORMResolvedEntity : a;
+	b = b == ORMResolvedFolded ? ORMResolvedEntity : b;
+	if ((a == ORMResolvedEntity && b == ORMResolvedComposite) || (a == ORMResolvedComposite && b == ORMResolvedEntity)) {
+		ORMRole *near = a == ORMResolvedEntity ? first : second;
+		ORMRole *far = near == first ? second : first;
+		ORMCDEntity *entity = [self entityOf:near.player];
+		NSString *prefix = [[self candidatesFor:far near:near toMany:NO] firstObject]
+			?: [ORMCoreDataMapper propertyNameFor:far.player.name ?: @"value"];
+		NSArray *names = [self absorb:far.player into:entity prefix:prefix source:far.identifier
+		                     optional:![self mandatoryHere:near]];
+		if (far.isUnique && [names count] > 0) {
+			[entity.uniquenessConstraints addObject:names];
+		}
+		return;
+	}
 	if (a == ORMResolvedEntity && b == ORMResolvedEntity) {
 		[self mapEntity:first toEntity:second];
 	} else if (a == ORMResolvedEntity && b == ORMResolvedValue) {
@@ -860,9 +1114,9 @@ ORMDeletionRule(ORMRole *far)
 	if (near.isUnique) {
 		NSString *name = [self claimName:[self candidatesFor:far near:near toMany:NO] source:far.identifier on:entity];
 		ORMCDAttribute *attribute = [self attributeFor:valueType name:name source:far.identifier
-		                                      optional:!near.isMandatory roleConstraint:far.valueConstraint];
+		                                      optional:![self mandatoryHere:near] roleConstraint:far.valueConstraint];
 		[entity.attributes addObject:attribute];
-		if (far.isUnique && !near.isMandatory) {
+		if (far.isUnique && ![self mandatoryHere:near]) {
 			/* One to one with an optional value: unique where present,
 			 * which a uniqueness constraint checks when it is set. */
 			[entity.uniquenessConstraints addObject:@[ name ]];
@@ -878,7 +1132,7 @@ ORMDeletionRule(ORMRole *far)
 		attribute.name = name;
 		attribute.source = far.identifier;
 		attribute.attributeType = @"Transformable";
-		attribute.optional = !near.isMandatory;
+		attribute.optional = ![self mandatoryHere:near];
 		attribute.extraAttributes = @{ @"valueTransformerName": @"NSSecureUnarchiveFromData", @"customClassName": @"NSArray" };
 		[entity.attributes addObject:attribute];
 		[self note:ORMMappingWarning
@@ -961,7 +1215,11 @@ ORMDeletionRule(ORMRole *far)
 		                                             : @[ candidate ];
 		NSString *name = [self claimName:candidates source:role.identifier on:entity];
 		[names setObject:name forKey:role.identifier];
-		if (resolved == ORMResolvedEntity) {
+		if (resolved == ORMResolvedComposite) {
+			/* An absorbed composite's values, each a column of this one. */
+			NSArray *parts = [self absorb:role.player into:entity prefix:name source:role.identifier optional:NO];
+			[names setObject:parts forKey:role.identifier];
+		} else if (resolved == ORMResolvedEntity || resolved == ORMResolvedFolded) {
 			ORMCDEntity *player = [self entityOf:role.player];
 			ORMCDRelationship *forward = [self relationshipNamed:name source:role.identifier to:player toMany:NO near:nil];
 			forward.optional = NO;
@@ -973,8 +1231,8 @@ ORMDeletionRule(ORMRole *far)
 			backward.source = [fact.identifier stringByAppendingFormat:@".%@", role.identifier];
 			backward.destination = entity.name;
 			backward.toMany = YES;
-			backward.optional = !role.isMandatory;
-			backward.minCount = role.isMandatory ? 1 : 0;
+			backward.optional = ![self mandatoryHere:role];
+			backward.minCount = [self mandatoryHere:role] ? 1 : 0;
 			/* The fact cannot hold without its players. */
 			backward.deletionRule = @"Cascade";
 			forward.inverseName = backwardName;
@@ -989,13 +1247,18 @@ ORMDeletionRule(ORMRole *far)
 	}
 	for (ORMConstraint *constraint in [fact uniquenessConstraints]) {
 		NSMutableArray *unique = [NSMutableArray array];
+		NSUInteger covered = 0;
 		for (ORMRole *role in [constraint allRoles]) {
-			NSString *name = [names objectForKey:role.identifier];
-			if (name != nil) {
+			id name = [names objectForKey:role.identifier];
+			if ([name isKindOfClass:[NSArray class]]) {
+				[unique addObjectsFromArray:name];
+				covered++;
+			} else if (name != nil) {
 				[unique addObject:name];
+				covered++;
 			}
 		}
-		if ([unique count] == [[constraint allRoles] count]) {
+		if (covered == [[constraint allRoles] count]) {
 			[entity.uniquenessConstraints addObject:unique];
 		}
 	}
@@ -1009,6 +1272,14 @@ ORMDeletionRule(ORMRole *far)
 	for (ORMRole *role in [fact visibleRoles]) {
 		ORMResolved resolved = [self resolved:role.player];
 		if (resolved == ORMResolvedOutOfScope || resolved == ORMResolvedIgnored) {
+			return NO;
+		}
+	}
+	/* A composite's identifying fact types are its values, made where it
+	 * is used. */
+	for (ORMRole *role in [fact visibleRoles]) {
+		if ([self resolved:role.player] == ORMResolvedComposite
+		    && [[self compositeIdentificationOf:role.player] containsObject:[role oppositeRole]]) {
 			return NO;
 		}
 	}
@@ -1029,7 +1300,8 @@ ORMDeletionRule(ORMRole *far)
 			continue;
 		}
 		NSUInteger arity = [fact arity];
-		if (fact.objectifyingType != nil || arity > 2) {
+		BOOL folded = fact.objectifyingType != nil && [self resolved:fact.objectifyingType] == ORMResolvedFolded;
+		if ((fact.objectifyingType != nil && !folded) || arity > 2) {
 			[self mapAsEntity:fact];
 		} else if (arity == 2) {
 			[self mapBinary:fact];
@@ -1126,6 +1398,15 @@ ORMDeletionRule(ORMRole *far)
 	return [[constraint allRoles] count] > 0;
 }
 
+/* Whether the uniqueness is the identification of an absorbed
+ * composite: its identity, gone with it. */
+- (BOOL)identifiesComposite:(ORMConstraint *)constraint
+{
+	ORMObjectType *joined = [[[constraint allRoles] firstObject] oppositeRole].player;
+	return [self resolved:joined] == ORMResolvedComposite
+		&& [[self compositeIdentificationOf:joined] isEqualToArray:[constraint allRoles]];
+}
+
 - (void)mapConstraints
 {
 	for (ORMConstraint *constraint in self.model.constraints) {
@@ -1138,7 +1419,7 @@ ORMDeletionRule(ORMRole *far)
 		}
 		switch (constraint.kind) {
 		case ORMUniquenessConstraint:
-			if (!constraint.isInternal) {
+			if (!constraint.isInternal && ![self identifiesComposite:constraint]) {
 				[self mapExternalUniqueness:constraint];
 			}
 			break;
@@ -1226,6 +1507,7 @@ ORMDeletionRule(ORMRole *far)
 	_out = [ORMCDModel model];
 	_notes = [NSMutableArray array];
 	_resolved = [NSMutableDictionary dictionary];
+	_folds = [NSMutableDictionary dictionary];
 	_entityOf = [NSMutableDictionary dictionary];
 	_valueEntities = [NSMutableDictionary dictionary];
 	_names = [NSMutableDictionary dictionary];

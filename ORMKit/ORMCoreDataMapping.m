@@ -13,6 +13,7 @@
 @property (nonatomic, readwrite) BOOL materializesIdentifiers;
 @property (nonatomic, readwrite) BOOL flattensSubtypes;
 @property (nonatomic, readwrite) BOOL absorbsIdentifierTypes;
+@property (nonatomic, readwrite) ORMMappingStyle style;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<NSString *> *> *transformables;
 @property (nonatomic, readwrite) BOOL valueSetsAsEntities;
 @property (nonatomic, readwrite, copy) NSString *codeGenerationType;
@@ -65,8 +66,12 @@ ORMObjectTypeMappingNames(void)
 	}
 	mapping.scopeIds = scopeIds;
 	mapping.materializesIdentifiers = ORMBoolAttribute(element, @"MaterializeIdentifiers", YES);
-	mapping.flattensSubtypes = ORMBoolAttribute(element, @"FlattenSubtypes", NO);
-	mapping.absorbsIdentifierTypes = ORMBoolAttribute(element, @"AbsorbIdentifierTypes", NO);
+	NSString *style = ORMAttribute(element, @"Style");
+	mapping.style = [style isEqualToString:@"Relational"] ? ORMStyleRelational
+		: [style isEqualToString:@"Entities"] ? ORMStyleEntities : ORMStyleApplication;
+	BOOL relational = mapping.style == ORMStyleRelational;
+	mapping.flattensSubtypes = ORMBoolAttribute(element, @"FlattenSubtypes", relational);
+	mapping.absorbsIdentifierTypes = ORMBoolAttribute(element, @"AbsorbIdentifierTypes", relational);
 	mapping.valueSetsAsEntities = ORMBoolAttribute(element, @"ValueSetsAsEntities", YES);
 	NSString *codegen = ORMAttribute(element, @"Codegen");
 	mapping.codeGenerationType = codegen == nil ? @"class" : ([codegen isEqualToString:@"Manual"] ? nil : codegen);
@@ -135,6 +140,11 @@ ORMObjectTypeMappingNames(void)
 		}
 	}
 	return nil;
+}
+
+- (BOOL)absorbsValueLikeTypes
+{
+	return self.style != ORMStyleEntities;
 }
 
 - (ORMObjectTypeMapping)mappingOfObjectType:(NSString *)objectTypeId

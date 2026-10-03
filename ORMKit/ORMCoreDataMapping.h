@@ -22,6 +22,24 @@ typedef NS_ENUM(NSInteger, ORMObjectTypeMapping) {
 	ORMMapTransformable,
 };
 
+/* What the Core Data model is for, which sets how the conceptual model
+ * becomes a logical one where there is more than one good way; the
+ * options and each object type's own mapping still decide over it. */
+typedef NS_ENUM(NSInteger, ORMMappingStyle) {
+	/* An application's store: what is no more than values (an Address,
+	 * a Row, one with a generated id and an alternate key too) absorbed
+	 * into what uses it, objectifications one to one with a player
+	 * folded into it, everything with an identity of its own an entity. */
+	ORMStyleApplication,
+	/* Rmap's grouping, as ActiveFacts makes tables: subtypes flattened,
+	 * identifier-only types absorbed, a type with a composite reference
+	 * scheme absorbed where one fact type refers to it. */
+	ORMStyleRelational,
+	/* Every entity type an entity, nothing absorbed but values: for
+	 * reports and analysis over things in their own right. */
+	ORMStyleEntities,
+};
+
 typedef NS_ENUM(NSInteger, ORMMappingScope) {
 	ORMScopeModel,
 	/* The object types a diagram shows. */
@@ -36,17 +54,23 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 /* The .xcdatamodeld, relative to the .orm file (or absolute). */
 @property (nonatomic, readonly, copy) NSString *path;
 @property (nonatomic, readonly) ORMMappingScope scope;
+@property (nonatomic, readonly) ORMMappingStyle style;
 /* The diagram, or the object types, the scope names. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *scopeIds;
 
 /* Reference modes as attributes (id, code), in uniqueness constraints. */
 @property (nonatomic, readonly) BOOL materializesIdentifiers;
-/* Subtypes' properties in their supertype's entity, not entities of their own. */
+/* Subtypes' properties in their supertype's entity, not entities of their
+ * own. The style's unless set. */
 @property (nonatomic, readonly) BOOL flattensSubtypes;
 /* Rmap's grouping: an entity type with nothing but its identifier (no
  * fact type functional on it, no subtyping, not independent) is absorbed
  * as attributes wherever it is used, as Rmap leaves it out of the tables. */
 @property (nonatomic, readonly) BOOL absorbsIdentifierTypes;
+/* Value-like entity types absorbed into what uses them, and
+ * objectifications one to one with a player folded into it: not in the
+ * Entities style. */
+@property (nonatomic, readonly) BOOL absorbsValueLikeTypes;
 /* Many-to-many fact types with value types as an entity for the value
  * (YES), or as a transformable attribute holding an array (NO). */
 @property (nonatomic, readonly) BOOL valueSetsAsEntities;

@@ -16,6 +16,8 @@
 - (void)setFlattensSubtypes:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setValueSetsAsEntities:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setAbsorbsIdentifierTypes:(BOOL)flag ofMapping:(NSString *)mappingId;
+/* The style; its defaults replace the options set before. */
+- (void)setStyle:(ORMMappingStyle)style ofMapping:(NSString *)mappingId;
 /* The value type maps as a Transformable attribute of the class (NSString
  * when nil), stored by the value transformer (NSSecureUnarchiveFromData
  * when nil). */

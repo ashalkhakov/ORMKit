@@ -31,6 +31,7 @@ ORMActionTitles(void)
 	NSButton *_flatten;
 	NSButton *_valueSets;
 	NSButton *_absorbIdentifiers;
+	NSPopUpButton *_style;
 	NSTextField *_transformableClass;
 	NSPopUpButton *_codegen;
 	NSTextField *_status;
@@ -140,13 +141,23 @@ ORMActionTitles(void)
 	[content addSubview:sync];
 
 	[content addSubview:[self label:@"Model:" frame:NSMakeRect(12, top - 62, 60, 18)]];
-	_path = [[NSTextField alloc] initWithFrame:NSMakeRect(74, top - 64, width - 200, 22)];
+	_path = [[NSTextField alloc] initWithFrame:NSMakeRect(74, top - 64, width - 420, 22)];
 	[_path setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
 	[[_path cell] setSendsActionOnEndEditing:YES];
 	[_path setTarget:self];
 	[_path setAction:@selector(pathChanged:)];
 	[_path setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
 	[content addSubview:_path];
+	/* What the store is for: the style's defaults for what is absorbed. */
+	NSTextField *styleLabel = [self label:@"Style:" frame:NSMakeRect(width - 336, top - 62, 40, 18)];
+	[styleLabel setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
+	[content addSubview:styleLabel];
+	_style = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(width - 294, top - 65, 166, 24) pullsDown:NO];
+	[_style addItemsWithTitles:@[ @"Application", @"Relational (Rmap)", @"Entities (reporting)" ]];
+	[_style setTarget:self];
+	[_style setAction:@selector(styleChanged:)];
+	[_style setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
+	[content addSubview:_style];
 	NSButton *choose = [self button:@"Choose…" action:@selector(choosePath:) frame:NSMakeRect(width - 120, top - 64, 108, 24)];
 	[choose setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
 	[content addSubview:choose];
@@ -275,7 +286,7 @@ ORMActionTitles(void)
 	}
 	ORMCoreDataMapping *mapping = [self mapping];
 	BOOL enabled = mapping != nil;
-	for (NSControl *control in @[ _path, _identifiers, _flatten, _valueSets, _absorbIdentifiers ]) {
+	for (NSControl *control in @[ _path, _identifiers, _flatten, _valueSets, _absorbIdentifiers, _style ]) {
 		[control setEnabled:enabled];
 	}
 	[_path setStringValue:mapping.path ?: @""];
@@ -283,6 +294,7 @@ ORMActionTitles(void)
 	[_flatten setState:mapping.flattensSubtypes ? NSControlStateValueOn : NSControlStateValueOff];
 	[_valueSets setState:mapping == nil || mapping.valueSetsAsEntities ? NSControlStateValueOn : NSControlStateValueOff];
 	[_absorbIdentifiers setState:mapping.absorbsIdentifierTypes ? NSControlStateValueOn : NSControlStateValueOff];
+	[_style selectItemAtIndex:mapping != nil ? mapping.style : ORMStyleApplication];
 	[self remap];
 }
 
@@ -412,6 +424,15 @@ ORMActionTitles(void)
 	}
 	[self.editor setPath:[self pathRelativeToDocument:[[panel URL] path]] ofMapping:self.mappingId reason:NULL];
 	[self modelDidChange];
+}
+
+- (void)styleChanged:(id)sender
+{
+	(void)sender;
+	if (self.mappingId == nil) {
+		return;
+	}
+	[self.editor setStyle:(ORMMappingStyle)[_style indexOfSelectedItem] ofMapping:self.mappingId];
 }
 
 - (void)optionChanged:(id)sender
