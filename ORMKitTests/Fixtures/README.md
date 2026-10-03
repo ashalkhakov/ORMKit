@@ -5,6 +5,14 @@
   writes: the tests require them to round-trip byte for byte and to
   normalize to themselves, and check ORMKit's derived data against NORMA's.
   `StockMate.CoRef.orm` has no `ORM2` root wrapper and no diagrams.
+- `ActiveFacts/*.orm`: Clifford Heath's examples
+  (<https://github.com/cjheath/activefacts-examples>, commit 49b397c, MIT
+  licensed: `ActiveFacts/LICENSE.txt`), written by NORMA builds of 2008 to
+  2015. Authoritative like StockMate, for the NORMA that wrote them: the
+  tests require each to round-trip byte for byte, to normalize to itself,
+  to agree with ORMKit's derived data, and to map to a Core Data model
+  `momc` accepts. Objectification, subtyping several ways, rings, join
+  paths, a derivation rule, sample populations, a 187-fact-type metamodel.
 - `PreventiveMaintenance.orm`: written by another tool in NORMA's format (no
   byte-order mark, no indentation). Readable, but not authoritative about
   NORMA's derived data; the tests map it to Core Data and verbalize it.

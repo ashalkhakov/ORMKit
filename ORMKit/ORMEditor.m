@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMEditorPriv.h"
+#import "ORMPath.h"
 #import "ORMReadingText.h"
 
 /* NORMA's role box: 0.16 by 0.11 inches, with 0.032 a side around them
@@ -65,12 +66,33 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	return [[NSXMLDocument alloc] initWithXMLString:text options:0 error:&error];
 }
 
+/* Whether the file is of the NORMA versions that write each reading's
+ * <orm:ExpandedData>: one that has readings and none of it is older, and
+ * stays as it is; one with none yet is written as NORMA writes now. */
+static BOOL
+ORMWritesExpandedData(ORMModel *model)
+{
+	BOOL readings = NO;
+	for (ORMFactType *fact in model.factTypes) {
+		for (ORMReadingOrder *order in fact.readingOrders) {
+			for (ORMReading *reading in order.readings) {
+				if (ORMChild(reading.element, CORE, @"ExpandedData") != nil) {
+					return YES;
+				}
+				readings = YES;
+			}
+		}
+	}
+	return !readings;
+}
+
 - (instancetype)initWithDocument:(NSXMLDocument *)document undoManager:(NSUndoManager *)undoManager
 {
 	if ((self = [super init])) {
 		_document = document;
 		_undoManager = undoManager;
 		_model = [ORMModel modelOfDocument:document reason:NULL];
+		_writesExpandedData = ORMWritesExpandedData(_model);
 	}
 	return self;
 }
@@ -330,6 +352,7 @@ ORMMultiplicityName(ORMMultiplicity multiplicity)
 	case ORMMultiplicityZeroToMany: return @"ZeroToMany";
 	case ORMMultiplicityExactlyOne: return @"ExactlyOne";
 	case ORMMultiplicityOneToMany: return @"OneToMany";
+	case ORMMultiplicityIndeterminate: return @"Indeterminate";
 	case ORMMultiplicityUnspecified: break;
 	}
 	return @"Unspecified";
@@ -397,7 +420,16 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 	for (ORMObjectType *type in model.objectTypes) {
 		NSMutableArray *played = [NSMutableArray array];
 		for (ORMRole *role in type.playedRoles) {
-			[played addObject:@[ @"Role", role.identifier ]];
+			/* A link fact type's proxy is played through the role it
+			 * stands for, and NORMA does not list it. */
+			if (role.proxiedRole != nil) {
+				continue;
+			}
+			/* Older NORMA refers to a subtype fact's roles by their own
+			 * element names, SubtypeMetaRole and SupertypeMetaRole. */
+			NSString *local = [role.element localName];
+			BOOL meta = [local isEqualToString:@"SubtypeMetaRole"] || [local isEqualToString:@"SupertypeMetaRole"];
+			[played addObject:@[ meta ? local : @"Role", role.identifier ]];
 		}
 		NSXMLElement *container = ORMChild(type.element, CORE, @"PlayedRoles");
 		if ([played count] > 0 || container != nil) {
@@ -425,7 +457,10 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 				}
 			}
 			NSString *name = [[fact primaryReading] expandedText];
+			/* Older NORMA spelled "is high-demand" "is high demand". */
+			NSString *older = [name stringByReplacingOccurrencesOfString:@"-" withString:@" "];
 			if (implicit != nil && [name length] > 0 && ![implicit.name isEqualToString:name]
+			    && ![implicit.name isEqualToString:older]
 			    && [model objectTypeNamed:name] == nil) {
 				ORMSetAttribute(implicit.element, @"Name", name);
 			}
@@ -451,7 +486,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 			ORMSyncRefs(_document, container, internal);
 			ORMPruneIfEmpty(container);
 		}
-		for (ORMReadingOrder *order in fact.readingOrders) {
+		for (ORMReadingOrder *order in _writesExpandedData ? fact.readingOrders : @[]) {
 			for (ORMReading *reading in order.readings) {
 				NSXMLElement *expanded = ORMExpandedData(_document, reading.text, [order.roles count]);
 				NSXMLElement *existing = ORMChild(reading.element, CORE, @"ExpandedData");
@@ -520,10 +555,14 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 }
 
 /* NORMA's implied disjunctive mandatory constraints: every instance of
- * an object type that is not independent plays some role, so one that
- * plays no mandatory role outside its own identification has an implied
- * inclusive-or over those roles. Kept as NORMA keeps them, one per object
- * type, pointing at it with ImpliedByObjectType. */
+ * an object type that is not independent plays some role. Roles opposite
+ * its preferred identifier's roles (a link fact type's proxy stands for
+ * the objectified role) and roles of fully derived fact types say nothing
+ * of that. An object type that has a mandatory role (alone or in an
+ * inclusive-or) among the others needs nothing more; one that has none
+ * has an implied inclusive-or over them, its subtypes' roles too. Kept
+ * as NORMA keeps them, one per object type, pointing at it with
+ * ImpliedByObjectType. */
 - (void)normalizeImpliedMandatories:(ORMModel *)model
 {
 	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
@@ -538,15 +577,25 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 		}
 	}
 	for (ORMObjectType *type in model.objectTypes) {
-		NSSet *identifying = [NSSet setWithArray:type.preferredIdentifier.factTypes ?: @[]];
+		NSArray *identifierRoles = [type.preferredIdentifier allRoles] ?: @[];
 		NSMutableArray *roles = [NSMutableArray array];
 		BOOL mandatory = NO;
 		for (ORMRole *role in type.playedRoles) {
-			if (role.isSupertypeMetaRole || [identifying containsObject:role.factType]) {
+			if (role.proxiedRole != nil) {
 				continue;
 			}
-			if (role.isMandatory || role.isSubtypeMetaRole) {
-				mandatory = YES;
+			ORMRole *opposite = [role oppositeRole];
+			ORMRole *identifying = opposite.proxiedRole ?: opposite;
+			ORMDerivationRule *derivation = [role.factType derivationRule];
+			if ((identifying != nil && [identifierRoles containsObject:identifying])
+			    || (derivation != nil && !derivation.isPartial)) {
+				continue;
+			}
+			for (ORMConstraint *constraint in role.constraints) {
+				if (constraint.kind == ORMMandatoryConstraint && !constraint.isImplied
+				    && constraint.modality == ORMAlethic) {
+					mandatory = YES;
+				}
 			}
 			[roles addObject:role.identifier];
 		}

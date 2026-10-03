@@ -161,6 +161,8 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 	ORMMultiplicityZeroToMany,
 	ORMMultiplicityExactlyOne,
 	ORMMultiplicityOneToMany,
+	/* More than one uniqueness constraint on the other role. */
+	ORMMultiplicityIndeterminate,
 };
 
 @interface ORMRole : ORMElement

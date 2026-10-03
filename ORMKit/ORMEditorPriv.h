@@ -36,6 +36,10 @@
 /* A new constraint element of the kind named, in Constraints. */
 - (NSXMLElement *)newConstraint:(NSString *)local named:(NSString *)prefix;
 
+/* Whether readings get NORMA's <orm:ExpandedData>: as the file had it
+ * when opened (older NORMA did not write it). */
+@property (nonatomic, readonly) BOOL writesExpandedData;
+
 /* Keeps up NORMA's denormalized data from the model as it now is. */
 - (void)normalize;
 

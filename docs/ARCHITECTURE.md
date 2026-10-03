@@ -140,10 +140,27 @@ were not opened in NORMA itself:
    a changed model.
 2. NORMA tolerates the `ormcd:CoreDataMappings` element at the root; if it
    does not, **Save a Copy for NORMA** writes the file without it.
-3. The link fact types ORMKit writes for an objectification
-   (`ImpliedFact`, `RoleProxy`, `ImpliedByObjectification`).
-4. The child naming a custom reference mode's kind (`orm:Kind`), and the
-   `FrontText` and `PostBoundText` attributes of a reading's `ExpandedData`.
+
+Settled by NORMA's own files: the 29 ActiveFacts examples (NORMA builds of
+2008 to 2015) and StockMate (a recent one) all round-trip byte for byte and
+normalize to themselves. They show the link fact types of an
+objectification (`ImpliedFact`, `RoleProxy`), custom reference mode kinds
+(`orm:Kind`), `PostBoundText` and `FrontText`, and what changed between
+NORMA versions, which ORMKit keeps as each file has it:
+
+- reference mode value types named by the model's `ReferenceModeKind`
+  format strings (`{0}_{1}` now, `{0} {1}` before: "Person Name");
+- `ExpandedData` on readings only in files that have it;
+- subtype fact roles as `SubtypeMetaRole`/`SupertypeMetaRole`, named so in
+  `PlayedRoles` too, and subtype facts named "XIsASubtypeOfY";
+- fact type names with the players capitalized ("EventDateHasYmd").
+
+Implied mandatory constraints and `_Multiplicity` follow NORMA's own rules
+(`ObjectType.ValidateIsIndependent`, `Role.GetMultiplicityValue`, read in
+NORMA's source as reference): roles opposite the preferred identifier
+(through a link fact type's proxy) and of fully derived fact types say
+nothing; any other alethic mandatory constraint, inclusive-or too, rules
+the implied one out.
 
 ### GNUstep
 

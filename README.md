@@ -85,3 +85,9 @@ ormtool verbalize [--html] model.orm
 ormtool normalize model.orm out.orm
 ormtool coredata model.orm Out.xcdatamodeld [mapping name]
 ```
+
+## License
+
+LGPL 2.1 (`LICENSE`). The test fixtures in `ORMKitTests/Fixtures/ActiveFacts`
+are Clifford Heath's ActiveFacts examples, under the MIT license
+(`ORMKitTests/Fixtures/ActiveFacts/LICENSE.txt`).

@@ -38,6 +38,10 @@ mapping's treatment of identity and of many-to-many fact types.
 | Text data type length | `maxValueString` (Core Data's string bounds are lengths) |
 | Ring, exclusion, subset, equality, value comparison, frequency over several roles, deontic rules | not expressible: kept on the entity as `userInfo` entries holding their FORML verbalization, and listed in the mapping's report as unenforced |
 
+Not yet: a value type that plays a role of its own beyond being a value
+(ActiveFacts' SimplestUnary: "Some String is long") maps to nothing; Rmap
+gives it a table keyed by its value, and Core Data would want an entity.
+
 Data types:
 
 | NORMA | Core Data |

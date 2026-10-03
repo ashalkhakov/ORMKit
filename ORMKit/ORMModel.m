@@ -177,9 +177,28 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
  * "ProductHasProductId"). */
 - (NSString *)derivedName
 {
+	/* Older NORMA capitalized the object type names too: "EventDateHasYmd". */
+	NSString *older = [self derivedNameCapitalizingPlayers:YES];
+	if (older != nil && [ORMAttribute(self.element, @"_Name") isEqualToString:older]) {
+		return older;
+	}
+	return [self derivedNameCapitalizingPlayers:NO];
+}
+
+- (NSString *)derivedNameCapitalizingPlayers:(BOOL)capitalize
+{
+	/* An objectified fact type goes by its objectifying type's name. */
+	if (self.objectifyingType.name != nil) {
+		return self.objectifyingType.name;
+	}
 	if (self.kind == ORMFactTypeSubtype) {
 		ORMObjectType *sub = [[self.roles firstObject] player];
 		ORMObjectType *sup = [[self.roles lastObject] player];
+		/* Older NORMA wrote "GirlIsASubtypeOfPerson". */
+		NSString *older = [NSString stringWithFormat:@"%@IsASubtypeOf%@", sub.name ?: @"", sup.name ?: @""];
+		if ([ORMAttribute(self.element, @"_Name") isEqualToString:older]) {
+			return older;
+		}
 		return [NSString stringWithFormat:@"%@IsSubtypeOf%@", sub.name ?: @"", sup.name ?: @""];
 	}
 	ORMReading *reading = [self primaryReading];
@@ -209,8 +228,11 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 			if ([scanner scanInteger:&index] && [scanner scanString:@"}" intoString:NULL] && index >= 0
 			    && (NSUInteger)index < [roles count]) {
 				NSString *player = [[[roles objectAtIndex:index] player] name] ?: @"";
-				[name appendString:[[player componentsSeparatedByCharactersInSet:separators]
-				                       componentsJoinedByString:@""]];
+				player = [[player componentsSeparatedByCharactersInSet:separators] componentsJoinedByString:@""];
+				if (capitalize && [player length] > 0) {
+					player = [[[player substringToIndex:1] uppercaseString] stringByAppendingString:[player substringFromIndex:1]];
+				}
+				[name appendString:player];
 			}
 		}
 	}
@@ -232,16 +254,43 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 
 - (ORMMultiplicity)multiplicity
 {
+	/* As NORMA reckons it: from the alethic constraints on the other role
+	 * of a binary (for a link fact type's proxy, the role it stands for). */
 	ORMRole *opposite = [self oppositeRole];
+	opposite = opposite.proxiedRole ?: opposite;
 	if (opposite == nil || [self.factType isUnary]) {
 		return ORMMultiplicityUnspecified;
 	}
-	BOOL one = opposite.isUnique;
-	BOOL mandatory = opposite.isMandatory;
-	if (one) {
-		return mandatory ? ORMMultiplicityExactlyOne : ORMMultiplicityZeroToOne;
+	BOOL mandatory = NO;
+	NSUInteger uniqueness = 0;
+	BOOL wide = NO;
+	for (ORMConstraint *constraint in opposite.constraints) {
+		if (constraint.modality != ORMAlethic) {
+			continue;
+		}
+		if (constraint.kind == ORMMandatoryConstraint && constraint.isSimple) {
+			mandatory = YES;
+		} else if (constraint.kind == ORMUniquenessConstraint && constraint.isInternal) {
+			uniqueness++;
+			wide = wide || [[constraint allRoles] count] == 2;
+		}
 	}
-	return mandatory ? ORMMultiplicityOneToMany : ORMMultiplicityZeroToMany;
+	if (uniqueness > 1) {
+		return ORMMultiplicityIndeterminate;
+	}
+	if (uniqueness == 0) {
+		/* Nothing said of the other role: many, if this one is unique. */
+		for (ORMConstraint *constraint in self.constraints) {
+			if (constraint.kind == ORMUniquenessConstraint && constraint.isInternal && constraint.modality == ORMAlethic) {
+				return mandatory ? ORMMultiplicityOneToMany : ORMMultiplicityZeroToMany;
+			}
+		}
+		return ORMMultiplicityUnspecified;
+	}
+	if (wide) {
+		return mandatory ? ORMMultiplicityOneToMany : ORMMultiplicityZeroToMany;
+	}
+	return mandatory ? ORMMultiplicityExactlyOne : ORMMultiplicityZeroToOne;
 }
 
 @end
@@ -1063,14 +1112,49 @@ ORMUnitReferenceModes(void)
 	}
 }
 
+/* The reference mode a value type's name gives under a kind's format,
+ * "{0}" the entity type's name and "{1}" the mode; nil when it does not
+ * fit or gives nothing. */
+static NSString *
+ORMReferenceModeIn(NSString *valueName, NSString *format, NSString *entityName)
+{
+	NSString *pattern = [format stringByReplacingOccurrencesOfString:@"{0}" withString:entityName ?: @""];
+	NSRange mode = [pattern rangeOfString:@"{1}"];
+	if (mode.location == NSNotFound) {
+		return nil;
+	}
+	NSString *prefix = [pattern substringToIndex:mode.location];
+	NSString *suffix = [pattern substringFromIndex:NSMaxRange(mode)];
+	/* hasPrefix: and hasSuffix: say NO to an empty string on Apple. */
+	if ([valueName length] <= [prefix length] + [suffix length]
+	    || ([prefix length] > 0 && ![valueName hasPrefix:prefix])
+	    || ([suffix length] > 0 && ![valueName hasSuffix:suffix])) {
+		return nil;
+	}
+	return [valueName substringWithRange:NSMakeRange([prefix length],
+	                                                 [valueName length] - [prefix length] - [suffix length])];
+}
+
 /* NORMA's reference modes, from the preferred identifiers: an entity
  * type identified by one role of a binary fact type it plays the other
  * role of, where the identifying role's player is a value type named as
  * a reference mode names it. */
 - (void)deriveReferenceModes
 {
+	/* How each kind names its value type: "{0}_{1}" (Person_id) in files
+	 * NORMA writes now, "{0} {1}" (Person Name) in older ones. */
+	NSMutableDictionary *formats = [@{ @"Popular": @"{0}_{1}", @"UnitBased": @"{1}Value", @"General": @"{1}" } mutableCopy];
+	for (NSXMLElement *kind in ORMGrandchildren(_modelElement, CORE, @"ReferenceModeKinds", CORE, @"ReferenceModeKind")) {
+		NSString *type = ORMAttribute(kind, @"ReferenceModeType");
+		NSString *format = ORMAttribute(kind, @"FormatString");
+		if (type != nil && [format rangeOfString:@"{1}"].location != NSNotFound) {
+			[formats setObject:format forKey:type];
+		}
+	}
 	NSMutableSet *customUnits = [NSMutableSet setWithArray:ORMUnitReferenceModes()];
 	NSMutableSet *customGeneral = [NSMutableSet set];
+	/* NORMA's own popular modes, and the model's: compared ignoring case. */
+	NSMutableSet *popularModes = [NSMutableSet setWithArray:@[ @"id", @"name", @"code", @"title", @"nr", @"#" ]];
 	for (NSXMLElement *custom in ORMGrandchildren(_modelElement, CORE, @"CustomReferenceModes", CORE,
 	                                              @"CustomReferenceMode")) {
 		NSString *name = ORMAttribute(custom, @"Name");
@@ -1081,6 +1165,8 @@ ORMUnitReferenceModes(void)
 			[customUnits addObject:name];
 		} else if ([type isEqualToString:@"General"]) {
 			[customGeneral addObject:name];
+		} else if ([type isEqualToString:@"Popular"] && name != nil) {
+			[popularModes addObject:[name lowercaseString]];
 		}
 	}
 	for (ORMObjectType *type in self.objectTypes) {
@@ -1095,20 +1181,28 @@ ORMUnitReferenceModes(void)
 			continue;
 		}
 		NSString *saved = ORMAttribute(type.element, @"_ReferenceMode");
-		NSString *popularPrefix = [type.name stringByAppendingString:@"_"];
+		/* The name read each way; what NORMA saved settles which, and
+		 * else the modes the model knows of. */
 		NSString *mode = nil;
 		ORMReferenceModeKind kind = ORMReferenceModeNone;
-		if ([value.name hasPrefix:popularPrefix] && [value.name length] > [popularPrefix length]) {
-			mode = [value.name substringFromIndex:[popularPrefix length]];
+		NSString *popular = ORMReferenceModeIn(value.name, [formats objectForKey:@"Popular"], type.name);
+		NSString *unit = ORMReferenceModeIn(value.name, [formats objectForKey:@"UnitBased"], type.name);
+		if (popular != nil && [saved isEqualToString:popular]) {
+			mode = popular;
 			kind = ORMReferenceModePopular;
-		} else if ([value.name hasSuffix:@"Value"] && [value.name length] > 5) {
-			NSString *unit = [value.name substringToIndex:[value.name length] - 5];
-			if ([customUnits containsObject:unit] || [saved isEqualToString:unit]) {
-				mode = unit;
-				kind = ORMReferenceModeUnitBased;
-			}
-		}
-		if (mode == nil && ([customGeneral containsObject:value.name] || [saved isEqualToString:value.name])) {
+		} else if (unit != nil && [saved isEqualToString:unit]) {
+			mode = unit;
+			kind = ORMReferenceModeUnitBased;
+		} else if ([saved isEqualToString:value.name]) {
+			mode = value.name;
+			kind = ORMReferenceModeGeneral;
+		} else if (popular != nil && [popularModes containsObject:[popular lowercaseString]]) {
+			mode = popular;
+			kind = ORMReferenceModePopular;
+		} else if (unit != nil && [customUnits containsObject:unit]) {
+			mode = unit;
+			kind = ORMReferenceModeUnitBased;
+		} else if ([customGeneral containsObject:value.name]) {
 			mode = value.name;
 			kind = ORMReferenceModeGeneral;
 		}

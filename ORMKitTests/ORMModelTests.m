@@ -10,7 +10,7 @@
 static NSString *
 ORMMultiplicityText(ORMMultiplicity multiplicity)
 {
-	return @[ @"Unspecified", @"ZeroToOne", @"ZeroToMany", @"ExactlyOne", @"OneToMany" ][multiplicity];
+	return @[ @"Unspecified", @"ZeroToOne", @"ZeroToMany", @"ExactlyOne", @"OneToMany", @"Indeterminate" ][multiplicity];
 }
 
 @implementation ORMModelTests
@@ -43,7 +43,7 @@ ORMMultiplicityText(ORMMultiplicity multiplicity)
 
 - (void)testMandatoryAndMultiplicityAgreeWithNorma
 {
-	for (NSString *name in ORMNormaFixtures) {
+	for (NSString *name in [self normaFixtures]) {
 		ORMModel *model = [self model:name];
 		NSUInteger checked = 0;
 		for (ORMFactType *fact in model.factTypes) {
@@ -51,35 +51,40 @@ ORMMultiplicityText(ORMMultiplicity multiplicity)
 				NSString *mandatory = ORMAttribute(role.element, @"_IsMandatory");
 				NSString *multiplicity = ORMAttribute(role.element, @"_Multiplicity");
 				if (mandatory != nil) {
-					XCTAssertEqual([mandatory isEqualToString:@"true"], role.isMandatory, @"%@ role %lu", fact.name,
-					               (unsigned long)role.index);
+					XCTAssertEqual([mandatory isEqualToString:@"true"], role.isMandatory, @"%@: %@ role %lu", name,
+					               fact.name, (unsigned long)role.index);
 					checked++;
 				}
 				if (multiplicity != nil) {
-					XCTAssertEqualObjects(ORMMultiplicityText([role multiplicity]), multiplicity, @"%@ role %lu",
-					                      fact.name, (unsigned long)role.index);
+					XCTAssertEqualObjects(ORMMultiplicityText([role multiplicity]), multiplicity, @"%@: %@ role %lu",
+					                      name, fact.name, (unsigned long)role.index);
 				}
 			}
 		}
-		XCTAssertTrue(checked > 100);
+		XCTAssertTrue(checked > 0, @"%@", name);
 	}
 }
 
 - (void)testReferenceModesAndNamesAgreeWithNorma
 {
+	for (NSString *name in [self normaFixtures]) {
+		ORMModel *each = [self model:name];
+		for (ORMObjectType *type in each.objectTypes) {
+			NSString *saved = ORMAttribute(type.element, @"_ReferenceMode");
+			if (saved != nil) {
+				XCTAssertEqualObjects(type.referenceMode ?: @"", saved, @"%@: %@", name, type.name);
+			}
+		}
+		for (ORMFactType *fact in each.factTypes) {
+			NSString *saved = ORMAttribute(fact.element, @"_Name");
+			if (saved != nil) {
+				XCTAssertEqualObjects([fact derivedName], saved, @"%@", name);
+			}
+		}
+	}
 	ORMModel *model = [self model:@"StockMate.orm"];
-	for (ORMObjectType *type in model.objectTypes) {
-		NSString *saved = ORMAttribute(type.element, @"_ReferenceMode");
-		if ([saved length] > 0) {
-			XCTAssertEqualObjects(type.referenceMode, saved, @"%@", type.name);
-		}
-	}
-	for (ORMFactType *fact in model.factTypes) {
-		NSString *saved = ORMAttribute(fact.element, @"_Name");
-		if (saved != nil) {
-			XCTAssertEqualObjects([fact derivedName], saved);
-		}
-	}
+	/* Older NORMA named reference mode value types "Person Name". */
+	XCTAssertEqualObjects([[[self model:@"ActiveFacts/Death.orm"] objectTypeNamed:@"Person"] displayName], @"Person(.Name)");
 	XCTAssertEqualObjects([[model objectTypeNamed:@"Product"] displayName], @"Product(.Id)");
 	XCTAssertEqualObjects([[model objectTypeNamed:@"Weight"] displayName], @"Weight(kg:)");
 }

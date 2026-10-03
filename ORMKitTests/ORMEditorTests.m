@@ -35,13 +35,30 @@
  * an untouched file normalizes to itself, implied constraints and all. */
 - (void)testNormalizingANormaModelChangesNothing
 {
-	for (NSString *name in ORMNormaFixtures) {
+	for (NSString *name in [self normaFixtures]) {
 		NSData *data = [self fixtureData:name];
 		ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
 		[editor group:@"Nothing" with:^{
 		}];
 		XCTAssertEqualObjects(ORMDataOfDocument(editor.document), data, @"%@", name);
 	}
+}
+
+/* A file from an older NORMA keeps its own ways when edited: "Person
+ * Name" rather than "Person_Name", no ExpandedData. */
+- (void)testAnOlderNormaFileIsEditedInItsOwnStyle
+{
+	NSData *data = [self fixtureData:@"ActiveFacts/Death.orm"];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
+	NSString *person = [[editor.model objectTypeNamed:@"Person"] identifier];
+	XCTAssertTrue([editor rename:person to:@"Human" reason:NULL]);
+	XCTAssertNotNil([editor.model objectTypeNamed:@"Human Name"]);
+	XCTAssertEqualObjects([[editor.model objectTypeNamed:@"Human"] referenceMode], @"Name");
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *added = [editor addFactTypeWithPlayers:@[ person ] reading:@"{0} is famous" onDiagram:diagram
+	                                              at:ORMAutomaticPlacement reason:NULL];
+	ORMReading *reading = [[editor.model elementWithId:added] primaryReading];
+	XCTAssertNil(ORMChild(reading.element, ORMCoreNamespace, @"ExpandedData"));
 }
 
 /* What ORMKit wrote reads back and normalizes to itself too. */

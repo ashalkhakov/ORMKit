@@ -17,8 +17,11 @@
  * event: each operation is its own step. */
 - (ORMEditor *)newEditor;
 @property (nonatomic, readonly, strong) NSUndoManager *undoManager;
+/* The real NORMA files: written by NORMA itself, so they say what NORMA's
+ * derived data and layout are. StockMate is from a recent NORMA; the
+ * ActiveFacts examples from NORMA builds of 2008 to 2015. */
+- (NSArray<NSString *> *)normaFixtures;
+/* "ActiveFacts/Address.orm", ...: Clifford Heath's examples. */
+- (NSArray<NSString *> *)activeFactsFixtures;
 @end
 
-/* The real NORMA files: written by NORMA itself, so they say what NORMA's
- * derived data and layout are. */
-#define ORMNormaFixtures @[ @"StockMate.orm", @"StockMate.CoRef.orm" ]

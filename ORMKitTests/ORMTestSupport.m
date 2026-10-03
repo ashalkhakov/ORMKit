@@ -36,6 +36,26 @@
 	return document;
 }
 
+- (NSArray<NSString *> *)activeFactsFixtures
+{
+	NSMutableArray *names = [NSMutableArray array];
+	NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:[self fixturePath:@"ActiveFacts"] error:NULL];
+	for (NSString *file in [files sortedArrayUsingSelector:@selector(compare:)]) {
+		if ([[file pathExtension] isEqualToString:@"orm"]) {
+			[names addObject:[@"ActiveFacts" stringByAppendingPathComponent:file]];
+		}
+	}
+	if ([names count] == 0) {
+		XCTFail(@"no ActiveFacts fixtures");
+	}
+	return names;
+}
+
+- (NSArray<NSString *> *)normaFixtures
+{
+	return [@[ @"StockMate.orm", @"StockMate.CoRef.orm" ] arrayByAddingObjectsFromArray:[self activeFactsFixtures]];
+}
+
 - (NSUndoManager *)undoManager
 {
 	return _undoManager;

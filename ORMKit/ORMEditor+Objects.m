@@ -21,20 +21,26 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 }
 
 /* The value type's name for the mode, by its kind's format. */
-static NSString *
-ORMReferenceModeValueTypeName(NSString *entity, NSString *mode, ORMReferenceModeKind kind)
-{
-	switch (kind) {
-	case ORMReferenceModeUnitBased:
-		return [mode stringByAppendingString:@"Value"];
-	case ORMReferenceModeGeneral:
-		return mode;
-	default:
-		return [NSString stringWithFormat:@"%@_%@", entity, mode];
-	}
-}
-
 @implementation ORMEditor (ORMObjects)
+
+/* The name of the value type a reference mode is kept by, as the model's
+ * reference mode kinds format it: "Person_id" ({0}_{1}) in files NORMA
+ * writes now, "Person id" ({0} {1}) in older ones, "cmValue", "ISBN". */
+- (NSString *)valueTypeNameFor:(NSString *)entity mode:(NSString *)mode kind:(ORMReferenceModeKind)kind
+{
+	NSString *type = kind == ORMReferenceModeUnitBased ? @"UnitBased" : kind == ORMReferenceModeGeneral ? @"General" : @"Popular";
+	NSString *format = kind == ORMReferenceModeUnitBased ? @"{1}Value" : kind == ORMReferenceModeGeneral ? @"{1}" : @"{0}_{1}";
+	for (NSXMLElement *kindElement in ORMGrandchildren(self.model.modelElement, ORMCoreNamespace, @"ReferenceModeKinds",
+	                                                   ORMCoreNamespace, @"ReferenceModeKind")) {
+		NSString *saved = ORMAttribute(kindElement, @"FormatString");
+		if ([ORMAttribute(kindElement, @"ReferenceModeType") isEqualToString:type]
+		    && [saved rangeOfString:@"{1}"].location != NSNotFound) {
+			format = saved;
+		}
+	}
+	format = [format stringByReplacingOccurrencesOfString:@"{0}" withString:entity ?: @""];
+	return [format stringByReplacingOccurrencesOfString:@"{1}" withString:mode ?: @""];
+}
 
 - (BOOL)checkName:(NSString *)name except:(NSString *)elementId reason:(NSString **)reason
 {
@@ -154,7 +160,7 @@ ORMReferenceModeValueTypeName(NSString *entity, NSString *mode, ORMReferenceMode
 - (void)buildReferenceMode:(NSString *)mode kind:(ORMReferenceModeKind)kind forEntity:(NSXMLElement *)entity
 {
 	NSString *entityName = ORMAttribute(entity, @"Name");
-	NSString *valueName = ORMReferenceModeValueTypeName(entityName, mode, kind);
+	NSString *valueName = [self valueTypeNameFor:entityName mode:mode kind:kind];
 	/* A unit or general mode's value type is shared: kgValue identifies
 	 * every entity type measured in kg. */
 	NSXMLElement *value = nil;
@@ -286,8 +292,7 @@ ORMReferenceModeValueTypeName(NSString *entity, NSString *mode, ORMReferenceMode
 		/* Person_id follows Person to Human_id; a shared unit or general
 		 * mode's value type stays. */
 		ORMObjectType *value = type.referenceModeKind == ORMReferenceModePopular ? type.referenceModeValueType : nil;
-		NSString *valueName = value != nil ? ORMReferenceModeValueTypeName(trimmed, type.referenceMode,
-		                                                                  ORMReferenceModePopular) : nil;
+		NSString *valueName = value != nil ? [self valueTypeNameFor:trimmed mode:type.referenceMode kind:ORMReferenceModePopular] : nil;
 		[self change:@"Rename" with:^{
 			ORMSetAttribute(type.element, @"Name", trimmed);
 			if (value != nil && [self.model objectTypeNamed:valueName] == nil) {
@@ -342,7 +347,7 @@ ORMReferenceModeValueTypeName(NSString *entity, NSString *mode, ORMReferenceMode
 		return YES;
 	}
 	if (!removing) {
-		NSString *valueName = ORMReferenceModeValueTypeName(entity.name, trimmed, kind);
+		NSString *valueName = [self valueTypeNameFor:entity.name mode:trimmed kind:kind];
 		ORMObjectType *clash = [self.model objectTypeNamed:valueName];
 		if (clash != nil && (clash.kind != ORMValueType || kind == ORMReferenceModePopular)
 		    && clash != entity.referenceModeValueType) {
@@ -364,7 +369,7 @@ ORMReferenceModeValueTypeName(NSString *entity, NSString *mode, ORMReferenceMode
 		if (oldValue != nil && entity.referenceModeKind == ORMReferenceModePopular && kind == ORMReferenceModePopular
 		    && [oldValue.playedRoles count] == 1) {
 			ORMSetAttribute(oldValue.element, @"Name",
-			                ORMReferenceModeValueTypeName(entity.name, trimmed, ORMReferenceModePopular));
+			                [self valueTypeNameFor:entity.name mode:trimmed kind:ORMReferenceModePopular]);
 			ORMSetAttribute(entity.element, @"_ReferenceMode", trimmed);
 			return;
 		}

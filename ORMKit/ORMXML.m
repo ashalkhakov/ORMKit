@@ -422,8 +422,10 @@ ORMFormatPoint(NSPoint point)
 
 #pragma mark Serializing
 
+/* Text's newlines are written as the file's: parsing turned NORMA's
+ * CRLF in a note into LF, and .NET writes it back as CRLF. */
 static void
-ORMEscape(NSMutableString *out, NSString *text, BOOL attribute)
+ORMEscape(NSMutableString *out, NSString *text, BOOL attribute, NSString *newline)
 {
 	NSUInteger length = [text length];
 	NSUInteger start = 0;
@@ -436,7 +438,7 @@ ORMEscape(NSMutableString *out, NSString *text, BOOL attribute)
 		case '>': entity = @"&gt;"; break;
 		case '"': entity = attribute ? @"&quot;" : nil; break;
 		case '\r': entity = @"&#xD;"; break;
-		case '\n': entity = attribute ? @"&#xA;" : nil; break;
+		case '\n': entity = attribute ? @"&#xA;" : ([newline isEqualToString:@"\n"] ? nil : newline); break;
 		case '\t': entity = attribute ? @"&#x9;" : nil; break;
 		default: break;
 		}
@@ -488,7 +490,7 @@ ORMWriteNamespaces(NSMutableString *out, NSXMLElement *element)
 			}
 		}
 		[out appendString:[prefix length] > 0 ? [NSString stringWithFormat:@" xmlns:%@=\"", prefix] : @" xmlns=\""];
-		ORMEscape(out, [namespace stringValue], YES);
+		ORMEscape(out, [namespace stringValue], YES, nil);
 		[out appendString:@"\""];
 	}
 }
@@ -521,7 +523,7 @@ ORMWriteElement(NSMutableString *out, NSXMLElement *element, NSUInteger depth, N
 			name = ORMQualify(prefix, name);
 		}
 		[out appendFormat:@" %@=\"", name];
-		ORMEscape(out, [attribute stringValue], YES);
+		ORMEscape(out, [attribute stringValue], YES, nil);
 		[out appendString:@"\""];
 	}
 	if (attributesFirst) {
@@ -537,7 +539,7 @@ ORMWriteElement(NSMutableString *out, NSXMLElement *element, NSUInteger depth, N
 		[out appendString:@">"];
 		for (NSXMLNode *child in children) {
 			if ([child kind] == NSXMLTextKind) {
-				ORMEscape(out, [child stringValue], NO);
+				ORMEscape(out, [child stringValue], NO, newline);
 			} else {
 				[out appendString:[child XMLString]];
 			}
@@ -558,7 +560,7 @@ ORMWriteElement(NSMutableString *out, NSXMLElement *element, NSUInteger depth, N
 				for (NSUInteger i = 0; i <= depth; i++) {
 					[out appendString:indent];
 				}
-				ORMEscape(out, text, NO);
+				ORMEscape(out, text, NO, newline);
 				[out appendString:newline];
 			}
 		} else if ([child kind] == NSXMLCommentKind) {

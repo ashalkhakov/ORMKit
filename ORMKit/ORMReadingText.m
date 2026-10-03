@@ -38,11 +38,12 @@ ORMSplitPreBound(NSString *text, NSString **free, NSString **bound)
 
 /* The text after a placeholder split into what binds back to it and
  * what follows: up to the end of the first word starting with a hyphen
- * after whitespace, the hyphen taken out. */
+ * after whitespace ("{1} of -birth" binds " of birth"), the hyphen taken
+ * out. */
 static void
 ORMSplitPostBound(NSString *text, NSString **bound, NSString **free)
 {
-	NSRegularExpression *hyphen = [NSRegularExpression regularExpressionWithPattern:@"^(\\s+)-(\\S+)" options:0
+	NSRegularExpression *hyphen = [NSRegularExpression regularExpressionWithPattern:@"^((?:\\s+[^\\s-]\\S*)*?\\s+)-(\\S+)" options:0
 	                                                                         error:NULL];
 	NSTextCheckingResult *first = [hyphen firstMatchInString:text options:0 range:NSMakeRange(0, [text length])];
 	if (first == nil) {

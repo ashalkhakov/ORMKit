@@ -60,6 +60,17 @@
 
 #pragma mark ORM to Core Data
 
+/* Every model of Clifford Heath's examples maps to one Core Data takes:
+ * objectified fact types, subtyping several ways, rings, ternaries. */
+- (void)testEveryActiveFactsModelMapsToAModelCoreDataAccepts
+{
+	for (NSString *name in [self activeFactsFixtures]) {
+		ORMModel *model = [ORMModel modelOfDocument:[self fixtureDocument:name] reason:NULL];
+		XCTAssertNotNil(model, @"%@", name);
+		XCTAssertNil([self momcRejects:[self map:model]], @"%@", name);
+	}
+}
+
 - (void)testStockMateMapsToAModelCoreDataAccepts
 {
 	ORMModel *model = [ORMModel modelOfDocument:[self fixtureDocument:@"StockMate.orm"] reason:NULL];
