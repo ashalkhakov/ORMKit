@@ -242,7 +242,7 @@
 /* Every model says something of everything, without failing. */
 - (void)testEveryNormaModelVerbalizes
 {
-	for (NSString *name in [self normaFixtures]) {
+	for (NSString *name in [self allNormaFiles]) {
 		ORMModel *model = [ORMModel modelOfDocument:[self fixtureDocument:name] reason:NULL];
 		ORMVerbalizer *verbalizer = [[ORMVerbalizer alloc] initWithModel:model];
 		verbalizer.verbalizesNegations = YES;

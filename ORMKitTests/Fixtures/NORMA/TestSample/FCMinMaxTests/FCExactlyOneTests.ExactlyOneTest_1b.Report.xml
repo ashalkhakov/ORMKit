@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TestReport xmlns="http://schemas.neumont.edu/ORM/SDK/TestReport">
+	<ValidationErrors name="No errors expected">
+		<ValidationError>Frequency constraint 'FrequencyConstraint1' in model 'ORMModel1' is violated by a uniqueness constraint on the same roles.</ValidationError>
+	</ValidationErrors>
+	<ValidationErrors name="Introduce Error[FrequencyConstraintExactlyOneError]">
+		<ValidationError>Frequency constraint 'FrequencyConstraint1' in model 'ORMModel1' is violated by a uniqueness constraint on the same roles.</ValidationError>
+	</ValidationErrors>
+	<ValidationErrors name="Fixing error with error activation service">
+		<ValidationError>Constraint 'FrequencyConstraint1' in model 'ORMModel1' has a range of exactly one, should be a uniqueness constraint.</ValidationError>
+		<ValidationError>Frequency constraint 'FrequencyConstraint1' in model 'ORMModel1' is violated by a uniqueness constraint on the same roles.</ValidationError>
+	</ValidationErrors>
+	<ValidationErrors name="[FrequencyConstraintExactlyOneError] removed, different error introduced. Removing new error">
+		<ValidationError>Constraint 'InternalUniquenessConstraint5' in model 'ORMModel1' is implied by at least one constraint of the same type attached to a subset of the same roles.</ValidationError>
+		<ValidationError>Constraint 'InternalUniquenessConstraint6' in model 'ORMModel1' is implied by at least one constraint of the same type attached to a subset of the same roles.</ValidationError>
+		<ValidationError>Fact type 'AHasB' in model 'ORMModel1' contains one or more internal uniqueness constraints that are implied by or duplicates of other internal uniqueness constraints.</ValidationError>
+	</ValidationErrors>
+	<ValidationErrors name="All errors resolved" />
+	<Compare result="pass" />
+</TestReport>

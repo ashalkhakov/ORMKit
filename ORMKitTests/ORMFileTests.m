@@ -10,7 +10,7 @@
 
 - (void)testANormaFileIsWrittenBackByteForByte
 {
-	for (NSString *name in [self normaFixtures]) {
+	for (NSString *name in [self allNormaFiles]) {
 		NSData *data = [self fixtureData:name];
 		NSXMLDocument *document = ORMParseDocument(data, NULL);
 		XCTAssertEqualObjects(ORMDataOfDocument(document), data, @"%@ changed on the way through", name);
@@ -26,7 +26,7 @@
 
 - (void)testAnUnchangedModelIsSavedAsItWasRead
 {
-	for (NSString *name in [self normaFixtures]) {
+	for (NSString *name in [self allNormaFiles]) {
 		NSData *data = [self fixtureData:name];
 		ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
 		XCTAssertFalse(editor.hasChanges);

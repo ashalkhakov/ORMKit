@@ -31,6 +31,21 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	 * takes the snapshot. */
 	NSUInteger _depth;
 	BOOL _hasChanges;
+	/* Each unary fact type's reading as the change found it: what tells
+	 * normalize which implicit boolean value types to rename. */
+	NSDictionary<NSString *, NSString *> *_unaryReadings;
+}
+
+- (NSDictionary<NSString *, NSString *> *)unaryReadingsOf:(ORMModel *)model
+{
+	NSMutableDictionary *readings = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in model.factTypes) {
+		NSString *text = [fact isUnary] ? [[fact primaryReading] expandedText] : nil;
+		if (text != nil && fact.identifier != nil) {
+			[readings setObject:text forKey:fact.identifier];
+		}
+	}
+	return readings;
 }
 
 #pragma mark Documents
@@ -69,6 +84,8 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 /* Whether the file is of the NORMA versions that write each reading's
  * <orm:ExpandedData>: one that has readings and none of it is older, and
  * stays as it is; one with none yet is written as NORMA writes now. */
+static BOOL ORMWritesImpliedMandatories(ORMModel *model);
+
 static BOOL
 ORMWritesExpandedData(ORMModel *model)
 {
@@ -93,6 +110,7 @@ ORMWritesExpandedData(ORMModel *model)
 		_undoManager = undoManager;
 		_model = [ORMModel modelOfDocument:document reason:NULL];
 		_writesExpandedData = ORMWritesExpandedData(_model);
+		_writesImpliedMandatories = ORMWritesImpliedMandatories(_model);
 	}
 	return self;
 }
@@ -113,6 +131,7 @@ ORMWritesExpandedData(ORMModel *model)
 	 * links to one another are weak. */
 	__attribute__((objc_precise_lifetime)) ORMModel *start = _model;
 	(void)start;
+	_unaryReadings = [self unaryReadingsOf:_model];
 	if (_depth > 0) {
 		change();
 		[self normalize];
@@ -448,8 +467,11 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 	}
 
 	for (ORMFactType *fact in model.factTypes) {
-		/* A unary's implicit value type is named by its reading. */
-		if ([fact isUnary]) {
+		/* A unary's implicit value type is named by its reading, when the
+		 * reading changed: NORMA leaves an older name ("Person isDead")
+		 * as it is. */
+		NSString *was = [_unaryReadings objectForKey:fact.identifier ?: @""];
+		if ([fact isUnary] && ![was isEqualToString:[[fact primaryReading] expandedText] ?: @""]) {
 			ORMObjectType *implicit = nil;
 			for (ORMRole *role in fact.roles) {
 				if (role.player.isImplicitBooleanValue) {
@@ -563,19 +585,12 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
  * has an implied inclusive-or over them, its subtypes' roles too. Kept
  * as NORMA keeps them, one per object type, pointing at it with
  * ImpliedByObjectType. */
-- (void)normalizeImpliedMandatories:(ORMModel *)model
+/* The roles each object type's implied inclusive-or covers, by the
+ * type's id: only the types that need one. */
+static NSDictionary<NSString *, NSArray<NSString *> *> *
+ORMImpliedMandatoryRoles(ORMModel *model)
 {
-	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
-	for (ORMConstraint *constraint in model.constraints) {
-		NSString *owner = ORMRef(ORMChild(constraint.element, CORE, @"ImpliedByObjectType"));
-		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied && owner != nil) {
-			if ([existing objectForKey:owner] != nil || [model elementWithId:owner] == nil) {
-				[constraint.element detach];
-			} else {
-				[existing setObject:constraint forKey:owner];
-			}
-		}
-	}
+	NSMutableDictionary *needed = [NSMutableDictionary dictionary];
 	for (ORMObjectType *type in model.objectTypes) {
 		NSArray *identifierRoles = [type.preferredIdentifier allRoles] ?: @[];
 		NSMutableArray *roles = [NSMutableArray array];
@@ -599,8 +614,49 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 			}
 			[roles addObject:role.identifier];
 		}
-		ORMConstraint *current = [existing objectForKey:type.identifier];
-		if (type.isIndependent || mandatory || [roles count] == 0) {
+		if (!type.isIndependent && !mandatory && [roles count] > 0 && type.identifier != nil) {
+			[needed setObject:roles forKey:type.identifier];
+		}
+	}
+	return needed;
+}
+
+/* Whether the file is of the NORMA versions that keep implied mandatory
+ * constraints: one that needs some and has none is older, and stays as it
+ * is. */
+static BOOL
+ORMWritesImpliedMandatories(ORMModel *model)
+{
+	for (ORMConstraint *constraint in model.constraints) {
+		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied
+		    && ORMChild(constraint.element, CORE, @"ImpliedByObjectType") != nil) {
+			return YES;
+		}
+	}
+	return [ORMImpliedMandatoryRoles(model) count] == 0;
+}
+
+- (void)normalizeImpliedMandatories:(ORMModel *)model
+{
+	if (!_writesImpliedMandatories) {
+		return;
+	}
+	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
+	for (ORMConstraint *constraint in model.constraints) {
+		NSString *owner = ORMRef(ORMChild(constraint.element, CORE, @"ImpliedByObjectType"));
+		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied && owner != nil) {
+			if ([existing objectForKey:owner] != nil || [model elementWithId:owner] == nil) {
+				[constraint.element detach];
+			} else {
+				[existing setObject:constraint forKey:owner];
+			}
+		}
+	}
+	NSDictionary *needed = ORMImpliedMandatoryRoles(model);
+	for (ORMObjectType *type in model.objectTypes) {
+		NSArray *roles = [needed objectForKey:type.identifier ?: @""];
+		ORMConstraint *current = [existing objectForKey:type.identifier ?: @""];
+		if (roles == nil) {
 			[current.element detach];
 			continue;
 		}

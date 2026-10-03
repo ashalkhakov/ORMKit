@@ -171,21 +171,43 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 	return NO;
 }
 
+/* "Person_id" to "PersonId": each word capitalized, run together. */
+static NSString *
+ORMCapitalizedWords(NSString *text)
+{
+	NSMutableString *out = [NSMutableString string];
+	for (NSString *word in [text componentsSeparatedByCharactersInSet:[[NSCharacterSet alphanumericCharacterSet] invertedSet]]) {
+		if ([word length] > 0) {
+			[out appendString:[[word substringToIndex:1] uppercaseString]];
+			[out appendString:[word substringFromIndex:1]];
+		}
+	}
+	return out;
+}
+
 /* "Person was born in Country" to "PersonWasBornInCountry": the reading's
  * own words capitalized and run together, the object type names in their
  * own case without punctuation (NORMA writes "WeightHaskgValue" and
  * "ProductHasProductId"). */
 - (NSString *)derivedName
 {
-	/* Older NORMA capitalized the object type names too: "EventDateHasYmd". */
-	NSString *older = [self derivedNameCapitalizingPlayers:YES];
-	if (older != nil && [ORMAttribute(self.element, @"_Name") isEqualToString:older]) {
-		return older;
+	/* NORMA has written the object type names three ways: punctuation
+	 * taken out ("ProductHasProductId" for Product_Id, "WeightHaskgValue"),
+	 * each word capitalized ("EventDateHasYmd", "PersonHasPersonId" for
+	 * Person_id), and as they are ("JoinTypeHasJoinType_name"); and the
+	 * reading's words with the rest of each lowercased ("IsValuetype" for
+	 * "is ValueType"). The one the file has stands while it still fits. */
+	NSString *saved = ORMAttribute(self.element, @"_Name");
+	for (NSNumber *style in @[ @1, @2, @3 ]) {
+		NSString *variant = [self derivedNameWithPlayers:[style integerValue]];
+		if (variant != nil && [saved isEqualToString:variant]) {
+			return variant;
+		}
 	}
-	return [self derivedNameCapitalizingPlayers:NO];
+	return [self derivedNameWithPlayers:0];
 }
 
-- (NSString *)derivedNameCapitalizingPlayers:(BOOL)capitalize
+- (NSString *)derivedNameWithPlayers:(NSInteger)style
 {
 	/* An objectified fact type goes by its objectifying type's name. */
 	if (self.objectifyingType.name != nil) {
@@ -219,7 +241,7 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 			for (NSString *word in [literal componentsSeparatedByCharactersInSet:separators]) {
 				if ([word length] > 0) {
 					[name appendString:[[word substringToIndex:1] uppercaseString]];
-					[name appendString:[word substringFromIndex:1]];
+					[name appendString:style == 3 ? [[word substringFromIndex:1] lowercaseString] : [word substringFromIndex:1]];
 				}
 			}
 		}
@@ -228,11 +250,9 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 			if ([scanner scanInteger:&index] && [scanner scanString:@"}" intoString:NULL] && index >= 0
 			    && (NSUInteger)index < [roles count]) {
 				NSString *player = [[[roles objectAtIndex:index] player] name] ?: @"";
-				player = [[player componentsSeparatedByCharactersInSet:separators] componentsJoinedByString:@""];
-				if (capitalize && [player length] > 0) {
-					player = [[[player substringToIndex:1] uppercaseString] stringByAppendingString:[player substringFromIndex:1]];
-				}
-				[name appendString:player];
+				player = style != 0 ? player
+				                    : [[player componentsSeparatedByCharactersInSet:separators] componentsJoinedByString:@""];
+				[name appendString:style == 1 ? ORMCapitalizedWords(player) : player];
 			}
 		}
 	}
@@ -1195,6 +1215,10 @@ ORMReferenceModeIn(NSString *valueName, NSString *format, NSString *entityName)
 			kind = ORMReferenceModeUnitBased;
 		} else if ([saved isEqualToString:value.name]) {
 			mode = value.name;
+			kind = ORMReferenceModeGeneral;
+		} else if ([saved length] > 0 && [value.name isEqualToString:[type.name stringByAppendingString:saved]]) {
+			/* Older NORMA: "OIALModel.id", saved as ".id". */
+			mode = saved;
 			kind = ORMReferenceModeGeneral;
 		} else if (popular != nil && [popularModes containsObject:[popular lowercaseString]]) {
 			mode = popular;

@@ -154,7 +154,18 @@ NORMA versions, which ORMKit keeps as each file has it:
 - `ExpandedData` on readings only in files that have it;
 - subtype fact roles as `SubtypeMetaRole`/`SupertypeMetaRole`, named so in
   `PlayedRoles` too, and subtype facts named "XIsASubtypeOfY";
-- fact type names with the players capitalized ("EventDateHasYmd").
+- fact type names written four ways: player names without punctuation
+  (now), each word capitalized ("PersonHasPersonId"), as they are
+  ("JoinTypeHasJoinType_name"), or with the reading's words lowercased
+  after their first letter ("ObjectTypeIsValuetype");
+- implied mandatory constraints only in files that have them;
+- implicit boolean value types renamed only when their reading changes
+  ("Person isDead" stands);
+- what comes before the root element (no XML declaration, a blank line)
+  and after it, as the file has it.
+
+NORMA's own samples, metamodels and test suites (`Fixtures/NORMA`) were
+checked the same way; see the fixtures' README for what they hold.
 
 Implied mandatory constraints and `_Multiplicity` follow NORMA's own rules
 (`ObjectType.ValidateIsIndependent`, `Role.GetMultiplicityValue`, read in

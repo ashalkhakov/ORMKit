@@ -94,4 +94,7 @@ standard output or a file, or every diagram into a directory, a file each.
 
 LGPL 2.1 (`LICENSE`). The test fixtures in `ORMKitTests/Fixtures/ActiveFacts`
 are Clifford Heath's ActiveFacts examples, under the MIT license
-(`ORMKitTests/Fixtures/ActiveFacts/LICENSE.txt`).
+(`ORMKitTests/Fixtures/ActiveFacts/LICENSE.txt`); those in
+`ORMKitTests/Fixtures/NORMA` are NORMA's sample and test models, under the
+Common Public License 1.0 (`ORMKitTests/Fixtures/NORMA/LICENSE.txt`). Neither
+is part of the library.

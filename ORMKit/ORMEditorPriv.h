@@ -39,6 +39,9 @@
 /* Whether readings get NORMA's <orm:ExpandedData>: as the file had it
  * when opened (older NORMA did not write it). */
 @property (nonatomic, readonly) BOOL writesExpandedData;
+/* Whether implied mandatory constraints are kept up: as the file had them
+ * (older NORMA did not write them). */
+@property (nonatomic, readonly) BOOL writesImpliedMandatories;
 
 /* Keeps up NORMA's denormalized data from the model as it now is. */
 - (void)normalize;

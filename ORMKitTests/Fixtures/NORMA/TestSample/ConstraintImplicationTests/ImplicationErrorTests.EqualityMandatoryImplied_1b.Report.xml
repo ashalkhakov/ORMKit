@@ -1,0 +1,8 @@
+﻿<TestReport xmlns="http://schemas.neumont.edu/ORM/SDK/TestReport">
+	<ValidationErrors name="No Errors Found Initialliy" />
+	<ValidationErrors name="Error is Introduced">
+		<ValidationError>Equality constraint 'EqualityConstraint1' in model 'ORMModel1' is implied by simple mandatory constraints on all roles in the constraint.</ValidationError>
+	</ValidationErrors>
+	<ValidationErrors name="Error is removed with removal of Equality Constraint" />
+	<Compare result="pass" />
+</TestReport>

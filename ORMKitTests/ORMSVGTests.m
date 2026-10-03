@@ -75,11 +75,13 @@
  * every kind of constraint shape. */
 - (void)testEveryNormaDiagramDraws
 {
-	for (NSString *name in [self normaFixtures]) {
+	for (NSString *name in [self allNormaFiles]) {
 		ORMModel *model = [ORMModel modelOfDocument:[self fixtureDocument:name] reason:NULL];
 		for (ORMDiagram *diagram in model.diagrams) {
 			NSXMLDocument *document = [self parse:ORMSVGOfDiagram(diagram, NO)];
-			XCTAssertTrue(([[[document rootElement] children] count] > 2), @"%@: %@", name, diagram.name);
+			/* NORMA keeps empty diagrams too: the title and paper only. */
+			BOOL empty = [[diagram allShapes] count] == 0;
+			XCTAssertTrue((empty || [[[document rootElement] children] count] > 2), @"%@: %@", name, diagram.name);
 		}
 	}
 }

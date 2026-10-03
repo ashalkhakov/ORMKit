@@ -51,9 +51,52 @@
 	return names;
 }
 
+- (NSArray<NSString *> *)fixturesUnder:(NSString *)directory
+{
+	NSMutableArray *names = [NSMutableArray array];
+	NSDirectoryEnumerator *files = [[NSFileManager defaultManager] enumeratorAtPath:[self fixturePath:directory]];
+	for (NSString *file in files) {
+		if ([[file pathExtension] isEqualToString:@"orm"]) {
+			[names addObject:[directory stringByAppendingPathComponent:file]];
+		}
+	}
+	if ([names count] == 0) {
+		XCTFail(@"no fixtures in %@", directory);
+	}
+	return [names sortedArrayUsingSelector:@selector(compare:)];
+}
+
+/* NORMA's files that it would write the same way today: not
+ * SampleModel.CoRef, an export whose PlayedRoles name roles it left out,
+ * nor OIAL, whose binaries without uniqueness have multiplicities NORMA no
+ * longer gives them. */
+- (NSArray<NSString *> *)normaRepositoryFixtures
+{
+	NSMutableArray *names = [NSMutableArray array];
+	for (NSString *name in [[self fixturesUnder:@"NORMA/GenerationSamples"]
+	                           arrayByAddingObjectsFromArray:[self fixturesUnder:@"NORMA/Documentation"]]) {
+		NSString *file = [name lastPathComponent];
+		if (![file isEqualToString:@"SampleModel.CoRef.orm"] && ![file isEqualToString:@"OIAL.orm"]) {
+			[names addObject:name];
+		}
+	}
+	return names;
+}
+
 - (NSArray<NSString *> *)normaFixtures
 {
-	return [@[ @"StockMate.orm", @"StockMate.CoRef.orm" ] arrayByAddingObjectsFromArray:[self activeFactsFixtures]];
+	NSMutableArray *names = [NSMutableArray arrayWithArray:@[ @"StockMate.orm", @"StockMate.CoRef.orm" ]];
+	[names addObjectsFromArray:[self activeFactsFixtures]];
+	[names addObjectsFromArray:[self normaRepositoryFixtures]];
+	return names;
+}
+
+- (NSArray<NSString *> *)allNormaFiles
+{
+	NSMutableArray *names = [NSMutableArray arrayWithArray:[self normaFixtures]];
+	[names addObjectsFromArray:@[ @"NORMA/GenerationSamples/SampleModel.CoRef.orm", @"NORMA/Documentation/OIAL.orm" ]];
+	[names addObjectsFromArray:[self fixturesUnder:@"NORMA/TestSample"]];
+	return names;
 }
 
 - (NSUndoManager *)undoManager

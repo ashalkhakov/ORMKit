@@ -154,9 +154,19 @@ main(int argc, const char *argv[])
 			}
 			[[NSFileManager defaultManager] createDirectoryAtPath:out withIntermediateDirectories:YES attributes:nil
 			                                                error:NULL];
+			NSMutableSet *used = [NSMutableSet set];
 			for (ORMDiagram *diagram in diagrams) {
-				NSString *name = [[diagram.name ?: @"Diagram" stringByReplacingOccurrencesOfString:@"/" withString:@"-"]
-					stringByAppendingPathExtension:@"svg"];
+				/* A file a diagram: unnamed ones, and ones that share a name,
+				 * numbered. */
+				NSString *base = [[diagram.name ?: @"" stringByReplacingOccurrencesOfString:@"/" withString:@"-"]
+					stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+				base = [base length] > 0 ? base : @"Diagram";
+				NSString *stem = base;
+				for (NSUInteger n = 2; [used containsObject:[stem lowercaseString]]; n++) {
+					stem = [NSString stringWithFormat:@"%@ %lu", base, (unsigned long)n];
+				}
+				[used addObject:[stem lowercaseString]];
+				NSString *name = [stem stringByAppendingString:@".svg"];
 				NSString *path = [out stringByAppendingPathComponent:name];
 				if (![ORMSVGOfDiagram(diagram, dark) writeToFile:path atomically:YES encoding:NSUTF8StringEncoding
 				                                           error:NULL]) {

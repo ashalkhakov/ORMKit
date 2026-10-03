@@ -632,8 +632,23 @@ ORMLayoutOfData(NSData *data)
 			attributesFirst = [firstName length] > 0 && ![firstName hasPrefix:@"xmlns"];
 		}
 	}
+	/* What comes before the root element (the XML declaration or not, a
+	 * blank line) and after it, as the file has them. */
+	NSUInteger start = bom ? 3 : 0;
+	NSUInteger rootAt = start;
+	while (rootAt + 1 < length && !(bytes[rootAt] == '<' && bytes[rootAt + 1] != '?' && bytes[rootAt + 1] != '!')) {
+		rootAt++;
+	}
+	NSString *prolog = [[NSString alloc] initWithData:[data subdataWithRange:NSMakeRange(start, rootAt - start)]
+	                                         encoding:NSUTF8StringEncoding] ?: @"";
+	NSUInteger end = length;
+	while (end > 0 && bytes[end - 1] != '>') {
+		end--;
+	}
+	NSString *trailer = [[NSString alloc] initWithData:[data subdataWithRange:NSMakeRange(end, length - end)]
+	                                          encoding:NSUTF8StringEncoding] ?: @"";
 	return @{ @"bom": @(bom), @"newline": crlf ? @"\r\n" : @"\n", @"indent": indent,
-	          @"attributesFirst": @(attributesFirst) };
+	          @"attributesFirst": @(attributesFirst), @"prolog": prolog, @"trailer": trailer };
 }
 
 /* How the file a document came from was laid out, by its root, so it
@@ -677,14 +692,20 @@ ORMDataOfDocument(NSXMLDocument *document)
 	}
 	NSString *newline = [layout objectForKey:@"newline"];
 	NSMutableString *out = [NSMutableString string];
-	[out appendFormat:@"<?xml version=\"%@\" encoding=\"utf-8\"?>", [document version] ?: @"1.0"];
-	[out appendString:newline];
+	NSString *prolog = [layout objectForKey:@"prolog"];
+	if (prolog != nil) {
+		[out appendString:prolog];
+	} else {
+		[out appendFormat:@"<?xml version=\"%@\" encoding=\"utf-8\"?>", [document version] ?: @"1.0"];
+		[out appendString:newline];
+	}
 	ORMWriteElement(out, [document rootElement], 0, [layout objectForKey:@"indent"], newline,
 	                [[layout objectForKey:@"attributesFirst"] boolValue]);
-	/* NORMA ends the file without a newline. */
+	/* NORMA ends the file without a newline, older ones with one. */
 	if ([out hasSuffix:newline]) {
 		[out deleteCharactersInRange:NSMakeRange([out length] - [newline length], [newline length])];
 	}
+	[out appendString:[layout objectForKey:@"trailer"] ?: @""];
 	NSMutableData *data = [NSMutableData data];
 	if ([[layout objectForKey:@"bom"] boolValue]) {
 		static const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };

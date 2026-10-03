@@ -18,10 +18,19 @@
 - (ORMEditor *)newEditor;
 @property (nonatomic, readonly, strong) NSUndoManager *undoManager;
 /* The real NORMA files: written by NORMA itself, so they say what NORMA's
- * derived data and layout are. StockMate is from a recent NORMA; the
- * ActiveFacts examples from NORMA builds of 2008 to 2015. */
+ * derived data and layout are, and normalizing them changes nothing.
+ * StockMate is from a recent NORMA; the ActiveFacts examples from NORMA
+ * builds of 2008 to 2015; NORMA's own samples and metamodels from its
+ * repository. */
 - (NSArray<NSString *> *)normaFixtures;
 /* "ActiveFacts/Address.orm", ...: Clifford Heath's examples. */
 - (NSArray<NSString *> *)activeFactsFixtures;
+/* The .orm files under a fixtures directory, at any depth, sorted. */
+- (NSArray<NSString *> *)fixturesUnder:(NSString *)directory;
+/* Every file NORMA wrote: the above, and NORMA's own test suites, whose
+ * 2006 and 2007 builds wrote derived data in ways NORMA has since
+ * dropped; those are read and written back byte for byte, but not
+ * normalized. */
+- (NSArray<NSString *> *)allNormaFiles;
 @end
 
