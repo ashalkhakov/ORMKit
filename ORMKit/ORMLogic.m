@@ -292,6 +292,8 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 	__block NSMutableDictionary *terms = nil;
 	__block BOOL negated = NO;
 	__block BOOL optional = NO;
+	/* The pathed role the open fact type was entered by. */
+	ORMPathedRole *entered = nil;
 	void (^close)(void) = ^{
 		if (fact == nil) {
 			return;
@@ -306,6 +308,27 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 			continue;
 		}
 		ORMVariable *variable = nil;
+		/* Into an objectification's link fact type: NORMA names the
+		 * objectified role just entered, then the link fact type's other
+		 * role. The fact entered is the link fact type, on the proxy. */
+		/* And within one, NORMA names the objectified role a proxy
+		 * stands for rather than the proxy. */
+		if (pathed.purpose == ORMPathSameFactType && role.factType != fact) {
+			for (ORMRole *proxy in fact.roles) {
+				if (proxy.proxiedRole == role) {
+					role = proxy;
+				}
+			}
+		}
+		if (pathed.purpose == ORMPathSameFactType && role.factType != fact && entered != nil && [terms count] == 1) {
+			for (ORMRole *proxy in role.factType.roles) {
+				if (proxy.proxiedRole == entered.role) {
+					ORMTerm *at = [terms objectForKey:entered.role.identifier];
+					fact = role.factType;
+					terms = [NSMutableDictionary dictionaryWithObject:at forKey:proxy.identifier];
+				}
+			}
+		}
 		if (pathed.purpose == ORMPathSameFactType && role.factType == fact) {
 			variable = [self.variables objectForKey:pathed.correlatedWith.identifier ?: @""]
 				?: [ORMVariable variableOf:role.player];
@@ -313,6 +336,7 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 			close();
 			fact = role.factType;
 			terms = [NSMutableDictionary dictionary];
+			entered = pathed;
 			negated = pathed.isNegated;
 			optional = pathed.purpose == ORMPathOuterJoin;
 			/* Entered on what the path is at: the same instance. */

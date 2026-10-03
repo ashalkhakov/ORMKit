@@ -69,7 +69,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMFactSentence` | NORMA's Fact Editor: `Person(.id) was born in Country(.code)` |
 | `ORMPath` | NORMA's role paths (join paths, derivation rules), calculations, sample populations, cardinality |
 | `ORMLogic` | sequences, join paths and derivations as logic: variables, fact atoms, and/or/xor/not |
-| `ORMVerbalizer` | FORML sentences as styled spans; plain text and HTML |
+| `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something (VERBALIZATION.md); plain text and HTML |
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync` | the mapping, both ways (COREDATA-MAPPING.md) |
 

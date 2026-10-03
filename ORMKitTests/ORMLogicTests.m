@@ -92,6 +92,36 @@
 	}
 }
 
+/* Through an objectification: NORMA names the objectified role and then
+ * the link fact type's other role (WaiterTips), or the link fact type's
+ * objectified role and then the role its proxy stands for
+ * (CinemaTickets). Either way it is one walk through the link fact
+ * type. */
+- (void)testPathsThroughLinkFactTypes
+{
+	ORMModel *waiters = [ORMModel modelOfDocument:[self fixtureDocument:@"ActiveFacts/WaiterTips.orm"] reason:NULL];
+	ORMConstraint *equality = [self constraintNamed:@"EqualityConstraint1" in:waiters];
+	ORMRelation *relation = nil;
+	for (ORMRoleSequence *sequence in equality.roleSequences) {
+		if ([sequence joinPath] != nil) {
+			relation = [ORMLogic relationForSequence:sequence];
+		}
+	}
+	XCTAssertEqualObjects([self relationText:relation],
+	                      @"[Waiter, Meal, Amount] (Service(Waiter, Meal) and MealIsInvolvedInService(Meal, Service) and "
+	                      @"ServiceEarnedATipOfAmount(Service, Amount))");
+
+	ORMModel *cinema = [ORMModel modelOfDocument:[self fixtureDocument:@"ActiveFacts/CinemaTickets.orm"] reason:NULL];
+	for (ORMFactType *fact in cinema.factTypes) {
+		if ([fact.name isEqualToString:@"SessionHasSeat"]) {
+			relation = [ORMLogic relationForDerivation:[fact derivationRule] of:fact];
+		}
+	}
+	XCTAssertEqualObjects([self relationText:relation],
+	                      @"[Session, Seat] (CinemaHasSession(Cinema, Session) and RowIsInCinema(Row, Cinema) and "
+	                      @"SeatIsInRow(Seat, Row))");
+}
+
 - (void)testVariablesOfOneTypeAreNumbered
 {
 	ORMModel *model = [self stockMate];

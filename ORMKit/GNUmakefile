@@ -39,6 +39,7 @@ ORMKit_OBJC_FILES = \
   ORMPath.m \
   ORMLogic.m \
   ORMVerbalizer.m \
+  ORMVerbalizer+Logic.m \
   ORMFactSentence.m \
   ORMCDModel.m \
   ORMCoreDataMapping.m \

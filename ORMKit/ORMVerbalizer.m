@@ -1,14 +1,9 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
-#import "ORMVerbalizer.h"
+#import "ORMVerbalizerPriv.h"
+#import "ORMPath.h"
 #import "ORMDiagram.h"
 #import "ORMReadingText.h"
 #import "ORMXML.h"
-
-@interface ORMVerbalSpan ()
-@property (nonatomic, readwrite, copy) NSString *text;
-@property (nonatomic, readwrite) ORMVerbalStyle style;
-@property (nonatomic, readwrite, copy) NSString *elementId;
-@end
 
 @implementation ORMVerbalSpan
 
@@ -21,12 +16,6 @@
 	return span;
 }
 
-@end
-
-@interface ORMVerbalSentence ()
-@property (nonatomic, readwrite, copy) NSArray<ORMVerbalSpan *> *spans;
-@property (nonatomic, readwrite, copy) NSString *subjectId;
-@property (nonatomic, readwrite) NSUInteger level;
 @end
 
 @implementation ORMVerbalSentence
@@ -47,19 +36,17 @@
 
 @end
 
-/* What a placeholder becomes: a quantifier and a name. A nil name leaves
- * the role out, as "Each Person has some Name or was born in ..." leaves
- * Person out of its second clause. */
-@interface ORMSpokenTerm : NSObject
-@property (nonatomic, copy) NSString *quantifier;
-@property (nonatomic, copy) NSString *name;
-@property (nonatomic, copy) NSString *elementId;
-@end
-
 @implementation ORMSpokenTerm
 @end
 
-static ORMSpokenTerm *
+NSString *
+ORMArticle(NSString *name)
+{
+	NSString *first = [[name substringToIndex:MIN((NSUInteger)1, [name length])] lowercaseString];
+	return [@"aeiou" rangeOfString:first].location != NSNotFound && [first length] > 0 ? @"an" : @"a";
+}
+
+ORMSpokenTerm *
 ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 {
 	ORMSpokenTerm *term = [[ORMSpokenTerm alloc] init];
@@ -69,26 +56,7 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 	return term;
 }
 
-/* A reading to verbalize with: its text and the roles its placeholders
- * stand for. Subtype facts have none in the file; they get these. */
-@interface ORMReadingUse : NSObject
-@property (nonatomic, copy) NSString *text;
-@property (nonatomic, copy) NSArray<ORMRole *> *roles;
-@end
-
 @implementation ORMReadingUse
-@end
-
-/* A sentence being put together. */
-@interface ORMSentenceBuilder : NSObject
-@property (nonatomic, strong) NSMutableArray<ORMVerbalSpan *> *spans;
-- (void)keyword:(NSString *)text;
-- (void)predicate:(NSString *)text;
-- (void)plain:(NSString *)text;
-- (void)value:(NSString *)text;
-- (void)note:(NSString *)text;
-- (void)objectType:(NSString *)name id:(NSString *)elementId;
-- (void)append:(NSArray<ORMVerbalSpan *> *)spans;
 @end
 
 @implementation ORMSentenceBuilder
@@ -103,6 +71,16 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 
 - (void)add:(NSString *)text style:(ORMVerbalStyle)style id:(NSString *)elementId
 {
+	if ([text length] == 0) {
+		return;
+	}
+	/* One space between words, whatever a reading's text has. */
+	while ([text rangeOfString:@"  "].location != NSNotFound) {
+		text = [text stringByReplacingOccurrencesOfString:@"  " withString:@" "];
+	}
+	if ([text hasPrefix:@" "] && [[[self.spans lastObject] text] hasSuffix:@" "]) {
+		text = [text substringFromIndex:1];
+	}
 	if ([text length] == 0) {
 		return;
 	}
@@ -151,7 +129,54 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 	}
 }
 
+- (BOOL)isEmpty
+{
+	return [self.spans count] == 0;
+}
+
 @end
+
+static NSString *
+ORMQuoted(NSString *value, BOOL quotes)
+{
+	NSScanner *scanner = [NSScanner scannerWithString:value];
+	double number;
+	if (!quotes || ([scanner scanDouble:&number] && [scanner isAtEnd])) {
+		return value;
+	}
+	return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
+}
+
+/* "at most one", "at least 2 and at most 5", "exactly 3". */
+static NSString *
+ORMCardinalityText(ORMCardinality *cardinality)
+{
+	NSMutableArray *parts = [NSMutableArray array];
+	for (NSArray<NSNumber *> *range in cardinality.ranges) {
+		NSUInteger from = [[range firstObject] unsignedIntegerValue];
+		NSUInteger to = [[range lastObject] unsignedIntegerValue];
+		NSString *(^n)(NSUInteger) = ^NSString *(NSUInteger value) {
+			return value == 1 ? @"one" : [NSString stringWithFormat:@"%lu", (unsigned long)value];
+		};
+		if (from == to) {
+			[parts addObject:[@"exactly " stringByAppendingString:n(from)]];
+		} else if (to == 0) {
+			[parts addObject:[@"at least " stringByAppendingString:n(from)]];
+		} else if (from == 0) {
+			[parts addObject:[@"at most " stringByAppendingString:n(to)]];
+		} else {
+			[parts addObject:[NSString stringWithFormat:@"at least %@ and at most %@", n(from), n(to)]];
+		}
+	}
+	return [parts componentsJoinedByString:@" or "];
+}
+
+static BOOL
+ORMCardinalityIsOne(ORMCardinality *cardinality)
+{
+	NSArray *range = [cardinality.ranges lastObject];
+	return [cardinality.ranges count] == 1 && [[range lastObject] unsignedIntegerValue] == 1;
+}
 
 @implementation ORMVerbalizer
 {
@@ -165,33 +190,41 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 	if ((self = [super init])) {
 		_model = model;
 		_verbalizesPossibilities = YES;
+		_verbalizesExamples = YES;
 	}
 	return self;
 }
 
 #pragma mark Sentences
 
-- (void)emit:(ORMSentenceBuilder *)builder
+- (ORMVerbalSentence *)emit:(ORMSentenceBuilder *)builder
 {
-	[self emit:builder modality:ORMAlethic];
+	return [self emit:builder modality:ORMAlethic];
 }
 
-/* Ends the sentence and adds it, capitalized, with its modality said:
- * a deontic rule is what is obligatory, not what is necessary. */
-- (void)emit:(ORMSentenceBuilder *)builder modality:(ORMModality)modality
+- (ORMVerbalSentence *)emit:(ORMSentenceBuilder *)builder kind:(ORMVerbalKind)kind
+{
+	ORMVerbalSentence *sentence = [self emit:builder modality:ORMAlethic];
+	sentence.kind = kind;
+	return sentence;
+}
+
+/* The builder's spans as a sentence: capitalized, ended, with its
+ * modality said (a deontic rule is what is obligatory, not what is
+ * necessary), or nil when there is nothing. */
+- (ORMVerbalSentence *)sentenceOf:(ORMSentenceBuilder *)builder prefix:(NSString *)prefix
 {
 	NSMutableArray *spans = builder.spans;
 	if ([spans count] == 0) {
-		return;
+		return nil;
 	}
-	if (modality == ORMDeontic) {
+	if (prefix != nil) {
 		ORMVerbalSpan *first = [spans firstObject];
-		if ([first.text length] > 0) {
+		if ([first.text length] > 0 && first.style != ORMVerbalObjectType) {
 			first.text = [[[first.text substringToIndex:1] lowercaseString]
 				stringByAppendingString:[first.text substringFromIndex:1]];
 		}
-		[spans insertObject:[ORMVerbalSpan spanWithText:@"It is obligatory that " style:ORMVerbalKeyword elementId:nil]
-		            atIndex:0];
+		[spans insertObject:[ORMVerbalSpan spanWithText:prefix style:ORMVerbalKeyword elementId:nil] atIndex:0];
 	}
 	/* A sentence starts with a capital, unless it starts with a name. */
 	ORMVerbalSpan *first = [spans firstObject];
@@ -207,7 +240,36 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 	sentence.spans = spans;
 	sentence.subjectId = _subject;
 	sentence.level = _level;
-	[_out addObject:sentence];
+	sentence.sourceId = self.source;
+	sentence.negations = @[];
+	return sentence;
+}
+
+- (ORMVerbalSentence *)emit:(ORMSentenceBuilder *)builder modality:(ORMModality)modality
+{
+	ORMVerbalSentence *sentence = [self sentenceOf:builder prefix:modality == ORMDeontic ? @"It is obligatory that " : nil];
+	if (sentence != nil) {
+		[_out addObject:sentence];
+	}
+	return sentence;
+}
+
+- (void)negate:(ORMVerbalSentence *)statement with:(ORMSentenceBuilder *)builder modality:(ORMModality)modality
+{
+	if (statement == nil) {
+		return;
+	}
+	ORMVerbalSentence *negation = [self sentenceOf:builder prefix:modality == ORMDeontic ? @"It is forbidden that "
+	                                                                                      : @"It is impossible that "];
+	if (negation == nil) {
+		return;
+	}
+	negation.kind = ORMVerbalNegation;
+	negation.sourceId = statement.sourceId;
+	statement.negations = [statement.negations arrayByAddingObject:negation];
+	if (self.verbalizesNegations) {
+		[_out addObject:negation];
+	}
 }
 
 #pragma mark Readings
@@ -227,10 +289,9 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 	if (fact.kind == ORMFactTypeSubtype && [fact.roles count] == 2) {
 		ORMRole *sub = [fact.roles objectAtIndex:0];
 		ORMRole *sup = [fact.roles objectAtIndex:1];
-		if (role == sup) {
-			return [self use:@"{0} is {1}" roles:@[ sup, sub ]];
-		}
-		return [self use:@"{0} is {1}" roles:@[ sub, sup ]];
+		ORMReadingUse *use = [self use:@"{0} is {1}" roles:role == sup ? @[ sup, sub ] : @[ sub, sup ]];
+		use.isSubtype = YES;
+		return use;
 	}
 	ORMReadingOrder *order = role != nil ? [fact readingOrderStartingWithRole:role] : nil;
 	ORMReading *reading = order != nil ? [order.readings firstObject] : [fact primaryReading];
@@ -244,6 +305,24 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 		return [self use:[parts componentsJoinedByString:@" ... "] roles:roles];
 	}
 	return [self use:reading.text roles:reading.readingOrder.roles];
+}
+
+- (BOOL)fact:(ORMFactType *)fact readsFrom:(ORMRole *)role
+{
+	if (role == nil) {
+		return NO;
+	}
+	if (fact.kind == ORMFactTypeSubtype) {
+		return YES;
+	}
+	ORMReadingOrder *order = [fact readingOrderStartingWithRole:role];
+	ORMReading *reading = [order.readings firstObject];
+	if (reading == nil) {
+		return NO;
+	}
+	ORMReadingText *text = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
+	ORMReadingPart *part = [text.parts firstObject];
+	return text != nil && [text.frontText length] == 0 && [part.preBoundText length] == 0;
 }
 
 /* A reading with each role's term put in, hyphen-bound words around the
@@ -264,11 +343,20 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 		if (t.name == nil) {
 			skippedSubject = YES;
 		} else {
-			if ([t.quantifier length] > 0) {
-				[builder keyword:[t.quantifier stringByAppendingString:@" "]];
+			NSString *quantifier = t.quantifier;
+			/* "Each Male is a Person": a subtype reading's "some" is "a". */
+			if (use.isSubtype && [quantifier isEqualToString:@"some"]) {
+				quantifier = ORMArticle(t.name);
+			}
+			if ([quantifier length] > 0) {
+				[builder keyword:[quantifier stringByAppendingString:@" "]];
 			}
 			[builder predicate:part.preBoundText];
 			[builder objectType:t.name id:t.elementId];
+			if ([t.value length] > 0) {
+				[builder plain:@" "];
+				[builder value:t.value];
+			}
 			[builder predicate:part.postBoundText];
 		}
 		NSString *following = part.followingText;
@@ -324,7 +412,7 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 	}
 	[b objectType:type.name id:type.identifier];
 	[b keyword:type.kind == ORMValueType ? @" is a value type" : @" is an entity type"];
-	[self emit:b];
+	[self emit:b kind:ORMVerbalInformation];
 
 	if (type.isIndependent) {
 		b = [[ORMSentenceBuilder alloc] init];
@@ -336,24 +424,25 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 	if (type.isPersonal) {
 		b = [[ORMSentenceBuilder alloc] init];
 		[b plain:@"Uses personal pronouns"];
-		[self emit:b];
+		[self emit:b kind:ORMVerbalInformation];
 	}
 	if (type.isExternal) {
 		b = [[ORMSentenceBuilder alloc] init];
 		[b objectType:type.name id:type.identifier];
 		[b keyword:@" is external"];
 		[b plain:@" (defined in another model)"];
-		[self emit:b];
+		[self emit:b kind:ORMVerbalInformation];
 	}
 
 	for (ORMObjectType *supertype in type.supertypes) {
 		b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"Each "];
 		[b objectType:type.name id:type.identifier];
-		[b keyword:@" is an instance of "];
+		[b keyword:[NSString stringWithFormat:@" is %@ ", ORMArticle(supertype.name)]];
 		[b objectType:supertype.name id:supertype.identifier];
 		[self emit:b];
 	}
+	[self verbalizeDerivationOfSubtype:type];
 
 	ORMConstraint *identifier = type.preferredIdentifier;
 	if (identifier != nil && type.nestedFactType == nil) {
@@ -375,12 +464,12 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 				return ORMMakeTerm(nil, role.player.name, role.player.identifier);
 			}]];
 		}
-		[self emit:b];
+		[self emit:b kind:ORMVerbalInformation];
 	} else if (type.isEntity && identifier == nil && [type.supertypes count] == 0 && type.nestedFactType == nil) {
 		b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"Reference Scheme: "];
 		[b plain:@"none given"];
-		[self emit:b];
+		[self emit:b kind:ORMVerbalInformation];
 	}
 	if (type.referenceMode != nil) {
 		b = [[ORMSentenceBuilder alloc] init];
@@ -389,7 +478,7 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 			: type.referenceModeKind == ORMReferenceModeUnitBased ? [type.referenceMode stringByAppendingString:@":"]
 			: type.referenceMode;
 		[b plain:mode];
-		[self emit:b];
+		[self emit:b kind:ORMVerbalInformation];
 	}
 
 	ORMObjectType *valueType = type.kind == ORMValueType ? type : type.referenceModeValueType;
@@ -403,13 +492,101 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 			[data appendFormat:@"(%ld)", (long)valueType.dataTypeLength];
 		}
 		[b plain:data];
-		[self emit:b];
+		[self emit:b kind:ORMVerbalInformation];
 	}
 	if (type.valueConstraint != nil) {
 		[self verbalizeValues:type.valueConstraint of:type role:nil];
 	}
+	if ([[type defaultValue] length] > 0) {
+		b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"The default value of "];
+		[b objectType:type.name id:type.identifier];
+		[b keyword:@" is "];
+		[b value:ORMQuoted([type defaultValue], type.valueConstraint == nil || [type.valueConstraint quotesValues])];
+		[self emit:b kind:ORMVerbalInformation];
+	}
+	ORMCardinality *cardinality = [type cardinality];
+	if (cardinality != nil) {
+		/* "Each population of President contains at most one instance." */
+		b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"Each population of "];
+		[b objectType:type.name id:type.identifier];
+		[b keyword:@" contains "];
+		[b keyword:ORMCardinalityText(cardinality)];
+		[b keyword:ORMCardinalityIsOne(cardinality) ? @" instance" : @" instances"];
+		[self emit:b];
+	}
 	[self verbalizeText:type.definitionText label:@"Informal Definition: "];
 	[self verbalizeText:type.noteText label:@"Notes: "];
+	[self verbalizeExamplesOfObjectType:type];
+
+	/* What it plays, as NORMA lists it. */
+	NSMutableArray *facts = [NSMutableArray array];
+	for (ORMRole *role in type.playedRoles) {
+		ORMFactType *fact = role.factType;
+		if (fact.kind == ORMFactTypeOrdinary && [facts indexOfObjectIdenticalTo:fact] == NSNotFound) {
+			[facts addObject:fact];
+		}
+	}
+	if ([facts count] > 0) {
+		b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"Fact Types:"];
+		[self emit:b kind:ORMVerbalInformation];
+		ORMVerbalSentence *heading = [_out lastObject];
+		/* A heading ends without a full stop. */
+		if ([[[heading.spans lastObject] text] isEqualToString:@"."]) {
+			heading.spans = [heading.spans subarrayWithRange:NSMakeRange(0, [heading.spans count] - 1)];
+		}
+		_level++;
+		for (ORMFactType *fact in facts) {
+			b = [[ORMSentenceBuilder alloc] init];
+			[b append:[self clause:[self readingOf:fact from:nil] terms:^ORMSpokenTerm *(ORMRole *role) {
+				return ORMMakeTerm(nil, role.player.name, role.player.identifier);
+			}]];
+			ORMVerbalSentence *line = [self emit:b kind:ORMVerbalInformation];
+			line.sourceId = fact.identifier;
+			if ([[[line.spans lastObject] text] isEqualToString:@"."]) {
+				line.spans = [line.spans subarrayWithRange:NSMakeRange(0, [line.spans count] - 1)];
+			}
+		}
+		_level--;
+	}
+}
+
+/* "Examples: 'M', 'F'." */
+- (void)verbalizeExamplesOfObjectType:(ORMObjectType *)type
+{
+	NSArray *instances = [type instances];
+	if (!self.verbalizesExamples || [instances count] == 0) {
+		return;
+	}
+	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+	[b keyword:@"Examples: "];
+	for (NSUInteger i = 0; i < [instances count]; i++) {
+		if (i > 0) {
+			[b plain:@", "];
+		}
+		[b value:[[instances objectAtIndex:i] displayText]];
+	}
+	[self emit:b kind:ORMVerbalExample];
+}
+
+/* "Person 'Ann' was born in Country 'AU'." */
+- (void)verbalizeExamplesOfFactType:(ORMFactType *)fact
+{
+	if (!self.verbalizesExamples) {
+		return;
+	}
+	ORMReadingUse *use = [self readingOf:fact from:nil];
+	for (ORMFactInstance *instance in [fact instances]) {
+		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+		[b append:[self clause:use terms:^ORMSpokenTerm *(ORMRole *role) {
+			ORMSpokenTerm *term = ORMMakeTerm(nil, role.player.name, role.player.identifier);
+			term.value = [[instance.instancesByRole objectForKey:role.identifier] displayText] ?: @"?";
+			return term;
+		}]];
+		[self emit:b kind:ORMVerbalExample].sourceId = instance.identifier;
+	}
 }
 
 - (void)verbalizeText:(NSString *)text label:(NSString *)label
@@ -448,16 +625,6 @@ ORMMakeTerm(NSString *quantifier, NSString *name, NSString *elementId)
 	[self emit:b];
 }
 
-static NSString *
-ORMQuoted(NSString *value, BOOL quotes)
-{
-	NSScanner *scanner = [NSScanner scannerWithString:value];
-	double number;
-	if (!quotes || ([scanner scanDouble:&number] && [scanner isAtEnd])) {
-		return value;
-	}
-	return [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
-}
 
 - (void)appendRange:(ORMValueRange *)range to:(ORMSentenceBuilder *)b
 {
@@ -491,13 +658,14 @@ ORMQuoted(NSString *value, BOOL quotes)
 	if (fact.kind == ORMFactTypeImplied) {
 		return;
 	}
+	self.source = fact.identifier;
 	if (fact.kind == ORMFactTypeSubtype) {
 		ORMObjectType *sub = [[fact.roles firstObject] player];
 		ORMObjectType *sup = [[fact.roles lastObject] player];
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"Each "];
 		[b objectType:sub.name id:sub.identifier];
-		[b keyword:@" is an instance of "];
+		[b keyword:[NSString stringWithFormat:@" is %@ ", ORMArticle(sup.name)]];
 		[b objectType:sup.name id:sup.identifier];
 		[self emit:b];
 		if (!fact.providesPreferredIdentifier) {
@@ -505,7 +673,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 			[b objectType:sub.name id:sub.identifier];
 			[b plain:@" has its own reference scheme, not that of "];
 			[b objectType:sup.name id:sup.identifier];
-			[self emit:b];
+			[self emit:b kind:ORMVerbalInformation];
 		}
 		return;
 	}
@@ -520,14 +688,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 			[self emit:b];
 		}
 	}
-	if (fact.isDerived) {
-		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
-		[b keyword:@"This fact type is derived"];
-		NSXMLElement *rule = ORMChild(fact.element, ORMCoreNamespace, @"DerivationRule");
-		NSString *note = ORMChildText(ORMChild(rule, ORMCoreNamespace, @"DerivationNote"), ORMCoreNamespace, @"Text");
-		[self emit:b];
-		[self verbalizeText:note label:@"Derivation Note: "];
-	}
+	[self verbalizeDerivationOfFactType:fact];
 
 	_level++;
 	if (fact.objectifyingType != nil) {
@@ -549,6 +710,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 	}
 	for (ORMRole *role in roles) {
 		if (role.valueConstraint != nil) {
+			self.source = role.valueConstraint.identifier;
 			[self verbalizeValues:role.valueConstraint of:nil role:role];
 		}
 	}
@@ -559,7 +721,29 @@ ORMQuoted(NSString *value, BOOL quotes)
 			[self verbalizeConstraint:constraint];
 		}
 	}
+	self.source = fact.identifier;
+	[self verbalizeExamplesOfFactType:fact];
 	_level--;
+}
+
+/* The internal constraint of a kind on the role alone. */
+- (ORMConstraint *)constraint:(ORMConstraintKind)kind onlyOn:(ORMRole *)role
+{
+	for (ORMConstraint *constraint in role.constraints) {
+		if (constraint.kind == kind && [[constraint allRoles] count] == 1 && [constraint factTypes].count == 1
+		    && (kind != ORMMandatoryConstraint || constraint.isSimple)) {
+			return constraint;
+		}
+	}
+	return nil;
+}
+
+/* The last negation attached says what the constraint rules out. */
+- (void)negate:(ORMVerbalSentence *)statement with:(ORMSentenceBuilder *)builder
+      modality:(ORMModality)modality source:(ORMConstraint *)constraint
+{
+	[self negate:statement with:builder modality:modality];
+	[[statement.negations lastObject] setSourceId:constraint.identifier];
 }
 
 /* The internal uniqueness and simple mandatory constraints of a binary,
@@ -572,12 +756,9 @@ ORMQuoted(NSString *value, BOOL quotes)
 		ORMRole *other = [role oppositeRole];
 		ORMReadingUse *use = [self readingOf:fact from:role];
 		BOOL fromRole = [use.roles firstObject] == role;
-		ORMModality modality = ORMAlethic;
-		for (ORMConstraint *constraint in role.constraints) {
-			if ([fact.internalConstraints containsObject:constraint] && [[constraint allRoles] count] == 1) {
-				modality = MAX(modality, constraint.modality);
-			}
-		}
+		ORMConstraint *unique = role.isUnique ? [self constraint:ORMUniquenessConstraint onlyOn:role] : nil;
+		ORMConstraint *mandatory = role.isMandatory ? [self constraint:ORMMandatoryConstraint onlyOn:role] : nil;
+		ORMModality modality = MAX(unique.modality, mandatory.modality);
 		NSString *otherQuantifier = nil;
 		if (role.isUnique && role.isMandatory) {
 			otherQuantifier = @"exactly one";
@@ -587,6 +768,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 			otherQuantifier = @"some";
 		}
 		if (otherQuantifier != nil) {
+			self.source = (unique ?: mandatory).identifier;
 			ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 			if (!fromRole) {
 				/* No reading starts with the role: say it from its side. */
@@ -601,20 +783,35 @@ ORMQuoted(NSString *value, BOOL quotes)
 				}
 				return ORMMakeTerm(quantifier, r.player.name, r.player.identifier);
 			}]];
-			[self emit:b modality:modality];
+			ORMVerbalSentence *statement = [self emit:b modality:modality];
+			if (role.isUnique) {
+				/* "It is impossible that the same Person was born in more
+				 * than one Country." */
+				b = [[ORMSentenceBuilder alloc] init];
+				[b append:[self clause:use terms:^ORMSpokenTerm *(ORMRole *r) {
+					return ORMMakeTerm(r == role ? @"the same" : @"more than one", r.player.name, r.player.identifier);
+				}]];
+				[self negate:statement with:b modality:unique.modality source:unique];
+			}
+			if (role.isMandatory) {
+				[self negate:statement with:[self noneOf:@[ role ] use:@[ use ]] modality:mandatory.modality
+				      source:mandatory];
+			}
 		}
 		if (!role.isUnique && self.verbalizesPossibilities && other != nil && !spanning) {
+			self.source = role.identifier;
 			ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 			[b keyword:@"It is possible that "];
 			[b append:[self clause:use terms:^ORMSpokenTerm *(ORMRole *r) {
 				return ORMMakeTerm(r == role ? @"some" : @"more than one", r.player.name, r.player.identifier);
 			}]];
-			[self emit:b];
+			[self emit:b kind:ORMVerbalPossibility];
 		}
 	}
 	if (spanning) {
 		/* Many to many. */
 		if (self.verbalizesPossibilities) {
+			self.source = fact.identifier;
 			ORMRole *first = [roles firstObject];
 			ORMRole *second = [roles lastObject];
 			ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
@@ -626,14 +823,60 @@ ORMQuoted(NSString *value, BOOL quotes)
 			[b append:[self clause:[self readingOf:fact from:second] terms:^ORMSpokenTerm *(ORMRole *r) {
 				return ORMMakeTerm(r == second ? @"the same" : @"more than one", r.player.name, r.player.identifier);
 			}]];
-			[self emit:b];
+			[self emit:b kind:ORMVerbalPossibility];
 		}
 		[self verbalizeSpanningUniqueness:fact roles:roles];
 	}
 }
 
+/* What a mandatory role (or an inclusive-or over roles of one player)
+ * rules out: "some Person was born in no Country", or "for some Person,
+ * no Country is the birthplace of that Person" when a reading does not
+ * start with the role. */
+- (ORMSentenceBuilder *)noneOf:(NSArray<ORMRole *> *)roles use:(NSArray<ORMReadingUse *> *)uses
+{
+	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+	BOOL fromRoles = YES;
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		ORMRole *role = [roles objectAtIndex:i];
+		if ([[[uses objectAtIndex:i] roles] firstObject] != role || ![self fact:role.factType readsFrom:role]) {
+			fromRoles = NO;
+		}
+	}
+	ORMObjectType *player = [[roles firstObject] player];
+	if (!fromRoles) {
+		[b keyword:@"for some "];
+		[b objectType:player.name id:player.identifier];
+		[b plain:@", "];
+	}
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		ORMRole *role = [roles objectAtIndex:i];
+		if (i > 0) {
+			[b keyword:@" and "];
+		}
+		BOOL first = i == 0;
+		[b append:[self clause:[uses objectAtIndex:i] terms:^ORMSpokenTerm *(ORMRole *r) {
+			if (r == role) {
+				if (!fromRoles) {
+					return ORMMakeTerm(@"that", r.player.name, r.player.identifier);
+				}
+				return first ? ORMMakeTerm(@"some", r.player.name, r.player.identifier) : ORMMakeTerm(nil, nil, nil);
+			}
+			return ORMMakeTerm(@"no", r.player.name, r.player.identifier);
+		}]];
+	}
+	return b;
+}
+
 - (void)verbalizeSpanningUniqueness:(ORMFactType *)fact roles:(NSArray<ORMRole *> *)roles
 {
+	ORMConstraint *constraint = nil;
+	for (ORMConstraint *each in [fact uniquenessConstraints]) {
+		if ([[each allRoles] count] == [roles count]) {
+			constraint = each;
+		}
+	}
+	self.source = constraint.identifier;
 	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 	[b keyword:@"In each population of "];
 	[b append:[self clause:[self readingOf:fact from:nil] terms:^ORMSpokenTerm *(ORMRole *r) {
@@ -649,16 +892,34 @@ ORMQuoted(NSString *value, BOOL quotes)
 		[b objectType:[names objectForKey:role] id:role.player.identifier];
 	}
 	[b keyword:@" combination occurs at most once"];
-	[self emit:b];
+	ORMVerbalSentence *statement = [self emit:b modality:constraint.modality];
+	b = [[ORMSentenceBuilder alloc] init];
+	[b append:[self clause:[self readingOf:fact from:nil] terms:^ORMSpokenTerm *(ORMRole *r) {
+		return ORMMakeTerm(@"the same", r.player.name, r.player.identifier);
+	}]];
+	[b keyword:@" more than once"];
+	[self negate:statement with:b modality:constraint.modality];
 }
 
 - (void)verbalizeUnary:(ORMFactType *)fact
 {
 	ORMRole *role = [[fact visibleRoles] firstObject];
 	if (role.isMandatory) {
+		self.source = [self constraint:ORMMandatoryConstraint onlyOn:role].identifier;
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 		[b append:[self clause:[self readingOf:fact from:role] terms:^ORMSpokenTerm *(ORMRole *r) {
 			return ORMMakeTerm(@"each", r.player.name, r.player.identifier);
+		}]];
+		[self emit:b];
+	}
+	ORMCardinality *cardinality = [role cardinality];
+	if (cardinality != nil) {
+		/* "At most one Politician is president." */
+		self.source = cardinality.identifier;
+		NSString *quantifier = ORMCardinalityText(cardinality);
+		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+		[b append:[self clause:[self readingOf:fact from:role] terms:^ORMSpokenTerm *(ORMRole *r) {
+			return ORMMakeTerm(quantifier, r.player.name, r.player.identifier);
 		}]];
 		[self emit:b];
 	}
@@ -676,6 +937,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 			[self verbalizeSpanningUniqueness:fact roles:roles];
 			continue;
 		}
+		self.source = constraint.identifier;
 		NSMapTable *names = [self namesFor:roles];
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"For each "];
@@ -687,16 +949,29 @@ ORMQuoted(NSString *value, BOOL quotes)
 			[b objectType:[names objectForKey:role] id:role.player.identifier];
 		}
 		[b plain:@", "];
-		[b append:[self clause:[self readingOf:fact from:[covered firstObject]] terms:^ORMSpokenTerm *(ORMRole *r) {
+		ORMReadingUse *use = [self readingOf:fact from:[covered firstObject]];
+		[b append:[self clause:use terms:^ORMSpokenTerm *(ORMRole *r) {
 			BOOL inside = [covered containsObject:r];
 			return ORMMakeTerm(inside ? @"that" : @"at most one", [names objectForKey:r], r.player.identifier);
 		}]];
-		[self emit:b modality:constraint.modality];
+		ORMVerbalSentence *statement = [self emit:b modality:constraint.modality];
+		if ([roles count] - [covered count] == 1) {
+			/* "It is impossible that the same Person played the same Sport
+			 * for more than one Country." */
+			b = [[ORMSentenceBuilder alloc] init];
+			[b append:[self clause:use terms:^ORMSpokenTerm *(ORMRole *r) {
+				return ORMMakeTerm([covered containsObject:r] ? @"the same" : @"more than one", r.player.name,
+				                   r.player.identifier);
+			}]];
+			[self negate:statement with:b modality:constraint.modality];
+		}
 	}
 	for (ORMRole *role in roles) {
 		if (!role.isMandatory) {
 			continue;
 		}
+		ORMConstraint *mandatory = [self constraint:ORMMandatoryConstraint onlyOn:role];
+		self.source = mandatory.identifier;
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 		ORMReadingUse *use = [self readingOf:fact from:role];
 		BOOL fromRole = [use.roles firstObject] == role;
@@ -711,7 +986,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 			}
 			return ORMMakeTerm(@"some", r.player.name, r.player.identifier);
 		}]];
-		[self emit:b];
+		[self emit:b modality:mandatory.modality];
 	}
 }
 
@@ -728,11 +1003,13 @@ ORMQuoted(NSString *value, BOOL quotes)
 
 - (void)verbalizeConstraint:(ORMConstraint *)constraint
 {
+	self.source = constraint.identifier;
 	switch (constraint.kind) {
 	case ORMUniquenessConstraint:
 		if (!constraint.isInternal) {
-			[self verbalizeExternalUniqueness:constraint];
-		} else if (constraint.preferredIdentifierFor != nil) {
+			[self verbalizeExternalUniquenessByLogic:constraint];
+		}
+		if (constraint.preferredIdentifierFor != nil) {
 			[self verbalizeIdentification:constraint];
 		}
 		break;
@@ -751,8 +1028,10 @@ ORMQuoted(NSString *value, BOOL quotes)
 		[self verbalizeExclusion:constraint];
 		break;
 	case ORMSubsetConstraint:
+		[self verbalizeSubsetByLogic:constraint];
+		break;
 	case ORMEqualityConstraint:
-		[self verbalizeSetComparison:constraint];
+		[self verbalizeEqualityByLogic:constraint];
 		break;
 	case ORMValueComparisonConstraint:
 		[self verbalizeValueComparison:constraint];
@@ -775,53 +1054,6 @@ ORMQuoted(NSString *value, BOOL quotes)
 	return common;
 }
 
-- (void)verbalizeExternalUniqueness:(ORMConstraint *)constraint
-{
-	NSArray *roles = [constraint allRoles];
-	ORMObjectType *joined = [self commonOppositePlayer:roles];
-	NSMapTable *names = [self namesFor:roles];
-	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
-	[b keyword:@"For each "];
-	for (NSUInteger i = 0; i < [roles count]; i++) {
-		ORMRole *role = [roles objectAtIndex:i];
-		if (i > 0) {
-			[b keyword:i + 1 == [roles count] ? @" and " : @", "];
-		}
-		[b objectType:[names objectForKey:role] id:role.player.identifier];
-	}
-	[b plain:@", "];
-	if (joined == nil) {
-		/* Not over binaries sharing a player: say it of the combination. */
-		[b keyword:@"that combination occurs at most once"];
-		[self emit:b modality:constraint.modality];
-		return;
-	}
-	for (NSUInteger i = 0; i < [roles count]; i++) {
-		ORMRole *role = [roles objectAtIndex:i];
-		ORMRole *opposite = [role oppositeRole];
-		if (i > 0) {
-			[b keyword:@" and "];
-		}
-		BOOL first = i == 0;
-		/* Later clauses leave the joined player out when they start with
-		 * it, and name it again when they do not. */
-		BOOL startsWithJoined = [[[self readingOf:role.factType from:opposite] roles] firstObject] == opposite;
-		[b append:[self clauseOf:role from:opposite terms:^ORMSpokenTerm *(ORMRole *r) {
-			if (r == opposite) {
-				if (first) {
-					return ORMMakeTerm(@"at most one", joined.name, joined.identifier);
-				}
-				return startsWithJoined ? ORMMakeTerm(nil, nil, nil) : ORMMakeTerm(@"that", joined.name, joined.identifier);
-			}
-			return ORMMakeTerm(@"that", [names objectForKey:r], r.player.identifier);
-		}]];
-	}
-	[self emit:b modality:constraint.modality];
-	if (constraint.preferredIdentifierFor != nil) {
-		[self verbalizeIdentification:constraint];
-	}
-}
-
 - (void)verbalizeIdentification:(ORMConstraint *)constraint
 {
 	ORMObjectType *identified = constraint.preferredIdentifierFor;
@@ -842,7 +1074,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 	}
 	[b keyword:@" provides the preferred identification scheme for "];
 	[b objectType:identified.name id:identified.identifier];
-	[self emit:b];
+	[self emit:b kind:ORMVerbalInformation];
 }
 
 /* Clauses joined by a word, each about the shared player, which only the
@@ -855,7 +1087,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 	for (NSUInteger i = 0; i < [roles count]; i++) {
 		ORMRole *role = [roles objectAtIndex:i];
 		ORMReadingUse *use = [self readingOf:role.factType from:role];
-		BOOL fromRole = [use.roles firstObject] == role;
+		BOOL fromRole = [use.roles firstObject] == role && [self fact:role.factType readsFrom:role];
 		if (i > 0) {
 			[b keyword:joiner];
 		}
@@ -874,9 +1106,17 @@ ORMQuoted(NSString *value, BOOL quotes)
 
 - (void)verbalizeDisjunctiveMandatory:(ORMConstraint *)constraint
 {
+	NSArray *roles = [constraint allRoles];
 	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
-	[self appendAlternatives:[constraint allRoles] joiner:@" or " quantifier:@"each" to:b];
-	[self emit:b modality:constraint.modality];
+	[self appendAlternatives:roles joiner:@" or " quantifier:@"each" to:b];
+	ORMVerbalSentence *statement = [self emit:b modality:constraint.modality];
+	/* "It is impossible that some Visitor has no Passport and has no
+	 * DriverLicence." */
+	NSMutableArray *uses = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		[uses addObject:[self readingOf:role.factType from:role]];
+	}
+	[self negate:statement with:[self noneOf:roles use:uses] modality:constraint.modality];
 }
 
 - (NSString *)frequencyText:(ORMConstraint *)constraint
@@ -904,7 +1144,7 @@ ORMQuoted(NSString *value, BOOL quotes)
 		/* "Each Person that has some PhoneNr has at least 2 and at most 5
 		 * PhoneNr." */
 		ORMReadingUse *use = [self readingOf:role.factType from:role];
-		BOOL fromRole = [use.roles firstObject] == role;
+		BOOL fromRole = [use.roles firstObject] == role && [self fact:role.factType readsFrom:role];
 		[b keyword:@"Each "];
 		[b objectType:role.player.name id:role.player.identifier];
 		[b keyword:@" that "];
@@ -976,10 +1216,15 @@ ORMQuoted(NSString *value, BOOL quotes)
 	ORMModality modality = constraint.modality;
 
 	if (type & ORMRingIrreflexive) {
+		/* "No Person is parent of itself." */
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"No "];
-		[b append:[self ringClause:constraint from:name to:name quantifier:@"the same"]];
-		[self emit:b modality:modality];
+		[b append:[self ringClause:constraint from:name to:@"itself" quantifier:nil]];
+		ORMVerbalSentence *statement = [self emit:b modality:modality];
+		b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"some "];
+		[b append:[self ringClause:constraint from:name to:@"itself" quantifier:nil]];
+		[self negate:statement with:b modality:modality];
 	}
 	if (type & ORMRingPurelyReflexive) {
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
@@ -1019,7 +1264,18 @@ ORMQuoted(NSString *value, BOOL quotes)
 		}
 		[b keyword:@" then it is impossible that "];
 		[b append:[self ringClause:constraint from:v2 to:v1 quantifier:nil]];
-		[self emit:b modality:modality];
+		ORMVerbalSentence *statement = [self emit:b modality:modality];
+		b = [[ORMSentenceBuilder alloc] init];
+		[b append:[self ringClause:constraint from:v1 to:v2 quantifier:nil]];
+		if (type & ORMRingAntisymmetric) {
+			[b keyword:@" and "];
+			[b objectType:v1 id:player.identifier];
+			[b keyword:@" is not "];
+			[b objectType:v2 id:player.identifier];
+		}
+		[b keyword:@" and "];
+		[b append:[self ringClause:constraint from:v2 to:v1 quantifier:nil]];
+		[self negate:statement with:b modality:modality];
 	}
 	if (type & ORMRingTransitive) {
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
@@ -1062,63 +1318,6 @@ ORMQuoted(NSString *value, BOOL quotes)
 	}
 }
 
-/* Each sequence's clause about the shared variables: in a subset or
- * equality the roles at one place across sequences stand for the same
- * instance. */
-- (NSArray<ORMVerbalSpan *> *)sequenceClause:(ORMRoleSequence *)sequence
-                                       names:(NSArray<NSString *> *)names
-                                   quantifier:(NSString *)quantifier
-                                       others:(NSString *)others
-{
-	ORMRole *start = [sequence.roles firstObject];
-	ORMReadingUse *use = [self readingOf:start.factType from:start];
-	return [self clause:use terms:^ORMSpokenTerm *(ORMRole *r) {
-		NSUInteger place = [sequence.roles indexOfObjectIdenticalTo:r];
-		if (place != NSNotFound) {
-			return ORMMakeTerm(quantifier, [names objectAtIndex:place], r.player.identifier);
-		}
-		return ORMMakeTerm(others, r.player.name, r.player.identifier);
-	}];
-}
-
-- (NSArray<NSString *> *)variablesFor:(ORMRoleSequence *)sequence
-{
-	NSMapTable *names = [self namesFor:sequence.roles];
-	NSMutableArray *variables = [NSMutableArray array];
-	for (ORMRole *role in sequence.roles) {
-		[variables addObject:[names objectForKey:role]];
-	}
-	return variables;
-}
-
-- (void)verbalizeSetComparison:(ORMConstraint *)constraint
-{
-	if ([constraint.roleSequences count] < 2) {
-		return;
-	}
-	ORMRoleSequence *first = [constraint.roleSequences objectAtIndex:0];
-	NSArray *names = [self variablesFor:first];
-	if (constraint.kind == ORMSubsetConstraint) {
-		ORMRoleSequence *second = [constraint.roleSequences objectAtIndex:1];
-		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
-		[b keyword:@"If "];
-		[b append:[self sequenceClause:first names:names quantifier:@"some" others:@"some"]];
-		[b keyword:@" then "];
-		[b append:[self sequenceClause:second names:names quantifier:@"that" others:@"some"]];
-		[self emit:b modality:constraint.modality];
-		return;
-	}
-	/* Equality: each pair of sequences holds together or not at all. */
-	for (NSUInteger i = 1; i < [constraint.roleSequences count]; i++) {
-		ORMRoleSequence *other = [constraint.roleSequences objectAtIndex:i];
-		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
-		[b append:[self sequenceClause:first names:names quantifier:@"some" others:@"some"]];
-		[b keyword:@" if and only if "];
-		[b append:[self sequenceClause:other names:names quantifier:@"that" others:@"some"]];
-		[self emit:b modality:constraint.modality];
-	}
-}
-
 - (void)verbalizeExclusion:(ORMConstraint *)constraint
 {
 	NSArray *sequences = constraint.roleSequences;
@@ -1126,42 +1325,37 @@ ORMQuoted(NSString *value, BOOL quotes)
 		return;
 	}
 	BOOL exclusiveOr = constraint.exclusiveOrPartner != nil;
+	NSMutableArray *roles = [NSMutableArray array];
+	ORMObjectType *player = nil;
 	BOOL singleRoles = YES;
 	for (ORMRoleSequence *sequence in sequences) {
-		if ([sequence.roles count] != 1) {
+		ORMRole *role = [sequence.roles firstObject];
+		if ([sequence.roles count] != 1 || (player != nil && role.player != player)) {
 			singleRoles = NO;
 		}
-	}
-	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
-	if (singleRoles && [sequences count] == 2 && !exclusiveOr) {
-		/* "No Person smokes and drinks." */
-		NSMutableArray *roles = [NSMutableArray array];
-		for (ORMRoleSequence *sequence in sequences) {
-			[roles addObject:[sequence.roles firstObject]];
+		player = role.player;
+		if (role != nil) {
+			[roles addObject:role];
 		}
-		[b keyword:@"No "];
-		[self appendAlternatives:roles joiner:@" and " quantifier:nil to:b];
-		[self emit:b modality:constraint.modality];
+	}
+	if (!singleRoles || ([sequences count] > 2)) {
+		[self verbalizeExclusionByLogic:constraint];
 		return;
 	}
-	ORMRoleSequence *first = [sequences firstObject];
-	NSArray *names = [self variablesFor:first];
-	[b keyword:@"For each "];
-	for (NSUInteger i = 0; i < [names count]; i++) {
-		if (i > 0) {
-			[b keyword:i + 1 == [names count] ? @" and " : @", "];
-		}
-		[b objectType:[names objectAtIndex:i] id:[[first.roles objectAtIndex:i] player].identifier];
+	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+	if (exclusiveOr) {
+		/* "Each Person is male or is female but not both." */
+		[self appendAlternatives:roles joiner:@" or " quantifier:@"each" to:b];
+		[b keyword:@" but not both"];
+	} else {
+		/* "No Person smokes and drinks." */
+		[b keyword:@"No "];
+		[self appendAlternatives:roles joiner:@" and " quantifier:nil to:b];
 	}
-	[b plain:@", "];
-	[b keyword:exclusiveOr ? @"exactly one of the following holds: " : @"at most one of the following holds: "];
-	for (NSUInteger i = 0; i < [sequences count]; i++) {
-		if (i > 0) {
-			[b plain:@"; "];
-		}
-		[b append:[self sequenceClause:[sequences objectAtIndex:i] names:names quantifier:@"that" others:@"some"]];
-	}
-	[self emit:b modality:constraint.modality];
+	ORMVerbalSentence *statement = [self emit:b modality:constraint.modality];
+	b = [[ORMSentenceBuilder alloc] init];
+	[self appendAlternatives:roles joiner:@" and " quantifier:@"some" to:b];
+	[self negate:statement with:b modality:constraint.modality];
 }
 
 - (void)verbalizeValueComparison:(ORMConstraint *)constraint
@@ -1200,7 +1394,35 @@ ORMQuoted(NSString *value, BOOL quotes)
 	[b objectType:[names objectForKey:a] id:a.player.identifier];
 	[b keyword:[NSString stringWithFormat:@" %@ ", [words objectForKey:constraint.comparisonOperator] ?: @"compares to"]];
 	[b objectType:[names objectForKey:c] id:c.player.identifier];
-	[self emit:b modality:constraint.modality];
+	ORMVerbalSentence *statement = [self emit:b modality:constraint.modality];
+	/* "It is impossible that some Project starts on some Date1 and ends
+	 * on some Date2 and Date1 is greater than Date2." */
+	NSDictionary *opposites = @{ @"Equal": @"NotEqual", @"NotEqual": @"Equal", @"LessThan": @"GreaterThanOrEqual",
+	                             @"LessThanOrEqual": @"GreaterThan", @"GreaterThan": @"LessThanOrEqual",
+	                             @"GreaterThanOrEqual": @"LessThan" };
+	NSString *opposite = [words objectForKey:[opposites objectForKey:constraint.comparisonOperator] ?: @""];
+	if (opposite != nil && joined != nil) {
+		b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"some "];
+		[b objectType:joined.name id:joined.identifier];
+		for (ORMRole *role in @[ a, c ]) {
+			[b keyword:role == a ? @" " : @" and "];
+			ORMRole *near = [role oppositeRole];
+			BOOL starts = [[[self readingOf:role.factType from:near] roles] firstObject] == near
+				&& [self fact:role.factType readsFrom:near];
+			[b append:[self clauseOf:role from:near terms:^ORMSpokenTerm *(ORMRole *r) {
+				if (r == role) {
+					return ORMMakeTerm(@"some", [names objectForKey:r], r.player.identifier);
+				}
+				return starts ? ORMMakeTerm(nil, nil, nil) : ORMMakeTerm(@"that", r.player.name, r.player.identifier);
+			}]];
+		}
+		[b keyword:@" and "];
+		[b objectType:[names objectForKey:a] id:a.player.identifier];
+		[b keyword:[NSString stringWithFormat:@" %@ ", opposite]];
+		[b objectType:[names objectForKey:c] id:c.player.identifier];
+		[self negate:statement with:b modality:constraint.modality];
+	}
 }
 
 #pragma mark Entry points

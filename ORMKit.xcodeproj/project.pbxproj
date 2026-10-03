@@ -105,6 +105,10 @@
 			isa = PBXBuildFile;
 			fileRef = 5898468D7B2737F3690110EB /* ormtool.m */;
 		};
+		52926593566B956B1529EE14 /* ORMVerbalizerPriv.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 45A607D7FCD62B2DFCB4BBA3 /* ORMVerbalizerPriv.h */;
+		};
 		566CBD5E2BA799A03EF65E16 /* ORMModelBrowser.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 17EAEBAF92A12202869D3AD4 /* ORMModelBrowser.m */;
@@ -294,6 +298,10 @@
 		DAF6423E8C62FF7433A41437 /* ORMCanvasView.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 4EB6097BFEC6B6BFE9EC43CA /* ORMCanvasView.m */;
+		};
+		DF8782A47B9F56621AD798B8 /* ORMVerbalizer+Logic.m */ = {
+			isa = PBXBuildFile;
+			fileRef = AE6D64430985BCA827E2F4AB /* ORMVerbalizer+Logic.m */;
 		};
 		E31FC68A29A3DA7032C38B69 /* ORMKit.framework */ = {
 			isa = PBXBuildFile;
@@ -522,6 +530,12 @@
 			path = "ORMEditor+Constraints.m";
 			sourceTree = "<group>";
 		};
+		45A607D7FCD62B2DFCB4BBA3 /* ORMVerbalizerPriv.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMVerbalizerPriv.h;
+			sourceTree = "<group>";
+		};
 		470AD526B3A4B8CA0ADFC09B /* README.md */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = net.daringfireball.markdown;
@@ -690,6 +704,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMModelTests.m;
+			sourceTree = "<group>";
+		};
+		AE6D64430985BCA827E2F4AB /* ORMVerbalizer+Logic.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = "ORMVerbalizer+Logic.m";
 			sourceTree = "<group>";
 		};
 		B29454D488C4F49E273C15A0 /* Foundation.framework */ = {
@@ -979,6 +999,8 @@
 				ED06D502E8230F6A420BB42A /* ORMValueConstraintParser.m */,
 				071219F570E97BA187F746F3 /* ORMVerbalizer.h */,
 				21B6B9DE34EBEB762632E9D9 /* ORMVerbalizer.m */,
+				AE6D64430985BCA827E2F4AB /* ORMVerbalizer+Logic.m */,
+				45A607D7FCD62B2DFCB4BBA3 /* ORMVerbalizerPriv.h */,
 				FCC25EA0BD362F6F60008075 /* ORMXML.h */,
 				F53FDC458D4C24C2EF3FA8E7 /* ORMXML.m */,
 			);
@@ -1054,6 +1076,7 @@
 				2F553C563D3DEDFC11443F2F /* ORMCoreDataSync.h */,
 				7134F2EFEFA4B5DC0CFBCBAC /* ORMEditorPriv.h */,
 				7BC2CBB880964CE43801F057 /* ORMModelPriv.h */,
+				52926593566B956B1529EE14 /* ORMVerbalizerPriv.h */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1207,6 +1230,7 @@
 				B53D1B123CFD1B3F815ADEC3 /* ORMPath.m */,
 				CCEB180F554D61E3FCED2FE3 /* ORMLogic.m */,
 				DABC513E1B7D5FBCC6244EC3 /* ORMVerbalizer.m */,
+				DF8782A47B9F56621AD798B8 /* ORMVerbalizer+Logic.m */,
 				D1F446737203D998AA647CC2 /* ORMFactSentence.m */,
 				19B84640B4330970484A2980 /* ORMCDModel.m */,
 				22650405A38BFF36C9884760 /* ORMCoreDataMapping.m */,

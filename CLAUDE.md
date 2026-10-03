@@ -3,7 +3,8 @@
 Object-Role Modeling (ORM2) for GNUstep and Cocoa: a library (`ORMKit`) that
 reads, edits, verbalizes and maps NORMA's `.orm` files to Core Data, a tool
 (`Tools/ormtool`) and an editor (`ORMDesigner`). `docs/ARCHITECTURE.md` has
-the design and what is not done; `docs/COREDATA-MAPPING.md` the mapping.
+the design and what is not done; `docs/COREDATA-MAPPING.md` the mapping;
+`docs/VERBALIZATION.md` the FORML templates.
 
 ## The XML document is the model
 
