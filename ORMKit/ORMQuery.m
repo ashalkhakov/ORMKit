@@ -51,6 +51,9 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 @property (nonatomic, readwrite) BOOL isProjected;
 @property (nonatomic, readwrite, copy) NSString *comparison;
 @property (nonatomic, readwrite, copy) NSString *value;
+@property (nonatomic, readwrite, weak) ORMQueryNode *comparedNode;
+@property (nonatomic, copy) NSString *comparedNodeId;
+@property (nonatomic, readwrite, copy) NSString *label;
 @property (nonatomic, readwrite, copy) NSArray<ORMQueryStep *> *steps;
 @property (nonatomic, readwrite) BOOL combinesWithOr;
 @end
@@ -80,6 +83,11 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	ORMObjectType *type = self.objectType.kind == ORMValueType ? self.objectType
 	                                                           : self.objectType.referenceModeValueType;
 	return type.dataType.family == ORMDataTypeNumeric;
+}
+
+- (NSString *)designation
+{
+	return [NSString stringWithFormat:@"%@%@", self.objectType.name ?: @"?", self.label ?: @""];
 }
 
 @end
@@ -136,6 +144,20 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		return query;
 	}
 	query.root = [query nodeOf:rootElement type:type role:nil model:model];
+	/* What a condition compares with, now every node is read. */
+	NSArray *nodes = [query nodes];
+	for (ORMQueryNode *node in nodes) {
+		for (ORMQueryNode *other in node.comparedNodeId != nil ? nodes : @[]) {
+			if ([other.identifier isEqualToString:node.comparedNodeId]) {
+				node.comparedNode = other;
+			}
+		}
+		/* What it was compared with is gone: so is the condition. */
+		if (node.comparedNodeId != nil && node.comparedNode == nil) {
+			node.comparison = nil;
+			query.isComplete = NO;
+		}
+	}
 	return query;
 }
 
@@ -148,6 +170,8 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	node.isProjected = ORMBoolAttribute(element, @"Projected", NO);
 	node.comparison = ORMAttribute(element, @"Comparison");
 	node.value = ORMAttribute(element, @"Value");
+	node.comparedNodeId = ORMAttribute(element, @"CompareTo");
+	node.label = [ORMAttribute(element, @"Label") length] > 0 ? ORMAttribute(element, @"Label") : nil;
 	node.combinesWithOr = [ORMAttribute(element, @"Combine") isEqualToString:@"Or"];
 	NSMutableArray *steps = [NSMutableArray array];
 	for (NSXMLElement *stepElement in ORMChildren(element, Q, @"Step")) {
@@ -248,6 +272,19 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	}
 }
 
+- (ORMQueryNode *)firstOccurrenceOf:(ORMQueryNode *)node
+{
+	if (node.label == nil) {
+		return node;
+	}
+	for (ORMQueryNode *other in [self nodes]) {
+		if (other.objectType == node.objectType && [other.label isEqualToString:node.label]) {
+			return other;
+		}
+	}
+	return node;
+}
+
 - (NSArray<ORMQueryNode *> *)projectedNodes
 {
 	return [[self nodes] filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(ORMQueryNode *node,
@@ -299,6 +336,9 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	if (node.comparison == nil) {
 		return @"";
 	}
+	if (node.comparedNode != nil) {
+		return [NSString stringWithFormat:@" %@ %@", node.comparison, [node.comparedNode designation]];
+	}
 	NSString *value = node.value ?: @"";
 	if (![node isNumeric]) {
 		value = [NSString stringWithFormat:@"'%@'", value];
@@ -308,7 +348,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 
 - (NSString *)nodeText:(ORMQueryNode *)node
 {
-	return [NSString stringWithFormat:@"%@%@%@", node.isProjected ? @"✓" : @"", node.objectType.name ?: @"?",
+	return [NSString stringWithFormat:@"%@%@%@", node.isProjected ? @"✓" : @"", [node designation],
 	                                  [self conditionText:node]];
 }
 
@@ -339,7 +379,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		first = NO;
 		if (step.countComparison != nil && [step.nodes count] > 0) {
 			[out appendFormat:@"%@  + count(%@) for %@ %@ %lu\n", pad,
-			                  [[step.nodes firstObject] objectType].name, node.objectType.name, step.countComparison,
+			                  [[step.nodes firstObject] designation], [node designation], step.countComparison,
 			                  (unsigned long)step.countValue];
 		}
 		for (ORMQueryNode *child in step.nodes) {
@@ -361,9 +401,13 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	if (self.root == nil) {
 		return nil;
 	}
+	/* A variable for each node, but one for each label of an object type:
+	 * those nodes are the same object. */
 	NSMutableDictionary *variables = [NSMutableDictionary dictionary];
 	for (ORMQueryNode *node in [self nodes]) {
-		[variables setObject:[ORMVariable variableOf:node.objectType] forKey:node.identifier];
+		ORMQueryNode *first = [self firstOccurrenceOf:node];
+		ORMVariable *variable = [variables objectForKey:first.identifier] ?: [ORMVariable variableOf:node.objectType];
+		[variables setObject:variable forKey:node.identifier];
 	}
 	ORMFormula *formula = [self formulaOf:self.root variables:variables];
 	NSMutableArray *columns = [NSMutableArray array];
@@ -387,6 +431,11 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 {
 	if (node.comparison == nil) {
 		return nil;
+	}
+	if (node.comparedNode != nil) {
+		return [ORMFormula compare:node.comparison
+		                  operands:@[ [ORMTerm termWithVariable:[variables objectForKey:node.identifier]],
+		                              [ORMTerm termWithVariable:[variables objectForKey:node.comparedNode.identifier]] ]];
 	}
 	/* A value as FORML writes one: text quoted, numbers not. */
 	NSString *value = [node isNumeric] ? node.value ?: @"" : [NSString stringWithFormat:@"'%@'", node.value ?: @""];
@@ -631,8 +680,67 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	[_editor change:@"Set Query Condition" with:^{
 		ORMSetAttribute(node, @"Comparison", comparison);
 		ORMSetAttribute(node, @"Value", comparison != nil ? (value ?: @"") : nil);
+		ORMSetAttribute(node, @"CompareTo", nil);
 	}];
 	return YES;
+}
+
+/* The query element a node element is in. */
+- (NSXMLElement *)queryOfNode:(NSXMLElement *)node
+{
+	NSXMLNode *at = node;
+	while (at != nil && !(ORMIs(at, Q, @"Query"))) {
+		at = [at parent];
+	}
+	return (NSXMLElement *)at;
+}
+
+- (BOOL)setCondition:(NSString *)comparison
+              toNode:(NSString *)otherNodeId
+              ofNode:(NSString *)nodeId
+              reason:(NSString **)reason
+{
+	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
+	NSXMLElement *other = [self queryElement:otherNodeId named:@"Node"];
+	if (node == nil || other == nil || node == other || [self queryOfNode:node] != [self queryOfNode:other]) {
+		if (reason != NULL) {
+			*reason = @"A condition compares a node with another of the same query.";
+		}
+		return NO;
+	}
+	if (![ORMQueryComparisons() containsObject:comparison ?: @""]) {
+		if (reason != NULL) {
+			*reason = [NSString stringWithFormat:@"A condition compares with %@.",
+			                                     [ORMQueryComparisons() componentsJoinedByString:@", "]];
+		}
+		return NO;
+	}
+	ORMObjectType *type = [self typeOfQueryNode:node];
+	ORMObjectType *otherType = [self typeOfQueryNode:other];
+	if (type == nil || type != otherType) {
+		if (reason != NULL) {
+			*reason = [NSString stringWithFormat:@"%@ is compared with another %@.", type.name, type.name];
+		}
+		return NO;
+	}
+	[_editor change:@"Set Query Condition" with:^{
+		ORMSetAttribute(node, @"Comparison", comparison);
+		ORMSetAttribute(node, @"Value", nil);
+		ORMSetAttribute(node, @"CompareTo", otherNodeId);
+	}];
+	return YES;
+}
+
+- (void)setLabel:(NSString *)label ofNode:(NSString *)nodeId
+{
+	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
+	NSString *value = [label length] > 0 ? label : nil;
+	if (node == nil || [ORMAttribute(node, @"Label") ?: @"" isEqualToString:value ?: @""]) {
+		return;
+	}
+	[_editor change:@"Set Query Label" with:^{
+		ORMSetAttribute(node, @"Label", value);
+	}];
 }
 
 - (void)setCombinesWithOr:(BOOL)flag ofNode:(NSString *)nodeId

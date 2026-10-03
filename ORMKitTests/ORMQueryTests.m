@@ -9,6 +9,30 @@
 @interface ORMQueryTests : ORMTestCase
 @end
 
+/* An object as key-value coding sees it, equal only to itself: what a
+ * predicate walks, inverse relationships and all. */
+@interface ORMTestThing : NSObject
+@property (nonatomic, strong) NSMutableDictionary *values;
+@end
+
+@implementation ORMTestThing
+- (instancetype)init
+{
+	if ((self = [super init])) {
+		_values = [NSMutableDictionary dictionary];
+	}
+	return self;
+}
+- (id)valueForUndefinedKey:(NSString *)key
+{
+	return [self.values objectForKey:key];
+}
+- (void)setValue:(id)value forUndefinedKey:(NSString *)key
+{
+	[self.values setObject:value forKey:key];
+}
+@end
+
 @implementation ORMQueryTests
 {
 	ORMEditor *_editor;
@@ -123,6 +147,9 @@
 	[self fact:@"earns" players:@[ employee, salary ] reading:@"{0} earns {1}" inverse:@"{0} is earned by {1}"
 	    uniqueness:@"1!"];
 	[self fact:@"drives" players:@[ employee, car ] reading:@"{0} drives {1}" inverse:@"{0} is driven by {1}"
+	    uniqueness:@"*"];
+	/* Not in figure 1: ConQuer-II's Q5 asks it. */
+	[self fact:@"owns" players:@[ employee, car ] reading:@"{0} owns {1}" inverse:@"{0} is owned by {1}"
 	    uniqueness:@"*"];
 	[self fact:@"carColor" players:@[ car, color ] reading:@"{0} has {1}" inverse:nil uniqueness:@"*"];
 	[self fact:@"carModel" players:@[ car, model ] reading:@"{0} is of {1}" inverse:nil uniqueness:@"1!"];
@@ -353,6 +380,108 @@
 	XCTAssertEqualObjects([[fetch.columns lastObject] identifierKeyPath], @"employee.cars.regnr");
 }
 
+/* Q4: who supervises an employee who lives in the same city as the
+ * supervisor but was born in a different country? Subscripts say which
+ * occurrences are the same object, and a condition compares two. */
+- (void)testQ4Correlates
+{
+	NSString *q = [[self queries] addQueryNamed:@"Q4" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	[[self queries] setLabel:@"1" ofNode:root];
+	ORMQueryNode *city = [self from:root through:[self role:@"livesIn" at:0] in:q];
+	[[self queries] setLabel:@"1" ofNode:city.identifier];
+	ORMQueryNode *country = [self from:root through:[self role:@"bornIn" at:0] in:q];
+	[[self queries] setLabel:@"1" ofNode:country.identifier];
+	ORMQueryNode *supervised = [self from:root through:[self role:@"reportsTo" at:1] in:q];
+	[[self queries] setLabel:@"2" ofNode:supervised.identifier];
+	ORMQueryNode *theirCity = [self from:supervised.identifier through:[self role:@"livesIn" at:0] in:q];
+	[[self queries] setLabel:@"1" ofNode:theirCity.identifier];
+	ORMQueryNode *theirCountry = [self from:supervised.identifier through:[self role:@"bornIn" at:0] in:q];
+	[[self queries] setLabel:@"2" ofNode:theirCountry.identifier];
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setCondition:@"<>" toNode:country.identifier ofNode:theirCountry.identifier
+	                                    reason:&reason], @"%@", reason);
+	XCTAssertFalse([[self queries] setCondition:@"=" toNode:city.identifier ofNode:theirCountry.identifier
+	                                     reason:&reason]);
+
+	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee1\n"
+	                                                    @"  + lives in City1\n"
+	                                                    @"  + was born in Country1\n"
+	                                                    @"  + supervises Employee2\n"
+	                                                    @"    + lives in City1\n"
+	                                                    @"    + was born in Country2 <> Country1\n");
+	XCTAssertEqualObjects([self english:q],
+	                      @"List each Employee1 where Employee1 lives in some City and was born in some Country1 and "
+	                      @"supervises some Employee2 that lives in that City and Employee2 was born in some Country2 "
+	                      @"and Country2 is not Country1.");
+	/* The supervised employee's city and country, against the supervisor's:
+	 * a key path in the subquery is the fetched object's. */
+	ORMQueryFetch *fetch = [self fetch:q];
+	XCTAssertEqualObjects(fetch.predicateFormat, @"(city != nil) AND (country != nil) AND (SUBQUERY(employees, $x1, "
+	                                             @"($x1.city == city) AND ($x1.country != country)).@count > 0)");
+	NSDictionary *sydney = @{ @"name": @"Sydney" }, *perth = @{ @"name": @"Perth" };
+	NSDictionary *australia = @{ @"name": @"Australia" }, *uk = @{ @"name": @"UK" };
+	NSDictionary *migrant = @{ @"city": sydney, @"country": uk };
+	NSDictionary *local = @{ @"city": sydney, @"country": australia };
+	NSDictionary *away = @{ @"city": perth, @"country": uk };
+	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
+	BOOL holds1 = [predicate evaluateWithObject:@{ @"city": sydney, @"country": australia,
+	                                               @"employees": [NSSet setWithObjects:local, migrant, nil] }];
+	XCTAssertTrue(holds1);
+	BOOL holds2 = [predicate evaluateWithObject:@{ @"city": sydney, @"country": australia,
+	                                                @"employees": [NSSet setWithObjects:local, away, nil] }];
+	XCTAssertFalse(holds2);
+}
+
+/* Q5: who owns a car, and does not drive more than one of the cars they
+ * own? Car1, met through a to-many, is a set where it is met again. */
+- (void)testQ5CorrelatesWithASet
+{
+	NSString *q = [[self queries] addQueryNamed:@"Q5" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *owned = [self from:root through:[self role:@"owns" at:0] in:q];
+	[[self queries] setLabel:@"1" ofNode:owned.identifier];
+	NSString *notDrives = nil;
+	ORMQueryNode *driven = [[self from:root through:[self role:@"drives" at:0] in:q step:&notDrives] firstObject];
+	[[self queries] setLabel:@"1" ofNode:driven.identifier];
+	[[self queries] setOperator:ORMQueryNot ofStep:notDrives];
+	[[self queries] setCount:@">" value:1 ofStep:notDrives reason:NULL];
+	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee\n"
+	                                                    @"  + owns Car1\n"
+	                                                    @"  + not drives Car1\n"
+	                                                    @"    + count(Car1) for Employee > 1\n");
+	XCTAssertEqualObjects([self english:q], @"List each Employee where that Employee owns some Car and it is not "
+	                                        @"true that that Employee drives that Car and the number of that Car is "
+	                                        @"greater than 1.");
+	/* ConQuer-II's S5: the cars driven that are among those owned, found
+	 * from each car back to its owners. */
+	ORMQueryFetch *fetch = [self fetch:q];
+	XCTAssertEqualObjects(fetch.predicateFormat, @"(ownsCars.@count > 0) AND (NOT (SUBQUERY(cars, $x2, ANY "
+	                                             @"$x2.isOwnedByEmployees == SELF).@count > 1))");
+	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
+	ORMTestThing *(^employee)(NSArray *, NSArray *) = ^ORMTestThing *(NSArray *owned, NSArray *driven) {
+		ORMTestThing *person = [[ORMTestThing alloc] init];
+		[person setValue:[NSSet setWithArray:owned] forKey:@"ownsCars"];
+		[person setValue:[NSSet setWithArray:driven] forKey:@"cars"];
+		for (ORMTestThing *car in owned) {
+			[[car valueForKey:@"isOwnedByEmployees"] addObject:person];
+		}
+		return person;
+	};
+	ORMTestThing *(^car)(void) = ^ORMTestThing *(void) {
+		ORMTestThing *thing = [[ORMTestThing alloc] init];
+		[thing setValue:[NSMutableSet set] forKey:@"isOwnedByEmployees"];
+		return thing;
+	};
+	ORMTestThing *a = car(), *b = car(), *c = car();
+	/* Owns two and drives both: more than one. */
+	XCTAssertFalse([predicate evaluateWithObject:employee(@[ a, b ], @[ a, b ])]);
+	/* Drives two, one of them their own. */
+	XCTAssertTrue([predicate evaluateWithObject:employee(@[ c ], @[ c, a ])]);
+	/* Owns none. */
+	XCTAssertFalse([predicate evaluateWithObject:employee(@[], @[ a ])]);
+}
+
 /* Who speaks more than one language; who is above 100 and lives in a city
  * of Texas or speaks Latin. */
 - (void)testCountsAndAlternatives
@@ -389,8 +518,10 @@
 	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
 	NSDictionary *brisbane = @{ @"branches": [NSSet setWithObject:@{ @"nr": @52 }] };
 	NSDictionary *sydney = @{ @"branches": [NSSet setWithObject:@{ @"nr": @7 }] };
-	XCTAssertTrue([predicate evaluateWithObject:@{ @"city": brisbane }]);
-	XCTAssertFalse([predicate evaluateWithObject:@{ @"city": sydney }]);
+	BOOL holds5 = [predicate evaluateWithObject:@{ @"city": brisbane }];
+	XCTAssertTrue(holds5);
+	BOOL holds6 = [predicate evaluateWithObject:@{ @"city": sydney }];
+	XCTAssertFalse(holds6);
 }
 
 - (void)testAStepMustBeOneTheNodePlays

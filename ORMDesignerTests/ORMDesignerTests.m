@@ -284,6 +284,44 @@
 	               NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagShift);
 }
 
+/* Labels and node comparisons, as they are typed: "1" in Label, and
+ * "Warehouse1" as a condition's value, the node so labelled. */
+- (void)testAQueryCorrelatesAsTyped
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Warehouse"] identifier]];
+	NSString *root = queries.selectedId;
+	[[queries valueForKey:@"labelField"] setStringValue:@"1"];
+	[queries performSelector:@selector(labelChanged:) withObject:nil];
+	ORMRole *(^roleTo)(NSString *) = ^ORMRole *(NSString *name) {
+		for (ORMRole *role in [queries availableRoles]) {
+			for (ORMRole *other in role.factType.roles) {
+				if (other != role && [other.player.name isEqualToString:name]) {
+					return role;
+				}
+			}
+		}
+		return nil;
+	};
+	XCTAssertNotNil([queries addStepThrough:roleTo(@"Location")]);
+	ORMQueryNode *location = [[[[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject] nodes] firstObject];
+	[queries selectElement:location.identifier];
+	XCTAssertNotNil([queries addStepThrough:roleTo(@"Warehouse")]);
+	ORMQueryNode *again = [[[ORMQuery queryWithId:query inModel:editor.model] nodes] lastObject];
+	[queries selectElement:again.identifier];
+	[[queries valueForKey:@"comparisonPopUp"] selectItemWithTitle:@"="];
+	[[queries valueForKey:@"valueField"] setStringValue:@"Warehouse1"];
+	[queries performSelector:@selector(conditionChanged:) withObject:nil];
+
+	ORMQuery *built = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqualObjects([built.root designation], @"Warehouse1");
+	ORMQueryNode *last = [[built nodes] lastObject];
+	XCTAssertEqualObjects(last.comparedNode.identifier, root);
+	XCTAssertTrue([[built outlineText] rangeOfString:@"Warehouse = Warehouse1"].location != NSNotFound, @"%@", [built outlineText]);
+}
+
 - (void)testEveryMenuItemHasSomewhereToGo
 {
 	[self open:@"StockMate.orm"];

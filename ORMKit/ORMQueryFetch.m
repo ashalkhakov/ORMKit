@@ -54,6 +54,12 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	NSString *_predicateFormat;
 	/* The entity fetched: the root's, or the subtype's the root must be. */
 	ORMCDEntity *_fetched;
+	/* Each node reached: its expression where it was reached ("SELF",
+	 * "city", "$x1.city"), and its key path from the fetched object. */
+	NSMutableDictionary<NSString *, NSString *> *_expressions;
+	NSMutableDictionary<NSString *, NSString *> *_paths;
+	/* The subqueries' variables open where the translation is. */
+	NSMutableArray<NSString *> *_scope;
 }
 
 - (instancetype)initWithQuery:(ORMQuery *)query model:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping
@@ -69,6 +75,9 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		_coreData = coreData;
 		_notes = [NSMutableArray array];
 		_columns = [NSMutableArray array];
+		_expressions = [NSMutableDictionary dictionary];
+		_paths = [NSMutableDictionary dictionary];
+		_scope = [NSMutableArray array];
 		_bySource = [NSMutableDictionary dictionary];
 		for (ORMCDEntity *entity in coreData.entities) {
 			for (ORMCDProperty *property in [entity properties]) {
@@ -241,6 +250,111 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	[_columns addObject:column];
 }
 
+#pragma mark Correlating
+
+/* The node is where the translation stands: what later nodes compare with
+ * it, or are it, use. */
+- (void)reached:(ORMQueryNode *)node expression:(NSString *)expression path:(NSString *)path
+{
+	[_expressions setObject:expression forKey:node.identifier];
+	[_paths setObject:[path length] > 0 ? path : @"SELF" forKey:node.identifier];
+}
+
+- (BOOL)inScope:(NSString *)expression
+{
+	NSRegularExpression *variables = [NSRegularExpression regularExpressionWithPattern:@"\\$x[0-9]+" options:0
+	                                                                              error:NULL];
+	for (NSTextCheckingResult *match in [variables matchesInString:expression options:0
+	                                                         range:NSMakeRange(0, [expression length])]) {
+		if (![_scope containsObject:[expression substringWithRange:[match range]]]) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
+/* The expression compared with the node the query reached before: its own
+ * expression where that is still in scope; else the objects its key path
+ * reaches, which "=" asks the expression to be among. */
+- (NSString *)relate:(NSString *)expression comparison:(NSString *)comparison to:(ORMQueryNode *)other
+{
+	NSString *reference = [_expressions objectForKey:other.identifier];
+	NSString *operator = [ORMPredicateOperators() objectForKey:comparison ?: @""];
+	if (reference == nil || operator == nil) {
+		[self note:[NSString stringWithFormat:@"%@ is compared with %@ before the query reaches it.",
+		                                      expression, [other designation]]];
+		return nil;
+	}
+	if ([self inScope:reference]) {
+		return [NSString stringWithFormat:@"%@ %@ %@", expression, operator, reference];
+	}
+	NSString *path = [_paths objectForKey:other.identifier];
+	if (other.comparison != nil || [other.steps count] > 0) {
+		[self note:[NSString stringWithFormat:@"%@ is taken as any %@ the path reaches, not only those meeting its "
+		                                      @"conditions.",
+		                                      [other designation], other.objectType.name]];
+	}
+	/* Among the objects the path reaches: back from the expression along
+	 * the inverse relationships to the fetched object, which Core Data's
+	 * store says in SQL as it does not "IN" a to-many inside a subquery. */
+	NSString *among = [self back:expression along:path] ?: [NSString stringWithFormat:@"%@ IN %@", expression, path];
+	if ([comparison isEqualToString:@"="]) {
+		return among;
+	}
+	if ([comparison isEqualToString:@"<>"]) {
+		return [NSString stringWithFormat:@"NOT (%@)", among];
+	}
+	[self note:[NSString stringWithFormat:@"%@ %@ %@ compares with many: only = and <> can.", expression, comparison,
+	                                      [other designation]]];
+	return nil;
+}
+
+/* "ANY $x2.isOwnedByEmployees == SELF": the expression reached from the
+ * fetched object along the path, said as the fetched object reached back
+ * from it. nil unless the path is relationships, each with an inverse. */
+- (NSString *)back:(NSString *)expression along:(NSString *)path
+{
+	if ([path isEqualToString:@"SELF"]) {
+		return nil;
+	}
+	NSMutableArray *inverses = [NSMutableArray array];
+	ORMCDEntity *at = _fetched;
+	for (NSString *key in [path componentsSeparatedByString:@"."]) {
+		ORMCDRelationship *relationship = nil;
+		for (ORMCDEntity *e = at; e != nil && relationship == nil;
+		     e = e.parentName != nil ? [_coreData entityNamed:e.parentName] : nil) {
+			relationship = [e relationshipNamed:key];
+		}
+		if (relationship == nil || [relationship.inverseName length] == 0) {
+			return nil;
+		}
+		[inverses insertObject:relationship.inverseName atIndex:0];
+		at = [_coreData entityNamed:relationship.destination];
+	}
+	return [NSString stringWithFormat:@"ANY %@.%@ == SELF", expression, [inverses componentsJoinedByString:@"."]];
+}
+
+/* Being the same as an earlier node of its label, and the comparison with
+ * another node. */
+- (NSArray<NSString *> *)correlationsOf:(ORMQueryNode *)node expression:(NSString *)expression
+{
+	NSMutableArray *parts = [NSMutableArray array];
+	ORMQueryNode *first = [_query firstOccurrenceOf:node];
+	if (first != node) {
+		NSString *same = [self relate:expression comparison:@"=" to:first];
+		if (same != nil) {
+			[parts addObject:same];
+		}
+	}
+	if (node.comparedNode != nil) {
+		NSString *compared = [self relate:expression comparison:node.comparison to:node.comparedNode];
+		if (compared != nil) {
+			[parts addObject:compared];
+		}
+	}
+	return parts;
+}
+
 #pragma mark Translating
 
 - (void)translate
@@ -292,7 +406,11 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	if (columns) {
 		[self column:node keyPath:path identifier:identifier != nil ? [self keyPath:path adding:identifier.name] : nil];
 	}
-	if (node.comparison != nil) {
+	NSString *expression = [prefix length] > 0 ? [prefix substringToIndex:[prefix length] - 1] : @"SELF";
+	NSArray *correlations = [self correlationsOf:node expression:expression];
+	[self reached:node expression:expression path:path];
+	[parts addObjectsFromArray:correlations];
+	if (node.comparison != nil && node.comparedNode == nil) {
 		if (identifier != nil) {
 			NSString *condition = [self comparing:[prefix stringByAppendingString:identifier.name] node:node
 			                            attribute:identifier];
@@ -387,8 +505,14 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		if (step != nil && step.countComparison != nil) {
 			[self note:[NSString stringWithFormat:@"%@ is one attribute: it is not counted.", node.objectType.name]];
 		}
-		NSString *condition = node.comparison != nil ? [self comparing:key node:node attribute:attribute] : nil;
-		return condition ?: [NSString stringWithFormat:@"%@ != nil", key];
+		NSMutableArray *parts = [NSMutableArray arrayWithArray:[self correlationsOf:node expression:key]];
+		[self reached:node expression:key path:nodePath];
+		NSString *condition = node.comparison != nil && node.comparedNode == nil
+			? [self comparing:key node:node attribute:attribute] : nil;
+		if (condition != nil) {
+			[parts addObject:condition];
+		}
+		return ORMJoined(parts, @"AND") ?: [NSString stringWithFormat:@"%@ != nil", key];
 	}
 	ORMCDRelationship *relationship = (ORMCDRelationship *)property;
 	ORMCDEntity *destination = [_coreData entityNamed:relationship.destination];
@@ -404,9 +528,11 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		return inner ?: [NSString stringWithFormat:@"%@ != nil", key];
 	}
 	NSString *variable = [self nextVariable];
+	[_scope addObject:variable];
 	NSString *inner = [self predicateFor:node entity:destination prefix:[variable stringByAppendingString:@"."]
 	                                path:nodePath
 	                             columns:columns];
+	[_scope removeLastObject];
 	/* Nothing asked of them: how many there are. */
 	NSString *subquery = inner != nil ? [NSString stringWithFormat:@"SUBQUERY(%@, %@, %@)", key, variable, inner] : key;
 	return [self counted:subquery step:step];
@@ -447,6 +573,9 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	NSString *innerPrefix = variable != nil ? [variable stringByAppendingString:@"."]
 	                                        : [prefix stringByAppendingFormat:@"%@.", relationship.name];
 	NSString *factPath = [self keyPath:path adding:relationship.name];
+	if (variable != nil) {
+		[_scope addObject:variable];
+	}
 	NSMutableArray *parts = [NSMutableArray array];
 	for (ORMQueryNode *node in step.nodes) {
 		ORMCDProperty *rolePlace = [self propertyOf:factEntity source:node.role.identifier];
@@ -459,9 +588,12 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		NSString *part = [self binaryStep:nil node:node property:rolePlace prefix:innerPrefix path:factPath
 		                          columns:columns];
 		/* The role is played: a mandatory one says nothing more. */
-		if (part != nil && (node.comparison != nil || [node.steps count] > 0)) {
+		if (part != nil && (node.comparison != nil || [node.steps count] > 0 || node.label != nil)) {
 			[parts addObject:part];
 		}
+	}
+	if (variable != nil) {
+		[_scope removeLastObject];
 	}
 	NSString *inner = ORMJoined(parts, @"AND");
 	if (variable == nil) {

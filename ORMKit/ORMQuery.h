@@ -52,6 +52,14 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
  * typed (an entity's is its identifier's). nil for none. */
 @property (nonatomic, readonly, copy) NSString *comparison;
 @property (nonatomic, readonly, copy) NSString *value;
+/* A condition comparing it with another node instead of a value: "Country2
+ * <> Country1". */
+@property (nonatomic, readonly, weak) ORMQueryNode *comparedNode;
+/* ConQuer's subscript: nodes of one object type with the same label are the
+ * same object ("lives in City1 ... lives in City1"). nil for none. */
+@property (nonatomic, readonly, copy) NSString *label;
+/* Its name and label: "City1". */
+- (NSString *)designation;
 /* Its steps, each from it; alternatives when combinesWithOr. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryStep *> *steps;
 @property (nonatomic, readonly) BOOL combinesWithOr;
@@ -92,6 +100,10 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
  * not (a condition on the node compares its identifier). */
 + (NSArray<ORMRole *> *)rolesFrom:(ORMObjectType *)type;
 
+/* The node an occurrence is the same object as: the first of its object
+ * type and label, in outline order; the node itself when it is that one, or
+ * has no label. */
+- (ORMQueryNode *)firstOccurrenceOf:(ORMQueryNode *)node;
 /* Every node, depth first; the ticked ones. */
 - (NSArray<ORMQueryNode *> *)nodes;
 - (NSArray<ORMQueryNode *> *)projectedNodes;
@@ -124,6 +136,14 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
 - (void)setProjected:(BOOL)projected ofNode:(NSString *)nodeId;
 /* comparison nil clears the condition. */
 - (BOOL)setCondition:(NSString *)comparison value:(NSString *)value ofNode:(NSString *)nodeId reason:(NSString **)reason;
+/* A condition comparing the node with another of the query, of the same
+ * object type. */
+- (BOOL)setCondition:(NSString *)comparison
+              toNode:(NSString *)otherNodeId
+              ofNode:(NSString *)nodeId
+              reason:(NSString **)reason;
+/* nil or empty takes the label away. */
+- (void)setLabel:(NSString *)label ofNode:(NSString *)nodeId;
 - (void)setCombinesWithOr:(BOOL)flag ofNode:(NSString *)nodeId;
 - (void)setOperator:(ORMQueryOperator)operatorKind ofStep:(NSString *)stepId;
 /* comparison nil clears the count. */

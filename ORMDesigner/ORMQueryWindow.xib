@@ -19,6 +19,7 @@
                 <outlet property="operatorPopUp" destination="operatorPopUp" id="operatorPopUpOutlet9"/>
                 <outlet property="countComparisonPopUp" destination="countComparisonPopUp" id="countComparisonPopUpOutlet10"/>
                 <outlet property="countField" destination="countField" id="countFieldOutlet11"/>
+                <outlet property="labelField" destination="labelField" id="labelFieldOutlet"/>
                 <outlet property="removeStepButton" destination="removeStepButton" id="removeStepButtonOutlet12"/>
                 <outlet property="verbalizationView" destination="verbalizationText" id="verbalizationTextOutlet13"/>
                 <outlet property="fetchView" destination="fetchText" id="fetchTextOutlet14"/>
@@ -288,6 +289,27 @@
                             <action selector="alternativesChanged:" target="-2" id="alternativesCheckAction"/>
                         </connections>
                     </button>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="labelLabel">
+                        <rect key="frame" x="612" y="258" width="40" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Label:" id="labelLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField verticalHuggingPriority="750" id="labelField">
+                        <rect key="frame" x="654" y="256" width="50" height="22"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="1" drawsBackground="YES" id="labelFieldCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <action selector="labelChanged:" target="-2" id="labelFieldAction"/>
+                        </connections>
+                    </textField>
                     <textField focusRingType="none" verticalHuggingPriority="750" id="stepLabel">
                         <rect key="frame" x="12" y="228" width="40" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>

@@ -20,6 +20,7 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSPopUpButton *operatorPopUp;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *countComparisonPopUp;
 @property (nonatomic, strong) IBOutlet NSTextField *countField;
+@property (nonatomic, strong) IBOutlet NSTextField *labelField;
 @property (nonatomic, strong) IBOutlet NSButton *removeStepButton;
 @property (nonatomic, strong) IBOutlet NSTextView *verbalizationView;
 @property (nonatomic, strong) IBOutlet NSTextView *fetchView;
@@ -28,6 +29,10 @@ ORMComparisonTitles(void)
 
 @implementation ORMQueryController
 {
+	/* The projection the query and its nodes were read from: theirs and the
+	 * roles' links to one another are weak, so it is held until the next is
+	 * read. */
+	ORMModel *_model;
 	ORMQuery *_query;
 	/* Node and step ids -> what they are in the query as now read. */
 	NSMutableDictionary<NSString *, id> *_items;
@@ -82,6 +87,7 @@ ORMComparisonTitles(void)
 - (void)modelDidChange
 {
 	ORMModel *model = self.editor.model;
+	_model = model;
 	NSArray *queries = [ORMQuery queriesInModel:model];
 	if (self.queryId != nil && [ORMQuery queryWithId:self.queryId inModel:model] == nil) {
 		self.queryId = nil;
@@ -219,7 +225,7 @@ ORMComparisonTitles(void)
 {
 	ORMQueryNode *node = [self selectedNode];
 	ORMQueryStep *step = [self selectedStep];
-	for (NSControl *control in @[ _listCheck, _comparisonPopUp, _valueField, _alternativesCheck ]) {
+	for (NSControl *control in @[ _listCheck, _comparisonPopUp, _valueField, _alternativesCheck, _labelField ]) {
 		[control setEnabled:node != nil];
 	}
 	for (NSControl *control in @[ _operatorPopUp, _countComparisonPopUp, _countField, _removeStepButton ]) {
@@ -228,7 +234,9 @@ ORMComparisonTitles(void)
 	[_listCheck setState:node.isProjected ? NSControlStateValueOn : NSControlStateValueOff];
 	NSUInteger comparison = node.comparison != nil ? [ORMComparisonTitles() indexOfObject:node.comparison] : 0;
 	[_comparisonPopUp selectItemAtIndex:comparison != NSNotFound ? (NSInteger)comparison : 0];
-	[_valueField setStringValue:node.value ?: @""];
+	/* Compared with another node: its designation, as it is typed. */
+	[_valueField setStringValue:node.comparedNode != nil ? [node.comparedNode designation] : node.value ?: @""];
+	[_labelField setStringValue:node.label ?: @""];
 	[_alternativesCheck setState:node.combinesWithOr ? NSControlStateValueOn : NSControlStateValueOff];
 	[_operatorPopUp selectItemAtIndex:step != nil ? step.operatorKind : 0];
 	NSUInteger count = step.countComparison != nil ? [ORMComparisonTitles() indexOfObject:step.countComparison] : 0;
@@ -354,16 +362,40 @@ ORMComparisonTitles(void)
 	NSInteger index = [_comparisonPopUp indexOfSelectedItem];
 	NSString *comparison = index > 0 ? [ORMComparisonTitles() objectAtIndex:(NSUInteger)index] : nil;
 	NSString *value = [_valueField stringValue];
-	if ([comparison isEqualToString:node.comparison ?: @""] && [value isEqualToString:node.value ?: @""]) {
+	NSString *was = node.comparedNode != nil ? [node.comparedNode designation] : node.value ?: @"";
+	if ([comparison isEqualToString:node.comparison ?: @""] && [value isEqualToString:was]) {
 		return;
 	}
 	if (comparison == nil && node.comparison == nil) {
 		return;
 	}
+	/* "Country1": another node of the query, of the same object type and
+	 * with a label, rather than a value. */
+	ORMQueryNode *other = nil;
+	for (ORMQueryNode *candidate in comparison != nil ? [_query nodes] : @[]) {
+		if (candidate != node && candidate.label != nil && candidate.objectType == node.objectType
+		    && [[candidate designation] isEqualToString:value]) {
+			other = candidate;
+		}
+	}
 	NSString *reason = nil;
-	if (![[self queries] setCondition:comparison value:value ofNode:node.identifier reason:&reason]) {
+	BOOL done = other != nil ? [[self queries] setCondition:comparison toNode:other.identifier ofNode:node.identifier
+	                                                 reason:&reason]
+	                         : [[self queries] setCondition:comparison value:value ofNode:node.identifier reason:&reason];
+	if (!done) {
 		NSBeep();
 		[self say:reason];
+	}
+}
+
+- (void)labelChanged:(id)sender
+{
+	(void)sender;
+	ORMQueryNode *node = [self selectedNode];
+	if (node != nil) {
+		[[self queries] setLabel:[[_labelField stringValue]
+		                             stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]
+		                  ofNode:node.identifier];
 	}
 }
 
@@ -448,8 +480,10 @@ ORMComparisonTitles(void)
 - (NSString *)textOfNode:(ORMQueryNode *)node
 {
 	NSMutableString *text = [NSMutableString stringWithFormat:@"%@%@", node.isProjected ? @"✓ " : @"",
-	                                                          node.objectType.name ?: @"?"];
-	if (node.comparison != nil) {
+	                                                          [node designation]];
+	if (node.comparedNode != nil) {
+		[text appendFormat:@" %@ %@", node.comparison, [node.comparedNode designation]];
+	} else if (node.comparison != nil) {
 		[text appendFormat:@" %@ %@", node.comparison,
 		                   [node isNumeric] ? node.value : [NSString stringWithFormat:@"'%@'", node.value ?: @""]];
 	}

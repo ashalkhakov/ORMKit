@@ -35,11 +35,61 @@ identified (a name, a state, a country).
 | `+ count(X) for Y > n` | how many X each Y has, compared |
 | `+ or ...` | the node's steps are alternatives, not all required |
 | `+ is Professor` | a subtype link, from the supertype or from the subtype |
+| `City1` | a label: nodes of one object type with the same label are the same object |
+| `Country2 <> Country1` | a condition comparing two nodes of the same object type |
 
 A step reads from the role it enters by: "is location of" is the inverse
 reading of "Branch is located in City". When a fact type has no reading that
 starts with that role, the step uses another reading, with "that X" in
 place of the role.
+
+## Correlation
+
+ConQuer-II correlates by subscript. In the paper's Q4, "who supervises an
+employee who lives in the same city as the supervisor but was born in a
+different country?":
+
+```
+✓Employee1
+  + lives in City1
+  + was born in Country1
+  + supervises Employee2
+    + lives in City1
+    + was born in Country2 <> Country1
+```
+
+Both occurrences of City1 are one city. Country2 is compared with Country1.
+In the logic, a label makes the nodes one variable. In a fetch request,
+the later occurrence is compared with the earlier one. Inside a `SUBQUERY`,
+a bare key path is the fetched object's, and `$x1` the member:
+
+```
+(city != nil) AND (country != nil)
+AND (SUBQUERY(employees, $x1, ($x1.city == city) AND ($x1.country != country)).@count > 0)
+```
+
+When the earlier occurrence is out of scope (it is the member of a subquery
+already closed), the later one must be among the objects that node's key
+path reaches. Core Data's SQLite store does not translate `$x IN
+ownsCars` inside a subquery correctly. So the condition is said the other
+way round: from the member back along the inverse relationships to the
+fetched object. Q5, "who owns a car, and does not drive more than one of
+those cars?":
+
+```
+✓Employee
+  + owns Car1
+  + not drives Car1
+    + count(Car1) for Employee > 1
+
+(ownsCars.@count > 0)
+AND (NOT (SUBQUERY(cars, $x2, ANY $x2.isOwnedByEmployees == SELF).@count > 1))
+```
+
+Q4 and Q5 were checked against Core Data's SQLite store on macOS. On GNUstep,
+the in-memory evaluation of a subquery's bare key paths is the fetched
+object's only with gnustep-patches' `predicate-subquery` as revised on
+2026-10-03. Before that revision, GNUstep evaluated them against the member.
 
 ## FORML
 
@@ -68,6 +118,9 @@ COREDATA-MAPPING.md, "Traces"):
 | maybe | nothing |
 | count(X) > n | `cars.@count > 1`, or `SUBQUERY(...).@count > 1` |
 | a condition on an entity | on its identifier: `city.branches.nr`, `code == "UQ"` |
+| a label met again, in scope | `$x1.city == city` |
+| a label met again, out of scope | `ANY $x2.isOwnedByEmployees == SELF` |
+| a node compared with another | `$x1.country != country` |
 
 Fetching the subtype matters. A store fetching Academic has none of
 Professor's properties, so `chair.name == "Informatics"` is only valid on a
@@ -136,8 +189,9 @@ in ConQuer's ActiveQuery:
 - double-clicking one adds the step.
 
 Under the outline:
-- the selected object type: whether it is listed, its condition, and whether
-  its steps are alternatives;
+- the selected object type: whether it is listed, its condition, its label,
+  and whether its steps are alternatives. A condition's value that names
+  another labelled node of the same type ("Country1") compares the two;
 - the selected step: and, not or maybe, and its count.
 
 The FORML and the Core Data fetch request (from the document's first
@@ -145,9 +199,11 @@ mapping, or the defaults) follow every change. Changes undo with the model.
 
 ## Not done yet
 
-- **Correlation:** ConQuer-II's Q4 and Q5 (`lives in City1 ... lives in
-  City1`, `Country2 <> Country1`, `count(Car1)`) refer back to an object
-  already in the query. The outline has no labels for that yet.
+- **Correlation beyond relationships:** a label met again out of scope,
+  where the earlier occurrence ends in an attribute, is said as `IN` (which
+  Core Data's SQLite store may not translate). The same goes for a label
+  whose earlier occurrence had conditions of its own: any object its path
+  reaches is taken, not only those meeting them. Both cases are noted.
 - **Joins through an absorbed object type:** with City absorbed into Employee
   and Branch, Q1 joins on City's parts, which are attributes of two entities
   that no relationship connects. A predicate cannot say that. It takes a
