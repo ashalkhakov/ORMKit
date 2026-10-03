@@ -78,6 +78,8 @@ jobs:
           cmp "$sample" /tmp/normalized.orm
           test -s /tmp/stockmate.txt
           DYLD_FRAMEWORK_PATH="$built" "$built/ormtool" coredata "$sample" /tmp/StockMate.xcdatamodeld
+          DYLD_FRAMEWORK_PATH="$built" "$built/ormtool" svg "$sample" /tmp/diagrams/
+          xmllint --noout /tmp/diagrams/*.svg
           xcrun momc /tmp/StockMate.xcdatamodeld /tmp/StockMate.momd
 
       # Unsigned: signing needs the Developer ID secrets and belongs to a
@@ -256,6 +258,8 @@ jobs:
           cmp "$sample" /tmp/normalized.orm
           timeout 120 "$tool" coredata "$sample" /tmp/StockMate.xcdatamodeld
           test -s /tmp/StockMate.xcdatamodeld/StockMate.xcdatamodel/contents
+          timeout 120 "$tool" svg "$sample" /tmp/diagrams/
+          test -s /tmp/diagrams/Products.svg
 
       # Packaged on every commit, unstable ones included, so there is always a
       # build to hand someone. Signed releases are release.yml's job; these are

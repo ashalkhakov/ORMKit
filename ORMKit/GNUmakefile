@@ -14,6 +14,8 @@ ORMKit_HEADER_FILES = \
   ORMXML.h \
   ORMModel.h \
   ORMDiagram.h \
+  ORMDiagramPainter.h \
+  ORMSVGSurface.h \
   ORMReadingText.h \
   ORMValueConstraintParser.h \
   ORMEditor.h \
@@ -29,6 +31,8 @@ ORMKit_OBJC_FILES = \
   ORMXML.m \
   ORMModel.m \
   ORMDiagram.m \
+  ORMDiagramPainter.m \
+  ORMSVGSurface.m \
   ORMReadingText.m \
   ORMValueConstraintParser.m \
   ORMEditor.m \

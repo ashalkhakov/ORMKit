@@ -84,7 +84,11 @@ ormtool check model.orm
 ormtool verbalize [--html] model.orm
 ormtool normalize model.orm out.orm
 ormtool coredata model.orm Out.xcdatamodeld [mapping name]
+ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]
 ```
+
+`svg` draws a diagram as the editor does: the first (or the named one) to
+standard output or a file, or every diagram into a directory, a file each.
 
 ## License
 

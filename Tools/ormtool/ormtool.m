@@ -13,7 +13,11 @@
  *   ormtool check model.orm                  what the model holds, and whether it reads
  *   ormtool normalize model.orm [out.orm]    NORMA's derived data brought up to date
  *   ormtool coredata model.orm Out.xcdatamodeld [mapping name]
- *                                            the model mapped to Core Data, with the mapping's report */
+ *                                            the model mapped to Core Data, with the mapping's report
+ *   ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]
+ *                                            a diagram as SVG: the first (or the named) to standard
+ *                                            output or the file; every one (or the named) into a
+ *                                            directory, one file a diagram */
 
 static void
 ORMPrint(NSString *text)
@@ -27,7 +31,8 @@ ORMUsage(void)
 	fputs("usage: ormtool verbalize [--html] model.orm\n"
 	      "       ormtool check model.orm\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
-	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n", stderr);
+	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n"
+	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n", stderr);
 	return 2;
 }
 
@@ -63,6 +68,8 @@ main(int argc, const char *argv[])
 		NSString *command = [args objectAtIndex:0];
 		BOOL html = [args containsObject:@"--html"];
 		[args removeObject:@"--html"];
+		BOOL dark = [args containsObject:@"--dark"];
+		[args removeObject:@"--dark"];
 		ORMEditor *editor = ORMOpen([args objectAtIndex:1]);
 		if (editor == nil) {
 			return 1;
@@ -117,6 +124,46 @@ main(int argc, const char *argv[])
 				NSString *kind = note.kind == ORMMappingAbsorbed ? @"absorbed"
 					: note.kind == ORMMappingUnenforced ? @"unenforced" : @"note";
 				ORMPrint([NSString stringWithFormat:@"%@: %@\n", kind, note.text]);
+			}
+			return 0;
+		}
+		if ([command isEqualToString:@"svg"]) {
+			NSString *out = [args count] > 2 ? [args objectAtIndex:2] : nil;
+			NSString *named = [args count] > 3 ? [args objectAtIndex:3] : nil;
+			BOOL isDirectory = NO;
+			BOOL toDirectory = [out hasSuffix:@"/"]
+				|| ([[NSFileManager defaultManager] fileExistsAtPath:out ?: @"" isDirectory:&isDirectory] && isDirectory);
+			NSMutableArray *diagrams = [NSMutableArray array];
+			for (ORMDiagram *diagram in model.diagrams) {
+				if (named == nil || [diagram.name isEqualToString:named]) {
+					[diagrams addObject:diagram];
+				}
+			}
+			if ([diagrams count] == 0) {
+				fprintf(stderr, "ormtool: %s\n", named != nil ? [[NSString stringWithFormat:@"no diagram named %@", named] UTF8String]
+				                                                 : "the model has no diagrams");
+				return 1;
+			}
+			if (!toDirectory) {
+				NSString *svg = ORMSVGOfDiagram([diagrams firstObject], dark);
+				if (out == nil || [out isEqualToString:@"-"]) {
+					ORMPrint(svg);
+					return 0;
+				}
+				return [svg writeToFile:out atomically:YES encoding:NSUTF8StringEncoding error:NULL] ? 0 : 1;
+			}
+			[[NSFileManager defaultManager] createDirectoryAtPath:out withIntermediateDirectories:YES attributes:nil
+			                                                error:NULL];
+			for (ORMDiagram *diagram in diagrams) {
+				NSString *name = [[diagram.name ?: @"Diagram" stringByReplacingOccurrencesOfString:@"/" withString:@"-"]
+					stringByAppendingPathExtension:@"svg"];
+				NSString *path = [out stringByAppendingPathComponent:name];
+				if (![ORMSVGOfDiagram(diagram, dark) writeToFile:path atomically:YES encoding:NSUTF8StringEncoding
+				                                           error:NULL]) {
+					fprintf(stderr, "ormtool: cannot write %s\n", [path UTF8String]);
+					return 1;
+				}
+				ORMPrint([path stringByAppendingString:@"\n"]);
 			}
 			return 0;
 		}

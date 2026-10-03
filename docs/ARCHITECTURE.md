@@ -63,6 +63,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | --- | --- |
 | `ORMXML` | namespaces, element helpers, ids (`_` + GUID), inches to points, NORMA's serialization |
 | `ORMModel`, `ORMDiagram` | the projection |
+| `ORMDiagramPainter` | ORM2 notation and its geometry, drawn onto any `ORMDrawingSurface`: the editor's AppKit view, `ORMSVGSurface` |
 | `ORMEditor` (+ `Objects`, `Facts`, `Constraints`, `Diagram`) | every change, and normalization |
 | `ORMReadingText` | readings taken apart: placeholders, front text, hyphen-bound text |
 | `ORMValueConstraintParser` | `{'M', 'F'}`, `[0..100)`, `{18..}` |

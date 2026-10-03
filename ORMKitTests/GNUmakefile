@@ -14,6 +14,7 @@ ORMKitTests_OBJC_FILES = \
   ORMTextTests.m \
   ORMEditorTests.m \
   ORMLogicTests.m \
+  ORMSVGTests.m \
   ORMVerbalizerTests.m \
   ORMCoreDataTests.m
 ORMKitTests_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
