@@ -60,6 +60,49 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 	return YES;
 }
 
+- (void)dealloc
+{
+	[[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+/* As wide as the clip view shows, whatever the column's width and however
+ * wide the scroller: a clip view does not resize its document view. */
+- (void)viewDidMoveToSuperview
+{
+	[super viewDidMoveToSuperview];
+	[[NSNotificationCenter defaultCenter] removeObserver:self name:NSViewFrameDidChangeNotification object:nil];
+	NSView *superview = [self superview];
+	if (superview == nil) {
+		return;
+	}
+	[superview setPostsFrameChangedNotifications:YES];
+	[[NSNotificationCenter defaultCenter] addObserver:self
+	                                         selector:@selector(superviewFrameDidChange:)
+	                                             name:NSViewFrameDidChangeNotification
+	                                           object:superview];
+	[self fitWidth];
+}
+
+- (void)superviewFrameDidChange:(NSNotification *)notification
+{
+	(void)notification;
+	[self fitWidth];
+}
+
+- (void)fitWidth
+{
+	NSView *superview = [self superview];
+	if (superview == nil) {
+		return;
+	}
+	NSSize size = [self frame].size;
+	size.width = NSWidth([superview bounds]);
+	size.height = MAX(size.height, NSHeight([superview bounds]));
+	if (!NSEqualSizes(size, [self frame].size)) {
+		[self setFrameSize:size];
+	}
+}
+
 - (void)setElementId:(NSString *)elementId
 {
 	_elementId = [elementId copy];
