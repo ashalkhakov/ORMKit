@@ -1,0 +1,35 @@
+* MiniNotes — ORM2 conceptual schema
+* Object-Role Model (ORM2).
+
+Object types
+------------
+Application is an entity type.
+Notebook(.id) is an entity type.
+Note(.id) is an entity type.
+Window is an entity type.
+Title is a value type.
+Body is a value type.
+Instant is a value type.
+NoteId is a value type. Value constraint: {UUID string}.
+Tag is a value type. Value constraint: {1..32 chars}.
+
+Fact types
+----------
+Application is editing Notebook. Each Application plays that role at most once.
+Notebook contains Note. Each Note plays that role at most once. Each Note plays that role at least once.
+Note has Title. Each Note plays that role at most once. Each Note plays that role at least once.
+Note has Body. Each Note plays that role at most once. Each Note plays that role at least once.
+Note was created at Instant. Each Note plays that role at most once. Each Note plays that role at least once.
+Note was modified at Instant. Each Note plays that role at most once. Each Note plays that role at least once.
+Window displays Notebook. Each Window plays that role at most once. Each Notebook plays that role {0..4} time(s).
+Notebook has selected NoteId. Each Notebook plays that role at most once.
+Note is tagged with Tag. Each combination of role-players occurs at most once. Each Note plays that role {0..8} time(s).
+Note is archived. Each Note plays that role at most once.
+Note is pinned. Each Note plays that role at most once.
+Note references Note. Each combination of role-players occurs at most once. The predicate is ir.
+
+Constraints
+-----------
+The populations of archived and pinned are mutually exclusive.
+Each combination of Notebook (contains) and Title occurs at most once (external uniqueness).
+The population of Notebook via displays is a subset of Notebook via is editing.

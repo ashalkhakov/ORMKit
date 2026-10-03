@@ -1,0 +1,729 @@
+/* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
+#import "ORMWindowController.h"
+#import "ORMCoreDataController.h"
+#import "ORMDocument.h"
+
+static const double ORMToolbarHeight = 34;
+static const double ORMStatusHeight = 22;
+static const double ORMFactBarHeight = 30;
+
+@implementation ORMWindowController
+{
+	__weak ORMDocument *_document;
+	NSSplitView *_columns;
+	NSSplitView *_middle;
+	NSMutableArray<NSButton *> *_toolButtons;
+	ORMCoreDataController *_coreData;
+	/* What the verbalization shows when nothing is selected: the model, or
+	 * nothing. */
+	BOOL _verbalizesModel;
+}
+
+- (instancetype)initWithDocument:(ORMDocument *)document
+{
+	NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(80, 80, 1280, 820)
+	                                               styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
+	                                                         | NSWindowStyleMaskMiniaturizable
+	                                                         | NSWindowStyleMaskResizable
+	                                                 backing:NSBackingStoreBuffered
+	                                                   defer:YES];
+	[window setMinSize:NSMakeSize(760, 480)];
+	if ((self = [super initWithWindow:window])) {
+		_document = document;
+		_toolButtons = [NSMutableArray array];
+		[window setReleasedWhenClosed:NO];
+		[self buildWindow];
+		[self editorDidChange];
+	}
+	return self;
+}
+
+#pragma mark Building
+
+- (NSButton *)button:(NSString *)title action:(SEL)action frame:(NSRect)frame
+{
+	NSButton *button = [[NSButton alloc] initWithFrame:frame];
+	[button setTitle:title];
+	[button setBezelStyle:NSBezelStyleRounded];
+	[button setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	[button setTarget:self];
+	[button setAction:action];
+	return button;
+}
+
+- (NSTextField *)label:(NSString *)text frame:(NSRect)frame
+{
+	NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
+	[label setStringValue:text];
+	[label setEditable:NO];
+	[label setBordered:NO];
+	[label setBezeled:NO];
+	[label setDrawsBackground:NO];
+	[label setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	return label;
+}
+
+- (void)buildToolbar:(NSView *)content
+{
+	NSRect bounds = [content bounds];
+	NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(0, NSHeight(bounds) - ORMToolbarHeight, NSWidth(bounds),
+	                                                       ORMToolbarHeight)];
+	[bar setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+	NSArray *tools = @[ @[ @"Select", @(ORMToolPointer) ], @[ @"Entity", @(ORMToolEntityType) ],
+	                    @[ @"Value", @(ORMToolValueType) ], @[ @"Fact", @(ORMToolFactType) ],
+	                    @[ @"Subtype", @(ORMToolSubtype) ], @[ @"Role →", @(ORMToolConnectRole) ],
+	                    @[ @"Unique", @(ORMToolUniqueness) ], @[ @"Or", @(ORMToolInclusiveOr) ],
+	                    @[ @"Excl", @(ORMToolExclusion) ], @[ @"Xor", @(ORMToolExclusiveOr) ],
+	                    @[ @"⊆", @(ORMToolSubset) ], @[ @"=", @(ORMToolEquality) ],
+	                    @[ @"Freq", @(ORMToolFrequency) ], @[ @"Ring", @(ORMToolRing) ], @[ @"Note", @(ORMToolNote) ] ];
+	double x = 6;
+	for (NSArray *tool in tools) {
+		NSString *title = [tool objectAtIndex:0];
+		/* The rounded bezel takes about 14 points a side. */
+		double width = MAX(36, ceil([title sizeWithAttributes:@{ NSFontAttributeName: [NSFont systemFontOfSize:[NSFont smallSystemFontSize]] }].width) + 30);
+		NSButton *button = [self button:title action:@selector(toolClicked:) frame:NSMakeRect(x, 4, width, 26)];
+		[button setButtonType:NSButtonTypePushOnPushOff];
+		[button setTag:[[tool objectAtIndex:1] integerValue]];
+		[bar addSubview:button];
+		[_toolButtons addObject:button];
+		x += width + 2;
+	}
+	NSButton *zoomIn = [self button:@"+" action:@selector(zoomCanvasIn:) frame:NSMakeRect(NSWidth(bounds) - 36, 4, 30, 26)];
+	NSButton *zoomOut = [self button:@"−" action:@selector(zoomCanvasOut:) frame:NSMakeRect(NSWidth(bounds) - 68, 4, 30, 26)];
+	[zoomIn setAutoresizingMask:NSViewMinXMargin];
+	[zoomOut setAutoresizingMask:NSViewMinXMargin];
+	[bar addSubview:zoomIn];
+	[bar addSubview:zoomOut];
+	_diagramPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(NSWidth(bounds) - 260, 5, 186, 24) pullsDown:NO];
+	[_diagramPopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	[_diagramPopup setAutoresizingMask:NSViewMinXMargin];
+	[_diagramPopup setTarget:self];
+	[_diagramPopup setAction:@selector(chooseDiagram:)];
+	[bar addSubview:_diagramPopup];
+	[content addSubview:bar];
+}
+
+- (NSScrollView *)scrollViewWithFrame:(NSRect)frame document:(NSView *)view
+{
+	NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:frame];
+	[scroll setHasVerticalScroller:YES];
+	[scroll setHasHorizontalScroller:YES];
+#if defined(__APPLE__)
+	/* gnustep-gui recurses without end tiling a scroll view that autohides
+	 * its scrollers around a view that resizes with it: NSScrollView -tile
+	 * resizes the clip view, which resizes the document view, which
+	 * reflects back into -tile. */
+	[scroll setAutohidesScrollers:YES];
+#endif
+	[scroll setBorderType:NSNoBorder];
+	[scroll setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[scroll setDocumentView:view];
+	return scroll;
+}
+
+- (void)buildWindow
+{
+	NSView *content = [[self window] contentView];
+	NSRect bounds = [content bounds];
+	[self buildToolbar:content];
+
+	_status = [self label:@"" frame:NSMakeRect(8, 3, NSWidth(bounds) - 16, 16)];
+	[_status setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+	[content addSubview:_status];
+
+	NSRect area = NSMakeRect(0, ORMStatusHeight, NSWidth(bounds), NSHeight(bounds) - ORMStatusHeight - ORMToolbarHeight);
+	_columns = [[NSSplitView alloc] initWithFrame:area];
+	[_columns setVertical:YES];
+	[_columns setDividerStyle:NSSplitViewDividerStyleThin];
+	[_columns setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[_columns setDelegate:self];
+
+	/* The browser. */
+	NSOutlineView *outline = [[NSOutlineView alloc] initWithFrame:NSMakeRect(0, 0, 220, 400)];
+	NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"name"];
+	[column setWidth:200];
+	[[column headerCell] setStringValue:@"Model"];
+	[outline addTableColumn:column];
+	[outline setOutlineTableColumn:column];
+	[outline setHeaderView:nil];
+	[outline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	_browser = [[ORMModelBrowser alloc] initWithOutlineView:outline];
+	_browser.delegate = self;
+	NSScrollView *left = [self scrollViewWithFrame:NSMakeRect(0, 0, 220, NSHeight(area)) document:outline];
+	[left setHasHorizontalScroller:NO];
+
+	/* The diagram, the fact editor and the verbalization. */
+	NSView *center = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth(area) - 520, NSHeight(area))];
+	_middle = [[NSSplitView alloc] initWithFrame:[center bounds]];
+	[_middle setVertical:NO];
+	[_middle setDividerStyle:NSSplitViewDividerStyleThin];
+	[_middle setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[_middle setDelegate:self];
+	_canvas = [[ORMCanvasView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)];
+	_canvas.delegate = self;
+	NSScrollView *canvasScroll = [self scrollViewWithFrame:NSMakeRect(0, 0, NSWidth([center bounds]), 420) document:_canvas];
+	[canvasScroll setBackgroundColor:ORMPaperColor()];
+	NSView *lower = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth([center bounds]), 200)];
+	NSView *factBar = [[NSView alloc] initWithFrame:NSMakeRect(0, 200 - ORMFactBarHeight, NSWidth([lower bounds]),
+	                                                           ORMFactBarHeight)];
+	[factBar setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+	[factBar addSubview:[self label:@"Fact:" frame:NSMakeRect(6, 7, 34, 16)]];
+	_factEditor = [[NSTextField alloc] initWithFrame:NSMakeRect(42, 4, NSWidth([factBar bounds]) - 110, 22)];
+	[_factEditor setAutoresizingMask:NSViewWidthSizable];
+	[_factEditor setFont:[NSFont systemFontOfSize:12]];
+	[[_factEditor cell] setPlaceholderString:@"Person(.id) was born in Country(.code)"];
+	[_factEditor setTarget:self];
+	[_factEditor setAction:@selector(factEditorReturn:)];
+	[factBar addSubview:_factEditor];
+	NSButton *add = [self button:@"Add" action:@selector(factEditorReturn:)
+	                       frame:NSMakeRect(NSWidth([factBar bounds]) - 64, 3, 58, 24)];
+	[add setAutoresizingMask:NSViewMinXMargin];
+	[factBar addSubview:add];
+	[lower addSubview:factBar];
+	_verbalization = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth([lower bounds]), 200 - ORMFactBarHeight)];
+	[_verbalization setEditable:NO];
+	[_verbalization setSelectable:YES];
+	[_verbalization setRichText:YES];
+	[_verbalization setDelegate:self];
+	[_verbalization setAutoresizingMask:NSViewWidthSizable];
+	[_verbalization setTextContainerInset:NSMakeSize(6, 6)];
+	/* Colours set outright: a text view left to choose draws black on
+	 * black under some gnustep-gui themes. */
+	[_verbalization setBackgroundColor:ORMPaperColor()];
+	[_verbalization setTextColor:ORMInkColor()];
+	NSScrollView *verbalScroll = [self scrollViewWithFrame:NSMakeRect(0, 0, NSWidth([lower bounds]),
+	                                                                  200 - ORMFactBarHeight)
+	                                             document:_verbalization];
+	[verbalScroll setHasHorizontalScroller:NO];
+	[lower addSubview:verbalScroll];
+	[_middle addSubview:canvasScroll];
+	[_middle addSubview:lower];
+	[center addSubview:_middle];
+
+	/* The inspector. */
+	_inspector = [[ORMInspectorView alloc] initWithFrame:NSMakeRect(0, 0, 280, 600)];
+	_inspector.delegate = self;
+	[_inspector setAutoresizingMask:NSViewWidthSizable];
+	NSScrollView *right = [self scrollViewWithFrame:NSMakeRect(0, 0, 280, NSHeight(area)) document:_inspector];
+	[right setHasHorizontalScroller:NO];
+
+	[_columns addSubview:left];
+	[_columns addSubview:center];
+	[_columns addSubview:right];
+	[content addSubview:_columns];
+	[self layoutColumns:_columns];
+	[self layoutMiddle:_middle];
+}
+
+#pragma mark Splits
+
+/* The side panes keep their width and the verbalization its height; the
+ * diagram takes what is left. GNUstep's own adjusting gives the last pane
+ * the remainder, so this lays them out on both platforms. */
+- (void)layoutColumns:(NSSplitView *)split
+{
+	NSArray *panes = [split subviews];
+	if ([panes count] != 3) {
+		return;
+	}
+	NSRect bounds = [split bounds];
+	double divider = [split dividerThickness];
+	double left = MIN(MAX(NSWidth([[panes objectAtIndex:0] frame]), 160), 340);
+	double right = MIN(MAX(NSWidth([[panes objectAtIndex:2] frame]), 220), 420);
+	double middle = MAX(NSWidth(bounds) - left - right - 2 * divider, 200);
+	[[panes objectAtIndex:0] setFrame:NSMakeRect(0, 0, left, NSHeight(bounds))];
+	[[panes objectAtIndex:1] setFrame:NSMakeRect(left + divider, 0, middle, NSHeight(bounds))];
+	[[panes objectAtIndex:2] setFrame:NSMakeRect(left + middle + 2 * divider, 0, right, NSHeight(bounds))];
+}
+
+- (void)layoutMiddle:(NSSplitView *)split
+{
+	NSArray *panes = [split subviews];
+	if ([panes count] != 2) {
+		return;
+	}
+	NSRect bounds = [split bounds];
+	double divider = [split dividerThickness];
+	double lower = MIN(MAX(NSHeight([[panes objectAtIndex:1] frame]), ORMFactBarHeight + 40), NSHeight(bounds) - 120);
+	double upper = MAX(NSHeight(bounds) - lower - divider, 80);
+	[[panes objectAtIndex:0] setFrame:NSMakeRect(0, 0, NSWidth(bounds), upper)];
+	[[panes objectAtIndex:1] setFrame:NSMakeRect(0, upper + divider, NSWidth(bounds), lower)];
+}
+
+- (void)splitView:(NSSplitView *)split resizeSubviewsWithOldSize:(NSSize)oldSize
+{
+	(void)oldSize;
+	if (split == _columns) {
+		[self layoutColumns:split];
+	} else {
+		[self layoutMiddle:split];
+	}
+}
+
+#pragma mark The model
+
+- (ORMEditor *)editor
+{
+	return _document.editor;
+}
+
+- (void)editorDidChange
+{
+	ORMEditor *editor = [self editor];
+	__weak ORMWindowController *weakSelf = self;
+	editor.changed = ^{
+		[weakSelf modelChanged];
+	};
+	_canvas.editor = editor;
+	_inspector.editor = editor;
+	_browser.editor = editor;
+	_coreData.editor = editor;
+	if (_canvas.diagramId == nil || [editor.model elementWithId:_canvas.diagramId] == nil) {
+		_canvas.diagramId = [[editor.model.diagrams firstObject] identifier];
+	}
+	[self modelChanged];
+	[_canvas resize];
+}
+
+- (void)modelChanged
+{
+	ORMModel *model = [self editor].model;
+	if ([model elementWithId:_canvas.diagramId] == nil) {
+		_canvas.diagramId = [[model.diagrams firstObject] identifier];
+	}
+	[_canvas modelDidChange];
+	[_browser reload];
+	_inspector.diagramId = _canvas.diagramId;
+	if (_inspector.elementId != nil && [model elementWithId:_inspector.elementId] == nil) {
+		_inspector.elementId = nil;
+	}
+	[_inspector modelDidChange];
+	[self reloadDiagramPopup];
+	[self showVerbalization];
+	[_coreData modelDidChange];
+}
+
+- (void)reloadDiagramPopup
+{
+	[_diagramPopup removeAllItems];
+	for (ORMDiagram *diagram in [self editor].model.diagrams) {
+		[_diagramPopup addItemWithTitle:diagram.name ?: @"Diagram"];
+		[[_diagramPopup lastItem] setRepresentedObject:diagram.identifier];
+		if ([diagram.identifier isEqualToString:_canvas.diagramId]) {
+			[_diagramPopup selectItem:[_diagramPopup lastItem]];
+		}
+	}
+}
+
+/* The selection's sentences in the verbalization pane, coloured as NORMA
+ * colours them, each object type's name a link to it. */
+- (void)showVerbalization
+{
+	ORMVerbalizer *verbalizer = [[ORMVerbalizer alloc] initWithModel:[self editor].model];
+	NSArray *elements = [_canvas selectedElements];
+	if ([elements count] == 0 && _inspector.elementId != nil) {
+		elements = @[ _inspector.elementId ];
+	}
+	NSMutableArray *sentences = [NSMutableArray array];
+	if ([elements count] == 0 && _verbalizesModel) {
+		[sentences addObjectsFromArray:[verbalizer sentencesForModel]];
+	}
+	for (NSString *element in elements) {
+		[sentences addObjectsFromArray:[verbalizer sentencesForElement:element]];
+	}
+	NSMutableAttributedString *text = [[NSMutableAttributedString alloc] init];
+	NSFont *font = [NSFont systemFontOfSize:12];
+	NSArray *colors = @[ ORMInkColor(), ORMConstraintColor(ORMDeontic), ORMConstraintColor(ORMAlethic),
+	                     [NSColor colorWithCalibratedRed:0.0 green:0.50 blue:0.0 alpha:1.0],
+	                     [NSColor colorWithCalibratedRed:0.70 green:0.25 blue:0.0 alpha:1.0], ORMInkColor() ];
+	for (ORMVerbalSentence *sentence in sentences) {
+		NSMutableString *indent = [NSMutableString string];
+		for (NSUInteger i = 0; i < sentence.level; i++) {
+			[indent appendString:@"    "];
+		}
+		[text appendAttributedString:[[NSAttributedString alloc]
+			initWithString:indent attributes:@{ NSFontAttributeName: font }]];
+		for (ORMVerbalSpan *span in sentence.spans) {
+			NSMutableDictionary *attributes = [@{ NSFontAttributeName: font,
+			                                      NSForegroundColorAttributeName: [colors objectAtIndex:span.style] }
+				mutableCopy];
+			if (span.style == ORMVerbalObjectType && span.elementId != nil) {
+				[attributes setObject:span.elementId forKey:NSLinkAttributeName];
+			}
+			[text appendAttributedString:[[NSAttributedString alloc] initWithString:span.text attributes:attributes]];
+		}
+		[text appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n"
+		                                                             attributes:@{ NSFontAttributeName: font }]];
+	}
+	[[_verbalization textStorage] setAttributedString:text];
+}
+
+- (BOOL)textView:(NSTextView *)textView clickedOnLink:(id)link atIndex:(NSUInteger)index
+{
+	(void)textView;
+	(void)index;
+	NSString *elementId = [link isKindOfClass:[NSURL class]] ? [(NSURL *)link absoluteString] : [link description];
+	[self showElement:elementId];
+	return YES;
+}
+
+/* Shows the element: selected on the diagram when it is there, in the
+ * inspector and verbalization in any case. */
+- (void)showElement:(NSString *)elementId
+{
+	[_canvas selectElements:@[ elementId ]];
+	_inspector.elementId = elementId;
+	[self showVerbalization];
+	[_browser reveal:elementId];
+}
+
+- (void)say:(NSString *)message
+{
+	[_status setStringValue:message ?: @""];
+}
+
+#pragma mark Delegates
+
+- (void)canvasSelectionDidChange:(ORMCanvasView *)canvas
+{
+	NSArray *elements = [canvas selectedElements];
+	_inspector.elementId = [elements firstObject];
+	[self showVerbalization];
+	if ([elements count] > 0) {
+		[_browser reveal:[elements firstObject]];
+	}
+}
+
+- (void)canvas:(ORMCanvasView *)canvas say:(NSString *)message
+{
+	(void)canvas;
+	[self say:message];
+}
+
+- (void)canvasToolDidChange:(ORMCanvasView *)canvas
+{
+	for (NSButton *button in _toolButtons) {
+		[button setState:[button tag] == canvas.tool ? NSControlStateValueOn : NSControlStateValueOff];
+	}
+}
+
+- (void)inspector:(ORMInspectorView *)inspector say:(NSString *)message
+{
+	(void)inspector;
+	[self say:message];
+}
+
+- (void)browser:(ORMModelBrowser *)browser didSelect:(NSString *)elementId
+{
+	(void)browser;
+	id element = [[self editor].model elementWithId:elementId];
+	if ([element isKindOfClass:[ORMDiagram class]]) {
+		[self openDiagram:elementId];
+		return;
+	}
+	[_canvas selectElements:@[ elementId ]];
+	_inspector.elementId = elementId;
+	[self showVerbalization];
+}
+
+- (void)browser:(ORMModelBrowser *)browser openDiagram:(NSString *)diagramId
+{
+	(void)browser;
+	[self openDiagram:diagramId];
+}
+
+- (void)openDiagram:(NSString *)diagramId
+{
+	_canvas.diagramId = diagramId;
+	_inspector.diagramId = diagramId;
+	_inspector.elementId = nil;
+	[self reloadDiagramPopup];
+	[self showVerbalization];
+}
+
+#pragma mark Actions
+
+- (void)toolClicked:(id)sender
+{
+	[_canvas chooseTool:sender];
+}
+
+- (void)zoomCanvasIn:(id)sender
+{
+	[_canvas zoomIn:sender];
+}
+
+- (void)zoomCanvasOut:(id)sender
+{
+	[_canvas zoomOut:sender];
+}
+
+- (BOOL)addFactFromEditor
+{
+	NSString *text = [_factEditor stringValue];
+	if ([[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] length] == 0) {
+		return NO;
+	}
+	NSString *reason = nil;
+	NSString *fact = [[self editor] addFactTypeFromSentence:text onDiagram:_canvas.diagramId at:ORMAutomaticPlacement
+	                                                 reason:&reason];
+	if (fact == nil) {
+		NSBeep();
+		[self say:reason];
+		return NO;
+	}
+	[_factEditor setStringValue:@""];
+	[self showElement:fact];
+	[self say:@"Added. Select a role and press U for uniqueness, M for mandatory."];
+	return YES;
+}
+
+- (void)factEditorReturn:(id)sender
+{
+	(void)sender;
+	[self addFactFromEditor];
+}
+
+- (IBAction)focusFactEditor:(id)sender
+{
+	(void)sender;
+	[[self window] makeFirstResponder:_factEditor];
+}
+
+- (IBAction)chooseDiagram:(id)sender
+{
+	(void)sender;
+	NSString *diagramId = [[_diagramPopup selectedItem] representedObject];
+	if (diagramId != nil) {
+		[self openDiagram:diagramId];
+	}
+}
+
+- (IBAction)newDiagram:(id)sender
+{
+	(void)sender;
+	NSString *diagram = [[self editor] addDiagramNamed:nil];
+	[self openDiagram:diagram];
+	[self say:@"Show elements on it from the browser with Diagram ▸ Show Selection on Diagram."];
+}
+
+- (IBAction)renameDiagram:(id)sender
+{
+	(void)sender;
+	[_canvas clearSelection];
+	_inspector.elementId = nil;
+	[self say:@"Rename the diagram in the inspector."];
+}
+
+- (IBAction)deleteDiagram:(id)sender
+{
+	(void)sender;
+	if ([[self editor].model.diagrams count] <= 1) {
+		NSBeep();
+		[self say:@"A model keeps at least one diagram."];
+		return;
+	}
+	[[self editor] deleteElements:@[ _canvas.diagramId ]];
+}
+
+- (IBAction)arrangeDiagram:(id)sender
+{
+	(void)sender;
+	[[self editor] arrangeDiagram:_canvas.diagramId];
+}
+
+/* The elements picked: on the canvas, or else in the inspector (from the
+ * browser). */
+- (NSArray<NSString *> *)pickedElements
+{
+	NSArray *elements = [_canvas selectedElements];
+	if ([elements count] == 0 && _inspector.elementId != nil) {
+		elements = @[ _inspector.elementId ];
+	}
+	return elements;
+}
+
+- (IBAction)showOnDiagram:(id)sender
+{
+	(void)sender;
+	NSArray *elements = [self pickedElements];
+	ORMEditor *editor = [self editor];
+	[editor group:@"Show on Diagram" with:^{
+		for (NSString *element in elements) {
+			id item = [editor.model elementWithId:element];
+			if ([item isKindOfClass:[ORMFactType class]]) {
+				for (ORMRole *role in [(ORMFactType *)item visibleRoles]) {
+					[editor placeElement:role.player.identifier onDiagram:self->_canvas.diagramId at:ORMAutomaticPlacement];
+				}
+			}
+			[editor placeElement:element onDiagram:self->_canvas.diagramId at:ORMAutomaticPlacement];
+		}
+	}];
+	[_canvas selectElements:elements];
+}
+
+- (IBAction)showRelated:(id)sender
+{
+	(void)sender;
+	ORMEditor *editor = [self editor];
+	NSString *diagram = _canvas.diagramId;
+	NSArray *elements = [self pickedElements];
+	[editor group:@"Show Related" with:^{
+		for (NSString *element in elements) {
+			ORMObjectType *type = [editor.model elementWithId:element];
+			if (![type isKindOfClass:[ORMObjectType class]]) {
+				continue;
+			}
+			for (ORMRole *role in type.playedRoles) {
+				if (role.factType.kind != ORMFactTypeOrdinary) {
+					continue;
+				}
+				for (ORMRole *other in [role.factType visibleRoles]) {
+					[editor placeElement:other.player.identifier onDiagram:diagram at:ORMAutomaticPlacement];
+				}
+				[editor placeElement:role.factType.identifier onDiagram:diagram at:ORMAutomaticPlacement];
+			}
+			for (ORMObjectType *related in [type.supertypes arrayByAddingObjectsFromArray:type.subtypes]) {
+				[editor placeElement:related.identifier onDiagram:diagram at:ORMAutomaticPlacement];
+			}
+		}
+	}];
+}
+
+- (NSString *)selectedFactType
+{
+	for (NSString *element in [self pickedElements]) {
+		id item = [[self editor].model elementWithId:element];
+		if ([item isKindOfClass:[ORMRole class]]) {
+			item = [(ORMRole *)item factType];
+		}
+		if ([item isKindOfClass:[ORMFactType class]]) {
+			return [item identifier];
+		}
+	}
+	return nil;
+}
+
+- (IBAction)objectifyFactType:(id)sender
+{
+	(void)sender;
+	NSString *reason = nil;
+	if ([[self editor] objectifyFactType:[self selectedFactType] named:nil reason:&reason] == nil) {
+		NSBeep();
+		[self say:reason];
+	}
+}
+
+- (IBAction)unobjectifyFactType:(id)sender
+{
+	(void)sender;
+	NSString *reason = nil;
+	if (![[self editor] unobjectifyFactType:[self selectedFactType] reason:&reason]) {
+		NSBeep();
+		[self say:reason];
+	}
+}
+
+- (IBAction)verbalizeModel:(id)sender
+{
+	(void)sender;
+	_verbalizesModel = !_verbalizesModel;
+	[_canvas clearSelection];
+	_inspector.elementId = nil;
+	[self showVerbalization];
+}
+
+- (BOOL)validateMenuItem:(NSMenuItem *)item
+{
+	SEL action = [item action];
+	if (action == @selector(objectifyFactType:) || action == @selector(unobjectifyFactType:)) {
+		ORMFactType *fact = [[self editor].model elementWithId:[self selectedFactType]];
+		return fact != nil && (action == @selector(objectifyFactType:)) == (fact.objectifyingType == nil);
+	}
+	if (action == @selector(showOnDiagram:) || action == @selector(showRelated:)) {
+		return [[self pickedElements] count] > 0;
+	}
+	if (action == @selector(verbalizeModel:)) {
+		[item setState:_verbalizesModel ? NSControlStateValueOn : NSControlStateValueOff];
+	}
+	return YES;
+}
+
+#pragma mark Exporting
+
+- (void)save:(NSData *)data suggesting:(NSString *)name type:(NSString *)type
+{
+	if (data == nil) {
+		NSBeep();
+		return;
+	}
+	NSSavePanel *panel = [NSSavePanel savePanel];
+	[panel setAllowedFileTypes:@[ type ]];
+	[panel setNameFieldStringValue:[name stringByAppendingPathExtension:type]];
+	if ([panel runModal] == NSModalResponseOK) {
+		NSError *error = nil;
+		if (![data writeToURL:[panel URL] options:NSDataWritingAtomic error:&error]) {
+			[self presentError:error];
+		}
+	}
+}
+
+- (NSString *)diagramName
+{
+	return [[_canvas diagram] name] ?: @"Diagram";
+}
+
+- (IBAction)exportDiagramAsPDF:(id)sender
+{
+	(void)sender;
+	[self save:[_canvas PDFData] suggesting:[self diagramName] type:@"pdf"];
+}
+
+- (IBAction)exportDiagramAsPNG:(id)sender
+{
+	(void)sender;
+	[self save:[_canvas PNGDataAtScale:3.0] suggesting:[self diagramName] type:@"png"];
+}
+
+- (IBAction)exportVerbalization:(id)sender
+{
+	(void)sender;
+	ORMModel *model = [self editor].model;
+	NSArray *sentences = [[[ORMVerbalizer alloc] initWithModel:model] sentencesForModel];
+	NSString *html = [ORMVerbalizer HTMLOfSentences:sentences title:model.name];
+	[self save:[html dataUsingEncoding:NSUTF8StringEncoding] suggesting:model.name ?: @"Model" type:@"html"];
+}
+
+- (void)printDocument:(id)sender
+{
+	(void)sender;
+	NSPrintOperation *operation = [NSPrintOperation printOperationWithView:_canvas];
+	[operation runOperation];
+}
+
+#pragma mark Core Data
+
+- (ORMCoreDataController *)coreDataController
+{
+	if (_coreData == nil) {
+		_coreData = [[ORMCoreDataController alloc] initWithEditor:[self editor] documentURL:[_document fileURL]];
+	}
+	_coreData.documentURL = [_document fileURL];
+	return _coreData;
+}
+
+- (IBAction)showCoreDataMappings:(id)sender
+{
+	(void)sender;
+	[[self coreDataController] showWindow:self];
+}
+
+- (IBAction)synchronizeCoreData:(id)sender
+{
+	(void)sender;
+	ORMCoreDataController *controller = [self coreDataController];
+	[controller showWindow:self];
+	[controller synchronize:self];
+}
+
+@end

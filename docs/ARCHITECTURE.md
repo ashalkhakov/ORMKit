@@ -1,0 +1,162 @@
+# Architecture
+
+ORMKit is an Object-Role Modeling (ORM2) toolkit for macOS and GNUstep: a
+Foundation-only library that reads, edits, verbalizes and maps NORMA's `.orm`
+files, a command line tool over it, and ORMDesigner, a document-based diagram
+editor. It follows the shape of WorkflowKit (the XML document is the model)
+and RDLKit (library, designer, tests, CI, AppImage).
+
+```
+ORMKit/            the library: Foundation and NSXML only
+ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
+Tools/ormtool/     check, verbalize, normalize, and map to Core Data from a shell
+ORMDesigner/       the editor (AppKit), its UI built in code
+ORMDesignerTests/  the editor driven through its window, headless
+docs/              this, and COREDATA-MAPPING.md
+.github/ .tools/ Scripts/   CI, the GNUstep docker image, AppImage packaging
+Prototype/         the first single-window sketch (NU*), kept for reference
+```
+
+## The XML document is the model
+
+A `.orm` file is parsed into an `NSXMLDocument` and stays one. Nothing
+regenerates it: an edit changes the nodes it touches and leaves the rest,
+which is how a model goes back to NORMA with everything NORMA keeps beside it
+(its relational bridges, name generators, join paths, extension data) and
+how an unchanged file is written back byte for byte (`ORMXML` writes NORMA's
+layout: BOM, CRLF, tabs, `" />"`).
+
+`ORMModel` is a read-only projection of the document into objects (object
+types, fact types, roles, readings, constraints, value constraints, data
+types, notes, diagrams and shapes), rebuilt after every change. Its objects
+hold the element they were read from; their links to one another are weak
+and the model holds them all.
+
+`ORMEditor` makes every change. Each operation is one undoable step: undo
+restores a snapshot of the document. Operations take ids and refuse with a
+reason in words (`NSString **reason`) rather than an `NSError`, for the
+status line. After each change the editor keeps up what NORMA keeps
+denormalized:
+
+- each object type's `PlayedRoles` and each fact type's `InternalConstraints`;
+- the derived attributes `_IsMandatory`, `_Multiplicity`, `_Name`, `_ReferenceMode`;
+- each reading's `ExpandedData`, hyphen binding included;
+- the implied disjunctive mandatory constraint NORMA gives each object type
+  that is not independent and plays no mandatory role outside its own
+  identification;
+- preferred identifiers' back references, shapes whose subject is gone.
+
+The rules were taken from what NORMA itself saved, and are checked against
+it: normalizing a NORMA file changes nothing (`ORMEditorTests`,
+`ormtool normalize` in CI), and the projection's mandatory, multiplicity,
+name and reference mode agree with NORMA's own on every role and fact type.
+
+### When the model changed
+
+On saving a changed model, ORMKit drops what NORMA generates from it (the
+abstraction and relational bridges, the model error list), since they would
+describe a model that is gone; NORMA rebuilds them when it opens the file.
+
+## The library
+
+| | |
+| --- | --- |
+| `ORMXML` | namespaces, element helpers, ids (`_` + GUID), inches to points, NORMA's serialization |
+| `ORMModel`, `ORMDiagram` | the projection |
+| `ORMEditor` (+ `Objects`, `Facts`, `Constraints`, `Diagram`) | every change, and normalization |
+| `ORMReadingText` | readings taken apart: placeholders, front text, hyphen-bound text |
+| `ORMValueConstraintParser` | `{'M', 'F'}`, `[0..100)`, `{18..}` |
+| `ORMFactSentence` | NORMA's Fact Editor: `Person(.id) was born in Country(.code)` |
+| `ORMPath` | NORMA's role paths (join paths, derivation rules), calculations, sample populations, cardinality |
+| `ORMLogic` | sequences, join paths and derivations as logic: variables, fact atoms, and/or/xor/not |
+| `ORMVerbalizer` | FORML sentences as styled spans; plain text and HTML |
+| `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
+| `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync` | the mapping, both ways (COREDATA-MAPPING.md) |
+
+ORMKit has no AppKit and no Core Data: the Core Data side is Xcode's source
+format, so mapping works the same on both platforms, and Apple's `momc` (in
+the tests, on a Mac) is the judge of what it writes.
+
+`ORMLogic` follows the meaning Franconi and Halpin give ORM in *ORM Abstract
+Syntax and Semantics* (normative specification and glossary,
+<https://gitlab.com/orm-syntax-and-semantics/orm-syntax-and-semantics-docs>):
+a join path is their path expression `P.i ➤ [P.j ⋈ PATH]`, an external
+uniqueness constraint a uniqueness over its fact types joined on their
+common player. Where ORMKit's formulas and the specification's could
+disagree, the specification is right.
+
+## The editor
+
+`ORMDocument` (NSDocument) holds an editor on its undo manager.
+`ORMWindowController` lays out the window in code: the model browser, the
+diagram with NORMA's Fact Editor and the verbalization of the selection
+below it, the inspector, tools across the top. `ORMCanvasView` draws through
+`ORMRenderer` (plain functions of the projection, in diagram points) and
+turns gestures into editor operations, one per gesture. `ORMInspectorView`
+is built from rows that know where their value lives and which operation
+sets it. `ORMCoreDataController` is the mappings window.
+
+GNUstep differences are kept to names (`ORMDesignerCompat.h`, force-included
+on GNUstep only) and a few `#if defined(__APPLE__)` guards, each with its
+reason in place.
+
+## Status
+
+Working and tested on both platforms:
+
+- reading and writing NORMA files, byte for byte when unchanged;
+- the projection of every construct NORMA files hold (subtypes,
+  objectification, unaries, all constraint kinds, value constraints, data
+  types, notes, diagrams and shapes);
+- editing: object types, reference modes, data types, value constraints,
+  fact types and readings, every constraint kind, subtyping,
+  objectification, notes, diagrams, deletion with its cascade, undo;
+- verbalization of object types, fact types and every constraint kind;
+- the Core Data mapping and three-way synchronization;
+- ORMDesigner: opening NORMA's diagrams, selecting, moving, the tools, the
+  fact editor, the inspector, verbalization, PDF/PNG/HTML export, the Core
+  Data window.
+
+Not done yet:
+
+- **Diagram editing**: copy and paste; dragging constraint connectors;
+  role name, value constraint and frequency shapes placed for new elements;
+  a layered layout (WorkflowKit's `WKDLayout` is the one to port) instead
+  of the grid-and-spiral `arrangeDiagram:`; printing across pages.
+- **NORMA features kept but not edited**: derivation rules (only their
+  free-text note), constraint join paths, sample populations, NORMA's model
+  error checks.
+- **Verbalization**: wording checked against NORMA's report only by eye.
+- **Core Data**: per-relationship deletion rule overrides; watching the
+  `.xcdatamodeld` for changes; validating with FreeCoreData's `momc` in the
+  GNUstep job, and a live `NSManagedObjectModel` preview with FreeCoreData.
+
+### Assumptions to check against NORMA
+
+These follow NORMA's schema and its files as far as they could be read, but
+were not opened in NORMA itself:
+
+1. NORMA rebuilds the relational bridges and model errors ORMKit drops from
+   a changed model.
+2. NORMA tolerates the `ormcd:CoreDataMappings` element at the root; if it
+   does not, **Save a Copy for NORMA** writes the file without it.
+3. The link fact types ORMKit writes for an objectification
+   (`ImpliedFact`, `RoleProxy`, `ImpliedByObjectification`).
+4. The child naming a custom reference mode's kind (`orm:Kind`), and the
+   `FrontText` and `PostBoundText` attributes of a reading's `ExpandedData`.
+
+### GNUstep
+
+Two GNUstep faults found here, worked around in place, both belonging in
+`../gnustep-patches`:
+
+- gnustep-gui: an `NSScrollView` that autohides its scrollers, around a
+  document view that resizes with it, recurses without end in `-tile`.
+  ORMDesigner does not autohide on GNUstep.
+- gnustep-base: `-[NSXMLDocument copyWithZone:]` gives the copy a URI
+  without its terminating NUL, so copying the copy reads past the buffer
+  (AddressSanitizer, in `xmlCopyDoc`). `ORMCopyDocument` copies the root
+  element into a new document on GNUstep instead.
+- gnustep-base (milder): a root element made with a namespace and then given
+  that namespace's declaration ends up pointing at a freed namespace; new
+  documents are parsed from text rather than built node by node.

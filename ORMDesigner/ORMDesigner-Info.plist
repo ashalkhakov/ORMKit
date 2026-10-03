@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleName</key>
+  <string>ORMDesigner</string>
+  <key>CFBundleDisplayName</key>
+  <string>ORMDesigner</string>
+  <key>CFBundleIdentifier</key>
+  <string>org.ormkit.designer</string>
+  <key>CFBundleVersion</key>
+  <string>0.0.0</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.0.0</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleSignature</key>
+  <string>ORMK</string>
+  <key>CFBundleExecutable</key>
+  <string>ORMDesigner</string>
+  <key>CFBundleIconFile</key>
+  <string>ORMDesigner</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>NSPrincipalClass</key>
+  <string>NSApplication</string>
+  <key>NSMainNibFile</key>
+  <string></string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+  <key>LSMinimumSystemVersion</key>
+  <string>12.0</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>ORM Model</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>org.ormkit.orm</string>
+      </array>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+      <key>NSDocumentClass</key>
+      <string>ORMDocument</string>
+    </dict>
+  </array>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>org.ormkit.orm</string>
+      <key>UTTypeDescription</key>
+      <string>ORM Model (NORMA)</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.xml</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>orm</string>
+        </array>
+      </dict>
+    </dict>
+  </array>
+
+  <!-- GNUstep reads this same file: gnustep-make looks for <App>-Info.plist
+       and merges it into the Info-gnustep.plist it generates. What follows is
+       what it reads and Cocoa ignores. -->
+  <key>ApplicationName</key>
+  <string>ORMDesigner</string>
+  <key>ApplicationDescription</key>
+  <string>Object-Role Modeling (ORM2) in NORMA's format, mapped to Core Data</string>
+  <key>ApplicationRelease</key>
+  <string>0.0.0-dev</string>
+  <key>FullVersionID</key>
+  <string>0.0.0-dev</string>
+  <key>Authors</key>
+  <array>
+    <string>Artyom Shalkhakov</string>
+  </array>
+  <key>Copyright</key>
+  <string>Copyright (C) 2026 the ORMKit contributors</string>
+  <key>CopyrightDescription</key>
+  <string>GNU LGPL 2.1</string>
+  <!-- GNUstep's own form of the document type, named as Apple's UTI so
+       NSDocument sees one type name on both. -->
+  <key>NSTypes</key>
+  <array>
+    <dict>
+      <key>NSName</key>
+      <string>org.ormkit.orm</string>
+      <key>NSHumanReadableName</key>
+      <string>ORM Model</string>
+      <key>NSUnixExtensions</key>
+      <array>
+        <string>orm</string>
+      </array>
+      <key>NSRole</key>
+      <string>Editor</string>
+      <key>NSDocumentClass</key>
+      <string>ORMDocument</string>
+    </dict>
+  </array>
+</dict>
+</plist>

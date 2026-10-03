@@ -1,0 +1,16 @@
+{
+    ApplicationName = "NativeUML";
+    ApplicationDescription = "Native Objective-C ORM2 diagram editor (ARC)";
+    ApplicationRelease = "1.0";
+    FullVersionID = "1.0.0";
+    NSExecutable = "NativeUML";
+    NSRole = "Editor";
+    NSTypes = (
+        {
+            NSName = "nativorm";
+            NSHumanReadableName = "NativeORM Diagram";
+            NSUnixExtensions = ("nativorm");
+            NSRole = Editor;
+        }
+    );
+}

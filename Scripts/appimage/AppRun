@@ -1,0 +1,103 @@
+#!/bin/sh
+# Ported from UDQuakeTools' Scripts/appimage/AppRun. The one addition is the
+# ormtool dispatch at the end: this image carries a command line tool as well
+# as an app.
+set -eu
+
+HERE="$(dirname "$(readlink -f "$0")")"
+
+# Write runtime GNUstep config to a private temp file.
+export GNUSTEP_CONFIG_FILE="/tmp/GNUstep-ORMDesigner-$$.conf"
+cat << IN_EOF > "$GNUSTEP_CONFIG_FILE"
+GNUSTEP_USER_CONFIG_FILE=.GNUstep.conf
+GNUSTEP_USER_DEFAULTS_DIR=GNUstep/Defaults
+GNUSTEP_SYSTEM_USERS_DIR=/home
+GNUSTEP_NETWORK_USERS_DIR=/home
+GNUSTEP_LOCAL_USERS_DIR=/home
+GNUSTEP_SYSTEM_ROOT=$HERE/usr/System
+GNUSTEP_SYSTEM_LIBRARIES=$HERE/usr/System/Library
+GNUSTEP_SYSTEM_LIBRARY=$HERE/usr/System/Library
+GNUSTEP_SYSTEM_TOOLS=$HERE/usr/System/Tools
+GNUSTEP_SYSTEM_APPS=$HERE/usr/System/Applications
+GNUSTEP_LOCAL_ROOT=$HERE/usr/Local
+GNUSTEP_LOCAL_LIBRARY=$HERE/usr/Local/Library
+GNUSTEP_LOCAL_TOOLS=$HERE/usr/Local/Tools
+GNUSTEP_LOCAL_APPS=$HERE/usr/Local/Applications
+IN_EOF
+chmod 600 "$GNUSTEP_CONFIG_FILE"
+
+export GNUSTEP_SYSTEM_ROOT="$HERE/usr/System"
+export GNUSTEP_SYSTEM_LIBRARY="$HERE/usr/System/Library"
+export GNUSTEP_SYSTEM_TOOLS="$HERE/usr/System/Tools"
+export GNUSTEP_SYSTEM_APPS="$HERE/usr/System/Applications"
+
+export GNUSTEP_LOCAL_ROOT="$HERE/usr/Local"
+export GNUSTEP_LOCAL_LIBRARY="$HERE/usr/Local/Library"
+export GNUSTEP_LOCAL_TOOLS="$HERE/usr/Local/Tools"
+export GNUSTEP_LOCAL_APPS="$HERE/usr/Local/Applications"
+
+# Saved before they are pointed at the image: Scripts/appimage/open puts these
+# back before handing a URL to the host's browser, which cannot run against the
+# libraries this image carries.
+export ORM_HOST_LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-}"
+export ORM_HOST_PATH="$PATH"
+
+export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
+export PATH="$HERE/usr/local/bin:$HERE/usr/bin:$PATH"
+
+export FONTCONFIG_FILE="$HERE/usr/etc/fonts/fonts.conf"
+export XDG_CACHE_HOME="/tmp/fc-cache-orm-$$"
+mkdir -p "$XDG_CACHE_HOME"
+
+trap 'rm -rf "$XDG_CACHE_HOME" "$GNUSTEP_CONFIG_FILE"' EXIT
+
+DEFAULTS_TOOL=$(find "$HERE" -name defaults -type f -perm -111 | head -n 1)
+if [ -n "$DEFAULTS_TOOL" ]; then
+    "$DEFAULTS_TOOL" write org.ormkit.designer GSTheme Eau
+    "$DEFAULTS_TOOL" write org.ormkit.designer NSFont LiberationSans
+    "$DEFAULTS_TOOL" write org.ormkit.designer NSBoldFont LiberationSans-Bold
+    "$DEFAULTS_TOOL" write org.ormkit.designer NSUserFont LiberationSans
+    "$DEFAULTS_TOOL" write org.ormkit.designer NSUserFixedPitchFont LiberationMono
+    # What NSWorkspace runs for a URL or a file it has no application for --
+    # the Website line in the About panel, for one. Ours, in the bundle's Tools
+    # directory, which is where [NSTask launchPathForTool:] looks first.
+    "$DEFAULTS_TOOL" write org.ormkit.designer GSUnknownFileTool open
+
+    # Ctrl, not Alt. GNUstep's default modifier map is NeXT's -- Alt_L is
+    # COMMAND and both Control keys are CONTROL -- so on a Linux desktop this
+    # app answered Alt+C where every other window answers Ctrl+C. The keys are
+    # X keysym names, read once at startup, and documented in gnustep-gui's
+    # KeyboardSetup. NoSymbol disables one.
+    #
+    # The left Control becomes COMMAND, which is what a menu key equivalent
+    # fires on, and stops being CONTROL as well: one key acting as both fires a
+    # menu item and a text-view binding from the same press, which the same
+    # document warns about. The right Control stays a real CONTROL, so the
+    # emacs-style text bindings are still reachable, and Alt -- freed from
+    # being COMMAND -- goes back to being ALTERNATE.
+    "$DEFAULTS_TOOL" write org.ormkit.designer GSFirstCommandKey Control_L
+    "$DEFAULTS_TOOL" write org.ormkit.designer GSFirstControlKey NoSymbol
+    "$DEFAULTS_TOOL" write org.ormkit.designer GSSecondControlKey Control_R
+    "$DEFAULTS_TOOL" write org.ormkit.designer GSFirstAlternateKey Alt_L
+    "$DEFAULTS_TOOL" write org.ormkit.designer GSSecondAlternateKey Alt_R
+fi
+
+# ADDITION: the image carries two programs. Invoked as ormtool, or with ormtool
+# as the first argument, it is the command line tool; otherwise the designer.
+case "${1:-}" in
+  ormtool) shift; set -- ormtool "$@"; NAME=ormtool ;;
+  *) NAME=$(basename "${ARGV0:-$0}") ;;
+esac
+if [ "$NAME" = ormtool ]; then
+    [ "${1:-}" = ormtool ] && shift
+    TOOL=$(find "$HERE" -type f -name ormtool -perm -111 -exec file {} \; 2>/dev/null \
+             | awk -F: '/ELF/{print $1; exit}')
+    exec "${TOOL:-$HERE/usr/System/Tools/ormtool}" "$@"
+fi
+
+REAL_BIN=$(find "$HERE" -type f -name ORMDesigner -exec file {} \; 2>/dev/null | awk -F: '/ELF/{print $1; exit}')
+if [ -z "$REAL_BIN" ]; then
+    REAL_BIN="$HERE/usr/System/Applications/ORMDesigner.app/ORMDesigner"
+fi
+
+exec "$REAL_BIN" "$@"

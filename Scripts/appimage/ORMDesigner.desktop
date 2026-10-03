@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ORMDesigner
+GenericName=ORM Modeler
+Comment=Create and edit Object-Role Modeling (ORM2) models in NORMA's .orm format
+Exec=AppRun %f
+Icon=ormdesigner
+Terminal=false
+Categories=Development;Office;
+MimeType=application/x-orm;

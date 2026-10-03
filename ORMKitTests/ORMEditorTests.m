@@ -1,0 +1,294 @@
+/* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
+#import "ORMTestSupport.h"
+
+/* Changing models: each operation, what it keeps up, and its undo. */
+@interface ORMEditorTests : ORMTestCase
+@end
+
+@implementation ORMEditorTests
+
+- (NSString *)diagramOf:(ORMEditor *)editor
+{
+	return [[editor.model.diagrams firstObject] identifier];
+}
+
+- (NSString *)entity:(NSString *)name mode:(NSString *)mode in:(ORMEditor *)editor
+{
+	NSString *reason = nil;
+	NSString *created = [editor addEntityTypeNamed:name referenceMode:mode
+	                                          kind:mode != nil ? ORMReferenceModePopular : ORMReferenceModeNone
+	                                     onDiagram:[self diagramOf:editor] at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(created, @"%@", reason);
+	return created;
+}
+
+- (NSString *)fact:(NSArray *)players reading:(NSString *)reading in:(ORMEditor *)editor
+{
+	NSString *reason = nil;
+	NSString *created = [editor addFactTypeWithPlayers:players reading:reading onDiagram:[self diagramOf:editor]
+	                                                at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(created, @"%@", reason);
+	return created;
+}
+
+/* Keeping NORMA's derived data must not change what NORMA keeps itself:
+ * an untouched file normalizes to itself, implied constraints and all. */
+- (void)testNormalizingANormaModelChangesNothing
+{
+	for (NSString *name in ORMNormaFixtures) {
+		NSData *data = [self fixtureData:name];
+		ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
+		[editor group:@"Nothing" with:^{
+		}];
+		XCTAssertEqualObjects(ORMDataOfDocument(editor.document), data, @"%@", name);
+	}
+}
+
+/* What ORMKit wrote reads back and normalizes to itself too. */
+- (void)testORMKitsOwnFileIsStable
+{
+	NSData *data = [self fixtureData:@"WorkMate.orm"];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
+	[editor group:@"Nothing" with:^{
+	}];
+	XCTAssertEqualObjects(ORMDataOfDocument(editor.document), data);
+	XCTAssertEqual([editor.model.diagrams count], (NSUInteger)3);
+	XCTAssertEqual([[editor.model visibleObjectTypes] count], (NSUInteger)54);
+}
+
+- (void)testAReferenceModeIsBuiltAsNormaBuildsIt
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	ORMObjectType *type = [editor.model elementWithId:person];
+	XCTAssertEqualObjects([type displayName], @"Person(.id)");
+	XCTAssertEqualObjects(type.referenceModeValueType.name, @"Person_id");
+	ORMFactType *fact = type.referenceModeFactType;
+	XCTAssertEqualObjects([[fact primaryReading] text], @"{0} has {1}");
+	XCTAssertEqual([fact.readingOrders count], (NSUInteger)2);
+	ORMRole *own = [fact.roles firstObject];
+	XCTAssertTrue(own.isMandatory && own.isUnique);
+	XCTAssertEqual(type.preferredIdentifier.preferredIdentifierFor, type);
+	XCTAssertEqualObjects((ORMAttribute(type.element, @"_ReferenceMode")), @"id");
+	/* A value type's implied mandatory, as NORMA keeps it. */
+	NSUInteger implied = 0;
+	for (ORMConstraint *constraint in editor.model.constraints) {
+		implied += constraint.isImplied ? 1 : 0;
+	}
+	XCTAssertEqual(implied, (NSUInteger)1);
+}
+
+- (void)testNamesAreUnique
+{
+	ORMEditor *editor = [self newEditor];
+	[self entity:@"Person" mode:nil in:editor];
+	NSString *reason = nil;
+	XCTAssertNil([editor addValueTypeNamed:@"Person" dataType:nil onDiagram:nil at:NSZeroPoint reason:&reason]);
+	XCTAssertTrue([reason length] > 0);
+}
+
+- (void)testRenamingAnEntityRenamesItsReferenceMode
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	XCTAssertTrue([editor rename:person to:@"Human" reason:NULL]);
+	XCTAssertNotNil([editor.model objectTypeNamed:@"Human_id"]);
+	XCTAssertNil([editor.model objectTypeNamed:@"Person_id"]);
+	XCTAssertEqualObjects([[[[editor.model objectTypeNamed:@"Human"] referenceModeFactType] primaryReading] expandedText],
+	                      @"Human has Human_id");
+}
+
+- (void)testConstraintsOnABinary
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *born = [self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor];
+	ORMRole *role = [[[editor.model elementWithId:born] roles] firstObject];
+	XCTAssertTrue([editor setUnique:YES role:role.identifier reason:NULL]);
+	XCTAssertTrue([editor setMandatory:YES role:role.identifier reason:NULL]);
+	role = [editor.model elementWithId:role.identifier];
+	XCTAssertEqual([[role oppositeRole] multiplicity], ORMMultiplicityExactlyOne);
+	XCTAssertEqualObjects((ORMAttribute([role oppositeRole].element, @"_Multiplicity")), @"ExactlyOne");
+	XCTAssertEqual([[editor.model elementWithId:born] internalConstraints].count, (NSUInteger)2);
+	XCTAssertTrue([editor setUnique:NO role:role.identifier reason:NULL]);
+	XCTAssertFalse([[editor.model elementWithId:role.identifier] isUnique]);
+	/* The n-1 rule for longer fact types. */
+	NSString *year = [self entity:@"Year" mode:@"nr" in:editor];
+	NSString *visit = [self fact:@[ person, country, year ] reading:@"{0} visited {1} in {2}" in:editor];
+	NSString *reason = nil;
+	XCTAssertNil([editor addUniquenessConstraintOverRoles:@[ [[[editor.model elementWithId:visit] roles][0] identifier] ]
+	                                               reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"at least 2"].location != NSNotFound, @"%@", reason);
+}
+
+- (void)testAUnaryGetsItsImplicitBoolean
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *smokes = [self fact:@[ person ] reading:@"{0} smokes" in:editor];
+	ORMFactType *fact = [editor.model elementWithId:smokes];
+	XCTAssertTrue([fact isUnary]);
+	ORMObjectType *implicit = [[fact.roles lastObject] player];
+	XCTAssertTrue(implicit.isImplicitBooleanValue);
+	XCTAssertEqualObjects(implicit.name, @"Person smokes");
+	XCTAssertEqualObjects([implicit.valueConstraint displayText], @"{True}");
+	XCTAssertTrue([[fact.roles firstObject] isUnique]);
+	/* Renamed with its subject. */
+	XCTAssertTrue([editor rename:person to:@"Human" reason:NULL]);
+	XCTAssertNotNil([editor.model objectTypeNamed:@"Human smokes"]);
+}
+
+- (void)testExternalAndSetComparisonConstraints
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *name = [editor addValueTypeNamed:@"Name" dataType:@"VariableLengthTextDataType" onDiagram:nil
+	                                        at:NSZeroPoint reason:NULL];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	/* Made first: editor.model is read before a message's arguments are. */
+	NSString *namedId = [self fact:@[ person, name ] reading:@"{0} has {1}" in:editor];
+	NSString *bornId = [self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor];
+	NSArray *named = [[editor.model elementWithId:namedId] roles];
+	NSArray *born = [[editor.model elementWithId:bornId] roles];
+	NSString *reason = nil;
+	NSString *external = [editor addUniquenessConstraintOverRoles:@[ [named[1] identifier], [born[1] identifier] ]
+	                                                       reason:&reason];
+	XCTAssertNotNil(external, @"%@", reason);
+	XCTAssertTrue([[editor.model elementWithId:external] isExternal]);
+	XCTAssertNotNil([editor placeElement:external onDiagram:[self diagramOf:editor] at:ORMAutomaticPlacement]);
+
+	NSString *xor = [editor addExclusiveOrConstraintOverRoles:@[ [named[0] identifier], [born[0] identifier] ]
+	                                                   reason:&reason];
+	XCTAssertNotNil(xor, @"%@", reason);
+	XCTAssertNotNil([[editor.model elementWithId:xor] exclusiveOrPartner]);
+
+	NSString *subset = [editor addSetComparisonConstraint:ORMSubsetConstraint
+	                                            sequences:@[ @[ [named[0] identifier] ], @[ [born[0] identifier] ] ]
+	                                               reason:&reason];
+	XCTAssertNotNil(subset, @"%@", reason);
+	XCTAssertNil(([editor addSetComparisonConstraint:ORMEqualityConstraint
+	                                      sequences:@[ @[ [named[0] identifier] ], @[ [born[1] identifier] ] ]
+	                                         reason:&reason]), @"incompatible players accepted");
+	NSString *frequency = [editor addFrequencyConstraintOverRoles:@[ [named[0] identifier] ] min:2 max:3 reason:&reason];
+	XCTAssertEqual([[editor.model elementWithId:frequency] maxFrequency], (NSUInteger)3);
+}
+
+- (void)testSubtypingRefusesCycles
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *student = [self entity:@"Student" mode:nil in:editor];
+	XCTAssertNotNil([editor addSubtype:student of:person reason:NULL]);
+	XCTAssertTrue([[editor.model elementWithId:student] isSubtypeOf:[editor.model elementWithId:person]]);
+	NSString *reason = nil;
+	XCTAssertNil([editor addSubtype:person of:student reason:&reason]);
+	XCTAssertTrue([reason length] > 0);
+	ORMFactType *fact = [[[editor.model elementWithId:student] supertypeFacts] firstObject];
+	XCTAssertTrue(fact.providesPreferredIdentifier);
+}
+
+- (void)testObjectificationAddsLinkFactTypes
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *visit = [self fact:@[ person, country ] reading:@"{0} visited {1}" in:editor];
+	NSString *reason = nil;
+	NSString *visitType = [editor objectifyFactType:visit named:@"Visit" reason:&reason];
+	XCTAssertNotNil(visitType, @"%@", reason);
+	ORMFactType *fact = [editor.model elementWithId:visit];
+	XCTAssertEqual(fact.objectifyingType, [editor.model elementWithId:visitType]);
+	XCTAssertTrue([fact hasUniquenessOverRoles:fact.roles], @"a spanning constraint identifies it");
+	NSUInteger links = 0;
+	for (ORMFactType *link in editor.model.factTypes) {
+		if (link.impliedByFactType == fact) {
+			links++;
+			XCTAssertNotNil([[link.roles firstObject] proxiedRole]);
+		}
+	}
+	XCTAssertEqual(links, (NSUInteger)2);
+	XCTAssertTrue([editor unobjectifyFactType:visit reason:&reason], @"%@", reason);
+	XCTAssertNil([editor.model objectTypeNamed:@"Visit"]);
+	for (ORMFactType *link in editor.model.factTypes) {
+		XCTAssertNotEqual(link.kind, ORMFactTypeImplied);
+	}
+}
+
+- (void)testDeletingCascades
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *bornId = [self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor];
+	NSArray *born = [[editor.model elementWithId:bornId] roles];
+	[editor addMandatoryConstraintOverRoles:@[ [born[0] identifier] ] reason:NULL];
+	[editor deleteElements:@[ person ]];
+	XCTAssertNil([editor.model objectTypeNamed:@"Person"]);
+	XCTAssertNil([editor.model objectTypeNamed:@"Person_id"], @"its reference mode value type goes with it");
+	XCTAssertNotNil([editor.model objectTypeNamed:@"Country"]);
+	XCTAssertEqual([editor.model.factTypes count], (NSUInteger)1, @"only Country's reference mode fact type is left");
+	for (ORMConstraint *constraint in editor.model.constraints) {
+		XCTAssertTrue([[constraint allRoles] count] > 0, @"%@ lost its roles", constraint.name);
+	}
+	for (ORMShape *shape in [[editor.model.diagrams firstObject] allShapes]) {
+		XCTAssertNotNil(shape.subject);
+	}
+}
+
+- (void)testEverythingUndoesAndRedoes
+{
+	ORMEditor *editor = [self newEditor];
+	NSData *empty = ORMDataOfDocument(editor.document);
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	[self fact:@[ person, country ] reading:@"{0} lives in {1}" in:editor];
+	[editor rename:person to:@"Resident" reason:NULL];
+	NSData *full = ORMDataOfDocument(editor.document);
+	XCTAssertTrue(editor.hasChanges);
+	while ([self.undoManager canUndo]) {
+		[self.undoManager undo];
+	}
+	XCTAssertEqualObjects(ORMDataOfDocument(editor.document), empty);
+	XCTAssertFalse(editor.hasChanges);
+	while ([self.undoManager canRedo]) {
+		[self.undoManager redo];
+	}
+	XCTAssertEqualObjects(ORMDataOfDocument(editor.document), full);
+}
+
+- (void)testShapesMoveWithWhatIsPlacedOnThem
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *born = [self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor];
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	ORMShape *shape = [diagram shapeForSubject:born];
+	ORMShape *reading = [shape.relativeShapes firstObject];
+	XCTAssertEqual(reading.kind, ORMShapeReading);
+	NSRect before = reading.bounds;
+	[editor moveShapes:@[ shape.identifier ] by:NSMakeSize(10, 20)];
+	ORMShape *moved = [[[editor.model.diagrams firstObject] shapeForSubject:born].relativeShapes firstObject];
+	XCTAssertEqualWithAccuracy(NSMinX(moved.bounds), NSMinX(before) + 10, 0.001);
+	XCTAssertEqualWithAccuracy(NSMinY(moved.bounds), NSMinY(before) + 20, 0.001);
+}
+
+- (void)testReadingsAreChecked
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *reason = nil;
+	XCTAssertNil(([editor addFactTypeWithPlayers:@[ person, country ] reading:@"{0} lives" onDiagram:nil
+	                                         at:NSZeroPoint reason:&reason]));
+	XCTAssertNil(([editor addFactTypeWithPlayers:@[ person, country ] reading:@"{0} likes {0}" onDiagram:nil
+	                                         at:NSZeroPoint reason:&reason]));
+	NSString *fact = [self fact:@[ person, country ] reading:@"{0} lives in {1}" in:editor];
+	ORMReading *reading = [[editor.model elementWithId:fact] primaryReading];
+	XCTAssertTrue([editor setReadingText:@"{0} resides in {1}" of:reading.identifier reason:&reason], @"%@", reason);
+	XCTAssertEqualObjects([[[editor.model elementWithId:fact] primaryReading] expandedText], @"Person resides in Country");
+	XCTAssertFalse([editor setReadingText:@"" of:reading.identifier reason:&reason], @"the last reading went");
+}
+
+@end

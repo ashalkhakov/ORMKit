@@ -1,0 +1,288 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A push that lands while an earlier one is still running supersedes it; there
+# is no value in finishing CI for a commit nobody will look at again.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ########################### macOS / Cocoa ###########################
+  # Runs on every push, so every commit leaves a build to download. Note that
+  # macOS minutes bill at 10x on a private repository: restoring
+  #   if: github.event_name != 'push' || github.ref == 'refs/heads/master'
+  # confines it to pull requests and the default branch again.
+  macos:
+    name: macOS (Xcode)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: xcodebuild -version
+
+      # The project is generated from the GNUmakefiles' source lists. A file
+      # added to a GNUmakefile and not to the project fails here, by name,
+      # rather than as a missing symbol.
+      - name: The Xcode project is current
+        run: |
+          python3 .tools/genxcodeproj.py
+          git diff --exit-code -- ORMKit.xcodeproj \
+            || { echo "::error::ORMKit.xcodeproj is stale: run python3 .tools/genxcodeproj.py"; exit 1; }
+
+      # Built first and on its own, so a compile error in the library is
+      # reported as that rather than as a test failure.
+      - name: Build ORMKit
+        run: |
+          xcodebuild -project ORMKit.xcodeproj -scheme ORMKit \
+            -destination 'platform=macOS' -configuration Debug build
+
+      - name: Build the designer and the CLI
+        run: |
+          for scheme in ORMDesigner ormtool; do
+            xcodebuild -project ORMKit.xcodeproj -scheme "$scheme" \
+              -destination 'platform=macOS' -configuration Debug build
+          done
+
+      - name: Test ORMKit
+        run: |
+          xcodebuild -project ORMKit.xcodeproj -scheme ORMKitTests \
+            -destination 'platform=macOS' \
+            -resultBundlePath "$RUNNER_TEMP/ORMKitTests.xcresult" test
+
+      # The designer's cases make windows and views, so they need a session
+      # that can. A GitHub macOS runner has one.
+      - name: Test ORMDesigner
+        run: |
+          xcodebuild -project ORMKit.xcodeproj -scheme ORMDesignerTests \
+            -destination 'platform=macOS' \
+            -resultBundlePath "$RUNNER_TEMP/ORMDesignerTests.xcresult" test
+
+      # Apple's own model compiler is the judge of the Core Data models the
+      # mapping writes: what it rejects, Xcode would.
+      - name: Smoke-test ormtool
+        run: |
+          built=$(xcodebuild -project ORMKit.xcodeproj -scheme ormtool \
+                    -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
+                  | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
+          sample=ORMKitTests/Fixtures/StockMate.orm
+          DYLD_FRAMEWORK_PATH="$built" "$built/ormtool" check "$sample"
+          DYLD_FRAMEWORK_PATH="$built" "$built/ormtool" verbalize "$sample" > /tmp/stockmate.txt
+          DYLD_FRAMEWORK_PATH="$built" "$built/ormtool" normalize "$sample" /tmp/normalized.orm
+          cmp "$sample" /tmp/normalized.orm
+          test -s /tmp/stockmate.txt
+          DYLD_FRAMEWORK_PATH="$built" "$built/ormtool" coredata "$sample" /tmp/StockMate.xcdatamodeld
+          xcrun momc /tmp/StockMate.xcdatamodeld /tmp/StockMate.momd
+
+      # Unsigned: signing needs the Developer ID secrets and belongs to a
+      # release. These are for trying a build, and say so in the name.
+      - name: Package
+        run: |
+          built=$(xcodebuild -project ORMKit.xcodeproj -scheme ORMDesigner \
+                    -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
+                  | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
+          # ormtool links @rpath/ORMKit.framework, so the executable on its own
+          # will not start. Ship it beside the framework it needs.
+          rm -rf "$RUNNER_TEMP/ormtool" && mkdir -p "$RUNNER_TEMP/ormtool"
+          cp "$built/ormtool" "$RUNNER_TEMP/ormtool/"
+          cp -R "$built/ORMKit.framework" "$RUNNER_TEMP/ormtool/"
+          ditto -c -k --keepParent "$built/ORMDesigner.app" "ORMDesigner-macOS-unsigned.zip"
+          ditto -c -k --keepParent "$RUNNER_TEMP/ormtool" "ormtool-macOS-unsigned.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ORMKit-macOS-${{ github.sha }}
+          path: |
+            ORMDesigner-macOS-unsigned.zip
+            ormtool-macOS-unsigned.zip
+          retention-days: 14
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: macos-test-results
+          path: ${{ runner.temp }}/*.xcresult
+          retention-days: 7
+
+  ########################### GNUstep / Linux ###########################
+  gnustep:
+    name: Ubuntu (GNUstep, clang, gnustep-2.0)
+    runs-on: ubuntu-latest
+    # The dependency build is the long pole; everything after it is minutes.
+    timeout-minutes: 90
+    env:
+      SRC_PATH: ${{ github.workspace }}/source
+      DEPS_PATH: ${{ github.workspace }}/dependencies
+      INSTALL_PATH: ${{ github.workspace }}/build
+      CC: clang
+      CXX: clang++
+      LIBRARY_COMBO: ng-gnu-gnu
+      RUNTIME_VERSION: gnustep-2.0
+      # The shared repository the GNUstep fixes come from, and the pin that
+      # decides which of them this build gets. It is part of the cache key
+      # below, so moving it rebuilds the stack rather than reusing a prefix
+      # patched differently. Name a commit here to pin the build exactly.
+      GNUSTEP_PATCHES_REF: 44b9f3d8b750c0c2c128a14718a265b83a9a797c
+      # libobjc2 and libdispatch land in the prefix's plain lib/, which the
+      # gnustep layout does not treat as a library root. GNUstep.sh prepends
+      # the roots it does know about to this.
+      LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
+    defaults:
+      run:
+        working-directory: ${{ env.SRC_PATH }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ${{ env.SRC_PATH }}
+
+      # Seconds, and before the half-hour dependency build. CoreGraphics is a
+      # macOS framework: importing it compiles fine on a Mac and breaks the
+      # GNUstep build, which is a slow way to find out. AppKit has no place in
+      # ORMKit at all: it is Foundation only.
+      - name: No macOS-only imports
+        run: |
+          if grep -rn "CoreGraphics\|<Cocoa/Cocoa.h>\|QuartzCore" \
+               --include="*.h" --include="*.m" ORMKit ORMDesigner Tools \
+               ORMKitTests ORMDesignerTests; then
+            echo "::error::a macOS-only framework is imported; GNUstep has no such header"
+            exit 1
+          fi
+          if grep -rn "AppKit" --include="*.h" --include="*.m" ORMKit; then
+            echo "::error::ORMKit is Foundation only; what draws belongs in ORMDesigner"
+            exit 1
+          fi
+          echo "none found"
+
+      - name: Install packages
+        run: |
+          ./.github/scripts/apt-update.sh
+          sudo apt-get -q -y install \
+            pkg-config libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev \
+            libssl-dev libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev \
+            libgmp-dev libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
+            libpthread-workqueue-dev \
+            libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
+            xvfb
+          # The gnustep-2.0 runtime needs ld.gold or lld. ld.gold is gone from
+          # binutils on newer Ubuntu, so fall back to lld rather than failing
+          # on a missing alternative.
+          if [ -x /usr/bin/ld.gold ]; then
+            sudo update-alternatives --install /usr/bin/ld ld /usr/bin/ld.gold 10
+          else
+            sudo apt-get -q -y install lld
+            sudo update-alternatives --install /usr/bin/ld ld /usr/bin/ld.lld 10
+          fi
+          ld --version | head -1
+
+      # The whole GNUstep stack is built from source, which takes far longer
+      # than ORMKit does. It only changes when the pinned dependency script
+      # changes, so it is cached against that.
+      #
+      # Restored and saved as two separate steps rather than with the combined
+      # action, because the combined one saves at the end of the job -- by
+      # which time packaging has run "make install
+      # GNUSTEP_INSTALLATION_DOMAIN=SYSTEM" and put ORMKit's own headers into
+      # the prefix. The next run would then see every declaration twice.
+      # Saving here captures the stack before anything of ours is installed.
+      - name: Restore GNUstep
+        id: gnustep-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.INSTALL_PATH }}
+          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+
+      - name: Build GNUstep
+        if: steps.gnustep-cache.outputs.cache-hit != 'true'
+        run: ./.github/scripts/dependencies.sh
+
+      - name: Save GNUstep
+        if: steps.gnustep-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.INSTALL_PATH }}
+          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+
+      - name: Build ORMKit
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C ORMKit
+
+      - name: Build the CLI and the designer
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C Tools/ormtool
+          make -C ORMDesigner
+
+      # Both suites are ordinary XCTest, which GNUstep supplies through
+      # tools-xctest. `make run-tests` builds the bundle and runs it under
+      # xctest. SANITIZE=1: a segfault or a heap overflow then arrives as a
+      # symbolized backtrace naming the write, rather than as one line saying
+      # the process died.
+      - name: Test ORMKit
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C ORMKitTests run-tests SANITIZE=1
+
+      - name: Test ORMDesigner
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          xvfb-run -a make -C ORMDesignerTests run-tests SANITIZE=1
+
+      - name: Smoke-test ormtool
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          # Find what was actually built rather than assuming gnustep-make's
+          # object directory is called "obj": it varies with the library combo.
+          lib=$(find ORMKit -name 'libORMKit*' -print -quit)
+          tool=$(find Tools/ormtool -name ormtool -type f -perm -111 -print -quit)
+          echo "library: $lib"
+          echo "tool:    $tool"
+          export LD_LIBRARY_PATH="$(dirname "$lib"):$LD_LIBRARY_PATH"
+          sample=ORMKitTests/Fixtures/StockMate.orm
+          timeout 120 "$tool" check "$sample"
+          timeout 120 "$tool" verbalize "$sample" > /tmp/stockmate.txt
+          test -s /tmp/stockmate.txt
+          # What NORMA wrote, normalized here, is what NORMA wrote: the
+          # derived data ORMKit keeps up is NORMA's to the byte.
+          timeout 120 "$tool" normalize "$sample" /tmp/normalized.orm
+          cmp "$sample" /tmp/normalized.orm
+          timeout 120 "$tool" coredata "$sample" /tmp/StockMate.xcdatamodeld
+          test -s /tmp/StockMate.xcdatamodeld/StockMate.xcdatamodel/contents
+
+      # Packaged on every commit, unstable ones included, so there is always a
+      # build to hand someone. Signed releases are release.yml's job; these are
+      # named for the commit they came from and expire.
+      - name: Fetch linuxdeploy and the AppImage runtime
+        run: ./Scripts/install-linuxdeploy.sh
+
+      - name: Package the AppImage
+        env:
+          LDAI_RUNTIME_FILE: /tmp/appimage-runtime/runtime-x86_64
+          APP_VERSION: 0.0.0-${{ github.run_number }}-${{ github.sha }}
+        run: |
+          sudo apt-get -q -y install desktop-file-utils fonts-dejavu fonts-liberation
+          ./Scripts/stamp-version.sh "$APP_VERSION"
+          GNUSTEP_PREFIX="$INSTALL_PATH" ./Scripts/prepare-appdir.sh
+          GNUSTEP_PREFIX="$INSTALL_PATH" ./Scripts/package-appimage.sh
+
+      # It has to start. ormtool needs no display, so a bundle that cannot
+      # find its own runtime fails here rather than for whoever downloads it.
+      - name: Smoke-test the AppImage
+        run: |
+          image=$(ls ORMKit-Linux-*.AppImage)
+          chmod +x "$image"
+          timeout 120 ./"$image" ormtool check ORMKitTests/Fixtures/StockMate.orm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ORMKit-Linux-${{ github.sha }}
+          path: ${{ env.SRC_PATH }}/ORMKit-Linux-*.AppImage
+          retention-days: 14
