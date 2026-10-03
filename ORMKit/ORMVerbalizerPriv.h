@@ -89,4 +89,5 @@ NSString *ORMArticle(NSString *name);
 - (void)verbalizeExclusionByLogic:(ORMConstraint *)constraint;
 - (void)verbalizeDerivationOfFactType:(ORMFactType *)fact;
 - (void)verbalizeDerivationOfSubtype:(ORMObjectType *)type;
+- (void)verbalizeQuery:(ORMQuery *)query;
 @end

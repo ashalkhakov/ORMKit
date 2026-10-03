@@ -14,6 +14,10 @@ extern NSString * const ORMDiagramNamespace;
 extern NSString * const ORMDiagramDisplayNamespace;
 /* ORMKit's own: the Core Data mappings (ORMCoreDataBridge). */
 extern NSString * const ORMCoreDataNamespace;
+/* ORMKit's own: conceptual queries (ORMQuery). */
+extern NSString * const ORMQueryNamespace;
+/* ORMKit's own namespaces, which NORMA does not know. */
+NSArray<NSString *> *ORMKitNamespaces(void);
 
 /* NORMA's generated relational artefacts. They are a function of the model,
  * and NORMA rebuilds them when they are missing; ORMKit drops them from a

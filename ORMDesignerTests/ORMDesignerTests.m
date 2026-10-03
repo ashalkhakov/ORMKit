@@ -3,6 +3,7 @@
 #import "ORMAppDelegate.h"
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
+#import "ORMQueryController.h"
 #import "ORMWindowController.h"
 
 /* The designer driven as a modeller would: a NORMA file opened, elements
@@ -207,6 +208,41 @@
 	                                                           theirs:written];
 	XCTAssertEqual([again.changes count], (NSUInteger)0, @"%@", again.changes);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* A query built as ConQuer builds one: start at an object type, go on
+ * through a fact type it plays in, and read it back in FORML and as a
+ * fetch request. */
+- (void)testAQueryIsBuiltFromTheModel
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	NSString *warehouse = [[editor.model objectTypeNamed:@"Warehouse"] identifier];
+	NSString *query = [queries addQueryFrom:warehouse];
+	XCTAssertNotNil(query);
+	XCTAssertEqualObjects(queries.selectedId, [[ORMQuery queryWithId:query inModel:editor.model] root].identifier);
+	ORMRole *contains = nil;
+	for (ORMRole *role in [queries availableRoles]) {
+		for (ORMRole *other in role.factType.roles) {
+			if (other != role && [other.player.name isEqualToString:@"Location"]) {
+				contains = role;
+			}
+		}
+	}
+	XCTAssertNotNil(contains, @"%@", [[queries availableRoles] valueForKeyPath:@"factType.name"]);
+	XCTAssertNotNil([queries addStepThrough:contains]);
+	ORMQuery *built = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqual([built.root.steps count], 1u);
+	XCTAssertTrue([[built outlineText] rangeOfString:@"Location"].location != NSNotFound, @"%@", [built outlineText]);
+	XCTAssertTrue([[queries verbalizationText] hasPrefix:@"List each Warehouse where"], @"%@",
+	              [queries verbalizationText]);
+	XCTAssertTrue([[queries fetchText] rangeOfString:@"fetchRequestWithEntityName:@\"Warehouse\""].location != NSNotFound,
+	              @"%@", [queries fetchText]);
+	/* Undone, the step is gone, and the window shows it. */
+	[[_document undoManager] undo];
+	[queries modelDidChange];
+	XCTAssertEqual([[ORMQuery queryWithId:query inModel:editor.model].root.steps count], 0u);
 }
 
 - (void)testEveryMenuItemHasSomewhereToGo

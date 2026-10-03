@@ -76,6 +76,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync` | the mapping, both ways (COREDATA-MAPPING.md) |
 | `ORMCoreDataImport` | a Core Data model brought into ORM, with a mapping back to it |
+| `ORMQuery`, `ORMQueryFetch` | conceptual queries after ConQuer, as logic and as Core Data fetch requests (QUERIES.md) |
 | `ORMCoreDataValidation` | the constraints Core Data cannot enforce, as an Objective-C category on each entity's class |
 
 ORMKit has no AppKit and no Core Data: the Core Data side is Xcode's source
@@ -121,7 +122,7 @@ Working and tested on both platforms:
   Data, and validation code for what Core Data cannot enforce;
 - ORMDesigner: opening NORMA's diagrams, selecting, moving, the tools, the
   fact editor, the inspector, verbalization, PDF/PNG/HTML export, the Core
-  Data window.
+  Data window, the query builder.
 
 Not done yet:
 

@@ -91,6 +91,13 @@
 	return formula;
 }
 
++ (instancetype)optionalFact:(ORMFactType *)factType terms:(NSDictionary<NSString *, ORMTerm *> *)terms
+{
+	ORMFormula *formula = [self fact:factType terms:terms];
+	formula.isOptional = YES;
+	return formula;
+}
+
 + (instancetype)variable:(ORMVariable *)variable in:(ORMValueConstraint *)values
 {
 	ORMFormula *formula = [[self alloc] init];
@@ -233,6 +240,14 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 @end
 
 @implementation ORMRelation
+
++ (instancetype)relationWithFormula:(ORMFormula *)formula columns:(NSArray<ORMVariable *> *)columns
+{
+	ORMRelation *relation = [[self alloc] init];
+	relation.formula = formula;
+	relation.columns = columns;
+	return relation;
+}
 
 - (NSString *)description
 {

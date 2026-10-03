@@ -128,6 +128,10 @@ ORMToolItem(NSMenu *menu, NSString *title, ORMCanvasTool tool, NSString *key)
 	[coreData addItem:[NSMenuItem separatorItem]];
 	ORMItem(coreData, @"Import Core Data Model…", @selector(importCoreData:), nil, 0);
 
+	NSMenu *query = ORMSubmenu(bar, @"Query");
+	ORMItem(query, @"Queries…", @selector(showQueries:), @"y", command | option);
+	ORMItem(query, @"New Query from Selection", @selector(newQueryFromSelection:), @"y", command | option | shift);
+
 	NSMenu *window = ORMSubmenu(bar, @"Window");
 	ORMItem(window, @"Minimize", @selector(performMiniaturize:), @"m", command);
 	ORMItem(window, @"Bring All to Front", @selector(arrangeInFront:), nil, 0);

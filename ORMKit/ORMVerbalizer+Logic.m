@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMVerbalizerPriv.h"
+#import "ORMQuery.h"
 #import "ORMReadingText.h"
 
 /* What ORMLogic says, said in FORML: the constraints that span fact types
@@ -61,7 +62,9 @@ ORMComparisonWords(NSString *name)
 	NSString *key = [[name stringByReplacingOccurrencesOfString:@"_" withString:@""] lowercaseString];
 	NSDictionary *words = @{ @"equal": @"is equal to", @"equals": @"is equal to", @"notequal": @"is not equal to",
 	                         @"lessthan": @"is less than", @"lessthanorequal": @"is less than or equal to",
-	                         @"greaterthan": @"is greater than", @"greaterthanorequal": @"is greater than or equal to" };
+	                         @"greaterthan": @"is greater than", @"greaterthanorequal": @"is greater than or equal to",
+	                         @"=": @"is", @"<>": @"is not", @"!=": @"is not", @"<": @"is less than",
+	                         @"<=": @"is at most", @">": @"is greater than", @">=": @"is at least" };
 	return [words objectForKey:key];
 }
 
@@ -321,7 +324,9 @@ ORMComparisonWords(NSString *name)
 	} else if (term.constant != nil) {
 		[b value:term.constant];
 	} else {
-		[b keyword:[NSString stringWithFormat:@"the %@ of ", term.functionName ?: @"?"]];
+		/* count(x): how many there are. */
+		NSString *function = [term.functionName isEqualToString:@"count"] ? @"number" : term.functionName;
+		[b keyword:[NSString stringWithFormat:@"the %@ of ", function ?: @"?"]];
 		for (NSUInteger i = 0; i < [term.arguments count]; i++) {
 			if (i > 0) {
 				[b keyword:@" and "];
@@ -779,6 +784,27 @@ ORMDerivationMark(ORMDerivationRule *rule)
 
 /* "* Person1 is grandparent of Person2 if and only if Person1 is parent
  * of some Person3 who is parent of Person2." */
+/* A query: what it lists, and the path that gets there. */
+- (void)verbalizeQuery:(ORMQuery *)query
+{
+	ORMRelation *relation = [query relation];
+	if (relation == nil) {
+		return;
+	}
+	NSDictionary *variables = [query variablesOfRelation:relation];
+	ORMVariable *root = [variables objectForKey:query.root.identifier];
+	ORMPhrase *phrase = [self phrase];
+	[phrase numberFormulas:@[ relation.formula ] columns:relation.columns];
+	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+	[b keyword:@"List each "];
+	[phrase list:relation.columns into:b];
+	if ([query.root.steps count] > 0 || query.root.comparison != nil) {
+		[b keyword:@" where "];
+		[phrase say:relation.formula from:root relative:NO into:b];
+	}
+	[self emit:b];
+}
+
 - (void)verbalizeDerivationOfFactType:(ORMFactType *)fact
 {
 	ORMDerivationRule *rule = [fact derivationRule];

@@ -4,7 +4,8 @@ Object-Role Modeling (ORM2) for GNUstep and Cocoa: a library (`ORMKit`) that
 reads, edits, verbalizes and maps NORMA's `.orm` files to Core Data, a tool
 (`Tools/ormtool`) and an editor (`ORMDesigner`). `docs/ARCHITECTURE.md` has
 the design and what is not done; `docs/COREDATA-MAPPING.md` the mapping;
-`docs/VERBALIZATION.md` the FORML templates.
+`docs/VERBALIZATION.md` the FORML templates; `docs/QUERIES.md` the conceptual
+queries.
 
 ## The XML document is the model
 
@@ -46,3 +47,11 @@ GNUstep builds and tests run in docker (`.tools/gnustep.sh`, image
 `rdlkit-gnustep` is the same stack). Anything that draws needs `xvfb-run -a`.
 `__FILE__` is relative under gnustep-make: fixtures are found against the
 current directory when it is.
+
+The local image cannot be rebuilt from scratch on this machine (apt over
+this network), and it lags CI when `GNUSTEP_PATCHES_REF` moves: a failure
+only in docker may be a fix CI already has. The sources are still in
+`/deps`, so patch them in place and commit the container as the image:
+apply `../gnustep-patches/Scripts/apply-patches.sh` at the pinned ref to
+`/deps/libs-base` and `/deps/libs-gui`, then `make && make install` each.
+That is how SUBQUERY started parsing here (2026-10-03).

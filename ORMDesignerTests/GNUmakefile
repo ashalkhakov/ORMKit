@@ -17,7 +17,8 @@ ORMDesignerTests_OBJC_FILES = \
   ../ORMDesigner/ORMRenderer.m \
   ../ORMDesigner/ORMInspectorView.m \
   ../ORMDesigner/ORMModelBrowser.m \
-  ../ORMDesigner/ORMCoreDataController.m
+  ../ORMDesigner/ORMCoreDataController.m \
+  ../ORMDesigner/ORMQueryController.m
 ORMDesignerTests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../ORMDesigner/ORMDesignerCompat.h
 ORMDesignerTests_INCLUDE_DIRS = -I../ORMKit -I../ORMDesigner
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR)

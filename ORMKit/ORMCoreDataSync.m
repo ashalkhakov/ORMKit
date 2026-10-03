@@ -253,11 +253,13 @@
 {
 	NSXMLDocument *copy = ORMCopyDocument([self documentForSaving]);
 	NSXMLElement *root = [copy rootElement];
-	for (NSXMLElement *element in ORMDescendants(root, CD, nil)) {
-		[element detach];
+	for (NSString *uri in ORMKitNamespaces()) {
+		for (NSXMLElement *element in ORMDescendants(root, uri, nil)) {
+			[element detach];
+		}
 	}
 	for (NSXMLNode *namespace in [[root namespaces] copy]) {
-		if ([[namespace stringValue] isEqualToString:CD]) {
+		if ([ORMKitNamespaces() containsObject:[namespace stringValue]]) {
 			[root removeNamespaceForPrefix:[namespace name]];
 		}
 	}

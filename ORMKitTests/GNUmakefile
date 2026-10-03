@@ -19,7 +19,8 @@ ORMKitTests_OBJC_FILES = \
   ORMVerbalizerTests.m \
   ORMCoreDataTests.m \
   ORMCoreDataImportTests.m \
-  ORMCoreDataValidationTests.m
+  ORMCoreDataValidationTests.m \
+  ORMQueryTests.m
 ORMKitTests_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
 ORMKitTests_INCLUDE_DIRS = -I../ORMKit
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR)

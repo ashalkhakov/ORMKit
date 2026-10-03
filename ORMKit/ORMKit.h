@@ -35,3 +35,5 @@
 #import "ORMCoreDataSync.h"
 #import "ORMCoreDataImport.h"
 #import "ORMCoreDataValidation.h"
+#import "ORMQuery.h"
+#import "ORMQueryFetch.h"

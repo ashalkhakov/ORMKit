@@ -1,6 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMModel.h"
 
+@class ORMQuery;
+
 /* An ORM model read out in FORML, worded as Halpin words it: "Each Person
  * was born in exactly one Country."
  *
@@ -91,6 +93,9 @@ typedef NS_ENUM(NSInteger, ORMVerbalKind) {
 - (NSArray<ORMVerbalSentence *> *)sentencesForElement:(NSString *)elementId;
 /* Every object type, fact type and external constraint, in that order. */
 - (NSArray<ORMVerbalSentence *> *)sentencesForModel;
+/* A conceptual query (ORMQuery.h): "List each Academic and Degree where
+ * that Academic was awarded that Degree in some Year and ...". */
+- (NSArray<ORMVerbalSentence *> *)sentencesForQuery:(ORMQuery *)query;
 
 /* Sentences as text, a sentence a line, indented by level. */
 + (NSString *)plainTextOfSentences:(NSArray<ORMVerbalSentence *> *)sentences;

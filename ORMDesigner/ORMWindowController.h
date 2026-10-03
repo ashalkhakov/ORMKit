@@ -56,4 +56,8 @@
 /* A Core Data model brought into this one, on a diagram of its own, with
  * a mapping to it. */
 - (IBAction)importCoreData:(id)sender;
+/* Conceptual queries: the window, and a new query from the selected
+ * object type. */
+- (IBAction)showQueries:(id)sender;
+- (IBAction)newQueryFromSelection:(id)sender;
 @end

@@ -2,6 +2,7 @@
 #import "ORMWindowController.h"
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
+#import "ORMQueryController.h"
 
 static const double ORMToolbarHeight = 34;
 static const double ORMStatusHeight = 22;
@@ -15,6 +16,7 @@ static const double ORMBrowserBarHeight = 30;
 	NSSplitView *_middle;
 	NSMutableArray<NSButton *> *_toolButtons;
 	ORMCoreDataController *_coreData;
+	ORMQueryController *_queries;
 	NSSearchField *_filterField;
 	/* What the verbalization shows when nothing is selected: the model, or
 	 * nothing. */
@@ -360,6 +362,7 @@ static const double ORMBrowserBarHeight = 30;
 	_inspector.editor = editor;
 	_browser.editor = editor;
 	_coreData.editor = editor;
+	_queries.editor = editor;
 	if (_canvas.diagramId == nil || [editor.model elementWithId:_canvas.diagramId] == nil) {
 		_canvas.diagramId = [[editor.model.diagrams firstObject] identifier];
 	}
@@ -383,6 +386,7 @@ static const double ORMBrowserBarHeight = 30;
 	[self reloadDiagramPopup];
 	[self showVerbalization];
 	[_coreData modelDidChange];
+	[_queries modelDidChange];
 }
 
 - (void)reloadDiagramPopup
@@ -825,6 +829,45 @@ static const double ORMBrowserBarHeight = 30;
 	ORMCoreDataController *controller = [self coreDataController];
 	[controller showWindow:self];
 	[controller synchronize:self];
+}
+
+#pragma mark Queries
+
+- (ORMQueryController *)queryController
+{
+	if (_queries == nil) {
+		_queries = [[ORMQueryController alloc] initWithEditor:[self editor]];
+	}
+	return _queries;
+}
+
+- (IBAction)showQueries:(id)sender
+{
+	(void)sender;
+	[[self queryController] showWindow:self];
+}
+
+- (IBAction)newQueryFromSelection:(id)sender
+{
+	(void)sender;
+	ORMObjectType *type = nil;
+	for (NSString *element in [_canvas selectedElements]) {
+		id found = [[self editor].model elementWithId:element];
+		if ([found isKindOfClass:[ORMShape class]]) {
+			found = [(ORMShape *)found subject];
+		}
+		if ([found isKindOfClass:[ORMObjectType class]]) {
+			type = found;
+			break;
+		}
+	}
+	if (type == nil) {
+		NSBeep();
+		return;
+	}
+	ORMQueryController *controller = [self queryController];
+	[controller addQueryFrom:type.identifier];
+	[controller showWindow:self];
 }
 
 - (IBAction)importCoreData:(id)sender

@@ -1482,6 +1482,14 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	return result;
 }
 
+- (NSArray<ORMVerbalSentence *> *)sentencesForQuery:(ORMQuery *)query
+{
+	_out = [NSMutableArray array];
+	_level = 0;
+	[self verbalizeQuery:query];
+	return _out;
+}
+
 - (NSArray<ORMVerbalSentence *> *)sentencesForModel
 {
 	NSMutableArray *all = [NSMutableArray array];

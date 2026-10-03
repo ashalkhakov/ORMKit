@@ -22,6 +22,9 @@
  *                                            a diagram as SVG: the first (or the named) to standard
  *                                            output or the file; every one (or the named) into a
  *                                            directory, one file a diagram
+ *   ormtool query model.orm [query name] [mapping name]
+ *                                            the model's queries (or the named one): ConQuer's
+ *                                            outline, the FORML, and the Core Data fetch request
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -42,6 +45,7 @@ ORMUsage(void)
 	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n"
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
+	      "       ormtool query model.orm [query name] [mapping name]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n", stderr);
 	return 2;
 }
@@ -207,6 +211,37 @@ main(int argc, const char *argv[])
 			ORMPrint([NSString stringWithFormat:@"%lu constraints checked\n", (unsigned long)generator.ruleCount]);
 			for (NSString *note in generator.notes) {
 				ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
+			}
+			return 0;
+		}
+		if ([command isEqualToString:@"query"]) {
+			ORMCoreDataMapping *mapping = nil;
+			for (ORMCoreDataMapping *each in [ORMCoreDataMapping mappingsOfDocument:editor.document]) {
+				if ([args count] < 4 || [each.name isEqualToString:[args objectAtIndex:3]]) {
+					mapping = each;
+					break;
+				}
+			}
+			NSArray *queries = [ORMQuery queriesInModel:model];
+			BOOL found = NO;
+			for (ORMQuery *query in queries) {
+				if ([args count] > 2 && ![query.name isEqualToString:[args objectAtIndex:2]]) {
+					continue;
+				}
+				found = YES;
+				ORMPrint([NSString stringWithFormat:@"%@\n\n%@\n", query.name, [query outlineText]]);
+				ORMPrint([ORMVerbalizer plainTextOfSentences:[[[ORMVerbalizer alloc] initWithModel:model]
+				                                                 sentencesForQuery:query]]);
+				ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:query model:model mapping:mapping];
+				ORMPrint([NSString stringWithFormat:@"\n%@", [fetch objectiveCSource]]);
+				for (NSString *note in fetch.notes) {
+					ORMPrint([NSString stringWithFormat:@"note: %@\n", note]);
+				}
+				ORMPrint(@"\n");
+			}
+			if (!found) {
+				fprintf(stderr, "ormtool: %s\n", [args count] > 2 ? "no query of that name" : "the model has no queries");
+				return 1;
 			}
 			return 0;
 		}

@@ -18,6 +18,7 @@
 /* Its place among the variables of its object type in what it belongs
  * to, from 1: what tells Person1 from Person2. */
 @property (nonatomic) NSUInteger ordinal;
++ (instancetype)variableOf:(ORMObjectType *)type;
 @end
 
 /* A value a formula speaks of: a variable, a constant, or a calculation
@@ -65,6 +66,8 @@ typedef NS_ENUM(NSInteger, ORMFormulaKind) {
 @property (nonatomic, readonly, copy) NSArray<ORMFormula *> *children;
 
 + (instancetype)fact:(ORMFactType *)factType terms:(NSDictionary<NSString *, ORMTerm *> *)terms;
+/* An outer join's fact: "maybe". */
++ (instancetype)optionalFact:(ORMFactType *)factType terms:(NSDictionary<NSString *, ORMTerm *> *)terms;
 + (instancetype)variable:(ORMVariable *)variable in:(ORMValueConstraint *)values;
 + (instancetype)compare:(NSString *)comparison operands:(NSArray<ORMTerm *> *)operands;
 + (instancetype)combine:(ORMFormulaKind)kind children:(NSArray<ORMFormula *> *)children;
@@ -86,6 +89,7 @@ typedef NS_ENUM(NSInteger, ORMFormulaKind) {
 /* Built from a join path that could not be followed, or a sequence that
  * needs one and has none: the formula says what it can. */
 @property (nonatomic, readonly) BOOL isIncomplete;
++ (instancetype)relationWithFormula:(ORMFormula *)formula columns:(NSArray<ORMVariable *> *)columns;
 @end
 
 @interface ORMLogic : NSObject

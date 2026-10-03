@@ -14,7 +14,8 @@ ORMDesigner_OBJC_FILES = \
   ORMRenderer.m \
   ORMInspectorView.m \
   ORMModelBrowser.m \
-  ORMCoreDataController.m
+  ORMCoreDataController.m \
+  ORMQueryController.m
 # ORMKit is built in the tree beside this one and not installed.
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR)
 ORMDesigner_OBJC_LIBS += -lORMKit -ldispatch

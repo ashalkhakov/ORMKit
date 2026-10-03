@@ -30,7 +30,9 @@ ORMKit_HEADER_FILES = \
   ORMCoreDataMapper.h \
   ORMCoreDataSync.h \
   ORMCoreDataImport.h \
-  ORMCoreDataValidation.h
+  ORMCoreDataValidation.h \
+  ORMQuery.h \
+  ORMQueryFetch.h
 ORMKit_OBJC_FILES = \
   ORMXML.m \
   ORMModel.m \
@@ -56,7 +58,9 @@ ORMKit_OBJC_FILES = \
   ORMCoreDataMapper.m \
   ORMCoreDataSync.m \
   ORMCoreDataImport.m \
-  ORMCoreDataValidation.m
+  ORMCoreDataValidation.m \
+  ORMQuery.m \
+  ORMQueryFetch.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the
 # moment it happens, instead of whatever allocation later notices.

@@ -6,6 +6,13 @@ NSString * const ORMCoreNamespace = @"http://schemas.neumont.edu/ORM/2006-04/ORM
 NSString * const ORMDiagramNamespace = @"http://schemas.neumont.edu/ORM/2006-04/ORMDiagram";
 NSString * const ORMDiagramDisplayNamespace = @"http://schemas.neumont.edu/ORM/2008-11/DiagramDisplay";
 NSString * const ORMCoreDataNamespace = @"http://schemas.ormkit.org/2026-10/CoreDataBridge";
+NSString * const ORMQueryNamespace = @"http://schemas.ormkit.org/2026-10/Queries";
+
+NSArray<NSString *> *
+ORMKitNamespaces(void)
+{
+	return @[ ORMCoreDataNamespace, ORMQueryNamespace ];
+}
 
 const double ORMPointsPerInch = 72.0;
 
@@ -139,7 +146,7 @@ ORMUsualPrefix(NSString *uri)
 {
 	NSDictionary *prefixes = @{ ORMRootNamespace: @"ormRoot", ORMCoreNamespace: @"orm",
 	                            ORMDiagramNamespace: @"ormDiagram", ORMDiagramDisplayNamespace: @"diagramDisplay",
-	                            ORMCoreDataNamespace: @"ormcd" };
+	                            ORMCoreDataNamespace: @"ormcd", ORMQueryNamespace: @"ormq" };
 	return [prefixes objectForKey:uri] ?: @"ns";
 }
 
