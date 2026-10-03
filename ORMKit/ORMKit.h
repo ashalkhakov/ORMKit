@@ -41,5 +41,7 @@
 #import "ORMElementEditor.h"
 #import "ORMSentenceEditor.h"
 #import "ORMCoreDataValidation.h"
+#import "ORMODataAnnotator.h"
 #import "ORMQuery.h"
 #import "ORMQueryFetch.h"
+#import "ORMQueryOData.h"

@@ -125,6 +125,11 @@
 	                   action:@"Set Identifier Mapping"];
 }
 
+- (void)setServesOData:(BOOL)flag ofMapping:(NSString *)mappingId
+{
+	[self setMappingAttribute:@"ServeOData" value:flag ? nil : @"false" of:mappingId action:@"Set OData Mapping"];
+}
+
 - (void)setFlattensSubtypes:(BOOL)flag ofMapping:(NSString *)mappingId
 {
 	[self setMappingAttribute:@"FlattenSubtypes" value:flag ? @"true" : @"false" of:mappingId action:@"Set Subtype Mapping"];

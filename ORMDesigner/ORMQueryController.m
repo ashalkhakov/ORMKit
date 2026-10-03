@@ -27,6 +27,7 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSButton *removeStepButton;
 @property (nonatomic, strong) IBOutlet NSTextView *verbalizationView;
 @property (nonatomic, strong) IBOutlet NSTextView *fetchView;
+@property (nonatomic, strong) IBOutlet NSTextView *requestView;
 @property (nonatomic, strong) IBOutlet NSTextField *statusLabel;
 @end
 
@@ -69,6 +70,7 @@ ORMComparisonTitles(void)
 	[self.roles setTarget:self];
 	[self.roles setDoubleAction:@selector(addStep:)];
 	[self.fetchView setFont:[NSFont userFixedPitchFontOfSize:[NSFont smallSystemFontSize]]];
+	[self.requestView setFont:[NSFont userFixedPitchFontOfSize:[NSFont smallSystemFontSize]]];
 	[self modelDidChange];
 }
 
@@ -173,6 +175,7 @@ ORMComparisonTitles(void)
 {
 	[_verbalizationView setString:[self verbalizationText]];
 	[_fetchView setString:[self fetchText]];
+	[_requestView setString:[self requestText]];
 	[self say:_query == nil ? @"Choose an object type to start a query from, and New."
 	       : (_query.isComplete ? @"" : @"Something this query went through is no longer in the model.")];
 }
@@ -184,6 +187,21 @@ ORMComparisonTitles(void)
 	}
 	NSArray *sentences = [[[ORMVerbalizer alloc] initWithModel:self.editor.model] sentencesForQuery:_query];
 	return [ORMVerbalizer plainTextOfSentences:sentences];
+}
+
+/* The request to the service ODataKit makes of the mapping. */
+- (NSString *)requestText
+{
+	if (_query == nil) {
+		return @"";
+	}
+	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:_query model:self.editor.model mapping:mapping];
+	NSMutableString *text = [NSMutableString stringWithString:[odata requestText]];
+	for (NSString *note in odata.notes) {
+		[text appendFormat:@"\nNote: %@", note];
+	}
+	return text;
 }
 
 - (NSString *)fetchText

@@ -24,7 +24,9 @@
  *                                            directory, one file a diagram
  *   ormtool query model.orm [query name] [mapping name]
  *                                            the model's queries (or the named one): ConQuer's
- *                                            outline, the FORML, and the Core Data fetch request
+ *                                            outline, the FORML, the OData request to the service
+ *                                            ODataKit makes of the mapping, and the Core Data
+ *                                            fetch request
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -232,6 +234,11 @@ main(int argc, const char *argv[])
 				ORMPrint([NSString stringWithFormat:@"%@\n\n%@\n", query.name, [query outlineText]]);
 				ORMPrint([ORMVerbalizer plainTextOfSentences:[[[ORMVerbalizer alloc] initWithModel:model]
 				                                                 sentencesForQuery:query]]);
+				ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:query model:model mapping:mapping];
+				ORMPrint([NSString stringWithFormat:@"\n%@", [odata requestText]]);
+				for (NSString *note in odata.notes) {
+					ORMPrint([NSString stringWithFormat:@"note: %@\n", note]);
+				}
 				ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:query model:model mapping:mapping];
 				ORMPrint([NSString stringWithFormat:@"\n%@", [fetch objectiveCSource]]);
 				for (NSString *note in fetch.notes) {

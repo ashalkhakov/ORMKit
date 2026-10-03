@@ -132,6 +132,9 @@ Working and tested on both platforms:
 - verbalization of object types, fact types and every constraint kind;
 - the Core Data mapping and three-way synchronization, import from Core
   Data, and validation code for what Core Data cannot enforce;
+- the mapping annotated for ODataKit to serve: entity sets, keys
+  (surrogates where needed), descriptions, validation terms; conceptual
+  queries as requests to that service (ODATA.md);
 - ORMDesigner: opening NORMA's diagrams, selecting, moving, the tools, the
   fact editor, the inspector, verbalization, PDF/PNG/HTML export, the Core
   Data window, the query builder.

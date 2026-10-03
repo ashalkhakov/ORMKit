@@ -30,7 +30,9 @@
  * through one of them. */
 - (NSArray<ORMRole *> *)availableRoles;
 - (NSString *)addStepThrough:(ORMRole *)role;
-/* The FORML and the fetch request, as shown. */
+/* The FORML, as shown. */
 - (NSString *)verbalizationText;
+/* The OData request, and the Core Data fetch request, as the tabs show them. */
+- (NSString *)requestText;
 - (NSString *)fetchText;
 @end

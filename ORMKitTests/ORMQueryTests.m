@@ -1,5 +1,37 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
+#import <ODataKit/ODataExpression.h>
+#if defined(__APPLE__)
+#import <CoreData/CoreData.h>
+#import <ODataKit/ODataTransport.h>
+#import <ODataService/ODataService.h>
+
+/* An exchange with the service, waited for. */
+@interface ORMTestExchangeWaiter : NSObject
+@end
+
+@implementation ORMTestExchangeWaiter
+{
+	dispatch_semaphore_t _done;
+}
+- (instancetype)init
+{
+	if ((self = [super init])) {
+		_done = dispatch_semaphore_create(0);
+	}
+	return self;
+}
+- (void)exchangeDidFinish:(id)exchange
+{
+	(void)exchange;
+	dispatch_semaphore_signal(_done);
+}
+- (BOOL)wait
+{
+	return dispatch_semaphore_wait(_done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))) == 0;
+}
+@end
+#endif
 
 /* Conceptual queries (ORMQuery.h, ORMQueryFetch.h), on the schema and
  * queries of Halpin's "Conceptual Queries" (Database Newsletter 26:2,
@@ -277,6 +309,28 @@
 	return fetch;
 }
 
+/* The query as a request to the service: no notes, and its filter is OData
+ * ODataKit reads back as it was written. */
+- (ORMQueryOData *)odata:(NSString *)queryId
+{
+	ORMQueryOData *odata = [self odata:queryId notes:0];
+	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
+	return odata;
+}
+
+- (ORMQueryOData *)odata:(NSString *)queryId notes:(NSUInteger)notes
+{
+	ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:[self query:queryId] model:_editor.model
+	                                                    mapping:[self mapping]];
+	XCTAssertEqual([odata.notes count], notes, @"%@", odata.notes);
+	if (odata.filter != nil) {
+		NSError *error = nil;
+		ODataExpression *reread = [ODataExpression expressionWithString:[odata.filter description] error:&error];
+		XCTAssertEqualObjects([reread description], [odata.filter description], @"%@", error);
+	}
+	return odata;
+}
+
 /* Q1: list each employee who lives in the city that is the location of
  * branch 52. City is the join: its composite identifier is beside the
  * point. */
@@ -308,7 +362,13 @@
 
 - (void)testQ1IsAFetchRequest
 {
-	ORMQueryFetch *fetch = [self fetch:[self q1]];
+	NSString *q1 = [self q1];
+	ORMQueryFetch *fetch = [self fetch:q1];
+	ORMQueryOData *odata = [self odata:q1];
+	XCTAssertEqualObjects(odata.collectionPath, @"Employees");
+	XCTAssertEqualObjects([odata queryText], @"$filter=City/Branches/any(x1:x1/Nr eq 52)&$select=Nr");
+	XCTAssertEqualObjects([odata relativeURLString],
+	                      @"Employees?$filter=City/Branches/any(x1:x1/Nr%20eq%2052)&$select=Nr");
 	XCTAssertEqualObjects(fetch.entityName, @"Employee");
 	XCTAssertEqualObjects(fetch.predicateFormat, @"SUBQUERY(city.branches, $x1, $x1.nr == 52).@count > 0");
 	XCTAssertEqualObjects([fetch.columns valueForKey:@"keyPath"], (@[ @"self" ]));
@@ -350,6 +410,26 @@
 	XCTAssertTrue([source rangeOfString:@"cityCityname == %@ AND cityStateStatecode == %@ AND cityStateCountry == %@"]
 	                  .location != NSNotFound, @"%@", source);
 	XCTAssertTrue([source rangeOfString:@"orPredicateWithSubpredicates:join1Matches"].location != NSNotFound);
+
+	/* The same two requests to the service. */
+	ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:[self query:[self q1]] model:_editor.model mapping:nil];
+	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
+	XCTAssertEqualObjects([odata queryText], @"$filter=CityCityname ne null&$select=Nr");
+	ORMQueryODataJoin *branches = [odata.joins firstObject];
+	XCTAssertEqualObjects([branches relativeURLString],
+	                      @"Branches?$filter=Nr%20eq%2052&$select=CityCityname,CityStateStatecode&"
+	                      @"$expand=CityStateCountry($select%3DName)");
+	/* A part that is an entity is compared by its key. */
+	NSArray *wirePairs = @[ @[ @[ @"CityCityname" ], @[ @"CityCityname" ] ],
+	                        @[ @[ @"CityStateStatecode" ], @[ @"CityStateStatecode" ] ],
+	                        @[ @[ @"CityStateCountry", @"Name" ], @[ @"CityStateCountry", @"Name" ] ] ];
+	XCTAssertEqualObjects(branches.pairs, wirePairs);
+	NSDictionary *row = @{ @"CityCityname": @"Brisbane", @"CityStateStatecode": @"QLD",
+	                       @"CityStateCountry": @{ @"Name": @"Australia" } };
+	XCTAssertEqualObjects([[odata filterJoining:@{ branches.name: @[ row ] }] description],
+	                      @"CityCityname ne null and (CityCityname eq 'Brisbane' and CityStateStatecode eq 'QLD' and "
+	                      @"CityStateCountry/Name eq 'Australia')");
+	XCTAssertEqualObjects([[odata filterJoining:@{ branches.name: @[] }] description], @"CityCityname ne null and false");
 }
 
 /* A join inside a not takes fetches within fetches: noted, not made. */
@@ -369,17 +449,25 @@
 }
 
 /* Q2: employee drivers and their branches. */
-- (void)testQ2
+- (NSString *)q2
 {
 	NSString *q = [[self queries] addQueryNamed:@"Q2" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *root = [self root:q].identifier;
 	[self from:root through:[self role:@"drives" at:0] in:q];
 	ORMQueryNode *branch = [self from:root through:[self role:@"worksFor" at:0] in:q];
 	[[self queries] setProjected:YES ofNode:branch.identifier];
+	return q;
+}
+
+- (void)testQ2
+{
+	NSString *q = [self q2];
 	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee\n"
 	                                                    @"  + drives Car\n"
 	                                                    @"  + works for ✓Branch\n");
 	ORMQueryFetch *fetch = [self fetch:q];
+	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=Cars/any() and Branch ne null&$select=Nr&"
+	                                                   @"$expand=Branch($select=Nr)");
 	XCTAssertEqualObjects(fetch.predicateFormat, @"(cars.@count > 0) AND (branch != nil)");
 	XCTAssertEqualObjects([fetch.columns valueForKey:@"keyPath"], (@[ @"self", @"branch" ]));
 	XCTAssertEqualObjects([[fetch.columns lastObject] identifierKeyPath], @"branch.nr");
@@ -387,7 +475,7 @@
 
 /* Q3: the US branches that did not achieve the top rank before 1998, and
  * the name and cars (if any) of each one's head. */
-- (void)testQ3
+- (NSString *)q3
 {
 	NSString *q = [[self queries] addQueryNamed:@"Q3" from:[self typeId:@"USbranch"] reason:NULL];
 	NSString *root = [self root:q].identifier;
@@ -405,6 +493,12 @@
 	[[self queries] setOperator:ORMQueryMaybe ofStep:maybe];
 	[[self queries] setProjected:YES ofNode:car.identifier];
 
+	return q;
+}
+
+- (void)testQ3
+{
+	NSString *q = [self q3];
 	XCTAssertEqualObjects([[self query:q] outlineText], @"✓USbranch\n"
 	                                                    @"  + not achieved Rank = 1 in Year < 1998\n"
 	                                                    @"  + is Branch\n"
@@ -412,6 +506,11 @@
 	                                                    @"      + has ✓EmployeeName\n"
 	                                                    @"      + maybe drives ✓Car\n");
 	ORMQueryFetch *fetch = [self fetch:q];
+	ORMQueryOData *odata = [self odata:q];
+	XCTAssertEqualObjects(odata.collectionPath, @"Branches/Default.USbranch");
+	XCTAssertEqualObjects([odata queryText], @"$filter=not USbranchAchievedRankInYears/any(x1:x1/Rank/Nr eq 1 and "
+	                                         @"x1/Year/Ad lt 1998) and Employee/EmployeeName ne null&$select=Nr&"
+	                                         @"$expand=Employee($select=Nr,EmployeeName;$expand=Cars($select=Regnr))");
 	XCTAssertEqualObjects(fetch.entityName, @"USbranch");
 	XCTAssertEqualObjects(fetch.predicateFormat, @"(NOT (SUBQUERY(uSbranchAchievedRankInYears, $x1, ($x1.rank.nr == 1) "
 	                                             @"AND ($x1.year.ad < 1998)).@count > 0)) AND (employee.employeeName "
@@ -425,7 +524,7 @@
 /* Q4: who supervises an employee who lives in the same city as the
  * supervisor but was born in a different country? Subscripts say which
  * occurrences are the same object, and a condition compares two. */
-- (void)testQ4Correlates
+- (NSString *)q4
 {
 	NSString *q = [[self queries] addQueryNamed:@"Q4" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *root = [self root:q].identifier;
@@ -446,6 +545,12 @@
 	XCTAssertFalse([[self queries] setCondition:@"=" toNode:city.identifier ofNode:theirCountry.identifier
 	                                     reason:&reason]);
 
+	return q;
+}
+
+- (void)testQ4Correlates
+{
+	NSString *q = [self q4];
 	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee1\n"
 	                                                    @"  + lives in City1\n"
 	                                                    @"  + was born in Country1\n"
@@ -459,6 +564,10 @@
 	/* The supervised employee's city and country, against the supervisor's:
 	 * a key path in the subquery is the fetched object's. */
 	ORMQueryFetch *fetch = [self fetch:q];
+	/* In the lambda, the supervisor is $it; a city, a surrogate's, by its key. */
+	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=City ne null and Country ne null and "
+	                                                   @"Employees/any(x1:x1/City/Id eq $it/City/Id and not "
+	                                                   @"(x1/Country/Name eq $it/Country/Name))&$select=Nr");
 	XCTAssertEqualObjects(fetch.predicateFormat, @"(city != nil) AND (country != nil) AND (SUBQUERY(employees, $x1, "
 	                                             @"($x1.city == city) AND ($x1.country != country)).@count > 0)");
 	NSDictionary *sydney = @{ @"name": @"Sydney" }, *perth = @{ @"name": @"Perth" };
@@ -477,7 +586,7 @@
 
 /* Q5: who owns a car, and does not drive more than one of the cars they
  * own? Car1, met through a to-many, is a set where it is met again. */
-- (void)testQ5CorrelatesWithASet
+- (NSString *)q5
 {
 	NSString *q = [[self queries] addQueryNamed:@"Q5" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *root = [self root:q].identifier;
@@ -488,6 +597,12 @@
 	[[self queries] setLabel:@"1" ofNode:driven.identifier];
 	[[self queries] setOperator:ORMQueryNot ofStep:notDrives];
 	[[self queries] setCount:@">" value:1 ofStep:notDrives reason:NULL];
+	return q;
+}
+
+- (void)testQ5CorrelatesWithASet
+{
+	NSString *q = [self q5];
 	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee\n"
 	                                                    @"  + owns Car1\n"
 	                                                    @"  + not drives Car1\n"
@@ -498,6 +613,9 @@
 	/* ConQuer-II's S5: the cars driven that are among those owned, found
 	 * from each car back to its owners. */
 	ORMQueryFetch *fetch = [self fetch:q];
+	/* OData counts a collection, not the members meeting conditions. */
+	ORMQueryOData *odata = [self odata:q notes:1];
+	XCTAssertTrue([[odata.notes firstObject] rangeOfString:@"counts no filtered collection"].location != NSNotFound);
 	XCTAssertEqualObjects(fetch.predicateFormat, @"(ownsCars.@count > 0) AND (NOT (SUBQUERY(cars, $x2, ANY "
 	                                             @"$x2.isOwnedByEmployees == SELF).@count > 1))");
 	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
@@ -526,7 +644,7 @@
 
 /* ConQuer-II's: "what are the branches and total salary costs of branches
  * with a total salary cost of more than $1 000 000?", the richest first. */
-- (void)testTotalsAndSorting
+- (NSString *)payroll
 {
 	NSString *q = [[self queries] addQueryNamed:@"Payroll" from:[self typeId:@"Branch"] reason:NULL];
 	NSString *root = [self root:q].identifier;
@@ -540,6 +658,12 @@
 	                                     reason:&reason]);
 	[[self queries] setSortOrder:ORMQueryDescending ofNode:root];
 
+	return q;
+}
+
+- (void)testTotalsAndSorting
+{
+	NSString *q = [self payroll];
 	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch ↓\n"
 	                                                    @"  + employs Employee\n"
 	                                                    @"    + total(Salary) for Branch > 1000000\n"
@@ -547,6 +671,9 @@
 	XCTAssertTrue([[self english:q] hasSuffix:@"the total of that Salary is greater than 1000000 in descending order of "
 	                                          @"Branch."], @"%@", [self english:q]);
 	ORMQueryFetch *fetch = [self fetch:q];
+	ORMQueryOData *odata = [self odata:q];
+	XCTAssertEqualObjects([odata queryText], @"$filter=Employees/aggregate(Salary/Usd with sum) gt 1000000&"
+	                                         @"$orderby=Nr desc&$select=Nr");
 	XCTAssertEqualObjects(fetch.predicateFormat, @"employees.@sum.salary.usd > 1000000");
 	XCTAssertEqualObjects(fetch.sortDescriptors, @[ [NSSortDescriptor sortDescriptorWithKey:@"nr" ascending:NO] ]);
 	XCTAssertTrue([[fetch objectiveCSource] rangeOfString:@"sortDescriptorWithKey:@\"nr\" ascending:NO"].location
@@ -571,6 +698,7 @@
 	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
 	XCTAssertTrue([[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL]);
 	XCTAssertEqualObjects([self fetch:polyglots].predicateFormat, @"languages.@count > 1");
+	XCTAssertEqualObjects([[self odata:polyglots] queryText], @"$filter=Languages/$count gt 1&$select=Nr");
 	XCTAssertTrue([[[self query:polyglots] outlineText] rangeOfString:@"count(Language) for Employee > 1"].location
 	              != NSNotFound);
 	XCTAssertTrue([[self english:polyglots] hasSuffix:@"the number of that Language is greater than 1."],
@@ -588,6 +716,8 @@
 	                      @"(nr > 100) AND ((country.name == \"USA\") OR (SUBQUERY(languages, $x1, $x1.name == "
 	                      @"\"Latin\").@count > 0))");
 	XCTAssertTrue([[[self query:q] outlineText] rangeOfString:@"+ or speaks Language = 'Latin'"].location != NSNotFound);
+	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=Nr gt 100 and (Country/Name eq 'USA' or "
+	                                                   @"Languages/any(x1:x1/Name eq 'Latin'))&$select=Nr");
 }
 
 /* The predicate means what the query says, on objects as key-value
@@ -652,4 +782,126 @@
 	XCTAssertFalse([fetch isComplete]);
 }
 
+#if defined(__APPLE__)
+/* The requests, sent to ODataKit's service over the mapped model in a
+ * SQLite store: the rows the paper's queries ask for. */
+- (void)testTheServiceAnswersTheQueries
+{
+	NSString *q1 = [self q1], *q2 = [self q2], *q3 = [self q3], *q4 = [self q4], *payroll = [self payroll];
+	NSString *polyglots = [[self queries] addQueryNamed:@"Polyglots" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *speaks = nil;
+	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
+	[[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL];
+
+	/* The mapping as an application has it: compiled, in a store. */
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]] map];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	NSString *package = [directory stringByAppendingPathComponent:@"Company.xcdatamodeld"];
+	NSString *compiled = [directory stringByAppendingPathComponent:@"Company.momd"];
+	NSError *error = nil;
+	XCTAssertTrue([mapped writeToPackage:package error:&error], @"%@", error);
+	NSTask *momc = [NSTask launchedTaskWithLaunchPath:@"/usr/bin/xcrun" arguments:@[ @"momc", package, compiled ]];
+	[momc waitUntilExit];
+	NSManagedObjectModel *model = [[NSManagedObjectModel alloc] initWithContentsOfURL:[NSURL fileURLWithPath:compiled]];
+	XCTAssertNotNil(model);
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+	                                                    URL:[NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"Company.sqlite"]]
+	                                                options:nil error:&error], @"%@", error);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	context.persistentStoreCoordinator = coordinator;
+	[context performBlockAndWait:^{
+		NSManagedObject *(^make)(NSString *, NSDictionary *) = ^NSManagedObject *(NSString *entity, NSDictionary *values) {
+			NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
+			[object setValuesForKeysWithDictionary:values];
+			return object;
+		};
+		NSManagedObject *australia = make(@"Country", @{ @"name": @"Australia" });
+		NSManagedObject *usa = make(@"Country", @{ @"name": @"USA" });
+		NSManagedObject *uk = make(@"Country", @{ @"name": @"UK" });
+		/* A city is identified by its name and state: in OData, by the
+		 * number the service would give it. */
+		NSManagedObject *brisbane = make(@"City", @{ @"id": @1, @"cityname": @"Brisbane", @"stateStatecode": @"QLD",
+		                                             @"stateCountry": australia });
+		NSManagedObject *sydney = make(@"City", @{ @"id": @2, @"cityname": @"Sydney", @"stateStatecode": @"NSW",
+		                                           @"stateCountry": australia });
+		NSManagedObject *perth = make(@"City", @{ @"id": @3, @"cityname": @"Perth", @"stateStatecode": @"WA",
+		                                          @"stateCountry": australia });
+		NSManagedObject *seattle = make(@"City", @{ @"id": @4, @"cityname": @"Seattle", @"stateStatecode": @"WA",
+		                                            @"stateCountry": usa });
+		NSDictionary *salaries = @{ @50: make(@"Salary", @{ @"usd": @50000 }), @500: make(@"Salary", @{ @"usd": @500000 }),
+		                            @600: make(@"Salary", @{ @"usd": @600000 }) };
+		NSManagedObject *(^employee)(int, NSManagedObject *, NSManagedObject *, int) =
+			^NSManagedObject *(int nr, NSManagedObject *city, NSManagedObject *country, int thousands) {
+			return make(@"Employee", @{ @"nr": @(nr), @"employeeName": [NSString stringWithFormat:@"E%d", nr], @"city": city,
+			                            @"country": country, @"salary": [salaries objectForKey:@(thousands)] });
+		};
+		NSManagedObject *e1 = employee(1, brisbane, australia, 600), *e2 = employee(2, sydney, australia, 500);
+		NSManagedObject *e3 = employee(3, brisbane, australia, 500), *e4 = employee(4, seattle, usa, 50);
+		NSManagedObject *e5 = employee(5, seattle, usa, 50), *e10 = employee(10, sydney, uk, 600);
+		NSManagedObject *e21 = employee(21, perth, uk, 50);
+		/* Bea supervises an employee of her city born elsewhere; Ann one
+		 * of another city. */
+		[e10 setValue:e2 forKey:@"employee"];
+		[e21 setValue:e1 forKey:@"employee"];
+		NSManagedObject *b52 = make(@"Branch", @{ @"nr": @52, @"city": brisbane, @"employee": e1 });
+		NSManagedObject *b7 = make(@"Branch", @{ @"nr": @7, @"city": sydney, @"employee": e2 });
+		NSManagedObject *us1 = make(@"USbranch", @{ @"nr": @101, @"city": seattle, @"employee": e4 });
+		NSManagedObject *us2 = make(@"USbranch", @{ @"nr": @102, @"city": seattle, @"employee": e5 });
+		for (NSArray *works in @[ @[ e1, b52 ], @[ e3, b52 ], @[ e2, b7 ], @[ e10, b7 ], @[ e21, b7 ], @[ e4, us1 ],
+		                          @[ e5, us2 ] ]) {
+			[[works firstObject] setValue:[works lastObject] forKey:@"branch"];
+		}
+		NSManagedObject *ute = make(@"CarModel", @{ @"name": @"Ute" });
+		NSManagedObject *a = make(@"Car", @{ @"regnr": @"A", @"carModel": ute });
+		NSManagedObject *b = make(@"Car", @{ @"regnr": @"B", @"carModel": ute });
+		NSManagedObject *c = make(@"Car", @{ @"regnr": @"C", @"carModel": ute });
+		[[e1 mutableSetValueForKey:@"cars"] addObject:c];
+		[[e3 mutableSetValueForKey:@"cars"] addObjectsFromArray:@[ a, b ]];
+		[[e4 mutableSetValueForKey:@"cars"] addObject:a];
+		NSManagedObject *english = make(@"Language", @{ @"name": @"English" });
+		NSManagedObject *latin = make(@"Language", @{ @"name": @"Latin" });
+		[[e1 mutableSetValueForKey:@"languages"] addObjectsFromArray:@[ english, latin ]];
+		[[e2 mutableSetValueForKey:@"languages"] addObject:english];
+		NSManagedObject *first = make(@"Rank", @{ @"nr": @1 }), *second = make(@"Rank", @{ @"nr": @2 });
+		NSManagedObject *y1995 = make(@"Year", @{ @"ad": @1995 }), *y1996 = make(@"Year", @{ @"ad": @1996 });
+		NSManagedObject *y2001 = make(@"Year", @{ @"ad": @2001 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": @1, @"uSbranch": us1, @"rank": first, @"year": y1995 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": @2, @"uSbranch": us2, @"rank": first, @"year": y2001 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": @3, @"uSbranch": us2, @"rank": second, @"year": y1996 });
+		NSError *saveError = nil;
+		XCTAssertTrue([context save:&saveError], @"%@", [saveError userInfo]);
+	}];
+
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:coordinator
+	                                                                     serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	NSArray *(^numbers)(NSString *) = ^NSArray *(NSString *queryId) {
+		ORMQueryOData *odata = [self odata:queryId];
+		NSURL *url = [NSURL URLWithString:[@"http://example.test/odata/" stringByAppendingString:[odata relativeURLString]]];
+		ORMTestExchangeWaiter *waiter = [[ORMTestExchangeWaiter alloc] init];
+		ODataExchange *exchange = [[ODataExchange alloc] initWithRequest:[NSURLRequest requestWithURL:url] target:waiter
+		                                                          action:@selector(exchangeDidFinish:)];
+		[service startExchange:exchange];
+		XCTAssertTrue([waiter wait]);
+		NSInteger status = ((NSHTTPURLResponse *)exchange.URLResponse).statusCode;
+		NSString *body = [[NSString alloc] initWithData:exchange.data ?: [NSData data] encoding:NSUTF8StringEncoding];
+		XCTAssertEqual(status, 200, @"%@: %@", url, body);
+		NSDictionary *answer = [NSJSONSerialization JSONObjectWithData:exchange.data ?: [NSData data] options:0 error:NULL];
+		return [[answer objectForKey:@"value"] valueForKey:@"Nr"];
+	};
+	NSArray *(^sorted)(NSArray *) = ^NSArray *(NSArray *values) {
+		return [values sortedArrayUsingSelector:@selector(compare:)];
+	};
+	XCTAssertEqualObjects(sorted(numbers(q1)), (@[ @1, @3 ]));
+	XCTAssertEqualObjects(sorted(numbers(q2)), (@[ @1, @3, @4 ]));
+	XCTAssertEqualObjects(sorted(numbers(q3)), (@[ @102 ]));
+	XCTAssertEqualObjects(sorted(numbers(q4)), (@[ @2 ]));
+	/* In the order the query asks for: the larger number first. */
+	XCTAssertEqualObjects(numbers(payroll), (@[ @52, @7 ]));
+	XCTAssertEqualObjects(sorted(numbers(polyglots)), (@[ @1 ]));
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+#endif
+
 @end
+

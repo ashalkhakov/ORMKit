@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCoreDataMapper.h"
+#import "ORMODataAnnotator.h"
 #import "ORMDiagram.h"
 #import "ORMReadingText.h"
 #import "ORMVerbalizer.h"
@@ -11,6 +12,15 @@
 @end
 
 @implementation ORMMappingNote
+
++ (instancetype)noteWithKind:(ORMMappingNoteKind)kind text:(NSString *)text element:(NSString *)elementId
+{
+	ORMMappingNote *note = [[self alloc] init];
+	note.kind = kind;
+	note.text = text;
+	note.elementId = elementId;
+	return note;
+}
 
 - (NSString *)description
 {
@@ -257,11 +267,7 @@ ORMReservedNames(void)
 
 - (void)note:(ORMMappingNoteKind)kind text:(NSString *)text element:(NSString *)elementId
 {
-	ORMMappingNote *note = [[ORMMappingNote alloc] init];
-	note.kind = kind;
-	note.text = text;
-	note.elementId = elementId;
-	[_notes addObject:note];
+	[_notes addObject:[ORMMappingNote noteWithKind:kind text:text element:elementId]];
 }
 
 #pragma mark Classifying
@@ -1528,6 +1534,9 @@ ORMDeletionRule(ORMRole *far)
 	[self mapFactTypes];
 	[self mapConstraints];
 	[self loosenMandatoryReferencesToUniqueEntities];
+	if (self.mapping.servesOData) {
+		[_notes addObjectsFromArray:[[[ORMODataAnnotator alloc] initWithModel:self.model mapping:self.mapping] annotate:_out]];
+	}
 	ORMCDModel *made = _out;
 	_out = nil;
 	return made;

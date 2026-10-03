@@ -18,6 +18,9 @@
 /* An editor on a new model, with an undo manager that does not group by
  * event: each operation is its own step. */
 - (ORMEditor *)newEditor;
+/* What Apple's model compiler says of the model, on a Mac; nil elsewhere
+ * or when it accepts it. */
+- (NSString *)momcRejects:(ORMCDModel *)model;
 @property (nonatomic, readonly, strong) NSUndoManager *undoManager;
 /* The real NORMA files: written by NORMA itself, so they say what NORMA's
  * derived data and layout are, and normalizing them changes nothing.

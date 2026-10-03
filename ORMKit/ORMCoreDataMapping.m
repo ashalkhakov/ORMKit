@@ -12,6 +12,7 @@
 @property (nonatomic, readwrite) ORMMappingScope scope;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *scopeIds;
 @property (nonatomic, readwrite) BOOL materializesIdentifiers;
+@property (nonatomic, readwrite) BOOL servesOData;
 @property (nonatomic, readwrite) BOOL flattensSubtypes;
 @property (nonatomic, readwrite) BOOL absorbsIdentifierTypes;
 @property (nonatomic, readwrite) ORMMappingStyle style;
@@ -42,6 +43,7 @@ ORMObjectTypeMappingNames(void)
 	mapping.scope = ORMScopeModel;
 	mapping.scopeIds = @[];
 	mapping.materializesIdentifiers = YES;
+	mapping.servesOData = YES;
 	mapping.valueSetsAsEntities = YES;
 	mapping.codeGenerationType = @"class";
 	mapping.nameOverrides = @{};
@@ -69,6 +71,7 @@ ORMObjectTypeMappingNames(void)
 	}
 	mapping.scopeIds = scopeIds;
 	mapping.materializesIdentifiers = ORMBoolAttribute(element, @"MaterializeIdentifiers", YES);
+	mapping.servesOData = ORMBoolAttribute(element, @"ServeOData", YES);
 	NSString *style = ORMAttribute(element, @"Style");
 	mapping.style = [style isEqualToString:@"Relational"] ? ORMStyleRelational
 		: [style isEqualToString:@"Entities"] ? ORMStyleEntities : ORMStyleApplication;

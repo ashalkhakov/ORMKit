@@ -26,6 +26,7 @@
                 <outlet property="removeStepButton" destination="removeStepButton" id="removeStepButtonOutlet12"/>
                 <outlet property="verbalizationView" destination="verbalizationText" id="verbalizationTextOutlet13"/>
                 <outlet property="fetchView" destination="fetchText" id="fetchTextOutlet14"/>
+                <outlet property="requestView" destination="requestText" id="requestTextOutlet"/>
                 <outlet property="statusLabel" destination="statusLabel" id="statusLabelOutlet15"/>
                 <outlet property="window" destination="queryWindow" id="queryWindowOutlet16"/>
             </connections>
@@ -481,6 +482,36 @@
                                                 </subviews>
                                             </clipView>
                                             <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="verbalizationTextVScroller">
+                                                <rect key="frame" x="868" y="1" width="15" height="142"/>
+                                                <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+                                            </scroller>
+                                        </scrollView>
+                                    </subviews>
+                                </view>
+                            </tabViewItem>
+                            <tabViewItem label="OData" identifier="odata" id="tabsodataItem">
+                                <view key="view" id="tabsodataView">
+                                    <rect key="frame" x="10" y="33" width="884" height="144"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                        <scrollView borderType="line" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" id="requestTextScroll">
+                                            <rect key="frame" x="0" y="0" width="884" height="144"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" drawsBackground="NO" copiesOnScroll="NO" id="requestTextClip">
+                                                <rect key="frame" x="1" y="1" width="867" height="142"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <textView editable="NO" selectable="YES" importsGraphics="NO" richText="NO" verticallyResizable="YES" spellCheckingEnabled="NO" smartInsertDeleteEnabled="NO" id="requestText">
+                                                        <rect key="frame" x="0" y="0" width="867" height="142"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <size key="minSize" width="867" height="142"/>
+                                                        <size key="maxSize" width="10000" height="10000000"/>
+                                                    </textView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="requestTextVScroller">
                                                 <rect key="frame" x="868" y="1" width="15" height="142"/>
                                                 <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
                                             </scroller>

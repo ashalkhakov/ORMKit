@@ -52,6 +52,39 @@ ORMRequired(ORMCDRelationship *relationship)
 	return !relationship.optional || [[relationship.userInfo objectForKey:@"ormkit.mandatory"] isEqualToString:@"YES"];
 }
 
+static BOOL
+ORMFlag(NSDictionary *info, NSString *key)
+{
+	return [[info objectForKey:key] isEqualToString:@"YES"];
+}
+
+/* The number ODataKit's service gives each new object, as the mapping
+ * makes one (ORMODataAnnotator.h): a key, computed. Not a fact. */
+static ORMCDAttribute *
+ORMSurrogateOf(ORMCDEntity *entity)
+{
+	for (ORMCDAttribute *attribute in entity.attributes) {
+		if (ORMFlag(attribute.userInfo, @"OData.key") && ORMFlag(attribute.userInfo, @"OData.computed")
+		    && [attribute.attributeType hasPrefix:@"Integer"]) {
+			return attribute;
+		}
+	}
+	return nil;
+}
+
+/* The attributes ODataKit keys the entity by, its surrogate aside. */
+static NSArray<NSString *> *
+ORMKeyNamesOf(ORMCDEntity *entity)
+{
+	NSMutableArray *names = [NSMutableArray array];
+	for (ORMCDAttribute *attribute in entity.attributes) {
+		if (ORMFlag(attribute.userInfo, @"OData.key") && !ORMFlag(attribute.userInfo, @"OData.computed")) {
+			[names addObject:attribute.name];
+		}
+	}
+	return names;
+}
+
 /* What an import keeps track of. */
 @interface ORMImportState : NSObject
 @property (nonatomic, copy) NSString *mapping;
@@ -85,6 +118,21 @@ ORMRequired(ORMCDRelationship *relationship)
 	return self;
 }
 
+
+/* What ODataKit was told of the entity: its description, the definition;
+ * its surrogate key's name, the one the mapping gives it again. */
+- (void)described:(ORMCDEntity *)entity as:(NSString *)typeId state:(ORMImportState *)state
+{
+	NSString *description = [entity.userInfo objectForKey:@"OData.description"];
+	if ([description length] > 0) {
+		[_editor.elementEditor setDefinition:description of:typeId reason:NULL];
+	}
+	ORMCDAttribute *surrogate = entity.parentName == nil ? ORMSurrogateOf(entity) : nil;
+	if (surrogate != nil) {
+		[self.mappingEditor setName:surrogate.name forSource:[typeId stringByAppendingString:@".key"]
+		                  inMapping:state.mapping];
+	}
+}
 
 /* An entity that only joins others: to-one relationships, two or more,
  * required and unique together, no other relationships. */
@@ -340,6 +388,7 @@ ORMRequired(ORMCDRelationship *relationship)
 		return;
 	}
 	[state.types setObject:nested forKey:entity.name];
+	[self described:entity as:nested state:state];
 	for (NSUInteger i = 0; i < [roles count]; i++) {
 		ORMRole *role = [roles objectAtIndex:i];
 		NSString *property = [properties objectAtIndex:i];
@@ -370,6 +419,14 @@ ORMRequired(ORMCDRelationship *relationship)
 		state.mapping = [self.mappingEditor addCoreDataMappingNamed:name path:path];
 		/* Nothing absorbed: the model maps back as it came. */
 		[self.mappingEditor setStyle:ORMStyleEntities ofMapping:state.mapping];
+		/* Served by ODataKit only if it was: a key says so. */
+		BOOL served = NO;
+		for (ORMCDEntity *entity in model.entities) {
+			for (ORMCDAttribute *attribute in entity.attributes) {
+				served = served || ORMFlag(attribute.userInfo, @"OData.key");
+			}
+		}
+		[self.mappingEditor setServesOData:served ofMapping:state.mapping];
 		/* A new model's empty diagram, else one of its own. */
 		ORMDiagram *only = [_editor.model.diagrams count] == 1 ? [_editor.model.diagrams firstObject] : nil;
 		state.diagram = only != nil && [[only allShapes] count] == 0 ? only.identifier : [_editor.diagramEditor addDiagramNamed:name];
@@ -390,6 +447,7 @@ ORMRequired(ORMCDRelationship *relationship)
 			}
 			[state.types setObject:type forKey:entity.name];
 			[self.mappingEditor setName:entity.name forSource:type inMapping:state.mapping];
+			[self described:entity as:type state:state];
 		}
 		/* Subtyping, so subtypes take their supertype's identification. */
 		for (ORMCDEntity *entity in model.entities) {
@@ -408,7 +466,13 @@ ORMRequired(ORMCDRelationship *relationship)
 				continue;
 			}
 			ORMCDAttribute *identifier = nil;
-			for (NSArray *names in entity.uniquenessConstraints) {
+			NSArray *keys = ORMKeyNamesOf(entity);
+			if ([keys count] == 1 && ![entity attributeNamed:[keys firstObject]].optional) {
+				identifier = [entity attributeNamed:[keys firstObject]];
+			}
+			/* A key of its own says what identifies it: nothing else does. */
+			BOOL keyed = [keys count] > 0 || ORMSurrogateOf(entity) != nil;
+			for (NSArray *names in keyed ? @[] : entity.uniquenessConstraints) {
 				ORMCDAttribute *attribute = [names count] == 1 ? [entity attributeNamed:[names firstObject]] : nil;
 				if (attribute != nil && !attribute.optional && identifier == nil
 				    && ![attribute.attributeType isEqualToString:@"Transformable"]) {
@@ -452,7 +516,8 @@ ORMRequired(ORMCDRelationship *relationship)
 			NSString *type = [state.types objectForKey:entity.name];
 			for (ORMCDAttribute *attribute in entity.attributes) {
 				/* An identifier's, or a role of the fact a join is. */
-				if (type != nil && ![[identifiers objectForKey:entity.name] isEqualToString:attribute.name]
+				if (type != nil && attribute != ORMSurrogateOf(entity)
+				    && ![[identifiers objectForKey:entity.name] isEqualToString:attribute.name]
 				    && [state.roles objectForKey:[NSString stringWithFormat:@"%@.%@", entity.name, attribute.name]] == nil) {
 					[self addAttribute:attribute of:entity to:type state:state];
 				}
@@ -501,7 +566,18 @@ ORMRequired(ORMCDRelationship *relationship)
 			if (type == nil || [joins objectForKey:entity.name] != nil) {
 				continue;
 			}
+			/* The key first, so that it is the identifier. */
+			NSArray *keys = ORMKeyNamesOf(entity);
+			NSMutableArray *uniques = [NSMutableArray array];
+			if ([keys count] >= 2) {
+				[uniques addObject:keys];
+			}
 			for (NSArray *names in entity.uniquenessConstraints) {
+				if (![[NSSet setWithArray:names] isEqualToSet:[NSSet setWithArray:keys]]) {
+					[uniques addObject:names];
+				}
+			}
+			for (NSArray *names in uniques) {
 				if ([names count] < 2) {
 					continue;
 				}

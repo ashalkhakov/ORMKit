@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryFetch.h"
+#import "ORMQueryPlaces.h"
 
 @interface ORMQueryColumn ()
 @property (nonatomic, readwrite, copy) NSString *title;
@@ -56,7 +57,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 {
 	ORMQuery *_query;
 	ORMCDModel *_coreData;
-	NSMutableDictionary<NSString *, NSArray *> *_bySource;
+	ORMQueryPlaces *_places;
 	NSMutableArray<NSString *> *_notes;
 	NSMutableArray<ORMQueryColumn *> *_columns;
 	NSUInteger _variables;
@@ -95,14 +96,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		_scope = [NSMutableArray array];
 		_joins = [NSMutableArray array];
 		_sorts = [NSMutableArray array];
-		_bySource = [NSMutableDictionary dictionary];
-		for (ORMCDEntity *entity in coreData.entities) {
-			for (ORMCDProperty *property in [entity properties]) {
-				if (property.source != nil) {
-					[_bySource setObject:@[ entity, property ] forKey:property.source];
-				}
-			}
-		}
+		_places = [[ORMQueryPlaces alloc] initWithCoreData:coreData];
 		[self translate];
 	}
 	return self;
@@ -217,76 +211,6 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 }
 
 #pragma mark Where things are
-
-/* The entity an object type's instances are: its own, or its nearest
- * supertype's when it was flattened into it. */
-- (ORMCDEntity *)entityOf:(ORMObjectType *)type
-{
-	NSMutableArray *pending = [NSMutableArray arrayWithObject:type];
-	while ([pending count] > 0) {
-		ORMObjectType *at = [pending objectAtIndex:0];
-		[pending removeObjectAtIndex:0];
-		ORMCDEntity *entity = [_coreData entityWithSource:at.identifier];
-		if (entity != nil) {
-			return entity;
-		}
-		[pending addObjectsFromArray:at.supertypes];
-	}
-	return nil;
-}
-
-- (BOOL)entity:(ORMCDEntity *)entity inherits:(ORMCDEntity *)ancestor
-{
-	for (ORMCDEntity *at = entity; at != nil; at = at.parentName != nil ? [_coreData entityNamed:at.parentName] : nil) {
-		if (at == ancestor) {
-			return YES;
-		}
-	}
-	return NO;
-}
-
-/* The property traced to the source, if the entity has it (its own or an
- * ancestor's). */
-- (ORMCDProperty *)propertyOf:(ORMCDEntity *)entity source:(NSString *)source
-{
-	NSArray *place = source != nil ? [_bySource objectForKey:source] : nil;
-	if (place == nil || entity == nil || ![self entity:entity inherits:[place firstObject]]) {
-		return nil;
-	}
-	return [place lastObject];
-}
-
-- (NSArray<NSString *> *)namesOf:(ORMCDEntity *)entity
-{
-	NSMutableArray *names = [NSMutableArray arrayWithObject:entity.name];
-	for (NSUInteger i = 0; i < [names count]; i++) {
-		for (ORMCDEntity *sub in [_coreData subentitiesOf:[names objectAtIndex:i]]) {
-			[names addObject:sub.name];
-		}
-	}
-	return names;
-}
-
-/* An entity's simple identifier attribute: its reference mode's value. */
-- (ORMCDAttribute *)identifierOf:(ORMObjectType *)type on:(ORMCDEntity *)entity
-{
-	for (ORMRole *role in type.referenceModeFactType.roles) {
-		if (role.player == type.referenceModeValueType) {
-			ORMCDProperty *property = [self propertyOf:entity source:role.identifier];
-			return [property isKindOfClass:[ORMCDAttribute class]] ? (ORMCDAttribute *)property : nil;
-		}
-	}
-	/* A subtype is identified as its supertype is. */
-	if (type.preferredIdentifier == nil) {
-		for (ORMObjectType *supertype in type.supertypes) {
-			ORMCDAttribute *identifier = [self identifierOf:supertype on:entity];
-			if (identifier != nil) {
-				return identifier;
-			}
-		}
-	}
-	return nil;
-}
 
 - (NSString *)constant:(NSString *)value forAttribute:(ORMCDAttribute *)attribute
 {
@@ -460,7 +384,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 - (void)translate
 {
 	ORMQueryNode *root = _query.root;
-	ORMCDEntity *entity = root != nil ? [self entityOf:root.objectType] : nil;
+	ORMCDEntity *entity = root != nil ? [_places entityOf:root.objectType] : nil;
 	if (entity == nil) {
 		[self note:[NSString stringWithFormat:@"%@ is no entity, so there is nothing to fetch.",
 		                                      root.objectType.name ?: @"The query's object type"]];
@@ -475,9 +399,9 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		ORMQueryNode *next = nil;
 		for (ORMQueryStep *step in at.steps) {
 			ORMQueryNode *sub = [step.nodes firstObject];
-			ORMCDEntity *subEntity = sub != nil ? [self entityOf:sub.objectType] : nil;
+			ORMCDEntity *subEntity = sub != nil ? [_places entityOf:sub.objectType] : nil;
 			if ([step isSubtyping] && step.operatorKind == ORMQueryAnd && step.entryRole.isSupertypeMetaRole
-			    && subEntity != nil && subEntity != _fetched && [self entity:subEntity inherits:_fetched]) {
+			    && subEntity != nil && subEntity != _fetched && [_places entity:subEntity inherits:_fetched]) {
 				_fetched = subEntity;
 				next = sub;
 				break;
@@ -503,7 +427,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
                    columns:(BOOL)columns
 {
 	NSMutableArray *parts = [NSMutableArray array];
-	ORMCDAttribute *identifier = [self identifierOf:node.objectType on:entity];
+	ORMCDAttribute *identifier = [_places identifierOf:node.objectType on:entity];
 	if (columns) {
 		[self column:node keyPath:path identifier:identifier != nil ? [self keyPath:path adding:identifier.name] : nil];
 	}
@@ -558,7 +482,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	if ([step.nodes count] == 0) {
 		/* A unary: its attribute is true. */
 		for (ORMRole *role in step.factType.roles) {
-			ORMCDProperty *property = role != step.entryRole ? [self propertyOf:entity source:role.identifier] : nil;
+			ORMCDProperty *property = role != step.entryRole ? [_places propertyOf:entity source:role.identifier] : nil;
 			if ([property isKindOfClass:[ORMCDAttribute class]]) {
 				return [NSString stringWithFormat:@"%@%@ == YES", prefix, property.name];
 			}
@@ -570,12 +494,12 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	}
 	if ([step.nodes count] == 1) {
 		ORMQueryNode *node = [step.nodes firstObject];
-		ORMCDProperty *property = [self propertyOf:entity source:node.role.identifier];
+		ORMCDProperty *property = [_places propertyOf:entity source:node.role.identifier];
 		if (property != nil) {
 			return [self binaryStep:step node:node property:property prefix:prefix path:path columns:columns];
 		}
 		/* Absorbed: its parts are the entity's own properties. */
-		if ([[self absorbedParts:node.role.identifier on:entity] count] > 0) {
+		if ([[_places absorbedParts:node.role.identifier on:entity] count] > 0) {
 			return [self absorbed:node base:node.role.identifier entity:entity prefix:prefix path:path
 			              columns:columns];
 		}
@@ -584,23 +508,6 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 }
 
 #pragma mark Absorbed object types
-
-/* The properties an absorbed object type's parts are on the entity: @[ the
- * trace below the base ("/role/role"), the property ], its own and its
- * ancestors'. */
-- (NSArray<NSArray *> *)absorbedParts:(NSString *)base on:(ORMCDEntity *)entity
-{
-	NSMutableArray *parts = [NSMutableArray array];
-	NSString *lead = [base stringByAppendingString:@"/"];
-	for (ORMCDEntity *at = entity; at != nil; at = at.parentName != nil ? [_coreData entityNamed:at.parentName] : nil) {
-		for (ORMCDProperty *property in [at properties]) {
-			if ([property.source hasPrefix:lead] && ![property.source hasSuffix:@".inverse"]) {
-				[parts addObject:@[ [property.source substringFromIndex:[base length]], property ]];
-			}
-		}
-	}
-	return parts;
-}
 
 /* An object type absorbed into the entity as properties whose traces start
  * with the base: a step to one of its parts is that property; a step on to
@@ -612,7 +519,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
                   path:(NSString *)path
                columns:(BOOL)columns
 {
-	NSArray *parts = [self absorbedParts:base on:entity];
+	NSArray *parts = [_places absorbedParts:base on:entity];
 	if (node.comparison != nil || node.label != nil) {
 		[self note:[NSString stringWithFormat:@"%@ is absorbed: it has no one value to compare or correlate.",
 		                                      node.objectType.name]];
@@ -628,12 +535,12 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 			continue;
 		}
 		NSString *partBase = [base stringByAppendingFormat:@"/%@", next.role.identifier];
-		ORMCDProperty *part = [self propertyOf:entity source:partBase];
+		ORMCDProperty *part = [_places propertyOf:entity source:partBase];
 		NSString *condition = nil;
 		_guarded += step.operatorKind == ORMQueryNot ? 1 : 0;
 		if (part != nil) {
 			condition = [self binaryStep:step node:next property:part prefix:prefix path:path columns:columns];
-		} else if ([[self absorbedParts:partBase on:entity] count] > 0) {
+		} else if ([[_places absorbedParts:partBase on:entity] count] > 0) {
 			condition = [self absorbed:next base:partBase entity:entity prefix:prefix path:path columns:columns];
 		} else {
 			condition = [self join:step node:next from:base entity:entity prefix:prefix];
@@ -661,10 +568,10 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
             entity:(ORMCDEntity *)entity
             prefix:(NSString *)prefix
 {
-	ORMCDEntity *joined = [self entityOf:node.objectType];
+	ORMCDEntity *joined = [_places entityOf:node.objectType];
 	NSString *joinedBase = step.entryRole.identifier;
-	NSArray *ours = [self absorbedParts:base on:entity];
-	NSArray *theirs = joined != nil ? [self absorbedParts:joinedBase on:joined] : @[];
+	NSArray *ours = [_places absorbedParts:base on:entity];
+	NSArray *theirs = joined != nil ? [_places absorbedParts:joinedBase on:joined] : @[];
 	NSMutableArray *pairs = [NSMutableArray array];
 	for (NSArray *part in ours) {
 		for (NSArray *their in theirs) {
@@ -715,12 +622,12 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 - (NSString *)keyPathFrom:(ORMQueryNode *)node entity:(ORMCDEntity *)entity to:(ORMQueryNode *)target
 {
 	if (node == target) {
-		ORMCDAttribute *identifier = entity != nil ? [self identifierOf:node.objectType on:entity] : nil;
+		ORMCDAttribute *identifier = entity != nil ? [_places identifierOf:node.objectType on:entity] : nil;
 		return identifier != nil ? identifier.name : nil;
 	}
 	for (ORMQueryStep *step in node.steps) {
 		for (ORMQueryNode *next in step.nodes) {
-			ORMCDProperty *property = [self propertyOf:entity source:next.role.identifier];
+			ORMCDProperty *property = [_places propertyOf:entity source:next.role.identifier];
 			if ([property isKindOfClass:[ORMCDAttribute class]] && next == target) {
 				return property.name;
 			}
@@ -869,13 +776,13 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 {
 	ORMFactType *fact = step.factType;
 	NSString *back = [fact.identifier stringByAppendingFormat:@".%@", step.entryRole.identifier];
-	ORMCDProperty *property = [self propertyOf:entity source:back];
+	ORMCDProperty *property = [_places propertyOf:entity source:back];
 	ORMCDRelationship *relationship = [property isKindOfClass:[ORMCDRelationship class]] ? (ORMCDRelationship *)property
 	                                                                                      : nil;
 	ORMCDEntity *factEntity = relationship != nil ? [_coreData entityNamed:relationship.destination] : nil;
 	if (factEntity == nil) {
 		ORMQueryNode *node = [step.nodes count] == 1 ? [step.nodes firstObject] : nil;
-		if (node != nil && node.objectType.kind == ORMEntityType && [self entityOf:node.objectType] == nil) {
+		if (node != nil && node.objectType.kind == ORMEntityType && [_places entityOf:node.objectType] == nil) {
 			/* Its parts are attributes of each entity that uses it: the
 			 * join is on their values, across entities no relationship
 			 * connects. */
@@ -898,7 +805,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	}
 	NSMutableArray *parts = [NSMutableArray array];
 	for (ORMQueryNode *node in step.nodes) {
-		ORMCDProperty *rolePlace = [self propertyOf:factEntity source:node.role.identifier];
+		ORMCDProperty *rolePlace = [_places propertyOf:factEntity source:node.role.identifier];
 		if (rolePlace == nil) {
 			[self note:[NSString stringWithFormat:@"%@'s role in \"%@\" maps to nothing.", node.objectType.name,
 			                                      [[fact primaryReading] expandedText] ?: fact.name]];
@@ -930,7 +837,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		for (ORMQueryNode *at = step.aggregateNode; at != nil && start == nil; at = at.step.parent) {
 			if (at == node) {
 				start = node;
-				firstHop = [[self propertyOf:factEntity source:node.role.identifier] name];
+				firstHop = [[_places propertyOf:factEntity source:node.role.identifier] name];
 			}
 		}
 	}
@@ -948,18 +855,18 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	if (node == nil) {
 		return nil;
 	}
-	ORMCDEntity *target = [self entityOf:node.objectType];
+	ORMCDEntity *target = [_places entityOf:node.objectType];
 	NSString *test = nil;
 	if (step.entryRole.isSupertypeMetaRole && [prefix length] == 0 && target != nil
-	    && [self entity:_fetched inherits:target]) {
+	    && [_places entity:_fetched inherits:target]) {
 		/* What is fetched is one. */
 	} else if (step.entryRole.isSupertypeMetaRole) {
-		if (target == nil || target == entity || ![self entity:target inherits:entity]) {
+		if (target == nil || target == entity || ![_places entity:target inherits:entity]) {
 			[self note:[NSString stringWithFormat:@"%@ is no entity of its own, so being one is not tested.",
 			                                      node.objectType.name]];
 		} else {
 			NSMutableArray *names = [NSMutableArray array];
-			for (NSString *name in [self namesOf:target]) {
+			for (NSString *name in [_places namesOf:target]) {
 				[names addObject:ORMPredicateString(name)];
 			}
 			test = [NSString stringWithFormat:@"%@entity.name IN {%@}", prefix, [names componentsJoinedByString:@", "]];

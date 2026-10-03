@@ -29,6 +29,9 @@ jobs:
       # below, so moving it rebuilds the stack rather than reusing a prefix
       # patched differently. Name a commit here to pin the build exactly.
       GNUSTEP_PATCHES_REF: 6eee3cc7bc1c751b88877b3fe4a6581517cccecb
+      # ODataKit, and FreeCoreData under it: the pins ci.yml has.
+      FREECOREDATA_REF: b612b0a90fcae0b0fabcd1ff71442988eb67b518
+      ODATAKIT_REF: 6b18511f298bd57f5f356c50e181099713efc3d5
       # See the note in ci.yml: the gnustep layout does not treat the prefix's
       # plain lib/ as a library root, but libobjc2 and libdispatch live there.
       LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
@@ -40,6 +43,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: ${{ env.SRC_PATH }}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ashalkhakov/FreeCoreData
+          ref: ${{ env.FREECOREDATA_REF }}
+          path: FreeCoreData
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ashalkhakov/ODataKit
+          ref: ${{ env.ODATAKIT_REF }}
+          path: ODataKit
 
       - name: Version
         run: |
@@ -56,7 +71,7 @@ jobs:
             pkg-config libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev \
             libssl-dev libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev \
             libgmp-dev libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
-            libpthread-workqueue-dev \
+            libpthread-workqueue-dev libsqlite3-dev \
             libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
             fuse libfuse2 desktop-file-utils \
             fonts-dejavu fonts-liberation
@@ -81,6 +96,13 @@ jobs:
       - name: Build GNUstep
         if: steps.gnustep-cache.outputs.cache-hit != 'true'
         run: ./.github/scripts/dependencies.sh
+
+      # Into the prefix's Local domain, which the AppDir takes whole.
+      - name: Build and install FreeCoreData and ODataKit
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          (cd ../FreeCoreData && make -j"$(nproc)" && make install)
+          (cd ../ODataKit && make -j"$(nproc)" && make install)
 
       - name: Fetch linuxdeploy and the AppImage runtime
         run: ./Scripts/install-linuxdeploy.sh
@@ -125,8 +147,22 @@ jobs:
     # this line every one of them resolves to the empty string and the job
     # ships an unsigned build, saying so and passing.
     environment: production
+    env:
+      ODATAKIT_REF: 6b18511f298bd57f5f356c50e181099713efc3d5
+    # Beside ODataKit's checkout, as ORMKit.xcworkspace finds it.
+    defaults:
+      run:
+        working-directory: source
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: source
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ashalkhakov/ODataKit
+          ref: ${{ env.ODATAKIT_REF }}
+          path: ODataKit
 
       - name: Version
         run: |
@@ -141,8 +177,8 @@ jobs:
 
       - name: Build
         run: |
-          for scheme in ORMKit ORMDesigner Tools/ormtool; do
-            xcodebuild -project ORMKit.xcodeproj -scheme "$scheme" \
+          for scheme in ORMKit ORMDesigner ormtool; do
+            xcodebuild -workspace ORMKit.xcworkspace -scheme "$scheme" \
               -destination 'platform=macOS' -configuration Release build
           done
 
@@ -173,13 +209,15 @@ jobs:
           security list-keychain -d user -s "$keychain" login.keychain-db
           rm -f "$RUNNER_TEMP/cert.p12"
 
-          built=$(xcodebuild -project ORMKit.xcodeproj -scheme ORMDesigner \
+          built=$(xcodebuild -workspace ORMKit.xcworkspace -scheme ORMDesigner \
                     -destination 'platform=macOS' -configuration Release \
                     -showBuildSettings 2>/dev/null \
                   | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
           echo "BUILT=$built" >> "$GITHUB_ENV"
           # --options runtime is what notarization requires; sign the framework
           # before the app that embeds it, or the outer signature is stale.
+          codesign --force --timestamp --options runtime \
+                   --sign "$IDENTITY" "$built/ODataKit.framework"
           codesign --force --timestamp --options runtime \
                    --sign "$IDENTITY" "$built/ORMKit.framework"
           codesign --force --timestamp --options runtime \
@@ -212,17 +250,17 @@ jobs:
 
       - name: Package
         run: |
-          built=${BUILT:-$(xcodebuild -project ORMKit.xcodeproj -scheme ORMDesigner \
+          built=${BUILT:-$(xcodebuild -workspace ORMKit.xcworkspace -scheme ORMDesigner \
                     -destination 'platform=macOS' -configuration Release \
                     -showBuildSettings 2>/dev/null \
                   | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')}
           suffix=""
           [ "${{ steps.sign.outputs.signed }}" = "true" ] || suffix="-unsigned"
-          # ormtool links @rpath/ORMKit.framework, so the executable on its
-          # own will not start. Ship it beside the framework it needs.
+          # ormtool links @rpath/ORMKit.framework and ODataKit.framework, so
+          # the executable on its own will not start. Ship it beside them.
           rm -rf "$RUNNER_TEMP/ormtool" && mkdir -p "$RUNNER_TEMP/ormtool"
           cp "$built/ormtool" "$RUNNER_TEMP/ormtool/"
-          cp -R "$built/ORMKit.framework" "$RUNNER_TEMP/ormtool/"
+          cp -R "$built/ORMKit.framework" "$built/ODataKit.framework" "$RUNNER_TEMP/ormtool/"
           ditto -c -k --keepParent "$built/ORMDesigner.app" \
             "ORMKit-macOS-${APP_VERSION}${suffix}.zip"
           ditto -c -k --keepParent "$RUNNER_TEMP/ormtool" \
@@ -232,13 +270,13 @@ jobs:
         with:
           name: ORMKit-macOS-${{ env.APP_VERSION }}
           path: |
-            ORMKit-macOS-*.zip
-            ormtool-macOS-*.zip
+            source/ORMKit-macOS-*.zip
+            source/ormtool-macOS-*.zip
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ORMKit-macOS-*.zip
-            ormtool-macOS-*.zip
+            source/ORMKit-macOS-*.zip
+            source/ormtool-macOS-*.zip

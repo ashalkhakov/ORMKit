@@ -18,13 +18,15 @@ ORMKitTests_OBJC_FILES = \
   ORMSVGTests.m \
   ORMVerbalizerTests.m \
   ORMCoreDataTests.m \
+  ORMODataTests.m \
   ORMCoreDataImportTests.m \
   ORMCoreDataValidationTests.m \
   ORMQueryTests.m
 ORMKitTests_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
-ORMKitTests_INCLUDE_DIRS = -I../ORMKit
-ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR)
-ORMKitTests_BUNDLE_LIBS += -lORMKit -lXCTest -ldispatch
+include ../odatakit.make
+ORMKitTests_INCLUDE_DIRS = -I../ORMKit $(ODATAKIT_INCLUDE_DIRS)
+ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+ORMKitTests_BUNDLE_LIBS += -lORMKit $(ODATAKIT_LIBS) -lXCTest -ldispatch
 ORMKitTests_NEEDS_GUI = no
 
 # AddressSanitizer. The bundle is dlopened by an xctest binary that is not
@@ -62,5 +64,5 @@ TEST_TIMEOUT ?= 1200
 .PHONY: run-tests
 run-tests: all
 	$(SANITIZE_ENV) \
-	LD_LIBRARY_PATH="$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$$LD_LIBRARY_PATH" \
+	LD_LIBRARY_PATH="$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$(if $(ODATAKIT),$(ODATAKIT)/obj:)$$LD_LIBRARY_PATH" \
 	  timeout -s ABRT $(TEST_TIMEOUT) $(XCTEST) $(BUNDLE_NAME).bundle

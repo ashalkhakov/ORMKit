@@ -21,8 +21,24 @@ jobs:
     name: macOS (Xcode)
     runs-on: macos-15
     timeout-minutes: 45
+    env:
+      # ODataKit, which ORMKit says queries with and the tests serve them by:
+      # #9, the iOS port, on #8's offline sync. A commit, not a branch.
+      ODATAKIT_REF: 6b18511f298bd57f5f356c50e181099713efc3d5
+    # The checkout beside ODataKit's, as ORMKit.xcworkspace finds it.
+    defaults:
+      run:
+        working-directory: source
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: source
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ashalkhakov/ODataKit
+          ref: ${{ env.ODATAKIT_REF }}
+          path: ODataKit
 
       - name: Show toolchain
         run: xcodebuild -version
@@ -33,26 +49,26 @@ jobs:
       - name: The Xcode project is current
         run: |
           python3 .tools/genxcodeproj.py
-          git diff --exit-code -- ORMKit.xcodeproj \
+          git diff --exit-code -- ORMKit.xcodeproj ORMKit.xcworkspace \
             || { echo "::error::ORMKit.xcodeproj is stale: run python3 .tools/genxcodeproj.py"; exit 1; }
 
       # Built first and on its own, so a compile error in the library is
       # reported as that rather than as a test failure.
       - name: Build ORMKit
         run: |
-          xcodebuild -project ORMKit.xcodeproj -scheme ORMKit \
+          xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKit \
             -destination 'platform=macOS' -configuration Debug build
 
       - name: Build the designer and the CLI
         run: |
           for scheme in ORMDesigner ormtool; do
-            xcodebuild -project ORMKit.xcodeproj -scheme "$scheme" \
+            xcodebuild -workspace ORMKit.xcworkspace -scheme "$scheme" \
               -destination 'platform=macOS' -configuration Debug build
           done
 
       - name: Test ORMKit
         run: |
-          xcodebuild -project ORMKit.xcodeproj -scheme ORMKitTests \
+          xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests \
             -destination 'platform=macOS' \
             -resultBundlePath "$RUNNER_TEMP/ORMKitTests.xcresult" test
 
@@ -60,7 +76,7 @@ jobs:
       # that can. A GitHub macOS runner has one.
       - name: Test ORMDesigner
         run: |
-          xcodebuild -project ORMKit.xcodeproj -scheme ORMDesignerTests \
+          xcodebuild -workspace ORMKit.xcworkspace -scheme ORMDesignerTests \
             -destination 'platform=macOS' \
             -resultBundlePath "$RUNNER_TEMP/ORMDesignerTests.xcresult" test
 
@@ -68,7 +84,7 @@ jobs:
       # mapping writes: what it rejects, Xcode would.
       - name: Smoke-test ormtool
         run: |
-          built=$(xcodebuild -project ORMKit.xcodeproj -scheme ormtool \
+          built=$(xcodebuild -workspace ORMKit.xcworkspace -scheme ormtool \
                     -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
                   | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
           sample=ORMKitTests/Fixtures/StockMate.orm
@@ -86,14 +102,14 @@ jobs:
       # release. These are for trying a build, and say so in the name.
       - name: Package
         run: |
-          built=$(xcodebuild -project ORMKit.xcodeproj -scheme ORMDesigner \
+          built=$(xcodebuild -workspace ORMKit.xcworkspace -scheme ORMDesigner \
                     -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
                   | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
-          # ormtool links @rpath/ORMKit.framework, so the executable on its own
-          # will not start. Ship it beside the framework it needs.
+          # ormtool links @rpath/ORMKit.framework and ODataKit.framework, so the
+          # executable on its own will not start. Ship it beside them.
           rm -rf "$RUNNER_TEMP/ormtool" && mkdir -p "$RUNNER_TEMP/ormtool"
           cp "$built/ormtool" "$RUNNER_TEMP/ormtool/"
-          cp -R "$built/ORMKit.framework" "$RUNNER_TEMP/ormtool/"
+          cp -R "$built/ORMKit.framework" "$built/ODataKit.framework" "$RUNNER_TEMP/ormtool/"
           ditto -c -k --keepParent "$built/ORMDesigner.app" "ORMDesigner-macOS-unsigned.zip"
           ditto -c -k --keepParent "$RUNNER_TEMP/ormtool" "ormtool-macOS-unsigned.zip"
 
@@ -101,8 +117,8 @@ jobs:
         with:
           name: ORMKit-macOS-${{ github.sha }}
           path: |
-            ORMDesigner-macOS-unsigned.zip
-            ormtool-macOS-unsigned.zip
+            source/ORMDesigner-macOS-unsigned.zip
+            source/ormtool-macOS-unsigned.zip
           retention-days: 14
 
       - name: Upload test results
@@ -132,6 +148,12 @@ jobs:
       # below, so moving it rebuilds the stack rather than reusing a prefix
       # patched differently. Name a commit here to pin the build exactly.
       GNUSTEP_PATCHES_REF: 6eee3cc7bc1c751b88877b3fe4a6581517cccecb
+      # Core Data on GNUstep, which ODataKit is over: the commit ODataKit's
+      # own CI builds with.
+      FREECOREDATA_REF: b612b0a90fcae0b0fabcd1ff71442988eb67b518
+      # ODataKit, which ORMKit says queries with and the tests serve them by:
+      # #9, the iOS port, on #8's offline sync. A commit, not a branch.
+      ODATAKIT_REF: 6b18511f298bd57f5f356c50e181099713efc3d5
       # libobjc2 and libdispatch land in the prefix's plain lib/, which the
       # gnustep layout does not treat as a library root. GNUstep.sh prepends
       # the roots it does know about to this.
@@ -144,6 +166,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: ${{ env.SRC_PATH }}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ashalkhakov/FreeCoreData
+          ref: ${{ env.FREECOREDATA_REF }}
+          path: FreeCoreData
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ashalkhakov/ODataKit
+          ref: ${{ env.ODATAKIT_REF }}
+          path: ODataKit
 
       # Seconds, and before the half-hour dependency build. CoreGraphics is a
       # macOS framework: importing it compiles fine on a Mac and breaks the
@@ -170,7 +204,7 @@ jobs:
             pkg-config libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev \
             libssl-dev libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev \
             libgmp-dev libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
-            libpthread-workqueue-dev \
+            libpthread-workqueue-dev libsqlite3-dev \
             libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
             xvfb
           # The gnustep-2.0 runtime needs ld.gold or lld. ld.gold is gone from
@@ -211,6 +245,24 @@ jobs:
         with:
           path: ${{ env.INSTALL_PATH }}
           key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+
+      # Built after the stack is restored, so neither is in the cached
+      # prefix: their pins move without rebuilding GNUstep.
+      - name: Build and install FreeCoreData
+        working-directory: ${{ github.workspace }}/FreeCoreData
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -j"$(nproc)"
+          make install
+          make -C Tools/momc
+          make -C Tools/momc install
+
+      - name: Build and install ODataKit
+        working-directory: ${{ github.workspace }}/ODataKit
+        run: |
+          . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -j"$(nproc)"
+          make install
 
       - name: Build ORMKit
         run: |

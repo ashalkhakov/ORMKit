@@ -3,10 +3,11 @@ include $(GNUSTEP_MAKEFILES)/common.make
 TOOL_NAME = ormtool
 ormtool_OBJC_FILES = ormtool.m
 ormtool_OBJCFLAGS += -fobjc-arc -Wall
-ormtool_INCLUDE_DIRS = -I../../ORMKit
+include ../../odatakit.make
+ormtool_INCLUDE_DIRS = -I../../ORMKit $(ODATAKIT_INCLUDE_DIRS)
 # ORMKit is built in the tree beside this one and not installed.
-ADDITIONAL_LIB_DIRS += -L../../ORMKit/$(GNUSTEP_OBJ_DIR)
-ormtool_TOOL_LIBS += -lORMKit -ldispatch
+ADDITIONAL_LIB_DIRS += -L../../ORMKit/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+ormtool_TOOL_LIBS += -lORMKit $(ODATAKIT_LIBS) -ldispatch
 
 # AddressSanitizer, to link against an ORMKit built with SANITIZE=1. The
 # tool is instrumented itself, so the runtime needs no preloading.

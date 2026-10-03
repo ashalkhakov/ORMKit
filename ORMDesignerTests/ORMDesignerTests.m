@@ -354,6 +354,10 @@
 	XCTAssertEqual(made.countValue, 2u);
 	XCTAssertEqualObjects(made.aggregateNode.objectType.name, @"Location");
 	XCTAssertTrue([[queries fetchText] rangeOfString:@"ascending:NO"].location != NSNotFound, @"%@", [queries fetchText]);
+	XCTAssertTrue([[queries requestText] rangeOfString:@"GET Warehouses?$filter="].location != NSNotFound,
+	              @"%@", [queries requestText]);
+	XCTAssertTrue([[queries requestText] rangeOfString:@"$orderby="].location != NSNotFound, @"%@", [queries requestText]);
+	XCTAssertEqualObjects([[[queries valueForKey:@"requestView"] textStorage] string], [queries requestText]);
 }
 
 - (void)testEveryMenuItemHasSomewhereToGo

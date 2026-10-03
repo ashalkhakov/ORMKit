@@ -24,7 +24,7 @@ ORMKit is Foundation only; CI rejects AppKit in it.
 
 ```sh
 python3 .tools/genxcodeproj.py   # after adding a file to a GNUmakefile
-xcodebuild -project ORMKit.xcodeproj -scheme ORMKitTests -destination 'platform=macOS' test
+xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests -destination 'platform=macOS' test
 .tools/gnustep.sh make -C ORMKit
 .tools/gnustep.sh make -C ORMKitTests run-tests
 .tools/gnustep.sh make -C ORMDesignerTests run-tests
@@ -32,6 +32,11 @@ xcodebuild -project ORMKit.xcodeproj -scheme ORMKitTests -destination 'platform=
 
 The Xcode project is generated from the GNUmakefiles' source lists; CI
 fails when the committed one is stale. Never edit `project.pbxproj` by hand.
+
+ORMKit depends on ODataKit (`../ODataKit`, docs/ODATA.md): the workspace
+builds its framework, and GNUstep links the installed one (`odatakit.make`).
+CI pins it (`ODATAKIT_REF`) and FreeCoreData under it (`FREECOREDATA_REF`);
+move the pins and the image together.
 
 ORMDesigner's windows and menu bar are XIBs (`ORMDesigner/*.xib`), listed in
 `ORMDesigner_RESOURCE_FILES` and the test bundle's: Xcode compiles them,
@@ -64,4 +69,8 @@ only in docker may be a fix CI already has. The sources are still in
 `/deps`, so patch them in place and commit the container as the image:
 apply `../gnustep-patches/Scripts/apply-patches.sh` at the pinned ref to
 `/deps/libs-base` and `/deps/libs-gui`, then `make && make install` each.
-That is how SUBQUERY started parsing here (2026-10-03).
+That is how SUBQUERY started parsing here (2026-10-03). FreeCoreData and
+ODataKit are installed in the image the same way: `git archive` of
+`../gnustep-coredata` and `../ODataKit` at the pinned commits into `/deps`,
+`make && make install` (FreeCoreData's `Tools/momc` too), `docker commit`.
+apt did work on 2026-10-04 (`libsqlite3-dev`).
