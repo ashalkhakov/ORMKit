@@ -1223,16 +1223,20 @@ ORMDeletionRule(ORMRole *far)
 			ORMCDEntity *player = [self entityOf:role.player];
 			ORMCDRelationship *forward = [self relationshipNamed:name source:role.identifier to:player toMany:NO near:nil];
 			forward.optional = NO;
-			NSString *backwardName = [self claimName:@[ [ORMCoreDataMapper pluralOf:[ORMCoreDataMapper propertyNameFor:entity.name]] ]
+			/* Unique by itself, the role is one to one: Core Data's inverse
+			 * says so. */
+			BOOL toMany = !role.isUnique;
+			NSString *backwardStem = [ORMCoreDataMapper propertyNameFor:entity.name];
+			NSString *backwardName = [self claimName:@[ toMany ? [ORMCoreDataMapper pluralOf:backwardStem] : backwardStem ]
 			                                  source:[fact.identifier stringByAppendingFormat:@".%@", role.identifier]
 			                                      on:player];
 			ORMCDRelationship *backward = [[ORMCDRelationship alloc] init];
 			backward.name = backwardName;
 			backward.source = [fact.identifier stringByAppendingFormat:@".%@", role.identifier];
 			backward.destination = entity.name;
-			backward.toMany = YES;
+			backward.toMany = toMany;
 			backward.optional = ![self mandatoryHere:role];
-			backward.minCount = [self mandatoryHere:role] ? 1 : 0;
+			backward.minCount = toMany && [self mandatoryHere:role] ? 1 : 0;
 			/* The fact cannot hold without its players. */
 			backward.deletionRule = @"Cascade";
 			forward.inverseName = backwardName;
@@ -1246,6 +1250,12 @@ ORMDeletionRule(ORMRole *far)
 		}
 	}
 	for (ORMConstraint *constraint in [fact uniquenessConstraints]) {
+		ORMRole *only = [[constraint allRoles] count] == 1 ? [[constraint allRoles] firstObject] : nil;
+		if (only != nil && [[names objectForKey:only.identifier] isKindOfClass:[NSString class]]
+		    && [self resolved:only.player] != ORMResolvedValue) {
+			/* A to-one inverse already. */
+			continue;
+		}
 		NSMutableArray *unique = [NSMutableArray array];
 		NSUInteger covered = 0;
 		for (ORMRole *role in [constraint allRoles]) {

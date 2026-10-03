@@ -9,7 +9,7 @@ and RDLKit (library, designer, tests, CI, AppImage).
 ```
 ORMKit/            the library: Foundation and NSXML only
 ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
-Tools/ormtool/     check, verbalize, normalize, and map to Core Data from a shell
+Tools/ormtool/     check, verbalize, normalize, draw as SVG, and map to and from Core Data from a shell
 ORMDesigner/       the editor (AppKit), its UI built in code
 ORMDesignerTests/  the editor driven through its window, headless
 docs/              this, and COREDATA-MAPPING.md
@@ -75,6 +75,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something (VERBALIZATION.md); plain text and HTML |
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync` | the mapping, both ways (COREDATA-MAPPING.md) |
+| `ORMCoreDataImport` | a Core Data model brought into ORM, with a mapping back to it |
 
 ORMKit has no AppKit and no Core Data: the Core Data side is Xcode's source
 format, so mapping works the same on both platforms, and Apple's `momc` (in
@@ -115,7 +116,8 @@ Working and tested on both platforms:
   fact types and readings, every constraint kind, subtyping,
   objectification, notes, diagrams, deletion with its cascade, undo;
 - verbalization of object types, fact types and every constraint kind;
-- the Core Data mapping and three-way synchronization;
+- the Core Data mapping and three-way synchronization, and import from
+  Core Data;
 - ORMDesigner: opening NORMA's diagrams, selecting, moving, the tools, the
   fact editor, the inspector, verbalization, PDF/PNG/HTML export, the Core
   Data window.

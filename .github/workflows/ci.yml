@@ -258,6 +258,9 @@ jobs:
           cmp "$sample" /tmp/normalized.orm
           timeout 120 "$tool" coredata "$sample" /tmp/StockMate.xcdatamodeld
           test -s /tmp/StockMate.xcdatamodeld/StockMate.xcdatamodel/contents
+          # And back: the Core Data model brought into a new ORM model.
+          timeout 120 "$tool" import /tmp/StockMate.xcdatamodeld /tmp/imported.orm
+          timeout 120 "$tool" check /tmp/imported.orm
           timeout 120 "$tool" svg "$sample" /tmp/diagrams/
           test -s /tmp/diagrams/Products.svg
 

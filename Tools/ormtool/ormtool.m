@@ -17,7 +17,11 @@
  *   ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]
  *                                            a diagram as SVG: the first (or the named) to standard
  *                                            output or the file; every one (or the named) into a
- *                                            directory, one file a diagram */
+ *                                            directory, one file a diagram
+ *   ormtool import Model.xcdatamodeld [model.orm]
+ *                                            the Core Data model in ORM: added to the .orm when it
+ *                                            exists, else a new model, written there or to standard
+ *                                            output, with what ORM cannot say on standard error */
 
 static void
 ORMPrint(NSString *text)
@@ -32,7 +36,8 @@ ORMUsage(void)
 	      "       ormtool check model.orm\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
 	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n"
-	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n", stderr);
+	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
+	      "       ormtool import Model.xcdatamodeld [model.orm]\n", stderr);
 	return 2;
 }
 
@@ -54,6 +59,43 @@ ORMOpen(NSString *path)
 	return [[ORMEditor alloc] initWithDocument:document undoManager:nil];
 }
 
+static int
+ORMImport(NSArray<NSString *> *args)
+{
+	NSString *source = [args objectAtIndex:1];
+	NSString *out = [args count] > 2 ? [args objectAtIndex:2] : nil;
+	NSString *reason = nil;
+	ORMCDModel *coreData = [ORMCDModel modelAtPath:source reason:&reason];
+	if (coreData == nil) {
+		fprintf(stderr, "ormtool: %s: %s\n", [source UTF8String], [reason UTF8String]);
+		return 1;
+	}
+	ORMEditor *editor = nil;
+	if (out != nil && [[NSFileManager defaultManager] fileExistsAtPath:out]) {
+		editor = ORMOpen(out);
+		if (editor == nil) {
+			return 1;
+		}
+	} else {
+		NSString *name = [[source lastPathComponent] stringByDeletingPathExtension];
+		editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:name] undoManager:nil];
+	}
+	NSArray *notes = nil;
+	if ([editor importCoreDataModel:coreData path:source notes:&notes reason:&reason] == nil) {
+		fprintf(stderr, "ormtool: %s: %s\n", [source UTF8String], [reason UTF8String]);
+		return 1;
+	}
+	for (NSString *note in notes) {
+		fprintf(stderr, "note: %s\n", [note UTF8String]);
+	}
+	NSData *data = ORMDataOfDocument([editor documentForSaving]);
+	if (out != nil) {
+		return [data writeToFile:out atomically:YES] ? 0 : 1;
+	}
+	fwrite([data bytes], 1, [data length], stdout);
+	return 0;
+}
+
 int
 main(int argc, const char *argv[])
 {
@@ -70,6 +112,9 @@ main(int argc, const char *argv[])
 		[args removeObject:@"--html"];
 		BOOL dark = [args containsObject:@"--dark"];
 		[args removeObject:@"--dark"];
+		if ([command isEqualToString:@"import"]) {
+			return ORMImport(args);
+		}
 		ORMEditor *editor = ORMOpen([args objectAtIndex:1]);
 		if (editor == nil) {
 			return 1;

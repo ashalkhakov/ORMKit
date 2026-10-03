@@ -27,7 +27,7 @@ mapping's treatment of identity and of many-to-many fact types.
 | Many-to-many binary fact type between entity types | to-many relationships both ways |
 | Many-to-many binary fact type with a value type (`Person speaks Language`) | an entity for the value type, related to-many both ways |
 | Unary fact type (`Person smokes`) | Boolean attribute, not optional, default NO: absent means false |
-| Fact type of three or more roles, or an objectified fact type | an entity of its own, with a to-one relationship (or attribute) per role, and a uniqueness constraint over the roles its uniqueness constraint spans |
+| Fact type of three or more roles, or an objectified fact type | an entity of its own, with a to-one relationship (or attribute) per role, and a uniqueness constraint over the roles each of its uniqueness constraints spans; a role unique by itself is one to one instead, its inverse to-one |
 | Subtyping | entity inheritance (`parentEntity`); the supertype abstract when its subtypes cover it (an inclusive-or over the subtype facts) |
 | Internal uniqueness on a single role (the "one" side) | to-one; with a value type opposite, a uniqueness constraint on the attribute |
 | External uniqueness, composite identifiers | a uniqueness constraint over the attributes involved |
@@ -209,3 +209,41 @@ entries of the user's own) is kept from theirs: regeneration never loses it.
 When the same element changed on both sides, the ORM model wins unless the
 user picks otherwise; every proposed change is listed before anything is
 applied, and applying is one undoable step in the ORM document.
+
+## Import: from Core Data to ORM
+
+An existing Core Data model can be brought into ORM
+(`-[ORMEditor importCoreDataModel:path:notes:reason:]`, `ormtool import`, and
+**Core Data ▸ Import Core Data Model…** in the designer). It is reverse
+engineering: from the logical model back to the conceptual one. Halpin and
+Bloesch's comparison of UML class diagrams with ORM (JDM 1999) gives the
+correspondences: a class is an entity type; an attribute is a fact type; an
+association is a fact type; multiplicities are uniqueness and mandatory
+constraints; an association class is an objectification.
+
+| Core Data | ORM2 |
+| --- | --- |
+| entity | entity type of the same name |
+| parent entity | supertype; an abstract one is covered by its subtypes (an inclusive-or over the subtyping roles) |
+| required attribute, unique by itself | the reference mode: `Customer(.email)`, the value type taking the attribute's data type and length |
+| uniqueness over several properties | an external uniqueness constraint; the preferred identifier when the entity has none |
+| required Boolean attribute | a unary: `isActive` is "Customer is active" |
+| other attribute | "Entity has Value", functional, mandatory unless optional; a value type of the attribute's name and type is reused |
+| Transformable attribute | a value type mapped as Transformable, of the attribute's class and transformer |
+| min, max, pattern | a value constraint on the role |
+| relationship and its inverse | a binary fact type, unique on each to-one side, mandatory where required, a frequency for other counts; a name ending in the destination's is read hyphen-bound ("Order has billing- Address") |
+| required to-one loosened for Core Data (`ormkit.mandatory` in its `userInfo`) | mandatory |
+| entity of to-one relationships only (two or more), unique together | an objectified fact type over what it joins, named as the entity; required attributes that its other uniqueness constraints span are roles of the fact type too; its other attributes are the objectification's own fact types |
+
+The import makes a mapping in the **Entities** style, so nothing is absorbed,
+and gives it the imported model as its baseline. Where the rules would name an
+element differently, the Core Data name is kept as an override. Mapping the
+result gives back the model it came from. The tests check this for StockMate
+and the ActiveFacts examples: each is mapped, imported and mapped again. What
+ORM cannot say (deletion rules, fetch requests, configurations, ordering) stays
+in the baseline, and the import lists it in its notes, along with entities that
+have nothing to identify them by.
+
+The whole import is one undoable step, on a diagram named after the model (or
+on a new model's only diagram, while that is empty), arranged automatically.
+

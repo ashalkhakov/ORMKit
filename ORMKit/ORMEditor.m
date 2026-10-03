@@ -131,13 +131,18 @@ ORMWritesExpandedData(ORMModel *model)
 	 * links to one another are weak. */
 	__attribute__((objc_precise_lifetime)) ORMModel *start = _model;
 	(void)start;
-	_unaryReadings = [self unaryReadingsOf:_model];
+	/* A step of a group is read back for the next, and the group as a
+	 * whole normalized, from the readings it started with. */
 	if (_depth > 0) {
-		change();
-		[self normalize];
-		[self reread];
+		/* Each step's projection is let go of once the next is read: a
+		 * long group (an import) holds one, not one a step. */
+		@autoreleasepool {
+			change();
+			[self reread];
+		}
 		return;
 	}
+	_unaryReadings = [self unaryReadingsOf:_model];
 	NSXMLDocument *before = ORMCopyDocument(_document);
 	BOOL hadChanges = _hasChanges;
 	_depth++;

@@ -631,6 +631,37 @@ ORMUnitReferenceModes(void)
 	return model;
 }
 
+/* The model owns its elements; their links to one another are back
+ * links, weak in spirit, but arrays hold strongly: a role holds its
+ * constraints, which hold their sequences, which hold the role. Cut when
+ * the projection goes, or each projection outlives itself. */
+- (void)dealloc
+{
+	for (ORMObjectType *type in self.objectTypes) {
+		type.playedRoles = nil;
+		type.supertypes = nil;
+		type.subtypes = nil;
+		type.supertypeFacts = nil;
+	}
+	for (ORMFactType *fact in self.factTypes) {
+		fact.internalConstraints = nil;
+		for (ORMRole *role in fact.roles) {
+			role.constraints = nil;
+		}
+		for (ORMReadingOrder *order in fact.readingOrders) {
+			order.roles = nil;
+		}
+	}
+	for (ORMConstraint *constraint in self.constraints) {
+		for (ORMRoleSequence *sequence in constraint.roleSequences) {
+			sequence.roles = nil;
+		}
+	}
+	for (ORMModelNote *note in self.notes) {
+		note.referencedElements = nil;
+	}
+}
+
 - (void)registerElement:(ORMElement *)element
 {
 	if (element.identifier != nil) {

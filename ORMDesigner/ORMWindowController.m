@@ -827,4 +827,48 @@ static const double ORMBrowserBarHeight = 30;
 	[controller synchronize:self];
 }
 
+- (IBAction)importCoreData:(id)sender
+{
+	(void)sender;
+	NSOpenPanel *panel = [NSOpenPanel openPanel];
+	[panel setAllowedFileTypes:@[ @"xcdatamodeld", @"xcdatamodel" ]];
+	/* A package on a Mac, a directory elsewhere. */
+	[panel setCanChooseDirectories:YES];
+	[panel setCanChooseFiles:YES];
+	if ([panel runModal] != NSModalResponseOK) {
+		return;
+	}
+	NSString *path = [[panel URL] path];
+	NSString *reason = nil;
+	ORMCDModel *model = [ORMCDModel modelAtPath:path reason:&reason];
+	ORMCoreDataController *controller = [self coreDataController];
+	NSSet *diagrams = [NSSet setWithArray:[[self editor].model.diagrams valueForKey:@"identifier"]];
+	BOOL onlyEmpty = [diagrams count] == 1 && [[[[self editor].model.diagrams firstObject] allShapes] count] == 0;
+	NSArray *notes = nil;
+	NSString *mapping = model != nil ? [[self editor] importCoreDataModel:model
+	                                                                 path:[controller pathRelativeToDocument:path]
+	                                                                notes:&notes
+	                                                               reason:&reason]
+	                                 : nil;
+	if (mapping == nil) {
+		NSBeep();
+		NSAlert *alert = [[NSAlert alloc] init];
+		[alert setMessageText:@"The Core Data model cannot be imported."];
+		[alert setInformativeText:reason ?: @""];
+		[alert runModal];
+		return;
+	}
+	for (ORMDiagram *diagram in [self editor].model.diagrams) {
+		if (onlyEmpty || ![diagrams containsObject:diagram.identifier]) {
+			[self openDiagram:diagram.identifier];
+			break;
+		}
+	}
+	controller.mappingId = mapping;
+	[controller modelDidChange];
+	[controller showWindow:self];
+	[controller say:[notes count] > 0 ? [notes componentsJoinedByString:@" "]
+	                                  : @"Imported: everything the Core Data model says, ORM says."];
+}
+
 @end

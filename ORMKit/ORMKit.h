@@ -33,3 +33,4 @@
 #import "ORMCoreDataMapping.h"
 #import "ORMCoreDataMapper.h"
 #import "ORMCoreDataSync.h"
+#import "ORMCoreDataImport.h"

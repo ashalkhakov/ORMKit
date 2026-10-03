@@ -23,6 +23,9 @@
 @property (nonatomic, copy) NSString *mappingId;
 
 - (void)modelDidChange;
+/* A path relative to the document's directory when it is under it. */
+- (NSString *)pathRelativeToDocument:(NSString *)path;
+- (void)say:(NSString *)message;
 /* Compares the mapping with its .xcdatamodeld and shows what changed on
  * the Core Data side; writes straight away when nothing did. */
 - (IBAction)synchronize:(id)sender;

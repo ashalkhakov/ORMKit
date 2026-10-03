@@ -286,7 +286,7 @@
 @end
 
 /* Xcode's attribute types back as NORMA's data types. */
-static NSString *
+NSString *
 ORMDataTypeForAttributeType(NSString *type)
 {
 	NSDictionary *types = @{ @"Integer 16": @"SignedSmallIntegerNumericDataType",
@@ -302,6 +302,33 @@ ORMDataTypeForAttributeType(NSString *type)
 	                         @"UUID": @"ObjectIdOtherDataType",
 	                         @"URI": @"VariableLengthTextDataType" };
 	return [types objectForKey:type] ?: @"UnspecifiedDataType";
+}
+
+NSString *
+ORMValueConstraintForAttribute(ORMCDAttribute *attribute)
+{
+	if ([attribute.regularExpression length] > 0) {
+		NSString *pattern = attribute.regularExpression;
+		if (![pattern hasPrefix:@"^(?:"] || ![pattern hasSuffix:@")$"]) {
+			return nil;
+		}
+		NSString *inner = [pattern substringWithRange:NSMakeRange(4, [pattern length] - 6)];
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSString *alternative in [inner componentsSeparatedByString:@"|"]) {
+			NSString *plain = [alternative stringByReplacingOccurrencesOfString:@"\\" withString:@""];
+			[values addObject:[NSString stringWithFormat:@"'%@'", [plain stringByReplacingOccurrencesOfString:@"'"
+			                                                                                      withString:@"''"]]];
+		}
+		return [NSString stringWithFormat:@"{%@}", [values componentsJoinedByString:@", "]];
+	}
+	if ([attribute.attributeType isEqualToString:@"String"]) {
+		/* A string's bounds are its length, a data type's business. */
+		return nil;
+	}
+	if ([attribute.minValue length] == 0 && [attribute.maxValue length] == 0) {
+		return @"";
+	}
+	return [NSString stringWithFormat:@"{%@..%@}", attribute.minValue ?: @"", attribute.maxValue ?: @""];
 }
 
 @implementation ORMCoreDataSync
@@ -617,28 +644,7 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
  * nil when they say more than one can (a pattern of any other shape). */
 - (NSString *)valueConstraintFor:(ORMCDAttribute *)attribute
 {
-	if ([attribute.regularExpression length] > 0) {
-		NSString *pattern = attribute.regularExpression;
-		if (![pattern hasPrefix:@"^(?:"] || ![pattern hasSuffix:@")$"]) {
-			return nil;
-		}
-		NSString *inner = [pattern substringWithRange:NSMakeRange(4, [pattern length] - 6)];
-		NSMutableArray *values = [NSMutableArray array];
-		for (NSString *alternative in [inner componentsSeparatedByString:@"|"]) {
-			NSString *plain = [alternative stringByReplacingOccurrencesOfString:@"\\" withString:@""];
-			[values addObject:[NSString stringWithFormat:@"'%@'", [plain stringByReplacingOccurrencesOfString:@"'"
-			                                                                                      withString:@"''"]]];
-		}
-		return [NSString stringWithFormat:@"{%@}", [values componentsJoinedByString:@", "]];
-	}
-	if ([attribute.attributeType isEqualToString:@"String"]) {
-		/* A string's bounds are its length, a data type's business. */
-		return nil;
-	}
-	if ([attribute.minValue length] == 0 && [attribute.maxValue length] == 0) {
-		return @"";
-	}
-	return [NSString stringWithFormat:@"{%@..%@}", attribute.minValue ?: @"", attribute.maxValue ?: @""];
+	return ORMValueConstraintForAttribute(attribute);
 }
 
 - (void)deletedProperty:(ORMCDProperty *)property of:(ORMCDEntity *)entity

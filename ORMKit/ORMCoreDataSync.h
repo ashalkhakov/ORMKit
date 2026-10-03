@@ -6,6 +6,12 @@
  * document keeps, edited through the editor, and the three-way merge that
  * synchronizes one (docs/COREDATA-MAPPING.md). */
 
+/* NORMA's data type for a Core Data attribute type. */
+NSString *ORMDataTypeForAttributeType(NSString *type);
+/* A value constraint for an attribute's bounds or its enumeration
+ * pattern: "{1..10}", "{'M', 'F'}"; "" for none, nil when it cannot say. */
+NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
+
 @interface ORMEditor (ORMCoreDataMappings)
 /* A new mapping, of the whole model, to the .xcdatamodeld at the path. Its id. */
 - (NSString *)addCoreDataMappingNamed:(NSString *)name path:(NSString *)path;

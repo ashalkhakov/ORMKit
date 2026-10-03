@@ -53,4 +53,7 @@
 - (IBAction)exportVerbalization:(id)sender;
 - (IBAction)showCoreDataMappings:(id)sender;
 - (IBAction)synchronizeCoreData:(id)sender;
+/* A Core Data model brought into this one, on a diagram of its own, with
+ * a mapping to it. */
+- (IBAction)importCoreData:(id)sender;
 @end

@@ -125,6 +125,8 @@ ORMToolItem(NSMenu *menu, NSString *title, ORMCanvasTool tool, NSString *key)
 	NSMenu *coreData = ORMSubmenu(bar, @"Core Data");
 	ORMItem(coreData, @"Mappings…", @selector(showCoreDataMappings:), @"k", command | option);
 	ORMItem(coreData, @"Synchronize", @selector(synchronizeCoreData:), @"k", command | option | shift);
+	[coreData addItem:[NSMenuItem separatorItem]];
+	ORMItem(coreData, @"Import Core Data Model…", @selector(importCoreData:), nil, 0);
 
 	NSMenu *window = ORMSubmenu(bar, @"Window");
 	ORMItem(window, @"Minimize", @selector(performMiniaturize:), @"m", command);
