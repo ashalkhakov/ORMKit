@@ -24,6 +24,9 @@ ORMItem(NSString *title, NSString *elementId)
 @implementation ORMModelBrowser
 {
 	NSMutableArray<ORMBrowserItem *> *_groups;
+	/* The groups expanded before a filter expanded them all. */
+	NSMutableSet<NSString *> *_expanded;
+	BOOL _filtered;
 	BOOL _revealing;
 }
 
@@ -53,12 +56,26 @@ ORMConstraintTitle(ORMConstraint *constraint)
 	return [NSString stringWithFormat:@"%@ (%@)", constraint.name, kind];
 }
 
+- (void)setFilter:(NSString *)filter
+{
+	_filter = [filter copy];
+	[self reload];
+}
+
+- (BOOL)isFiltering
+{
+	return [[self.filter stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] length] > 0;
+}
+
 - (void)reload
 {
-	NSMutableSet *expanded = [NSMutableSet set];
-	for (ORMBrowserItem *group in _groups) {
-		if ([self.outlineView isItemExpanded:group]) {
-			[expanded addObject:group.title];
+	BOOL filtering = [self isFiltering];
+	if (!_filtered) {
+		_expanded = [NSMutableSet set];
+		for (ORMBrowserItem *group in _groups) {
+			if ([self.outlineView isItemExpanded:group]) {
+				[_expanded addObject:group.title];
+			}
 		}
 	}
 	BOOL first = [_groups count] == 0;
@@ -87,12 +104,27 @@ ORMConstraintTitle(ORMConstraint *constraint)
 		[diagrams.children addObject:ORMItem(diagram.name, diagram.identifier)];
 	}
 	[_groups addObjectsFromArray:@[ types, facts, constraints, diagrams ]];
+	if (filtering) {
+		NSString *filter = [self.filter stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+		for (ORMBrowserItem *group in _groups) {
+			NSIndexSet *misses = [group.children indexesOfObjectsPassingTest:^BOOL(ORMBrowserItem *item, NSUInteger i,
+			                                                                     BOOL *stop) {
+				(void)i;
+				(void)stop;
+				return [item.title rangeOfString:filter options:NSCaseInsensitiveSearch].location == NSNotFound;
+			}];
+			[group.children removeObjectsAtIndexes:misses];
+		}
+		[_groups filterUsingPredicate:[NSPredicate predicateWithFormat:@"children.@count > 0"]];
+	}
 	[self.outlineView reloadData];
 	for (ORMBrowserItem *group in _groups) {
-		if (first ? group != constraints : [expanded containsObject:group.title]) {
+		BOOL expand = filtering || (first ? group != constraints : [_expanded containsObject:group.title]);
+		if (expand) {
 			[self.outlineView expandItem:group];
 		}
 	}
+	_filtered = filtering;
 }
 
 - (void)reveal:(NSString *)elementId

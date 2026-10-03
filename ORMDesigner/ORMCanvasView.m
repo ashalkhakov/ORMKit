@@ -811,6 +811,7 @@ static const double ORMCanvasMargin = 240.0;
 	[_renamer setAction:@selector(renamerDone:)];
 	_renaming = [[shape.subject identifier] copy];
 	[self addSubview:_renamer];
+	[self scrollRectToVisible:NSInsetRect(frame, -20, -20)];
 	[[self window] makeFirstResponder:_renamer];
 	[_renamer selectText:nil];
 }

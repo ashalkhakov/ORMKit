@@ -6,6 +6,7 @@
 static const double ORMToolbarHeight = 34;
 static const double ORMStatusHeight = 22;
 static const double ORMFactBarHeight = 30;
+static const double ORMBrowserBarHeight = 30;
 
 @implementation ORMWindowController
 {
@@ -14,6 +15,7 @@ static const double ORMFactBarHeight = 30;
 	NSSplitView *_middle;
 	NSMutableArray<NSButton *> *_toolButtons;
 	ORMCoreDataController *_coreData;
+	NSSearchField *_filterField;
 	/* What the verbalization shows when nothing is selected: the model, or
 	 * nothing. */
 	BOOL _verbalizesModel;
@@ -121,6 +123,81 @@ static const double ORMFactBarHeight = 30;
 	return scroll;
 }
 
+/* Below the browser, as below Xcode's navigators: what to add, and a
+ * filter. */
+- (NSView *)browserBarWithWidth:(double)width
+{
+	NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, ORMBrowserBarHeight)];
+	[bar setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
+	NSPopUpButton *add = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(4, 3, 40, 24) pullsDown:YES];
+	[add setBordered:NO];
+	[add setToolTip:@"Add to the model"];
+	[add addItemWithTitle:@"+"];
+	NSArray *items = @[ @[ @"New Entity Type", NSStringFromSelector(@selector(newEntityType:)) ],
+	                    @[ @"New Value Type", NSStringFromSelector(@selector(newValueType:)) ],
+	                    @[ @"New Fact Type…", NSStringFromSelector(@selector(focusFactEditor:)) ],
+	                    @[], @[ @"New Diagram", NSStringFromSelector(@selector(newDiagram:)) ] ];
+	for (NSArray *item in items) {
+		if ([item count] == 0) {
+			[[add menu] addItem:[NSMenuItem separatorItem]];
+			continue;
+		}
+		NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:[item objectAtIndex:0]
+		                                                  action:NSSelectorFromString([item objectAtIndex:1])
+		                                           keyEquivalent:@""];
+		[menuItem setTarget:self];
+		[[add menu] addItem:menuItem];
+	}
+	[bar addSubview:add];
+	_filterField = [[NSSearchField alloc] initWithFrame:NSMakeRect(48, 4, width - 54, 22)];
+	[_filterField setAutoresizingMask:NSViewWidthSizable];
+	[_filterField setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	[[_filterField cell] setPlaceholderString:@"Filter"];
+	[_filterField setDelegate:(id)self];
+	[_filterField setTarget:self];
+	[_filterField setAction:@selector(filterBrowser:)];
+	[bar addSubview:_filterField];
+	return bar;
+}
+
+- (void)filterBrowser:(id)sender
+{
+	(void)sender;
+	_browser.filter = [_filterField stringValue];
+}
+
+/* The filter follows each keystroke. */
+- (void)controlTextDidChange:(NSNotification *)notification
+{
+	if ([notification object] == _filterField) {
+		[self filterBrowser:nil];
+	}
+}
+
+- (IBAction)focusBrowserFilter:(id)sender
+{
+	(void)sender;
+	[[self window] makeFirstResponder:_filterField];
+}
+
+- (void)filterBrowserWith:(NSString *)text
+{
+	[_filterField setStringValue:text ?: @""];
+	[self filterBrowser:nil];
+}
+
+- (IBAction)newEntityType:(id)sender
+{
+	(void)sender;
+	[_canvas createObjectTypeAt:ORMAutomaticPlacement value:NO];
+}
+
+- (IBAction)newValueType:(id)sender
+{
+	(void)sender;
+	[_canvas createObjectTypeAt:ORMAutomaticPlacement value:YES];
+}
+
 - (void)buildWindow
 {
 	NSView *content = [[self window] contentView];
@@ -149,8 +226,13 @@ static const double ORMFactBarHeight = 30;
 	[outline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
 	_browser = [[ORMModelBrowser alloc] initWithOutlineView:outline];
 	_browser.delegate = self;
-	NSScrollView *left = [self scrollViewWithFrame:NSMakeRect(0, 0, 220, NSHeight(area)) document:outline];
-	[left setHasHorizontalScroller:NO];
+	NSView *left = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 220, NSHeight(area))];
+	NSScrollView *outlineScroll = [self scrollViewWithFrame:NSMakeRect(0, ORMBrowserBarHeight, 220,
+	                                                                   NSHeight(area) - ORMBrowserBarHeight)
+	                                              document:outline];
+	[outlineScroll setHasHorizontalScroller:NO];
+	[left addSubview:outlineScroll];
+	[left addSubview:[self browserBarWithWidth:220]];
 
 	/* The diagram, the fact editor and the verbalization. */
 	NSView *center = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth(area) - 520, NSHeight(area))];

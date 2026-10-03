@@ -76,6 +76,33 @@
 	XCTAssertEqual([_controller.canvas.selectedShapes count], (NSUInteger)1);
 }
 
+- (void)testTheBrowserFilters
+{
+	[self open:@"StockMate.orm"];
+	NSOutlineView *outline = _controller.browser.outlineView;
+	NSInteger all = [outline numberOfRows];
+	[_controller filterBrowserWith:@"warehouse"];
+	NSInteger rows = [outline numberOfRows];
+	XCTAssertTrue(rows > 2 && rows < all, @"%ld of %ld", (long)rows, (long)all);
+	for (NSInteger row = 0; row < rows; row++) {
+		NSString *title = [[outline dataSource] outlineView:outline objectValueForTableColumn:nil
+		                                              byItem:[outline itemAtRow:row]];
+		XCTAssertTrue([title rangeOfString:@"Warehouse" options:NSCaseInsensitiveSearch].location != NSNotFound
+		              || [outline isExpandable:[outline itemAtRow:row]], @"%@", title);
+	}
+	[_controller filterBrowserWith:@""];
+	XCTAssertEqual([outline numberOfRows], all);
+}
+
+- (void)testTheBrowsersPlusAddsAnObjectType
+{
+	[self open:@"StockMate.orm"];
+	[_controller newEntityType:nil];
+	ORMObjectType *added = [_document.editor.model objectTypeNamed:@"EntityType"];
+	XCTAssertNotNil(added);
+	XCTAssertNotNil([[_controller.canvas diagram] shapeForSubject:added.identifier]);
+}
+
 - (void)testTheFactEditorAddsToTheDiagram
 {
 	[self open:@"StockMate.orm"];

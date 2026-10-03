@@ -78,6 +78,9 @@ ORMToolItem(NSMenu *menu, NSString *title, ORMCanvasTool tool, NSString *key)
 	ORMToolItem(model, @"Value Type", ORMToolValueType, @"");
 	ORMToolItem(model, @"Fact Type", ORMToolFactType, @"");
 	ORMItem(model, @"Fact Editor", @selector(focusFactEditor:), @"f", command | option);
+	ORMItem(model, @"New Entity Type", @selector(newEntityType:), nil, 0);
+	ORMItem(model, @"New Value Type", @selector(newValueType:), nil, 0);
+	ORMItem(model, @"Filter Model Browser", @selector(focusBrowserFilter:), @"j", command | option);
 	ORMToolItem(model, @"Subtype", ORMToolSubtype, @"");
 	ORMToolItem(model, @"Connect Role", ORMToolConnectRole, @"");
 	ORMToolItem(model, @"Note", ORMToolNote, @"");

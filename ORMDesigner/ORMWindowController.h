@@ -32,6 +32,12 @@
 - (BOOL)addFactFromEditor;
 
 - (IBAction)focusFactEditor:(id)sender;
+/* What the browser's + adds: a new object type, its name in edit. */
+- (IBAction)newEntityType:(id)sender;
+- (IBAction)newValueType:(id)sender;
+- (IBAction)focusBrowserFilter:(id)sender;
+/* The browser's filter, as typed; what tests drive. */
+- (void)filterBrowserWith:(NSString *)text;
 - (IBAction)newDiagram:(id)sender;
 - (IBAction)renameDiagram:(id)sender;
 - (IBAction)deleteDiagram:(id)sender;

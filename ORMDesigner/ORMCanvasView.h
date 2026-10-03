@@ -67,6 +67,9 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
 - (NSData *)PDFData;
 - (NSData *)PNGDataAtScale:(double)scale;
 
+/* A new entity or value type, named EntityType, EntityType1, ... and
+ * placed at the point (or wherever there is room), its name in edit. */
+- (void)createObjectTypeAt:(NSPoint)point value:(BOOL)value;
 - (IBAction)chooseTool:(id)sender;
 - (IBAction)delete:(id)sender;
 - (IBAction)removeFromDiagram:(id)sender;

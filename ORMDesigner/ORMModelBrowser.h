@@ -27,6 +27,9 @@
 @property (nonatomic, weak) id<ORMModelBrowserDelegate> delegate;
 @property (nonatomic, strong) ORMEditor *editor;
 @property (nonatomic, readonly, strong) NSOutlineView *outlineView;
+/* Shows only the elements whose names contain it, ignoring case, with
+ * their groups expanded; nil or empty shows everything. */
+@property (nonatomic, copy) NSString *filter;
 - (void)reload;
 /* Selects the element's row, without telling the delegate. */
 - (void)reveal:(NSString *)elementId;
