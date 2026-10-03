@@ -6,6 +6,7 @@
  *
  *   ORM                                   ODataKit's userInfo
  *   an entity's plural name               OData.entitySet, on a root entity
+ *   its name in the mapping's namespace   OData.type: Default.Employee
  *   the preferred identifier, where       OData.key = YES on each attribute
  *     every role of it is an attribute
  *   any other identifier                  a surrogate: an Integer64 "id",

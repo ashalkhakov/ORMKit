@@ -105,11 +105,12 @@ jobs:
           built=$(xcodebuild -workspace ORMKit.xcworkspace -scheme ORMDesigner \
                     -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
                   | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
-          # ormtool links @rpath/ORMKit.framework and ODataKit.framework, so the
-          # executable on its own will not start. Ship it beside them.
+          # ormtool links @rpath/ORMKit.framework and ODataKit's frameworks, so
+          # the executable on its own will not start. Ship it beside them.
           rm -rf "$RUNNER_TEMP/ormtool" && mkdir -p "$RUNNER_TEMP/ormtool"
           cp "$built/ormtool" "$RUNNER_TEMP/ormtool/"
-          cp -R "$built/ORMKit.framework" "$built/ODataKit.framework" "$RUNNER_TEMP/ormtool/"
+          cp -R "$built/ORMKit.framework" "$built/ODataKit.framework" "$built/ODataIncrementalStore.framework" \
+            "$RUNNER_TEMP/ormtool/"
           ditto -c -k --keepParent "$built/ORMDesigner.app" "ORMDesigner-macOS-unsigned.zip"
           ditto -c -k --keepParent "$RUNNER_TEMP/ormtool" "ormtool-macOS-unsigned.zip"
 

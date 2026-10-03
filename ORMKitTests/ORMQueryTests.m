@@ -367,8 +367,10 @@
 	ORMQueryOData *odata = [self odata:q1];
 	XCTAssertEqualObjects(odata.collectionPath, @"Employees");
 	XCTAssertEqualObjects([odata queryText], @"$filter=City/Branches/any(x1:x1/Nr eq 52)&$select=Nr");
-	XCTAssertEqualObjects([odata relativeURLString],
-	                      @"Employees?$filter=City/Branches/any(x1:x1/Nr%20eq%2052)&$select=Nr");
+	/* ODataKit's query builder writes the URL: the same query, encoded. */
+	NSURL *url = [odata URLWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"] error:NULL];
+	XCTAssertEqualObjects([url path], @"/odata/Employees");
+	XCTAssertEqualObjects([[url query] stringByRemovingPercentEncoding], [odata queryText]);
 	XCTAssertEqualObjects(fetch.entityName, @"Employee");
 	XCTAssertEqualObjects(fetch.predicateFormat, @"SUBQUERY(city.branches, $x1, $x1.nr == 52).@count > 0");
 	XCTAssertEqualObjects([fetch.columns valueForKey:@"keyPath"], (@[ @"self" ]));
@@ -416,9 +418,10 @@
 	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
 	XCTAssertEqualObjects([odata queryText], @"$filter=CityCityname ne null&$select=Nr");
 	ORMQueryODataJoin *branches = [odata.joins firstObject];
-	XCTAssertEqualObjects([branches relativeURLString],
-	                      @"Branches?$filter=Nr%20eq%2052&$select=CityCityname,CityStateStatecode&"
-	                      @"$expand=CityStateCountry($select%3DName)");
+	NSURL *joinURL = [branches URLWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"] error:NULL];
+	XCTAssertEqualObjects([joinURL path], @"/odata/Branches");
+	XCTAssertEqualObjects([[joinURL query] stringByRemovingPercentEncoding],
+	                      @"$filter=Nr eq 52&$select=CityCityname,CityStateStatecode&$expand=CityStateCountry($select=Name)");
 	/* A part that is an entity is compared by its key. */
 	NSArray *wirePairs = @[ @[ @[ @"CityCityname" ], @[ @"CityCityname" ] ],
 	                        @[ @[ @"CityStateStatecode" ], @[ @"CityStateStatecode" ] ],
@@ -877,7 +880,9 @@
 	                                                                     serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
 	NSArray *(^numbers)(NSString *) = ^NSArray *(NSString *queryId) {
 		ORMQueryOData *odata = [self odata:queryId];
-		NSURL *url = [NSURL URLWithString:[@"http://example.test/odata/" stringByAppendingString:[odata relativeURLString]]];
+		NSError *urlError = nil;
+		NSURL *url = [odata URLWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"] error:&urlError];
+		XCTAssertNotNil(url, @"%@", urlError);
 		ORMTestExchangeWaiter *waiter = [[ORMTestExchangeWaiter alloc] init];
 		ODataExchange *exchange = [[ODataExchange alloc] initWithRequest:[NSURLRequest requestWithURL:url] target:waiter
 		                                                          action:@selector(exchangeDidFinish:)];

@@ -1,7 +1,12 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryOData.h"
 #import "ORMQueryPlaces.h"
+#import "ORMCDModel+CoreData.h"
+#import <CoreData/CoreData.h>
+#import <ODataKit/ODataApply.h>
 #import <ODataKit/ODataExpression.h>
+#import <ODataKit/ODataPropertyMapper.h>
+#import <ODataIncrementalStore/ODataQueryBuilder.h>
 
 /* Where the translation stands: an object or a value, reached from a lambda's
  * variable (nil: from the object fetched, $it) through properties, each an
@@ -65,25 +70,16 @@
 @property (nonatomic, readwrite, copy) NSArray<NSArray<NSArray<NSString *> *> *> *pairs;
 @end
 
-/* "Employees?$filter=...", percent-encoded as a URL's query is. */
-static NSString *
-ORMRelativeURL(NSString *path, ODataQueryOptions *options)
+@implementation ORMQueryODataJoin
 {
-	NSMutableCharacterSet *allowed = [[NSCharacterSet URLQueryAllowedCharacterSet] mutableCopy];
-	[allowed removeCharactersInString:@"&=+#"];
-	NSMutableArray *items = [NSMutableArray array];
-	for (NSArray<NSString *> *item in [options queryItems]) {
-		[items addObject:[NSString stringWithFormat:@"%@=%@", [item firstObject],
-		                                            [[item lastObject] stringByAddingPercentEncodingWithAllowedCharacters:allowed]]];
-	}
-	return [items count] > 0 ? [NSString stringWithFormat:@"%@?%@", path, [items componentsJoinedByString:@"&"]] : path;
+	@public
+	ODataPropertyMapper *_mapper;
 }
 
-@implementation ORMQueryODataJoin
-
-- (NSString *)relativeURLString
+- (NSURL *)URLWithServiceRoot:(NSURL *)serviceRoot error:(NSError **)error
 {
-	return ORMRelativeURL(self.collectionPath, self.options);
+	ODataQueryBuilder *builder = [[ODataQueryBuilder alloc] initWithMapper:_mapper serviceRoot:serviceRoot];
+	return [builder URLForPath:self.collectionPath options:self.options error:error];
 }
 
 @end
@@ -177,6 +173,11 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	ORMQuery *_query;
 	ORMCDModel *_coreData;
 	ORMQueryPlaces *_places;
+	/* The model as Core Data has it, and ODataKit's names for it. */
+	NSManagedObjectModel *_managed;
+	ODataPropertyMapper *_mapper;
+	/* Each mapped property, as Core Data describes it. */
+	NSMapTable<ORMCDProperty *, NSPropertyDescription *> *_described;
 	NSMutableArray<NSString *> *_notes;
 	ORMCDEntity *_fetched;
 	NSString *_entityName;
@@ -208,6 +209,19 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		_query = query;
 		_coreData = coreData;
 		_places = [[ORMQueryPlaces alloc] initWithCoreData:coreData];
+		_managed = [coreData managedObjectModel];
+		_mapper = [[ODataPropertyMapper alloc] init];
+		_described = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsObjectPointerPersonality
+		                                   valueOptions:NSPointerFunctionsStrongMemory];
+		for (ORMCDEntity *entity in coreData.entities) {
+			NSEntityDescription *described = [[_managed entitiesByName] objectForKey:entity.name];
+			for (ORMCDProperty *property in [entity properties]) {
+				NSPropertyDescription *same = [[described propertiesByName] objectForKey:property.name];
+				if (same != nil) {
+					[_described setObject:same forKey:property];
+				}
+			}
+		}
 		_notes = [NSMutableArray array];
 		_scope = [NSMutableArray array];
 		_reached = [NSMutableDictionary dictionary];
@@ -258,9 +272,13 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	return ORMQueryTextOf(_options);
 }
 
-- (NSString *)relativeURLString
+- (NSURL *)URLWithServiceRoot:(NSURL *)serviceRoot error:(NSError **)error
 {
-	return _collectionPath != nil ? ORMRelativeURL(_collectionPath, _options) : nil;
+	if (_collectionPath == nil) {
+		return nil;
+	}
+	ODataQueryBuilder *builder = [[ODataQueryBuilder alloc] initWithMapper:_mapper serviceRoot:serviceRoot];
+	return [builder URLForPath:_collectionPath options:_options error:error];
 }
 
 - (NSString *)requestText
@@ -291,65 +309,23 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 
 #pragma mark Names
 
-+ (NSString *)wireNameOf:(ORMCDProperty *)property
+/* Every name is ODataKit's: its property mapper's, of the model as Core
+ * Data describes it. */
+- (NSEntityDescription *)described:(ORMCDEntity *)entity
 {
-	NSString *override = [property.userInfo objectForKey:@"OData.property"];
-	if ([override length] > 0) {
-		return override;
-	}
-	NSString *name = property.name;
-	return [name length] > 0 ? [[[name substringToIndex:1] uppercaseString] stringByAppendingString:[name substringFromIndex:1]]
-	                         : name;
-}
-
-+ (ORMCDEntity *)rootOf:(ORMCDEntity *)entity in:(ORMCDModel *)coreData
-{
-	while (entity.parentName != nil && [coreData entityNamed:entity.parentName] != nil) {
-		entity = [coreData entityNamed:entity.parentName];
-	}
-	return entity;
-}
-
-/* As ODataKit's property mapper has it: the set's name from the model, the
- * root's for a subentity, else the name made plural as it makes it. */
-+ (NSString *)entitySetOf:(ORMCDEntity *)entity in:(ORMCDModel *)coreData
-{
-	ORMCDEntity *root = [self rootOf:entity in:coreData];
-	NSString *set = [root.userInfo objectForKey:@"OData.entitySet"];
-	if ([set length] > 0) {
-		return set;
-	}
-	NSString *name = root.name ?: @"Entity";
-	if ([name hasSuffix:@"s"]) {
-		return name;
-	}
-	if ([name hasSuffix:@"y"] && [name length] > 1) {
-		return [[name substringToIndex:[name length] - 1] stringByAppendingString:@"ies"];
-	}
-	return [name stringByAppendingString:@"s"];
-}
-
-/* The service's: the model's OData.type, else in its Default namespace. */
-+ (NSString *)typeNameOf:(ORMCDEntity *)entity
-{
-	NSString *declared = [entity.userInfo objectForKey:@"OData.type"];
-	return [declared length] > 0 ? declared : [@"Default." stringByAppendingString:entity.name];
-}
-
-+ (NSArray<ORMCDAttribute *> *)keyOf:(ORMCDEntity *)entity in:(ORMCDModel *)coreData
-{
-	NSMutableArray *key = [NSMutableArray array];
-	for (ORMCDAttribute *attribute in [self rootOf:entity in:coreData].attributes) {
-		if ([[attribute.userInfo objectForKey:@"OData.key"] isEqualToString:@"YES"]) {
-			[key addObject:attribute];
-		}
-	}
-	return key;
+	return entity != nil ? [[_managed entitiesByName] objectForKey:entity.name] : nil;
 }
 
 - (NSString *)wire:(ORMCDProperty *)property
 {
-	return [ORMQueryOData wireNameOf:property];
+	NSPropertyDescription *described = [_described objectForKey:property];
+	if ([described isKindOfClass:[NSAttributeDescription class]]) {
+		return [_mapper propertyForAttribute:(NSAttributeDescription *)described];
+	}
+	if ([described isKindOfClass:[NSRelationshipDescription class]]) {
+		return [_mapper propertyForRelationship:(NSRelationshipDescription *)described];
+	}
+	return [_mapper wireName:property.name];
 }
 
 - (NSArray<NSString *> *)wirePath:(NSArray *)properties
@@ -359,6 +335,31 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		[path addObject:[step isKindOfClass:[NSString class]] ? step : [self wire:step]];
 	}
 	return path;
+}
+
+/* The wire names of the attributes the service keys the entity by, in the
+ * order of their names. */
+- (NSArray<NSString *> *)keyOf:(ORMCDEntity *)entity
+{
+	NSEntityDescription *described = [self described:entity];
+	NSMutableArray *names = [NSMutableArray array];
+	NSArray *key = described != nil ? [_mapper keyAttributesForEntity:described] : @[];
+	for (NSAttributeDescription *attribute in [key sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]]) {
+		[names addObject:[_mapper propertyForAttribute:attribute]];
+	}
+	return names;
+}
+
+/* Where the entity's objects are read from: its set, cast where it is a
+ * derived type there. */
+- (NSString *)collectionPathOf:(ORMCDEntity *)entity
+{
+	return [_mapper collectionPathForEntity:[self described:entity]];
+}
+
+- (NSString *)typeNameOf:(ORMCDEntity *)entity
+{
+	return [_mapper qualifiedTypeForEntity:[self described:entity]];
 }
 
 #pragma mark Expressions
@@ -413,8 +414,11 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		}
 	}
 	if ([type isEqualToString:@"Date"]) {
+		/* Read as one literal, and taken only if it is a date: anything
+		 * else the condition says is a string, quoted by ODataKit. */
 		ODataExpression *date = [ODataExpression literalWithText:value ?: @""];
-		if (date != nil) {
+		if (date.kind == ODataExpressionLiteral
+		    && ([date.literalType isEqualToString:@"Edm.Date"] || [date.literalType isEqualToString:@"Edm.DateTimeOffset"])) {
 			return date;
 		}
 	}
@@ -429,15 +433,15 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 /* Two objects the same: their keys equal. nil when the entity has none. */
 - (ODataExpression *)object:(ODataExpression *)left is:(ODataExpression *)right entity:(ORMCDEntity *)entity
 {
-	NSArray *key = [ORMQueryOData keyOf:entity in:_coreData];
+	NSArray *key = [self keyOf:entity];
 	if ([key count] == 0) {
 		[self note:[NSString stringWithFormat:@"%@ has no key in OData: the mapping does not serve it.", entity.name]];
 		return nil;
 	}
 	NSMutableArray *parts = [NSMutableArray array];
-	for (ORMCDAttribute *attribute in key) {
-		[parts addObject:[ODataExpression binary:@"eq" left:[ODataExpression member:[self wire:attribute] of:left]
-		                                    right:[ODataExpression member:[self wire:attribute] of:right]]];
+	for (NSString *name in key) {
+		[parts addObject:[ODataExpression binary:@"eq" left:[ODataExpression member:name of:left]
+		                                    right:[ODataExpression member:name of:right]]];
 	}
 	return ORMAll(parts, @"and");
 }
@@ -481,8 +485,8 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 {
 	if (!level.all) {
 		NSMutableArray *select = [NSMutableArray array];
-		for (ORMCDAttribute *attribute in [ORMQueryOData keyOf:level.entity in:_coreData]) {
-			[select addObject:[ODataSelectItem itemWithPath:@[ [self wire:attribute] ]]];
+		for (NSString *name in [self keyOf:level.entity]) {
+			[select addObject:[ODataSelectItem itemWithPath:@[ name ]]];
 		}
 		NSMutableArray *names = [NSMutableArray array];
 		for (ODataSelectItem *item in select) {
@@ -701,10 +705,8 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		at = next;
 	}
 	_entityName = _fetched.name;
-	NSString *set = [ORMQueryOData entitySetOf:_fetched in:_coreData];
-	_collectionPath = _fetched.parentName != nil ? [NSString stringWithFormat:@"%@/%@", set, [ORMQueryOData typeNameOf:_fetched]]
-	                                             : set;
-	if ([[ORMQueryOData keyOf:_fetched in:_coreData] count] == 0) {
+	_collectionPath = [self collectionPathOf:_fetched];
+	if ([[self keyOf:_fetched] count] == 0) {
 		[self note:[NSString stringWithFormat:@"%@ has no key in OData, so the service does not serve it: map it "
 		                                      @"with ServeOData.", _fetched.name]];
 	}
@@ -848,8 +850,8 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	}
 	NSMutableArray *paths = [NSMutableArray array];
 	ORMCDEntity *destination = [_coreData entityNamed:((ORMCDRelationship *)part).destination];
-	for (ORMCDAttribute *attribute in [ORMQueryOData keyOf:destination in:_coreData]) {
-		[paths addObject:@[ [self wire:part], [self wire:attribute] ]];
+	for (NSString *name in [self keyOf:destination]) {
+		[paths addObject:@[ [self wire:part], name ]];
 	}
 	return paths;
 }
@@ -924,9 +926,8 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	ORMQueryODataJoin *join = [[ORMQueryODataJoin alloc] init];
 	join.name = [NSString stringWithFormat:@"join%lu", (unsigned long)[_joins count] + 1];
 	join.entityName = joined.name;
-	NSString *set = [ORMQueryOData entitySetOf:joined in:_coreData];
-	join.collectionPath = joined.parentName != nil ? [NSString stringWithFormat:@"%@/%@", set, [ORMQueryOData typeNameOf:joined]]
-	                                               : set;
+	join.collectionPath = [self collectionPathOf:joined];
+	join->_mapper = _mapper;
 	join.options = options;
 	join.pairs = pairs;
 	[_joins addObject:join];
@@ -1023,10 +1024,12 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		                                      start.objectType.name]];
 	}
 	NSString *method = [@[ @"$count", @"sum", @"average", @"max", @"min" ] objectAtIndex:(NSUInteger)step.aggregate];
-	NSString *text = [NSString stringWithFormat:@"%@ with %@", [[self wirePath:path] componentsJoinedByString:@"/"], method];
-	ODataExpression *aggregate = [ODataExpression aggregateOf:of text:text];
+	NSArray *wirePath = [self wirePath:path];
+	ODataExpression *aggregate = [ODataExpression aggregateOf:of aggregate:[ODataAggregate aggregateOfPath:wirePath method:method
+	                                                                                                   alias:@"value"]];
 	if (aggregate == nil) {
-		[self note:[NSString stringWithFormat:@"%@ is no aggregate OData reads.", text]];
+		[self note:[NSString stringWithFormat:@"%@ with %@ is no aggregate OData has.", [wirePath componentsJoinedByString:@"/"],
+		                                      method]];
 		return any;
 	}
 	NSString *value = step.aggregateValue ?: @"";
@@ -1210,7 +1213,7 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 			[self note:[NSString stringWithFormat:@"%@ is no entity of its own, so being one is not tested.",
 			                                      node.objectType.name]];
 		} else {
-			NSString *type = [ORMQueryOData typeNameOf:target];
+			NSString *type = [self typeNameOf:target];
 			ODataExpression *name = [ODataExpression cast:type of:nil];
 			test = [ODataExpression call:@"isof" arguments:[at isFetched] && [_scope count] == 0
 				? @[ name ] : @[ [self expression:at], name ]];

@@ -60,6 +60,11 @@
 			isa = PBXBuildFile;
 			fileRef = 45914EF60125317C164DE852 /* ORMDiagramEditor.m */;
 		};
+		1BD69FB686BBAC9A43CF5C95 /* ODataIncrementalStore.framework */ = {
+			isa = PBXBuildFile;
+			fileRef = 82F51E4810BFBB8BEAC2202C /* ODataIncrementalStore.framework */;
+			settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); };
+		};
 		1F1E0DFCBC895DDBF5ADE936 /* ORMCoreDataImportTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = ACF5341500A4DB8CEAF80DED /* ORMCoreDataImportTests.m */;
@@ -149,6 +154,11 @@
 		37051412F484C4BD0F09323D /* ORMQueryPlaces.h */ = {
 			isa = PBXBuildFile;
 			fileRef = F466A87CF7B26B0B27D334C7 /* ORMQueryPlaces.h */;
+		};
+		375CEBFCC8AD92CFBBFC09B0 /* ORMCDModel+CoreData.h */ = {
+			isa = PBXBuildFile;
+			fileRef = C6E300DEE86E21C5A899EC08 /* ORMCDModel+CoreData.h */;
+			settings = {ATTRIBUTES = (Public, ); };
 		};
 		3A9781E342C2DAA4E77B3379 /* ORMSVGTests.m */ = {
 			isa = PBXBuildFile;
@@ -297,6 +307,10 @@
 		743EBF4B19D84D4AA842CA7A /* ORMDocumentWindow.xib */ = {
 			isa = PBXBuildFile;
 			fileRef = 1E949A0478DFF0A12FDAF766 /* ORMDocumentWindow.xib */;
+		};
+		74B37021A2453AC2ABAEA8FE /* CoreData.framework */ = {
+			isa = PBXBuildFile;
+			fileRef = 2AB66C65BE330D1517DF768E /* CoreData.framework */;
 		};
 		75901061DB4F938CE77E8BC9 /* ORMKit.framework */ = {
 			isa = PBXBuildFile;
@@ -532,9 +546,17 @@
 			isa = PBXBuildFile;
 			fileRef = D9440F138977C55F58D15995 /* AppKit.framework */;
 		};
+		F439D86D5F5CBED3879DD0FE /* ODataIncrementalStore.framework */ = {
+			isa = PBXBuildFile;
+			fileRef = 82F51E4810BFBB8BEAC2202C /* ODataIncrementalStore.framework */;
+		};
 		F5AD2E4043E15A7801080CB9 /* ORMModelTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = A501039A4E57AAB1C5C81BC8 /* ORMModelTests.m */;
+		};
+		F75682B4DCD9F9A7DB2310FE /* ORMCDModel+CoreData.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 72FD98022E3C446324B2D6B5 /* ORMCDModel+CoreData.m */;
 		};
 		F7B5C9CC13CD9CCA4728CEB3 /* ORMODataAnnotator.m */ = {
 			isa = PBXBuildFile;
@@ -584,6 +606,7 @@
 			files = (
 				251FAF01B44554BF6A0D0F60 /* ORMKit.framework */,
 				00D27B0A86D115378F4DE0F3 /* ODataKit.framework */,
+				1BD69FB686BBAC9A43CF5C95 /* ODataIncrementalStore.framework */,
 			);
 			dstPath = "";
 			dstSubfolderSpec = 10;
@@ -982,6 +1005,12 @@
 			path = ormtool;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
+		72FD98022E3C446324B2D6B5 /* ORMCDModel+CoreData.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = "ORMCDModel+CoreData.m";
+			sourceTree = "<group>";
+		};
 		73D95C1CB5718ECFD903C6B1 /* ORMTestSupport.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -1024,6 +1053,12 @@
 			name = XCTest.framework;
 			path = System/Library/Frameworks/XCTest.framework;
 			sourceTree = SDKROOT;
+		};
+		82F51E4810BFBB8BEAC2202C /* ODataIncrementalStore.framework */ = {
+			isa = PBXFileReference;
+			explicitFileType = wrapper.framework;
+			path = ODataIncrementalStore.framework;
+			sourceTree = BUILT_PRODUCTS_DIR;
 		};
 		86CE28AC08510FC853003C51 /* ORMNormalizer.m */ = {
 			isa = PBXFileReference;
@@ -1168,6 +1203,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = net.daringfireball.markdown;
 			path = ARCHITECTURE.md;
+			sourceTree = "<group>";
+		};
+		C6E300DEE86E21C5A899EC08 /* ORMCDModel+CoreData.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = "ORMCDModel+CoreData.h";
 			sourceTree = "<group>";
 		};
 		C91E469645715A73955E1812 /* ORMConstraintSentence.h */ = {
@@ -1383,7 +1424,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				5E60EECC840F6DFD58AA789A /* Foundation.framework */,
+				74B37021A2453AC2ABAEA8FE /* CoreData.framework */,
 				4FE72468589BC32BA739CD3D /* ODataKit.framework */,
+				F439D86D5F5CBED3879DD0FE /* ODataIncrementalStore.framework */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1442,6 +1485,7 @@
 				7EC0C9BBC2B8DCB15A4D6D44 /* XCTest.framework */,
 				2AB66C65BE330D1517DF768E /* CoreData.framework */,
 				F308B2510F1C0D890B6F2016 /* ODataKit.framework */,
+				82F51E4810BFBB8BEAC2202C /* ODataIncrementalStore.framework */,
 				B484CF9AEF94633881A4517A /* ODataService.framework */,
 			);
 			name = Frameworks;
@@ -1474,6 +1518,8 @@
 			children = (
 				D08D47B857710F37BF3A72FD /* ORMCDModel.h */,
 				98F27B48A0DE421F48A1B0F3 /* ORMCDModel.m */,
+				C6E300DEE86E21C5A899EC08 /* ORMCDModel+CoreData.h */,
+				72FD98022E3C446324B2D6B5 /* ORMCDModel+CoreData.m */,
 				1D82E43D1955CDE932B8AEA7 /* ORMConstraintEditor.h */,
 				45A4B51916CBA25AEACFD1ED /* ORMConstraintEditor.m */,
 				C91E469645715A73955E1812 /* ORMConstraintSentence.h */,
@@ -1630,6 +1676,7 @@
 				CA487547267B63669045A97A /* ORMCoreDataValidation.h */,
 				200A81A2BD2B0C82CBB6998F /* ORMODataAnnotator.h */,
 				6A2672E1768E93D44283C8C7 /* ORMQuery.h */,
+				375CEBFCC8AD92CFBBFC09B0 /* ORMCDModel+CoreData.h */,
 				06F0BA5D194CD0BE75B016F6 /* ORMQueryFetch.h */,
 				2E8F99B003563CDF00627DF2 /* ORMQueryOData.h */,
 				7134F2EFEFA4B5DC0CFBCBAC /* ORMEditorPriv.h */,
@@ -1822,6 +1869,7 @@
 				F7B5C9CC13CD9CCA4728CEB3 /* ORMODataAnnotator.m */,
 				2B5A25C785E3BEF49FE1AD66 /* ORMQuery.m */,
 				C8DAB87A4BEB3E4411FDA987 /* ORMQueryFetch.m */,
+				F75682B4DCD9F9A7DB2310FE /* ORMCDModel+CoreData.m */,
 				DC79B98F73E8B55A6353430C /* ORMQueryPlaces.m */,
 				A2CE76FECBD080EA6023129B /* ORMQueryOData.m */,
 			);

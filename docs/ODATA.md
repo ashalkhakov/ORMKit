@@ -15,6 +15,7 @@ after the rest of the mapping is made:
 | ORM | `userInfo` | OData |
 | --- | --- | --- |
 | an entity, not a subentity | `OData.entitySet`: the plural of its name | the entity set; a subentity's objects are in its root's set, as a derived type |
+| an entity, in the mapping's namespace (`ODataNamespace`, `Default` unless set) | `OData.type`: `Default.Employee` | its type's name, which a cast to a subtype names; ODataKit's mapper knows it without `$metadata` |
 | the preferred identifier, when each of its roles is a required attribute (a reference mode, an absorbed identifier's parts, a value entity's value) | `OData.key` = `YES` on each attribute | the key |
 | any other identifier (one with roles of entity types, an objectification's, a fact type's entity) | a surrogate: an Integer 64 attribute `id`, required, with `OData.key` and `OData.computed` | a key the service numbers on insert (one more than the largest); `Core.Computed`, so clients never send it |
 | an object type's definition; a value type's, on the attributes it is the value of | `OData.description` | `Core.Description` |
@@ -62,11 +63,19 @@ macOS:
 ## Queries as requests
 
 `ORMQueryOData` says a conceptual query (QUERIES.md) as the request an
-application, a report or another service sends to the service. The request is
-in the names the service answers to: entity sets, and properties as
-`$metadata` has them. It is built as ODataKit's own expression tree
-(`ODataExpression`, `ODataQueryOptions`), so the text is what ODataKit
-writes, and the service reads it back into that same tree.
+application, a report or another service sends to the service. Every
+Core Data ↔ OData rule is ODataKit's, and none is copied here:
+- **Names:** wire names, entity sets, collection paths, type names and keys
+  come from ODataKit's `ODataPropertyMapper`. It reads the model as Core
+  Data describes it, built in memory from the mapped model
+  (`-[ORMCDModel managedObjectModel]`).
+- **The request:** built as ODataKit's typed tree (`ODataExpression`,
+  `ODataAggregate`, `ODataQueryOptions`). Values are typed literals, which
+  ODataKit quotes. An aggregate is built from its path and method, each
+  checked to be an OData identifier (`+[ODataExpression aggregateOf:aggregate:]`).
+- **The URL:** written by ODataKit's `ODataQueryBuilder`
+  (`-URLWithServiceRoot:error:`). Where the API lacks something, ODataKit
+  is changed, not worked around here.
 
 | ORM | OData |
 | --- | --- |
@@ -114,7 +123,8 @@ prints the request.
 
 ## Building with ODataKit
 
-ORMKit links ODataKit's `ODataKit` library. The tests also link `ODataService`.
+ORMKit links ODataKit's `ODataKit` and `ODataIncrementalStore` libraries (the
+query builder is the client's). The tests also link `ODataService`.
 - **Xcode:** build through `ORMKit.xcworkspace`, which holds
   `../ODataKit/ODataKit.xcodeproj` beside this project.
 - **GNUstep:** link an installed ODataKit, over FreeCoreData, or a built

@@ -37,8 +37,9 @@
 /* Each part: @[ its path on the request's rows, its path on the joined
  * rows ], each a wire path ("CityStateCountry/Name"). */
 @property (nonatomic, readonly, copy) NSArray<NSArray<NSArray<NSString *> *> *> *pairs;
-/* The request: collection path and query, the options percent-encoded. */
-- (NSString *)relativeURLString;
+/* The request to the service at the root, written by ODataKit's query
+ * builder. */
+- (NSURL *)URLWithServiceRoot:(NSURL *)serviceRoot error:(NSError **)error;
 @end
 
 @interface ORMQueryOData : NSObject
@@ -55,9 +56,9 @@
 @property (nonatomic, readonly, strong) ODataExpression *filter;
 /* "$filter=...&$select=...", not percent-encoded: to read. */
 - (NSString *)queryText;
-/* The request relative to the service root: collection path and query,
- * percent-encoded. */
-- (NSString *)relativeURLString;
+/* The request to the service at the root, written by ODataKit's query
+ * builder; nil, and why, when it cannot be. */
+- (NSURL *)URLWithServiceRoot:(NSURL *)serviceRoot error:(NSError **)error;
 /* The requests to read: "GET Employees?$filter=...", each join's first. */
 - (NSString *)requestText;
 
@@ -72,11 +73,4 @@
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
 - (BOOL)isComplete;
 
-/* ODataKit's names for the mapped model: what ODataKit's property mapper
- * makes of the userInfo the mapping writes. */
-+ (NSString *)wireNameOf:(ORMCDProperty *)property;
-+ (NSString *)entitySetOf:(ORMCDEntity *)entity in:(ORMCDModel *)coreData;
-+ (NSString *)typeNameOf:(ORMCDEntity *)entity;
-/* The attributes the service keys the entity by: its root's OData.key. */
-+ (NSArray<ORMCDAttribute *> *)keyOf:(ORMCDEntity *)entity in:(ORMCDModel *)coreData;
 @end

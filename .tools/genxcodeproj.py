@@ -135,6 +135,13 @@ odatakit = add(oid("built", "ODataKit"), "ODataKit.framework", [
     ("path", "ODataKit.framework"),
     ("sourceTree", "BUILT_PRODUCTS_DIR"),
 ])
+# Its client library, whose query builder writes the requests' URLs.
+odatastore = add(oid("built", "ODataIncrementalStore"), "ODataIncrementalStore.framework", [
+    ("isa", "PBXFileReference"),
+    ("explicitFileType", "wrapper.framework"),
+    ("path", "ODataIncrementalStore.framework"),
+    ("sourceTree", "BUILT_PRODUCTS_DIR"),
+])
 # Its service, which the tests send the queries' requests to.
 odataservice = add(oid("built", "ODataService"), "ODataService.framework", [
     ("isa", "PBXFileReference"),
@@ -162,7 +169,8 @@ kit_headers = phase("PBXHeadersBuildPhase", "ORMKit", "Headers",
                     + [buildfile("ORMKit", kit_refs[h]) for h in KIT_PRIVATE])
 kit_sources = phase("PBXSourcesBuildPhase", "ORMKit", "Sources", [buildfile("ORMKit", kit_refs[s]) for s in KIT_SOURCES])
 kit_frameworks = phase("PBXFrameworksBuildPhase", "ORMKit", "Frameworks",
-                       [buildfile("ORMKit", sdk["Foundation"]), buildfile("ORMKit", odatakit)])
+                       [buildfile("ORMKit", sdk["Foundation"]), buildfile("ORMKit", coredata),
+                        buildfile("ORMKit", odatakit), buildfile("ORMKit", odatastore)])
 
 kit_tests_sources = phase("PBXSourcesBuildPhase", "ORMKitTests", "Sources",
                           [buildfile("ORMKitTests", kit_test_refs[s]) for s in KIT_TESTS])
@@ -182,7 +190,8 @@ app_frameworks = phase("PBXFrameworksBuildPhase", "ORMDesigner", "Frameworks",
                        [buildfile("ORMDesigner", p_kit), buildfile("ORMDesigner", sdk["AppKit"])])
 app_embed = phase("PBXCopyFilesBuildPhase", "ORMDesigner", "Embed Frameworks",
                   [buildfile("ORMDesigner.embed", p_kit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
-                   buildfile("ORMDesigner.embed", odatakit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }")],
+                   buildfile("ORMDesigner.embed", odatakit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
+                   buildfile("ORMDesigner.embed", odatastore, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }")],
                   [("dstPath", '""'), ("dstSubfolderSpec", "10"), ("name", q("Embed Frameworks"))])
 
 app_tests_sources = phase("PBXSourcesBuildPhase", "ORMDesignerTests", "Sources",
@@ -217,7 +226,7 @@ g_app = group("ORMDesigner", "ORMDesigner",
 g_app_tests = group("ORMDesignerTests", "ORMDesignerTests", [app_test_refs[f] for f in APP_TESTS], "ORMDesignerTests")
 g_docs = group("Docs", "Docs", [doc_refs[d] for d in DOCS])
 g_frameworks = group("Frameworks", "Frameworks", [sdk[f] for f in ("Foundation", "AppKit", "XCTest")]
-                     + [coredata, odatakit, odataservice])
+                     + [coredata, odatakit, odatastore, odataservice])
 g_products = group("Products", "Products", [p_kit, p_kit_tests, p_tool, p_app, p_app_tests])
 g_main = group("main", PROJECT, [g_docs, g_kit, g_kit_tests, g_tool, g_app, g_app_tests, g_frameworks, g_products])
 objects[g_main] = ("", [(k, v) for k, v in objects[g_main][1] if k != "name"])

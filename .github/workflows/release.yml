@@ -219,6 +219,8 @@ jobs:
           codesign --force --timestamp --options runtime \
                    --sign "$IDENTITY" "$built/ODataKit.framework"
           codesign --force --timestamp --options runtime \
+                   --sign "$IDENTITY" "$built/ODataIncrementalStore.framework"
+          codesign --force --timestamp --options runtime \
                    --sign "$IDENTITY" "$built/ORMKit.framework"
           codesign --force --timestamp --options runtime \
                    --sign "$IDENTITY" "$built/ormtool"
@@ -256,11 +258,12 @@ jobs:
                   | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')}
           suffix=""
           [ "${{ steps.sign.outputs.signed }}" = "true" ] || suffix="-unsigned"
-          # ormtool links @rpath/ORMKit.framework and ODataKit.framework, so
-          # the executable on its own will not start. Ship it beside them.
+          # ormtool links @rpath/ORMKit.framework and ODataKit's frameworks,
+          # so the executable on its own will not start. Ship it beside them.
           rm -rf "$RUNNER_TEMP/ormtool" && mkdir -p "$RUNNER_TEMP/ormtool"
           cp "$built/ormtool" "$RUNNER_TEMP/ormtool/"
-          cp -R "$built/ORMKit.framework" "$built/ODataKit.framework" "$RUNNER_TEMP/ormtool/"
+          cp -R "$built/ORMKit.framework" "$built/ODataKit.framework" "$built/ODataIncrementalStore.framework" \
+            "$RUNNER_TEMP/ormtool/"
           ditto -c -k --keepParent "$built/ORMDesigner.app" \
             "ORMKit-macOS-${APP_VERSION}${suffix}.zip"
           ditto -c -k --keepParent "$RUNNER_TEMP/ormtool" \

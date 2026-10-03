@@ -91,6 +91,10 @@ ORMWithEntry(NSDictionary *info, NSString *key, NSString *value)
 		if ([type.definitionText length] > 0) {
 			entity.userInfo = ORMWithEntry(entity.userInfo, @"OData.description", type.definitionText);
 		}
+		/* Its type's name, as the service writes it: what a cast to a
+		 * subtype names, known without $metadata. */
+		entity.userInfo = ORMWithEntry(entity.userInfo, @"OData.type",
+		                               [NSString stringWithFormat:@"%@.%@", _mapping.odataNamespace ?: @"Default", entity.name]);
 		for (ORMCDAttribute *attribute in entity.attributes) {
 			[self annotateAttribute:attribute];
 		}
