@@ -76,6 +76,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync` | the mapping, both ways (COREDATA-MAPPING.md) |
 | `ORMCoreDataImport` | a Core Data model brought into ORM, with a mapping back to it |
+| `ORMCoreDataValidation` | the constraints Core Data cannot enforce, as an Objective-C category on each entity's class |
 
 ORMKit has no AppKit and no Core Data: the Core Data side is Xcode's source
 format, so mapping works the same on both platforms, and Apple's `momc` (in
@@ -116,8 +117,8 @@ Working and tested on both platforms:
   fact types and readings, every constraint kind, subtyping,
   objectification, notes, diagrams, deletion with its cascade, undo;
 - verbalization of object types, fact types and every constraint kind;
-- the Core Data mapping and three-way synchronization, and import from
-  Core Data;
+- the Core Data mapping and three-way synchronization, import from Core
+  Data, and validation code for what Core Data cannot enforce;
 - ORMDesigner: opening NORMA's diagrams, selecting, moving, the tools, the
   fact editor, the inspector, verbalization, PDF/PNG/HTML export, the Core
   Data window.
@@ -134,7 +135,11 @@ Not done yet:
 - **Verbalization**: wording checked against NORMA's report only by eye.
 - **Core Data**: per-relationship deletion rule overrides; watching the
   `.xcdatamodeld` for changes; validating with FreeCoreData's `momc` in the
-  GNUstep job, and a live `NSManagedObjectModel` preview with FreeCoreData.
+  GNUstep job, and a live `NSManagedObjectModel` preview with FreeCoreData;
+  validation code for what needs a fetch (uniqueness across objects,
+  frequencies over several roles) and for set comparisons through join
+  paths; class names that clash with the SDK's (`Comment` and `Component`
+  are Carbon types, so a class of that name does not compile).
 
 ### Assumptions to check against NORMA
 

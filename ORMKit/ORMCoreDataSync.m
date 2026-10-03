@@ -83,6 +83,12 @@
 	return YES;
 }
 
+- (void)setValidationPath:(NSString *)path ofMapping:(NSString *)mappingId
+{
+	[self setMappingAttribute:@"ValidationPath" value:[path length] > 0 ? path : nil of:mappingId
+	                   action:@"Set Validation Code Path"];
+}
+
 - (void)setScope:(ORMMappingScope)scope ids:(NSArray<NSString *> *)ids ofMapping:(NSString *)mappingId
 {
 	NSXMLElement *mapping = [self mappingElement:mappingId];

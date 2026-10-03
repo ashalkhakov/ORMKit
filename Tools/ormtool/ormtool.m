@@ -13,7 +13,11 @@
  *   ormtool check model.orm                  what the model holds, and whether it reads
  *   ormtool normalize model.orm [out.orm]    NORMA's derived data brought up to date
  *   ormtool coredata model.orm Out.xcdatamodeld [mapping name]
- *                                            the model mapped to Core Data, with the mapping's report
+ *                                            the model mapped to Core Data, with the mapping's report;
+ *                                            the validation code too, where the mapping keeps it
+ *   ormtool validation model.orm dir/ [mapping name]
+ *                                            code checking what Core Data cannot enforce:
+ *                                            <Name>Validation.h and .m, a category on each class
  *   ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]
  *                                            a diagram as SVG: the first (or the named) to standard
  *                                            output or the file; every one (or the named) into a
@@ -36,6 +40,7 @@ ORMUsage(void)
 	      "       ormtool check model.orm\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
 	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n"
+	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n", stderr);
 	return 2;
@@ -165,10 +170,43 @@ main(int argc, const char *argv[])
 				return 1;
 			}
 			ORMPrint([NSString stringWithFormat:@"%lu entities\n", (unsigned long)[mapped.entities count]]);
+			NSString *validation = [mapping resolvedValidationPathRelativeTo:[args objectAtIndex:1]];
+			if (validation != nil) {
+				ORMValidationGenerator *generator = [[ORMValidationGenerator alloc]
+					initWithModel:model coreData:mapped notes:mapper.notes name:mapping.name];
+				if (![generator writeToDirectory:validation error:&error]) {
+					fprintf(stderr, "ormtool: %s\n", [[error localizedDescription] UTF8String]);
+					return 1;
+				}
+				ORMPrint([NSString stringWithFormat:@"%lu constraints checked in %@\n",
+				                                    (unsigned long)generator.ruleCount, validation]);
+			}
 			for (ORMMappingNote *note in mapper.notes) {
 				NSString *kind = note.kind == ORMMappingAbsorbed ? @"absorbed"
 					: note.kind == ORMMappingUnenforced ? @"unenforced" : @"note";
 				ORMPrint([NSString stringWithFormat:@"%@: %@\n", kind, note.text]);
+			}
+			return 0;
+		}
+		if ([command isEqualToString:@"validation"] && [args count] >= 3) {
+			ORMCoreDataMapping *mapping = nil;
+			for (ORMCoreDataMapping *each in [ORMCoreDataMapping mappingsOfDocument:editor.document]) {
+				if ([args count] < 4 || [each.name isEqualToString:[args objectAtIndex:3]]) {
+					mapping = each;
+					break;
+				}
+			}
+			NSString *name = mapping.name ?: [[[args objectAtIndex:1] lastPathComponent] stringByDeletingPathExtension];
+			ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:model mapping:mapping
+			                                                                             name:name];
+			NSError *error = nil;
+			if (![generator writeToDirectory:[args objectAtIndex:2] error:&error]) {
+				fprintf(stderr, "ormtool: %s\n", [[error localizedDescription] UTF8String]);
+				return 1;
+			}
+			ORMPrint([NSString stringWithFormat:@"%lu constraints checked\n", (unsigned long)generator.ruleCount]);
+			for (NSString *note in generator.notes) {
+				ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
 			}
 			return 0;
 		}

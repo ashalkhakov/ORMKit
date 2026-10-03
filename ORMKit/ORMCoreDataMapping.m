@@ -8,6 +8,7 @@
 @property (nonatomic, readwrite, copy) NSString *identifier;
 @property (nonatomic, readwrite, copy) NSString *name;
 @property (nonatomic, readwrite, copy) NSString *path;
+@property (nonatomic, readwrite, copy) NSString *validationPath;
 @property (nonatomic, readwrite) ORMMappingScope scope;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *scopeIds;
 @property (nonatomic, readwrite) BOOL materializesIdentifiers;
@@ -57,6 +58,8 @@ ORMObjectTypeMappingNames(void)
 	mapping.element = element;
 	mapping.identifier = ORMAttribute(element, @"id");
 	mapping.path = ORMAttribute(element, @"Path") ?: mapping.path;
+	mapping.validationPath = [ORMAttribute(element, @"ValidationPath") length] > 0
+		? ORMAttribute(element, @"ValidationPath") : nil;
 	NSString *scope = ORMAttribute(element, @"Scope");
 	mapping.scope = [scope isEqualToString:@"Diagram"] ? ORMScopeDiagram
 		: [scope isEqualToString:@"ObjectTypes"] ? ORMScopeObjectTypes : ORMScopeModel;
@@ -153,13 +156,24 @@ ORMObjectTypeMappingNames(void)
 	return mapping != nil ? [mapping integerValue] : ORMMapAutomatically;
 }
 
+static NSString *
+ORMResolvedPath(NSString *path, NSString *documentPath)
+{
+	if (path == nil || [path isAbsolutePath] || documentPath == nil) {
+		return path;
+	}
+	return [[[documentPath stringByDeletingLastPathComponent] stringByAppendingPathComponent:path]
+		stringByStandardizingPath];
+}
+
 - (NSString *)resolvedPathRelativeTo:(NSString *)documentPath
 {
-	if ([self.path isAbsolutePath] || documentPath == nil) {
-		return self.path;
-	}
-	return [[[documentPath stringByDeletingLastPathComponent] stringByAppendingPathComponent:self.path]
-		stringByStandardizingPath];
+	return ORMResolvedPath(self.path, documentPath);
+}
+
+- (NSString *)resolvedValidationPathRelativeTo:(NSString *)documentPath
+{
+	return ORMResolvedPath(self.validationPath, documentPath);
 }
 
 @end

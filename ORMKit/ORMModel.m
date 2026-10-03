@@ -615,6 +615,9 @@ ORMUnitReferenceModes(void)
 @implementation ORMModel
 {
 	NSMutableDictionary<NSString *, id> *_elements;
+	/* Diagrams are read when first asked for: an editor reads the model
+	 * after every step of a group, and most steps look at no shape. */
+	BOOL _diagramsRead;
 }
 
 + (instancetype)modelOfDocument:(NSXMLDocument *)document reason:(NSString **)reason
@@ -671,7 +674,26 @@ ORMUnitReferenceModes(void)
 
 - (id)elementWithId:(NSString *)identifier
 {
-	return identifier != nil ? [_elements objectForKey:identifier] : nil;
+	if (identifier == nil) {
+		return nil;
+	}
+	id element = [_elements objectForKey:identifier];
+	if (element == nil && !_diagramsRead) {
+		/* A diagram or a shape, perhaps. */
+		[self readDiagrams];
+		element = [_elements objectForKey:identifier];
+	}
+	return element;
+}
+
+@synthesize diagrams = _diagrams;
+
+- (NSArray<ORMDiagram *> *)diagrams
+{
+	if (!_diagramsRead) {
+		[self readDiagrams];
+	}
+	return _diagrams;
 }
 
 - (ORMObjectType *)objectTypeNamed:(NSString *)name
@@ -739,7 +761,6 @@ ORMUnitReferenceModes(void)
 	[self linkValueConstraints];
 	self.extras = [NSMutableDictionary dictionary];
 	[self readPathsAndPopulations];
-	[self readDiagrams];
 }
 
 - (void)readDataTypes
@@ -1292,6 +1313,7 @@ ORMReferenceModeIn(NSString *valueName, NSString *format, NSString *entityName)
 
 - (void)readDiagrams
 {
+	_diagramsRead = YES;
 	NSMutableArray *diagrams = [NSMutableArray array];
 	NSXMLElement *root = [_document rootElement];
 	if (root != _modelElement) {

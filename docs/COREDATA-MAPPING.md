@@ -142,6 +142,7 @@ A model may have several Core Data mappings: an app's full model, a sync
 subset, a read-only cache. Each mapping has
 
 - a name and the path of its `.xcdatamodeld`, relative to the `.orm` file;
+- optionally, a directory for its validation code (below), also relative;
 - a scope: the whole model, a diagram's object types, or a list;
 - options: whether identifiers are materialized as attributes, whether
   subtypes are separate entities or flattened into their supertype, whether
@@ -209,6 +210,65 @@ entries of the user's own) is kept from theirs: regeneration never loses it.
 When the same element changed on both sides, the ORM model wins unless the
 user picks otherwise; every proposed change is listed before anything is
 applied, and applying is one undoable step in the ORM document.
+
+## Validation code: what Core Data cannot enforce
+
+Core Data checks optionality, counts, bounds, patterns and single-entity
+uniqueness. The rest of the model's constraints the mapping reports as not
+enforced, and generates as code: `<Name>Validation.h` and `.m`, a category
+`(ORMValidation)` on each entity's class that has something to check.
+
+Xcode usually generates the classes (Codegen "class" or "category"), and the
+user adds validation in a category of their own. The generated category sits
+beside it. It is regenerated with the model, so it is never edited:
+
+```objc
+@implementation Person (Validation)
+- (BOOL)validateForInsert:(NSError **)error
+{
+    return [super validateForInsert:error] && [self orm_validateConstraints:error];
+}
+- (BOOL)validateForUpdate:(NSError **)error
+{
+    return [super validateForUpdate:error] && [self orm_validateConstraints:error];
+}
+@end
+```
+
+| ORM2 | Checked |
+| --- | --- |
+| inclusive-or (disjunctive mandatory) | at least one of the properties is set (a unary's attribute is true; a to-many is not empty) |
+| mandatory loosened for Core Data (`ormkit.mandatory`) | the relationship is set |
+| exclusion; exclusive-or | at most one of the properties is set (exactly one); over pairs of roles, the related objects are disjoint |
+| subset; equality | the first is set only where the second is (both or neither); over pairs of roles, the related objects are a subset (equal) |
+| ring | each of its properties (irreflexive, asymmetric, acyclic, intransitive, ...) over the entity's relationship to itself |
+| value comparison | the two attributes compared, when both are set |
+| value constraint with several ranges or open bounds, on a number | the value is within one of the ranges |
+
+A violation is an `NSError` like Core Data's own: `NSCocoaErrorDomain`,
+`NSManagedObjectValidationError`, with the constraint's verbalization as its
+description. The object and the first property are under
+`NSValidationObjectErrorKey` and `NSValidationKeyErrorKey`, and the constraint's
+name under `ORMConstraint`. Several violations make an
+`NSValidationMultipleErrorsError`, with the violations under
+`NSDetailedErrorsKey`.
+
+Deontic constraints are obligations to be told of, not enforced. They do not
+make `orm_validateConstraints:` fail; `orm_deonticViolations` returns them.
+
+A subentity with rules of its own checks its parent's too.
+
+What one object cannot check is listed in the notes and in a comment at the
+top of the `.m`:
+- uniqueness across objects, which needs a fetch;
+- frequencies over several roles;
+- set comparisons through join paths;
+- constraints over the roles of n-ary fact types.
+
+The directory is the mapping's `ValidationPath`. **Synchronize** writes the
+code there, generated from the model it has just written, so the names are
+the ones in the `.xcdatamodeld`. `ormtool coredata` writes it as well, and
+`ormtool validation model.orm dir/` writes the code alone.
 
 ## Import: from Core Data to ORM
 

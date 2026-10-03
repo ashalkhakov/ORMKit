@@ -17,6 +17,8 @@ NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
 - (NSString *)addCoreDataMappingNamed:(NSString *)name path:(NSString *)path;
 - (void)removeCoreDataMapping:(NSString *)mappingId;
 - (BOOL)setPath:(NSString *)path ofMapping:(NSString *)mappingId reason:(NSString **)reason;
+/* The directory the validation code is written to; nil or empty for none. */
+- (void)setValidationPath:(NSString *)path ofMapping:(NSString *)mappingId;
 - (void)setScope:(ORMMappingScope)scope ids:(NSArray<NSString *> *)ids ofMapping:(NSString *)mappingId;
 - (void)setMaterializesIdentifiers:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setFlattensSubtypes:(BOOL)flag ofMapping:(NSString *)mappingId;

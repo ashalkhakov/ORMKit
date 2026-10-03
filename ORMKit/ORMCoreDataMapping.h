@@ -53,6 +53,9 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 @property (nonatomic, readonly, copy) NSString *name;
 /* The .xcdatamodeld, relative to the .orm file (or absolute). */
 @property (nonatomic, readonly, copy) NSString *path;
+/* Where the validation code goes (ORMCoreDataValidation.h), a directory
+ * relative to the .orm file (or absolute); nil for none. */
+@property (nonatomic, readonly, copy) NSString *validationPath;
 @property (nonatomic, readonly) ORMMappingScope scope;
 @property (nonatomic, readonly) ORMMappingStyle style;
 /* The diagram, or the object types, the scope names. */
@@ -107,4 +110,5 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 - (ORMObjectTypeMapping)mappingOfObjectType:(NSString *)objectTypeId;
 /* The path made absolute against the .orm file's directory. */
 - (NSString *)resolvedPathRelativeTo:(NSString *)documentPath;
+- (NSString *)resolvedValidationPathRelativeTo:(NSString *)documentPath;
 @end

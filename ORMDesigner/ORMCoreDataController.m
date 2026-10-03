@@ -27,6 +27,7 @@ ORMActionTitles(void)
 {
 	NSPopUpButton *_mappings;
 	NSTextField *_path;
+	NSTextField *_validationPath;
 	NSButton *_identifiers;
 	NSButton *_flatten;
 	NSButton *_valueSets;
@@ -174,7 +175,24 @@ ORMActionTitles(void)
 		[content addSubview:view];
 	}
 
-	_tabs = [[NSTabView alloc] initWithFrame:NSMakeRect(8, 30, width - 16, top - 126)];
+	/* Where the code checking what Core Data cannot goes; Synchronize
+	 * writes it there with the model. */
+	[content addSubview:[self label:@"Validation code:" frame:NSMakeRect(12, top - 118, 104, 18)]];
+	_validationPath = [[NSTextField alloc] initWithFrame:NSMakeRect(118, top - 120, width - 250, 22)];
+	[_validationPath setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	[[_validationPath cell] setPlaceholderString:@"A directory for the constraints Core Data cannot enforce, as code; "
+	                                             @"empty for none"];
+	[[_validationPath cell] setSendsActionOnEndEditing:YES];
+	[_validationPath setTarget:self];
+	[_validationPath setAction:@selector(validationPathChanged:)];
+	[_validationPath setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
+	[content addSubview:_validationPath];
+	NSButton *chooseValidation = [self button:@"Choose…" action:@selector(chooseValidationPath:)
+	                                    frame:NSMakeRect(width - 120, top - 120, 108, 24)];
+	[chooseValidation setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
+	[content addSubview:chooseValidation];
+
+	_tabs = [[NSTabView alloc] initWithFrame:NSMakeRect(8, 30, width - 16, top - 154)];
 	[_tabs setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
 	NSRect inner = NSMakeRect(0, 0, NSWidth([_tabs frame]) - 20, NSHeight([_tabs frame]) - 40);
 
@@ -286,10 +304,11 @@ ORMActionTitles(void)
 	}
 	ORMCoreDataMapping *mapping = [self mapping];
 	BOOL enabled = mapping != nil;
-	for (NSControl *control in @[ _path, _identifiers, _flatten, _valueSets, _absorbIdentifiers, _style ]) {
+	for (NSControl *control in @[ _path, _validationPath, _identifiers, _flatten, _valueSets, _absorbIdentifiers, _style ]) {
 		[control setEnabled:enabled];
 	}
 	[_path setStringValue:mapping.path ?: @""];
+	[_validationPath setStringValue:mapping.validationPath ?: @""];
 	[_identifiers setState:mapping == nil || mapping.materializesIdentifiers ? NSControlStateValueOn : NSControlStateValueOff];
 	[_flatten setState:mapping.flattensSubtypes ? NSControlStateValueOn : NSControlStateValueOff];
 	[_valueSets setState:mapping == nil || mapping.valueSetsAsEntities ? NSControlStateValueOn : NSControlStateValueOff];
@@ -426,6 +445,32 @@ ORMActionTitles(void)
 	[self modelDidChange];
 }
 
+- (void)validationPathChanged:(id)sender
+{
+	(void)sender;
+	if (self.mappingId != nil && ![[_validationPath stringValue] isEqualToString:[self mapping].validationPath ?: @""]) {
+		[self.editor setValidationPath:[_validationPath stringValue] ofMapping:self.mappingId];
+	}
+}
+
+- (void)chooseValidationPath:(id)sender
+{
+	(void)sender;
+	if (self.mappingId == nil) {
+		[self addMapping:nil];
+	}
+	NSOpenPanel *panel = [NSOpenPanel openPanel];
+	[panel setCanChooseDirectories:YES];
+	[panel setCanChooseFiles:NO];
+	[panel setCanCreateDirectories:YES];
+	[panel setPrompt:@"Choose"];
+	if ([panel runModal] != NSModalResponseOK) {
+		return;
+	}
+	[self.editor setValidationPath:[self pathRelativeToDocument:[[panel URL] path]] ofMapping:self.mappingId];
+	[self modelDidChange];
+}
+
 - (void)styleChanged:(id)sender
 {
 	(void)sender;
@@ -540,9 +585,26 @@ ORMActionTitles(void)
 		[self say:[error localizedDescription]];
 		return;
 	}
+	NSString *checked = @"";
+	ORMCoreDataMapping *mapping = [self mapping];
+	NSString *validation = [mapping resolvedValidationPathRelativeTo:[self.documentURL path]];
+	if (validation != nil) {
+		ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:self.editor.model
+		                                                                         mapping:mapping
+		                                                                        coreData:written
+		                                                                            name:mapping.name];
+		if (![generator writeToDirectory:validation error:&error]) {
+			NSBeep();
+			[self say:[error localizedDescription]];
+			return;
+		}
+		checked = [NSString stringWithFormat:@" %lu constraints Core Data cannot enforce are checked in %@.",
+		                                     (unsigned long)generator.ruleCount, validation];
+	}
 	[_changesTable reloadData];
 	[self modelDidChange];
-	[self say:[NSString stringWithFormat:@"Wrote %lu entities to %@.", (unsigned long)[written.entities count], path]];
+	[self say:[NSString stringWithFormat:@"Wrote %lu entities to %@.%@", (unsigned long)[written.entities count], path,
+	                                     checked]];
 }
 
 #pragma mark Tables

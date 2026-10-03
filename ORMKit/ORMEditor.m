@@ -34,6 +34,9 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	/* Each unary fact type's reading as the change found it: what tells
 	 * normalize which implicit boolean value types to rename. */
 	NSDictionary<NSString *, NSString *> *_unaryReadings;
+	/* A step of a group changed the document: the projection is read again
+	 * when it is next asked for, not after every step. */
+	BOOL _stale;
 }
 
 - (NSDictionary<NSString *, NSString *> *)unaryReadingsOf:(ORMModel *)model
@@ -123,6 +126,19 @@ ORMWritesExpandedData(ORMModel *model)
 - (void)reread
 {
 	_model = [ORMModel modelOfDocument:_document reason:NULL];
+	_stale = NO;
+}
+
+@synthesize model = _model;
+
+- (ORMModel *)model
+{
+	if (_stale) {
+		@autoreleasepool {
+			[self reread];
+		}
+	}
+	return _model;
 }
 
 - (void)change:(NSString *)name with:(void (^)(void))change
@@ -134,15 +150,15 @@ ORMWritesExpandedData(ORMModel *model)
 	/* A step of a group is read back for the next, and the group as a
 	 * whole normalized, from the readings it started with. */
 	if (_depth > 0) {
-		/* Each step's projection is let go of once the next is read: a
-		 * long group (an import) holds one, not one a step. */
+		/* What the step made is read when the next step, or the caller,
+		 * asks; the projection before it is let go of then. */
 		@autoreleasepool {
 			change();
-			[self reread];
 		}
+		_stale = YES;
 		return;
 	}
-	_unaryReadings = [self unaryReadingsOf:_model];
+	_unaryReadings = [self unaryReadingsOf:self.model];
 	NSXMLDocument *before = ORMCopyDocument(_document);
 	BOOL hadChanges = _hasChanges;
 	_depth++;
@@ -297,7 +313,7 @@ ORMWritesExpandedData(ORMModel *model)
 {
 	NSMutableArray *roles = [NSMutableArray array];
 	for (NSString *roleId in roleIds) {
-		ORMRole *role = [_model elementWithId:roleId];
+		ORMRole *role = [self.model elementWithId:roleId];
 		if (![role isKindOfClass:[ORMRole class]]) {
 			if (reason != NULL) {
 				*reason = @"Only roles can be constrained: pick role boxes.";

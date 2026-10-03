@@ -238,6 +238,10 @@
 			isa = PBXBuildFile;
 			fileRef = FAEC6D9C026AE82C4B58B9DB /* main.m */;
 		};
+		876171EC3771647D4C571D57 /* ORMCoreDataValidation.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 13854F51DC39F0B060914E85 /* ORMCoreDataValidation.m */;
+		};
 		8AC511DF8CD9702876C34E76 /* ORMConstraintSentence.h */ = {
 			isa = PBXBuildFile;
 			fileRef = C91E469645715A73955E1812 /* ORMConstraintSentence.h */;
@@ -317,6 +321,11 @@
 			isa = PBXBuildFile;
 			fileRef = E0D2E3700FC13C1E75CF4606 /* ORMEditor+Facts.m */;
 		};
+		CA487547267B63669045A97A /* ORMCoreDataValidation.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 8AA4CEDDA923B6706D18D22E /* ORMCoreDataValidation.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		CCEB180F554D61E3FCED2FE3 /* ORMLogic.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 235CC0E6730359D4FE3DF6A1 /* ORMLogic.m */;
@@ -379,6 +388,10 @@
 		F5AD2E4043E15A7801080CB9 /* ORMModelTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = A501039A4E57AAB1C5C81BC8 /* ORMModelTests.m */;
+		};
+		F9F7C099A2B89E6701324AE8 /* ORMCoreDataValidationTests.m */ = {
+			isa = PBXBuildFile;
+			fileRef = E9DB394050558188E00DF4EA /* ORMCoreDataValidationTests.m */;
 		};
 /* End PBXBuildFile section */
 
@@ -494,6 +507,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMTextTests.m;
+			sourceTree = "<group>";
+		};
+		13854F51DC39F0B060914E85 /* ORMCoreDataValidation.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMCoreDataValidation.m;
 			sourceTree = "<group>";
 		};
 		17EAEBAF92A12202869D3AD4 /* ORMModelBrowser.m */ = {
@@ -769,6 +788,12 @@
 			path = ORMCoreDataSync.h;
 			sourceTree = "<group>";
 		};
+		8AA4CEDDA923B6706D18D22E /* ORMCoreDataValidation.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMCoreDataValidation.h;
+			sourceTree = "<group>";
+		};
 		8D29F219573DEF5B67555B00 /* ORMLogic.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -940,6 +965,12 @@
 			path = ORMWindowController.m;
 			sourceTree = "<group>";
 		};
+		E9DB394050558188E00DF4EA /* ORMCoreDataValidationTests.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMCoreDataValidationTests.m;
+			sourceTree = "<group>";
+		};
 		EC982668FBE20641550E0F20 /* ORMModel.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -1088,6 +1119,7 @@
 				B81C2005CF575600502E10C0 /* ORMConstraintSentenceTests.m */,
 				ACF5341500A4DB8CEAF80DED /* ORMCoreDataImportTests.m */,
 				DF05F54CBF88A2870E475936 /* ORMCoreDataTests.m */,
+				E9DB394050558188E00DF4EA /* ORMCoreDataValidationTests.m */,
 				419C737D2F0800F7C9C779E7 /* ORMEditorTests.m */,
 				1FEE443031897F3DF350AAF5 /* ORMFileTests.m */,
 				6217E0B483913657B5CBF649 /* ORMLogicTests.m */,
@@ -1116,6 +1148,8 @@
 				742DA03AC25ADAA7EE78DCE5 /* ORMCoreDataMapping.m */,
 				88A52C8530980648D8D3178C /* ORMCoreDataSync.h */,
 				0D97F93BCFA30E497DB62CE5 /* ORMCoreDataSync.m */,
+				8AA4CEDDA923B6706D18D22E /* ORMCoreDataValidation.h */,
+				13854F51DC39F0B060914E85 /* ORMCoreDataValidation.m */,
 				EE0F40356E1B99E9BBB860B0 /* ORMDiagram.h */,
 				6B1CFB420300DE13D440E040 /* ORMDiagram.m */,
 				C9976F5BEFA5E3542453B5D6 /* ORMDiagramPainter.h */,
@@ -1227,6 +1261,7 @@
 				5A25979D5F8F7E89A2D47BE7 /* ORMCoreDataMapper.h */,
 				2F553C563D3DEDFC11443F2F /* ORMCoreDataSync.h */,
 				038326608FC302B3690A3C62 /* ORMCoreDataImport.h */,
+				CA487547267B63669045A97A /* ORMCoreDataValidation.h */,
 				7134F2EFEFA4B5DC0CFBCBAC /* ORMEditorPriv.h */,
 				7BC2CBB880964CE43801F057 /* ORMModelPriv.h */,
 				52926593566B956B1529EE14 /* ORMVerbalizerPriv.h */,
@@ -1394,6 +1429,7 @@
 				2BF5DEFE9374528FB256FC54 /* ORMCoreDataMapper.m */,
 				2EAD9C474B5A7A7C36025FB8 /* ORMCoreDataSync.m */,
 				A66C1793D6B05C121A382413 /* ORMCoreDataImport.m */,
+				876171EC3771647D4C571D57 /* ORMCoreDataValidation.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1452,6 +1488,7 @@
 				BB7D1D14489381283134B535 /* ORMVerbalizerTests.m */,
 				E7EB0C470E66130544EB303B /* ORMCoreDataTests.m */,
 				1F1E0DFCBC895DDBF5ADE936 /* ORMCoreDataImportTests.m */,
+				F9F7C099A2B89E6701324AE8 /* ORMCoreDataValidationTests.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
