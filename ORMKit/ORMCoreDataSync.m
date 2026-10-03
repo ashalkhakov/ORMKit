@@ -171,9 +171,32 @@
 	     inMapping:mappingId action:@"Rename in Core Data"];
 }
 
+- (void)setAbsorbsIdentifierTypes:(BOOL)flag ofMapping:(NSString *)mappingId
+{
+	[self setMappingAttribute:@"AbsorbIdentifierTypes" value:flag ? @"true" : nil of:mappingId
+	                   action:@"Set Identifier Type Mapping"];
+}
+
+- (void)setTransformableClass:(NSString *)className
+                  transformer:(NSString *)transformerName
+                 ofObjectType:(NSString *)objectTypeId
+                    inMapping:(NSString *)mappingId
+{
+	[self group:@"Map as Transformable" with:^{
+		[self setMapping:ORMMapTransformable ofObjectType:objectTypeId inMapping:mappingId];
+		[self setChild:@"ObjectTypeMapping" target:objectTypeId attribute:@"Class"
+		         value:[className length] > 0 ? className : @"NSString" inMapping:mappingId
+		        action:@"Set Transformable Class"];
+		[self setChild:@"ObjectTypeMapping" target:objectTypeId attribute:@"Transformer"
+		         value:[transformerName length] > 0 ? transformerName : @"NSSecureUnarchiveFromData"
+		     inMapping:mappingId
+		        action:@"Set Value Transformer"];
+	}];
+}
+
 - (void)setMapping:(ORMObjectTypeMapping)how ofObjectType:(NSString *)objectTypeId inMapping:(NSString *)mappingId
 {
-	NSArray *names = @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored" ];
+	NSArray *names = @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable" ];
 	[self setChild:@"ObjectTypeMapping" target:objectTypeId attribute:@"As"
 	         value:how == ORMMapAutomatically ? nil : [names objectAtIndex:how] inMapping:mappingId
 	        action:@"Set Object Type Mapping"];

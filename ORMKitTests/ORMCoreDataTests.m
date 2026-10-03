@@ -60,6 +60,99 @@
 
 #pragma mark ORM to Core Data
 
+- (ORMCDModel *)map:(NSString *)fixture configuring:(void (^)(ORMEditor *editor, NSString *mapping))configure
+{
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[self fixtureDocument:fixture] undoManager:nil];
+	NSString *mappingId = [editor addCoreDataMappingNamed:@"Test" path:@"Test.xcdatamodeld"];
+	configure(editor, mappingId);
+	ORMCoreDataMapping *mapping = [ORMCoreDataMapping mappingWithId:mappingId inDocument:editor.document];
+	return [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping] map];
+}
+
+static NSString *
+ORMSquashed(NSString *name)
+{
+	NSMutableString *out = [NSMutableString string];
+	for (NSUInteger i = 0; i < [name length]; i++) {
+		unichar c = [name characterAtIndex:i];
+		if ([[NSCharacterSet alphanumericCharacterSet] characterIsMember:c]) {
+			[out appendString:[[NSString stringWithCharacters:&c length:1] lowercaseString]];
+		}
+	}
+	return out;
+}
+
+/* Rmap's grouping, adapted: with subtypes flattened and identifier-only
+ * types absorbed, every table ActiveFacts' Rmap makes of Heath's models is
+ * an entity, but for the types his CQL marks [separate] or [static] (a
+ * modeller's choice, made here by mapping the type as an entity). */
+- (void)testRmapModeMakesTheTablesRmapMakes
+{
+	NSSet *separate = [NSSet setWithArray:@[ @"coveragetype", @"incidenttype", @"insurer", @"vehicleincident" ]];
+	NSUInteger tables = 0;
+	for (NSString *name in [self activeFactsFixtures]) {
+		NSString *model = [[name lastPathComponent] stringByDeletingPathExtension];
+		NSString *sqlName = [NSString stringWithFormat:@"ActiveFacts/sql/%@.sql", model];
+		if (![[NSFileManager defaultManager] fileExistsAtPath:[self fixturePath:sqlName]]) {
+			/* Heath published no tables for it (MultipleSubtyping). */
+			continue;
+		}
+		NSString *sql = [[NSString alloc] initWithData:[self fixtureData:sqlName] encoding:NSUTF8StringEncoding];
+		ORMCDModel *mapped = [self map:name configuring:^(ORMEditor *editor, NSString *mapping) {
+			[editor setFlattensSubtypes:YES ofMapping:mapping];
+			[editor setAbsorbsIdentifierTypes:YES ofMapping:mapping];
+		}];
+		NSMutableSet *entities = [NSMutableSet set];
+		for (ORMCDEntity *entity in mapped.entities) {
+			[entities addObject:ORMSquashed(entity.name)];
+		}
+		NSRegularExpression *create = [NSRegularExpression regularExpressionWithPattern:@"CREATE TABLE (\\w+)" options:0
+		                                                                          error:NULL];
+		for (NSTextCheckingResult *match in [create matchesInString:sql options:0 range:NSMakeRange(0, [sql length])]) {
+			NSString *table = ORMSquashed([sql substringWithRange:[match rangeAtIndex:1]]);
+			tables++;
+			XCTAssertTrue([entities containsObject:table] || [separate containsObject:table], @"%@: no entity for %@",
+			              model, table);
+		}
+		XCTAssertNil([self momcRejects:mapped], @"%@", model);
+	}
+	XCTAssertTrue(tables > 150);
+}
+
+/* A value type that plays a role of its own is an entity keyed by its
+ * value, as Rmap gives it a table: "Some String is long". */
+- (void)testAValueTypeWithRolesOfItsOwnIsAnEntity
+{
+	ORMModel *model = [ORMModel modelOfDocument:[self fixtureDocument:@"ActiveFacts/SimplestUnary.orm"] reason:NULL];
+	ORMCDModel *mapped = [self map:model];
+	ORMCDEntity *entity = [mapped entityNamed:@"SomeString"];
+	XCTAssertNotNil(entity);
+	XCTAssertNotNil([entity attributeNamed:@"value"]);
+	XCTAssertEqualObjects([[entity attributeNamed:@"isLong"] attributeType], @"Boolean");
+	XCTAssertTrue([entity.uniquenessConstraints containsObject:@[ @"value" ]]);
+	XCTAssertNil([self momcRejects:mapped]);
+}
+
+/* A value type of a class of its own: a URL, say. */
+- (void)testAValueTypeAsTransformable
+{
+	__block NSString *valueTypeId = nil;
+	ORMCDModel *mapped = [self map:@"StockMate.orm" configuring:^(ORMEditor *editor, NSString *mapping) {
+		valueTypeId = [[editor.model objectTypeNamed:@"Barcode"] identifier];
+		[editor setTransformableClass:@"NSURL" transformer:nil ofObjectType:valueTypeId inMapping:mapping];
+	}];
+	ORMCDAttribute *barcode = nil;
+	for (ORMCDAttribute *attribute in [[mapped entityNamed:@"Product"] attributes]) {
+		if ([[attribute.name lowercaseString] hasPrefix:@"barcode"]) {
+			barcode = attribute;
+		}
+	}
+	XCTAssertEqualObjects(barcode.attributeType, @"Transformable");
+	XCTAssertEqualObjects([barcode.extraAttributes objectForKey:@"customClassName"], @"NSURL");
+	XCTAssertEqualObjects([barcode.extraAttributes objectForKey:@"valueTransformerName"], @"NSSecureUnarchiveFromData");
+	XCTAssertNil([self momcRejects:mapped]);
+}
+
 /* Every model NORMA wrote maps to one Core Data takes: Clifford Heath's
  * examples, NORMA's own samples, metamodels and test suites;
  * objectification, subtyping several ways, rings, ternaries. */

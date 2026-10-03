@@ -281,9 +281,63 @@ ORMReservedNames(void)
 	return YES;
 }
 
+/* Whether a value type plays a role of its own: a unary about the value
+ * ("Some String is long"), or a fact type functional on the value with
+ * another value at the far end. Rmap gives it a table keyed by the value;
+ * here, an entity with the value as a unique attribute. */
+- (BOOL)valueTypeHasRolesOfItsOwn:(ORMObjectType *)type
+{
+	for (ORMRole *role in type.playedRoles) {
+		ORMFactType *fact = role.factType;
+		if (fact.kind != ORMFactTypeOrdinary || fact.objectifyingType != nil) {
+			continue;
+		}
+		NSArray *roles = [fact visibleRoles];
+		if ([roles count] == 1) {
+			return YES;
+		}
+		ORMRole *other = [role oppositeRole];
+		if ([roles count] == 2 && role.isUnique && other.player.kind == ORMValueType && fact != other.player.referenceModeFactType) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* Whether an entity type is no more than its identifier: a reference
+ * mode, and no fact type functional on it, no subtyping, no
+ * independence, no objectification. */
+- (BOOL)isIdentifierOnly:(ORMObjectType *)type
+{
+	if (type.referenceModeValueType == nil || type.nestedFactType != nil || type.isIndependent
+	    || [type.subtypes count] > 0 || [type.supertypes count] > 0) {
+		return NO;
+	}
+	/* A generated identifier (an auto counter, a row id) is made where
+	 * the instance is: it cannot be the value of what refers to it. */
+	NSString *dataType = type.referenceModeValueType.dataType.typeName;
+	if ([dataType isEqualToString:@"AutoCounterNumericDataType"] || [dataType isEqualToString:@"RowIdOtherDataType"]
+	    || [dataType isEqualToString:@"ObjectIdOtherDataType"]) {
+		return NO;
+	}
+	for (ORMRole *role in type.playedRoles) {
+		ORMFactType *fact = role.factType;
+		if (fact == type.referenceModeFactType || fact.kind == ORMFactTypeImplied || role.proxiedRole != nil) {
+			continue;
+		}
+		if (role.isUnique || [[fact visibleRoles] count] == 1) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
 - (ORMObjectTypeMapping)automaticMappingOf:(ORMObjectType *)type
 {
 	if (type.kind == ORMValueType) {
+		return [self valueTypeHasRolesOfItsOwn:type] ? ORMMapAsEntity : ORMMapAbsorbed;
+	}
+	if (self.mapping.absorbsIdentifierTypes && [self isIdentifierOnly:type]) {
 		return ORMMapAbsorbed;
 	}
 	/* An entity type is absorbed when it is no more than a measure: a
@@ -330,8 +384,15 @@ ORMReservedNames(void)
 				   element:type.identifier];
 				mapping = ORMMapAsEntity;
 			}
+			if (mapping == ORMMapTransformable && type.kind != ORMValueType) {
+				[self note:ORMMappingWarning
+				      text:[NSString stringWithFormat:@"%@ is an entity type; only a value type is Transformable.",
+				                                      type.name]
+				   element:type.identifier];
+				mapping = ORMMapAsEntity;
+			}
 			resolved = mapping == ORMMapIgnored ? ORMResolvedIgnored
-				: mapping == ORMMapAbsorbed ? ORMResolvedValue : ORMResolvedEntity;
+				: (mapping == ORMMapAbsorbed || mapping == ORMMapTransformable) ? ORMResolvedValue : ORMResolvedEntity;
 			if (mapping == ORMMapAbsorbed && type.isEntity) {
 				[self note:ORMMappingAbsorbed
 				      text:[NSString stringWithFormat:@"%@ is absorbed: it is an attribute wherever it is used.",
@@ -391,12 +452,23 @@ ORMReservedNames(void)
 	while ([pending count] > 0 && guard-- > 0) {
 		ORMObjectType *type = [pending objectAtIndex:0];
 		[pending removeObjectAtIndex:0];
+		if (type.kind == ORMValueType) {
+			/* A value type with roles of its own: keyed by its value. */
+			[_entityOf setObject:[self valueEntityFor:type] forKey:type.identifier];
+			continue;
+		}
 		ORMObjectType *parent = [self parentOf:type];
 		if (parent != nil && [_entityOf objectForKey:parent.identifier] == nil) {
 			[pending addObject:type];
 			continue;
 		}
-		if (parent != nil && self.mapping.flattensSubtypes) {
+		/* A subtype identified its own way is a thing of its own, as
+		 * Rmap keeps it in its own table. */
+		BOOL ownIdentification = NO;
+		for (ORMFactType *fact in type.supertypeFacts) {
+			ownIdentification = ownIdentification || !fact.providesPreferredIdentifier;
+		}
+		if (parent != nil && self.mapping.flattensSubtypes && !ownIdentification) {
 			ORMCDEntity *root = [_entityOf objectForKey:parent.identifier];
 			[_entityOf setObject:root forKey:type.identifier];
 			[self note:ORMMappingWarning
@@ -568,6 +640,14 @@ ORMRegexEscape(NSString *value)
 	attribute.source = source;
 	ORMDataType *dataType = valueType.dataType;
 	attribute.attributeType = dataType != nil ? [ORMCoreDataMapper attributeTypeFor:dataType] : @"String";
+	NSArray *transformable = [self.mapping.transformables objectForKey:valueType.identifier ?: @""];
+	if (transformable != nil) {
+		/* A class of its own, stored by its value transformer. */
+		attribute.attributeType = @"Transformable";
+		attribute.extraAttributes = @{ @"customClassName": [transformable firstObject],
+		                               @"valueTransformerName": [transformable lastObject] };
+		return attribute;
+	}
 	if (dataType == nil || dataType.family == ORMDataTypeUnspecified) {
 		[self note:ORMMappingWarning
 		      text:[NSString stringWithFormat:@"%@ has no data type; %@ is a String.", valueType.name, name]

@@ -12,6 +12,8 @@
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *scopeIds;
 @property (nonatomic, readwrite) BOOL materializesIdentifiers;
 @property (nonatomic, readwrite) BOOL flattensSubtypes;
+@property (nonatomic, readwrite) BOOL absorbsIdentifierTypes;
+@property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<NSString *> *> *transformables;
 @property (nonatomic, readwrite) BOOL valueSetsAsEntities;
 @property (nonatomic, readwrite, copy) NSString *codeGenerationType;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSString *> *nameOverrides;
@@ -25,7 +27,7 @@
 static NSArray *
 ORMObjectTypeMappingNames(void)
 {
-	return @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored" ];
+	return @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable" ];
 }
 
 @implementation ORMCoreDataMapping
@@ -42,6 +44,7 @@ ORMObjectTypeMappingNames(void)
 	mapping.codeGenerationType = @"class";
 	mapping.nameOverrides = @{};
 	mapping.objectTypeMappings = @{};
+	mapping.transformables = @{};
 	mapping.keptElements = [NSSet set];
 	mapping.excludedSources = [NSSet set];
 	return mapping;
@@ -63,6 +66,7 @@ ORMObjectTypeMappingNames(void)
 	mapping.scopeIds = scopeIds;
 	mapping.materializesIdentifiers = ORMBoolAttribute(element, @"MaterializeIdentifiers", YES);
 	mapping.flattensSubtypes = ORMBoolAttribute(element, @"FlattenSubtypes", NO);
+	mapping.absorbsIdentifierTypes = ORMBoolAttribute(element, @"AbsorbIdentifierTypes", NO);
 	mapping.valueSetsAsEntities = ORMBoolAttribute(element, @"ValueSetsAsEntities", YES);
 	NSString *codegen = ORMAttribute(element, @"Codegen");
 	mapping.codeGenerationType = codegen == nil ? @"class" : ([codegen isEqualToString:@"Manual"] ? nil : codegen);
@@ -77,13 +81,20 @@ ORMObjectTypeMappingNames(void)
 	}
 	mapping.nameOverrides = names;
 	NSMutableDictionary *types = [NSMutableDictionary dictionary];
+	NSMutableDictionary *transformables = [NSMutableDictionary dictionary];
 	for (NSXMLElement *option in ORMChildren(element, CD, @"ObjectTypeMapping")) {
 		NSUInteger index = [ORMObjectTypeMappingNames() indexOfObject:ORMAttribute(option, @"As") ?: @""];
 		if (ORMRef(option) != nil && index != NSNotFound) {
 			[types setObject:@(index) forKey:ORMRef(option)];
+			if (index == ORMMapTransformable) {
+				[transformables setObject:@[ ORMAttribute(option, @"Class") ?: @"NSString",
+				                             ORMAttribute(option, @"Transformer") ?: @"NSSecureUnarchiveFromData" ]
+				                   forKey:ORMRef(option)];
+			}
 		}
 	}
 	mapping.objectTypeMappings = types;
+	mapping.transformables = transformables;
 	NSMutableSet *kept = [NSMutableSet set];
 	for (NSXMLElement *keep in ORMChildren(element, CD, @"Keep")) {
 		if (ORMAttribute(keep, @"Name") != nil) {

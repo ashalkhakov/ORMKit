@@ -14,7 +14,7 @@
 static NSArray *
 ORMMappingTitles(void)
 {
-	return @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored" ];
+	return @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable" ];
 }
 
 static NSArray *
@@ -30,6 +30,8 @@ ORMActionTitles(void)
 	NSButton *_identifiers;
 	NSButton *_flatten;
 	NSButton *_valueSets;
+	NSButton *_absorbIdentifiers;
+	NSTextField *_transformableClass;
 	NSPopUpButton *_codegen;
 	NSTextField *_status;
 	NSTabView *_tabs;
@@ -154,7 +156,9 @@ ORMActionTitles(void)
 	_flatten = [self check:@"Flatten subtypes" action:@selector(optionChanged:) frame:NSMakeRect(290, top - 90, 130, 20)];
 	_valueSets = [self check:@"Value sets as entities" action:@selector(optionChanged:)
 	                   frame:NSMakeRect(424, top - 90, 170, 20)];
-	for (NSView *view in @[ _identifiers, _flatten, _valueSets ]) {
+	_absorbIdentifiers = [self check:@"Absorb identifier-only types (Rmap)" action:@selector(optionChanged:)
+	                           frame:NSMakeRect(598, top - 90, 250, 20)];
+	for (NSView *view in @[ _identifiers, _flatten, _valueSets, _absorbIdentifiers ]) {
 		[view setAutoresizingMask:NSViewMinYMargin];
 		[content addSubview:view];
 	}
@@ -191,6 +195,15 @@ ORMActionTitles(void)
 	[_typeMapping setTarget:self];
 	[_typeMapping setAction:@selector(typeMappingChanged:)];
 	[typesPane addSubview:_typeMapping];
+	/* A Transformable value type's class: NSURL for a URL, NSString when
+	 * left empty. */
+	[typesPane addSubview:[self label:@"Class:" frame:NSMakeRect(374, 8, 40, 18)]];
+	_transformableClass = [[NSTextField alloc] initWithFrame:NSMakeRect(416, 5, 140, 22)];
+	[_transformableClass setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	[[_transformableClass cell] setPlaceholderString:@"NSString"];
+	[_transformableClass setTarget:self];
+	[_transformableClass setAction:@selector(typeMappingChanged:)];
+	[typesPane addSubview:_transformableClass];
 	NSTabViewItem *typesTab = [[NSTabViewItem alloc] initWithIdentifier:@"types"];
 	[typesTab setLabel:@"Object Types"];
 	[typesTab setView:typesPane];
@@ -262,13 +275,14 @@ ORMActionTitles(void)
 	}
 	ORMCoreDataMapping *mapping = [self mapping];
 	BOOL enabled = mapping != nil;
-	for (NSControl *control in @[ _path, _identifiers, _flatten, _valueSets ]) {
+	for (NSControl *control in @[ _path, _identifiers, _flatten, _valueSets, _absorbIdentifiers ]) {
 		[control setEnabled:enabled];
 	}
 	[_path setStringValue:mapping.path ?: @""];
 	[_identifiers setState:mapping == nil || mapping.materializesIdentifiers ? NSControlStateValueOn : NSControlStateValueOff];
 	[_flatten setState:mapping.flattensSubtypes ? NSControlStateValueOn : NSControlStateValueOff];
 	[_valueSets setState:mapping == nil || mapping.valueSetsAsEntities ? NSControlStateValueOn : NSControlStateValueOff];
+	[_absorbIdentifiers setState:mapping.absorbsIdentifierTypes ? NSControlStateValueOn : NSControlStateValueOff];
 	[self remap];
 }
 
@@ -412,6 +426,8 @@ ORMActionTitles(void)
 		[self.editor setFlattensSubtypes:on ofMapping:self.mappingId];
 	} else if (sender == _valueSets) {
 		[self.editor setValueSetsAsEntities:on ofMapping:self.mappingId];
+	} else if (sender == _absorbIdentifiers) {
+		[self.editor setAbsorbsIdentifierTypes:on ofMapping:self.mappingId];
 	}
 }
 
@@ -428,8 +444,13 @@ ORMActionTitles(void)
 		[self addMapping:nil];
 	}
 	ORMObjectType *type = [_objectTypes objectAtIndex:(NSUInteger)row];
-	[self.editor setMapping:(ORMObjectTypeMapping)[_typeMapping indexOfSelectedItem] ofObjectType:type.identifier
-	              inMapping:self.mappingId];
+	ORMObjectTypeMapping how = (ORMObjectTypeMapping)[_typeMapping indexOfSelectedItem];
+	if (how == ORMMapTransformable) {
+		[self.editor setTransformableClass:[_transformableClass stringValue] transformer:nil ofObjectType:type.identifier
+		                         inMapping:self.mappingId];
+	} else {
+		[self.editor setMapping:how ofObjectType:type.identifier inMapping:self.mappingId];
+	}
 }
 
 - (void)changeActionChanged:(id)sender
@@ -550,6 +571,8 @@ ORMActionTitles(void)
 	if (table == _types && row >= 0) {
 		ORMObjectType *type = [_objectTypes objectAtIndex:(NSUInteger)row];
 		[_typeMapping selectItemAtIndex:[[self mapping] mappingOfObjectType:type.identifier]];
+		[_transformableClass setStringValue:[[[self mapping].transformables objectForKey:type.identifier] firstObject] ?: @""];
+		[_transformableClass setEnabled:type.kind == ORMValueType];
 	} else if (table == _changesTable && row >= 0 && _sync != nil) {
 		[_changeAction selectItemAtIndex:[[_sync.changes objectAtIndex:(NSUInteger)row] action]];
 	}

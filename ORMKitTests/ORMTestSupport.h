@@ -9,6 +9,8 @@
 /* What every ORMKit test shares: the fixtures, found beside this file, so
  * the tests run from a source tree on both platforms. */
 @interface ORMTestCase : XCTestCase
+/* Fixtures/<name>'s path. */
+- (NSString *)fixturePath:(NSString *)name;
 /* Fixtures/<name>'s bytes. */
 - (NSData *)fixtureData:(NSString *)name;
 /* Fixtures/<name> parsed; fails the test when it cannot be. */

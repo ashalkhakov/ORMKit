@@ -38,9 +38,13 @@ mapping's treatment of identity and of many-to-many fact types.
 | Text data type length | `maxValueString` (Core Data's string bounds are lengths) |
 | Ring, exclusion, subset, equality, value comparison, frequency over several roles, deontic rules | not expressible: kept on the entity as `userInfo` entries holding their FORML verbalization, and listed in the mapping's report as unenforced |
 
-Not yet: a value type that plays a role of its own beyond being a value
-(ActiveFacts' SimplestUnary: "Some String is long") maps to nothing; Rmap
-gives it a table keyed by its value, and Core Data would want an entity.
+A value type that plays a role of its own (a unary about the value, "Some
+String is long", or a fact type functional on the value with another
+value at the far end) is an entity keyed by the value, a unique `value`
+attribute, as Rmap gives it a table keyed by the value. A value type of a
+class of its own (an e-mail address, a URL) can be mapped as a
+Transformable attribute of that class, with the value transformer that
+stores it (`NSSecureUnarchiveFromData` unless another is named).
 
 Data types:
 
@@ -57,6 +61,35 @@ Data types:
 | Raw Data (all) | Binary Data; Picture with external storage |
 | Other: Row ID, Object ID | UUID |
 | Unspecified | String, reported |
+
+## Rmap, adapted
+
+Halpin's Rmap groups fact types into relational tables. The mapping
+follows its grouping where Core Data and a relational schema agree, and
+departs from it where Core Data has more to say:
+
+| Rmap | Core Data |
+| --- | --- |
+| A table per entity type with functional fact types, its columns those fact types | an entity, its attributes and to-one relationships those fact types |
+| A table per fact type of a compound uniqueness (many-to-many) | to-many relationships both ways; an entity for an objectified one or one of three roles or more |
+| Subtypes absorbed into the supertype's table (or kept separate) | an entity inheritance tree (one SQLite table, as Rmap's absorption), or flattened when asked |
+| An entity type with nothing but its identifier is no table: its identifier is a column wherever it is used | an entity, with its identity and its relationships; absorbed as attributes when asked |
+| A value type with a role of its own is a table keyed by the value | an entity keyed by the value |
+
+Rmap mode, subtypes flattened and identifier-only types absorbed
+(`AbsorbIdentifierTypes`), makes of Clifford Heath's 28 models every table
+his ActiveFacts makes, but for the types his CQL marks `[separate]` or
+`[static]`, a modeller's choice that is the per-type Entity mapping here
+(the test compares them). Rmap mode does not absorb an entity type whose
+identifier is generated (an auto counter: it cannot be supplied by what
+refers to it), nor flatten a subtype identified its own way.
+
+Rmap mode still makes entities Rmap does not: entity types identified by
+several fact types with nothing else to them (Address, Row), whose
+identifying columns Rmap spreads into the tables that refer to them, and
+objectified fact types one-to-one with a player (Death of a Person),
+which Rmap folds into the player's table. Both lose an identity Core Data
+keeps; whether to absorb them is for a later pass.
 
 ## Names
 

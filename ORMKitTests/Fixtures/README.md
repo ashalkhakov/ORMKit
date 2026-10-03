@@ -13,6 +13,9 @@
   to agree with ORMKit's derived data, and to map to a Core Data model
   `momc` accepts. Objectification, subtyping several ways, rings, join
   paths, a derivation rule, sample populations, a 187-fact-type metamodel.
+  `ActiveFacts/sql/` holds the SQL Server tables ActiveFacts made of them
+  (same repository, same license): what Rmap makes, for the mapping's Rmap
+  mode to be checked against.
 - `NORMA/`: files from NORMA's own repository
   (<https://github.com/ormsolutions/NORMA>, commit c458441), unchanged,
   under the Common Public License 1.0 (`NORMA/LICENSE.txt`, `NORMA/CPL.txt`).

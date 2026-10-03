@@ -16,6 +16,10 @@ typedef NS_ENUM(NSInteger, ORMObjectTypeMapping) {
 	ORMMapAbsorbed,
 	/* Left out, with every fact type it plays. */
 	ORMMapIgnored,
+	/* A value type as a Transformable attribute of a class of its own (a
+	 * kind of string with more to it: an e-mail address, a URL), with the
+	 * value transformer that stores it. */
+	ORMMapTransformable,
 };
 
 typedef NS_ENUM(NSInteger, ORMMappingScope) {
@@ -39,6 +43,10 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 @property (nonatomic, readonly) BOOL materializesIdentifiers;
 /* Subtypes' properties in their supertype's entity, not entities of their own. */
 @property (nonatomic, readonly) BOOL flattensSubtypes;
+/* Rmap's grouping: an entity type with nothing but its identifier (no
+ * fact type functional on it, no subtyping, not independent) is absorbed
+ * as attributes wherever it is used, as Rmap leaves it out of the tables. */
+@property (nonatomic, readonly) BOOL absorbsIdentifierTypes;
 /* Many-to-many fact types with value types as an entity for the value
  * (YES), or as a transformable attribute holding an array (NO). */
 @property (nonatomic, readonly) BOOL valueSetsAsEntities;
@@ -50,6 +58,9 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, NSString *> *nameOverrides;
 /* Object type id -> how it maps, where the user decided. */
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, NSNumber *> *objectTypeMappings;
+/* A Transformable value type's class and value transformer, by its id:
+ * @[ class, transformer ]. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSArray<NSString *> *> *transformables;
 /* ORM elements the mapping leaves out: a role (the property made for it
  * is not made) or a fact type. */
 @property (nonatomic, readonly, copy) NSSet<NSString *> *excludedSources;

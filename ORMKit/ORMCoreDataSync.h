@@ -15,6 +15,14 @@
 - (void)setMaterializesIdentifiers:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setFlattensSubtypes:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setValueSetsAsEntities:(BOOL)flag ofMapping:(NSString *)mappingId;
+- (void)setAbsorbsIdentifierTypes:(BOOL)flag ofMapping:(NSString *)mappingId;
+/* The value type maps as a Transformable attribute of the class (NSString
+ * when nil), stored by the value transformer (NSSecureUnarchiveFromData
+ * when nil). */
+- (void)setTransformableClass:(NSString *)className
+                  transformer:(NSString *)transformerName
+                 ofObjectType:(NSString *)objectTypeId
+                    inMapping:(NSString *)mappingId;
 /* nil: no override, the rules' name. */
 - (void)setName:(NSString *)name forSource:(NSString *)sourceId inMapping:(NSString *)mappingId;
 - (void)setMapping:(ORMObjectTypeMapping)how ofObjectType:(NSString *)objectTypeId inMapping:(NSString *)mappingId;
