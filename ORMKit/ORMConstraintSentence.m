@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMConstraintSentence.h"
 #import "ORMFactSentence.h"
+#import "ORMJoinPathBuilder.h"
 #import "ORMReadingText.h"
 
 /* The quantifiers the verbalizer puts before a name, longest first. */
@@ -40,7 +41,17 @@ static NSString *const ORMQuantifierPattern =
 
 @end
 
+@interface ORMSentencePath ()
+@property (nonatomic, readwrite, copy) NSArray<NSArray<ORMSentenceRole *> *> *atomRoles;
+@property (nonatomic, readwrite, copy) NSArray<NSArray<NSString *> *> *atomVariables;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *columns;
+@end
+
+@implementation ORMSentencePath
+@end
+
 @interface ORMSentenceConstraint ()
+@property (nonatomic, readwrite, copy) NSArray *paths;
 @property (nonatomic, readwrite) ORMConstraintKind kind;
 @property (nonatomic, readwrite, copy) NSArray<NSArray<ORMSentenceRole *> *> *sequences;
 @property (nonatomic, readwrite) ORMRingType ringType;
@@ -90,6 +101,11 @@ ORMMakeConstraint(ORMConstraintKind kind, NSArray<NSArray<ORMSentenceRole *> *> 
 /* A clause matched to a fact type: its terms in the order the reading
  * names them. */
 @interface ORMSentenceClause : NSObject
+/* How much of the text the clause took, in a chain. */
+@property (nonatomic) NSUInteger consumed;
+/* The reading ends at its last placeholder: a relative clause can go on
+ * from that term ("...some LotType that tracks lot numbers"). */
+@property (nonatomic) BOOL endsWithTerm;
 @property (nonatomic, weak) ORMFactType *factType;
 @property (nonatomic, strong) ORMSentenceFact *fact;
 @property (nonatomic, copy) NSArray<ORMSentenceTerm *> *terms;
@@ -228,6 +244,8 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 
 @implementation ORMConstraintSentence
 {
+	/* Matching a clause at the start of a chain, not the whole text. */
+	BOOL _prefixMode;
 	ORMModel *_model;
 	NSMutableArray<ORMSentenceFact *> *_facts;
 	NSMutableArray<ORMSentenceConstraint *> *_constraints;
@@ -267,7 +285,9 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 		[pattern appendString:ORMLiteralPattern(part.postBoundText)];
 		[pattern appendString:ORMLiteralPattern(part.followingText)];
 	}
-	[pattern appendString:@"\\s*$"];
+	/* A clause of a chain ends where the text does or a connector
+	 * follows. */
+	[pattern appendString:_prefixMode ? @"(?=\\s+(?:and|that|who)\\s|\\s*$)" : @"\\s*$"];
 	return pattern;
 }
 
@@ -281,7 +301,7 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 		cache = [[NSCache alloc] init];
 		[cache setCountLimit:1500];
 	});
-	NSMutableArray *key = [NSMutableArray arrayWithObjects:reading, @(omit), nil];
+	NSMutableArray *key = [NSMutableArray arrayWithObjects:reading, @(omit), @(_prefixMode), nil];
 	for (ORMRole *role in roles) {
 		/* The player's family names its pattern. */
 		[key addObject:ORMNamesPattern(role.player)];
@@ -308,7 +328,9 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 			[readings addObject:@[ fact, @"{0} is {1}", @[ sup, sub ] ]];
 			continue;
 		}
-		if (fact.kind != ORMFactTypeOrdinary) {
+		/* An objectification's link fact types read too ("...is involved
+		 * in some Service"). */
+		if (fact.kind != ORMFactTypeOrdinary && fact.kind != ORMFactTypeImplied) {
 			continue;
 		}
 		if ([fact.readingOrders count] == 0) {
@@ -418,6 +440,9 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 		ORMSentenceClause *clause = [[ORMSentenceClause alloc] init];
 		clause.factType = fact;
 		clause.terms = terms;
+		clause.consumed = NSMaxRange([result range]);
+		ORMReadingPart *last = [parsed.parts lastObject];
+		clause.endsWithTerm = [ORMTrimmed(last.followingText) length] == 0 && [last.postBoundText length] == 0;
 		[clauses addObject:clause];
 	}
 	return clauses;
@@ -535,6 +560,155 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 		return [clauses firstObject];
 	}
 	return [self newClause:text subject:subject];
+}
+
+#pragma mark Chains
+
+/* A side of a constraint as clauses: each the longest reading that
+ * matches where the text goes on, joined by "that"/"who" (going on from
+ * the object type the clause ended with) or "and" (a new clause, or going
+ * on from the first's subject). Its terms' names are its variables: "some
+ * Lot" ... "that Lot" is one Lot. nil when it does not read so. */
+- (NSArray<ORMSentenceClause *> *)chain:(NSString *)text
+{
+	NSMutableArray *chain = [NSMutableArray array];
+	NSString *rest = ORMTrimmed(text);
+	NSString *head = nil;
+	NSString *tail = nil;
+	NSString *connector = nil;
+	_prefixMode = YES;
+	while ([rest length] > 0) {
+		NSMutableArray *candidates = [NSMutableArray array];
+		if (connector == nil || [connector isEqualToString:@"and"]) {
+			[candidates addObjectsFromArray:[self match:rest omit:NO]];
+		}
+		NSString *subject = [connector isEqualToString:@"that"] ? tail : [connector isEqualToString:@"and"] ? head : nil;
+		if (subject != nil) {
+			ORMSentenceTerm *probe = [[ORMSentenceTerm alloc] init];
+			probe.name = subject;
+			ORMObjectType *type = [_model objectTypeNamed:[probe typeName]];
+			for (ORMSentenceClause *clause in [self match:rest omit:YES]) {
+				ORMSentenceTerm *first = [clause.terms firstObject];
+				ORMObjectType *player = first.role.role.player;
+				if (player == type || ORMRelatedTypes(player, type)) {
+					first.name = subject;
+					[candidates addObject:clause];
+				}
+			}
+		}
+		ORMSentenceClause *best = nil;
+		for (ORMSentenceClause *clause in candidates) {
+			if (best == nil || clause.consumed > best.consumed) {
+				best = clause;
+			}
+		}
+		if (best == nil) {
+			_prefixMode = NO;
+			return nil;
+		}
+		[chain addObject:best];
+		if (head == nil) {
+			head = [[best.terms firstObject] name];
+		}
+		tail = best.endsWithTerm ? [[best.terms lastObject] name] : nil;
+		rest = ORMTrimmed([rest substringFromIndex:best.consumed]);
+		if ([rest length] == 0) {
+			break;
+		}
+		if (ORMHasPrefix(rest, @"that ") || ORMHasPrefix(rest, @"who ")) {
+			if (tail == nil) {
+				_prefixMode = NO;
+				return nil;
+			}
+			connector = @"that";
+			rest = [rest substringFromIndex:[rest rangeOfString:@" "].location + 1];
+		} else if (ORMHasPrefix(rest, @"and ")) {
+			connector = @"and";
+			rest = [rest substringFromIndex:4];
+		} else {
+			_prefixMode = NO;
+			return nil;
+		}
+	}
+	_prefixMode = NO;
+	return [chain count] > 0 ? chain : nil;
+}
+
+/* The variables a chain names, in the order it names them. */
+static NSArray<NSString *> *
+ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
+{
+	NSMutableArray *names = [NSMutableArray array];
+	for (ORMSentenceClause *clause in chain) {
+		for (ORMSentenceTerm *term in clause.terms) {
+			if (term.name != nil && ![names containsObject:term.name]) {
+				[names addObject:term.name];
+			}
+		}
+	}
+	return names;
+}
+
+/* A sequence of a chain: the role where each column is first played; and
+ * its path when the chain is of more than one clause. */
+- (NSArray<ORMSentenceRole *> *)rolesOf:(NSArray<ORMSentenceClause *> *)chain columns:(NSArray<NSString *> *)columns
+{
+	NSMutableArray *roles = [NSMutableArray array];
+	for (NSString *column in columns) {
+		ORMSentenceRole *found = nil;
+		for (ORMSentenceClause *clause in chain) {
+			for (ORMSentenceTerm *term in clause.terms) {
+				if (found == nil && [term.name isEqualToString:column]) {
+					found = term.role;
+				}
+			}
+		}
+		if (found == nil) {
+			return nil;
+		}
+		[roles addObject:found];
+	}
+	return roles;
+}
+
+- (id)pathOf:(NSArray<ORMSentenceClause *> *)chain columns:(NSArray<NSString *> *)columns
+{
+	if ([chain count] < 2) {
+		return [NSNull null];
+	}
+	ORMSentencePath *path = [[ORMSentencePath alloc] init];
+	NSMutableArray *roles = [NSMutableArray array];
+	NSMutableArray *variables = [NSMutableArray array];
+	for (ORMSentenceClause *clause in chain) {
+		[roles addObject:[clause.terms valueForKey:@"role"]];
+		[variables addObject:[clause.terms valueForKey:@"name"]];
+	}
+	path.atomRoles = roles;
+	path.atomVariables = variables;
+	path.columns = columns;
+	return path;
+}
+
+/* A set comparison over chains, each a sequence of the columns. */
+- (BOOL)compare:(ORMConstraintKind)kind chains:(NSArray<NSArray *> *)chains columns:(NSArray<NSString *> *)columns
+{
+	NSMutableArray *sequences = [NSMutableArray array];
+	NSMutableArray *paths = [NSMutableArray array];
+	BOOL joined = NO;
+	for (NSArray *chain in chains) {
+		NSArray *roles = [self rolesOf:chain columns:columns];
+		if (roles == nil) {
+			return [self fail:@"A side of the comparison does not name all it compares."];
+		}
+		[sequences addObject:roles];
+		id path = [self pathOf:chain columns:columns];
+		joined = joined || path != [NSNull null];
+		[paths addObject:path];
+	}
+	ORMSentenceConstraint *constraint = ORMMakeConstraint(kind, sequences);
+	constraint.paths = joined ? paths : nil;
+	[self add:constraint];
+	return YES;
 }
 
 #pragma mark Templates
@@ -820,6 +994,31 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 		[self add:ring];
 		return YES;
 	}
+	/* Over join paths: each side a chain of clauses. */
+	NSArray *leftChain = impossible ? nil : [self chain:left];
+	NSArray *rightChain = impossible ? nil : [self chain:right];
+	if (leftChain != nil && rightChain != nil && ([leftChain count] > 1 || [rightChain count] > 1)) {
+		NSArray *introduced = ORMChainVariables(leftChain);
+		NSMutableArray *columns = [NSMutableArray array];
+		for (NSString *name in introduced) {
+			if ([ORMChainVariables(rightChain) containsObject:name]) {
+				[columns addObject:name];
+			}
+		}
+		/* The verbalizer leaves out of the "then" only facts whose
+		 * instances it names otherwise, so it names every column. */
+		NSArray *superset = rightChain;
+		[columns removeAllObjects];
+		for (NSString *name in introduced) {
+			if ([ORMChainVariables(superset) containsObject:name]) {
+				[columns addObject:name];
+			}
+		}
+		if ([columns count] == 0) {
+			return [self fail:@"The \"then\" does not name again what the \"if\" introduced."];
+		}
+		return [self compare:ORMSubsetConstraint chains:@[ leftChain, superset ] columns:columns];
+	}
 	if (second != nil || impossible) {
 		return [self fail:@"Only a subset of one fact type's roles is understood after \"if\"."];
 	}
@@ -882,17 +1081,16 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 	if (exactlyOneHolds || ORMHasPrefix(rest, @"at most one of the following holds: ")) {
 		NSString *list = [rest substringFromIndex:[exactlyOneHolds ? @"exactly one of the following holds: "
 		                                                             : @"at most one of the following holds: " length]];
+		NSMutableArray *chains = [NSMutableArray array];
 		NSMutableArray *sequences = [NSMutableArray array];
 		for (NSString *part in [list componentsSeparatedByString:@"; "]) {
-			ORMSentenceClause *clause = [self clause:part subject:nil];
-			NSMutableArray *roles = [NSMutableArray array];
-			for (NSString *name in names) {
-				ORMSentenceTerm *term = [clause termNamed:name];
-				if (term == nil) {
-					return [self fail:[NSString stringWithFormat:@"\"%@\" does not name %@.", part, name]];
-				}
-				[roles addObject:term.role];
+			NSArray *chain = [self chain:part];
+			NSArray *roles = chain != nil ? [self rolesOf:chain columns:names] : nil;
+			if (roles == nil) {
+				return [self fail:[NSString stringWithFormat:@"\"%@\" does not name all of %@.", part,
+				                                             [names componentsJoinedByString:@", "]]];
 			}
+			[chains addObject:chain];
 			[sequences addObject:roles];
 		}
 		if (exactlyOneHolds) {
@@ -907,7 +1105,7 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 			constraint.isExclusiveOr = YES;
 			[self add:constraint];
 		} else {
-			[self add:ORMMakeConstraint(ORMExclusionConstraint, sequences)];
+			return [self compare:ORMExclusionConstraint chains:chains columns:names];
 		}
 		return YES;
 	}
@@ -915,21 +1113,15 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 	 * only if that Patient had some DiastolicBP". */
 	NSRange iff = [rest rangeOfString:@" if and only if "];
 	if (iff.location != NSNotFound) {
-		NSMutableArray *sequences = [NSMutableArray array];
+		NSMutableArray *chains = [NSMutableArray array];
 		for (NSString *part in @[ [rest substringToIndex:iff.location], [rest substringFromIndex:NSMaxRange(iff)] ]) {
-			ORMSentenceClause *clause = [self clause:part subject:nil];
-			NSMutableArray *roles = [NSMutableArray array];
-			for (NSString *name in names) {
-				ORMSentenceTerm *term = [clause termNamed:name];
-				if (term == nil) {
-					return [self fail:[NSString stringWithFormat:@"\"%@\" does not name %@.", part, name]];
-				}
-				[roles addObject:term.role];
+			NSArray *chain = [self chain:part];
+			if (chain == nil) {
+				return [self fail:[NSString stringWithFormat:@"\"%@\" is not of fact types the model has.", part]];
 			}
-			[sequences addObject:roles];
+			[chains addObject:chain];
 		}
-		[self add:ORMMakeConstraint(ORMEqualityConstraint, sequences)];
-		return YES;
+		return [self compare:ORMEqualityConstraint chains:chains columns:names];
 	}
 	/* One fact type: the roles named "that" are the constrained ones. A
 	 * fact type the model lacks is made, unless this reads as external
@@ -1301,7 +1493,45 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 			case ORMSubsetConstraint:
 			case ORMEqualityConstraint:
 			case ORMExclusionConstraint:
-				created = [self addSetComparisonConstraint:constraint.kind sequences:sequences reason:&failure];
+				if (constraint.paths == nil) {
+					created = [self addSetComparisonConstraint:constraint.kind sequences:sequences reason:&failure];
+					break;
+				}
+				{
+					/* Over join paths: each sequence a path's atoms, or a
+					 * plain one as an atom of its own. */
+					NSMutableArray *specs = [NSMutableArray array];
+					for (NSUInteger i = 0; i < [sequences count]; i++) {
+						id path = [constraint.paths objectAtIndex:i];
+						if (path == [NSNull null]) {
+							NSMutableDictionary *atom = [NSMutableDictionary dictionary];
+							NSMutableArray *columns = [NSMutableArray array];
+							for (NSString *role in [sequences objectAtIndex:i]) {
+								NSString *column = [NSString stringWithFormat:@"column %lu", (unsigned long)[columns count]];
+								[atom setObject:column forKey:role];
+								[columns addObject:column];
+							}
+							[specs addObject:[ORMJoinPathSpec specWithAtoms:@[ atom ] columns:columns]];
+							continue;
+						}
+						ORMSentencePath *sentencePath = path;
+						NSMutableArray *atoms = [NSMutableArray array];
+						for (NSUInteger a = 0; a < [sentencePath.atomRoles count]; a++) {
+							NSMutableDictionary *atom = [NSMutableDictionary dictionary];
+							NSArray *roles = [sentencePath.atomRoles objectAtIndex:a];
+							NSArray *variables = [sentencePath.atomVariables objectAtIndex:a];
+							for (NSUInteger r = 0; r < [roles count]; r++) {
+								NSString *identifier = roleId([roles objectAtIndex:r]);
+								if (identifier != nil) {
+									[atom setObject:[variables objectAtIndex:r] forKey:identifier];
+								}
+							}
+							[atoms addObject:atom];
+						}
+						[specs addObject:[ORMJoinPathSpec specWithAtoms:atoms columns:sentencePath.columns]];
+					}
+					created = [self addSetComparisonConstraint:constraint.kind joinPaths:specs reason:&failure];
+				}
 				break;
 			default:
 				failure = @"That kind of constraint cannot be added from a sentence yet.";

@@ -91,8 +91,10 @@
 	/* Join paths are followed, not guessed at. */
 	XCTAssertTrue([all containsObject:@"For each Address and Region, that Address is in that Region if and only if "
 	                                  @"that Address is in some Country and that Region is part of that Country."], @"%@", all);
-	XCTAssertTrue([all containsObject:@"If some Lot has some LotNumber and is of some LotType then that LotType tracks "
-	                                  @"lot numbers."], @"%@", all);
+	/* The superset names every instance it compares, though the subset
+	 * says "Lot is of LotType" too: the sentence reads back as written. */
+	XCTAssertTrue([all containsObject:@"If some Lot has some LotNumber and is of some LotType then that Lot is of that "
+	                                  @"LotType that tracks lot numbers."], @"%@", all);
 	XCTAssertTrue([all containsObject:@"If some Street includes some third StreetLine then that Street includes some "
 	                                  @"second StreetLine."]);
 }

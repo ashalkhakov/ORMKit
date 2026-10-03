@@ -50,11 +50,23 @@
 @property (nonatomic, readonly) NSUInteger index;
 @end
 
+/* A sequence over a join path: the fact types its clauses name (each
+ * atom's roles and the variable playing each, by name: "Lot",
+ * "Country1"), and the variables the sequence's roles are. */
+@interface ORMSentencePath : NSObject
+@property (nonatomic, readonly, copy) NSArray<NSArray<ORMSentenceRole *> *> *atomRoles;
+@property (nonatomic, readonly, copy) NSArray<NSArray<NSString *> *> *atomVariables;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *columns;
+@end
+
 @interface ORMSentenceConstraint : NSObject
 @property (nonatomic, readonly) ORMConstraintKind kind;
 /* The role sequences: one for an internal constraint, several for set
  * comparisons and exclusion. */
 @property (nonatomic, readonly, copy) NSArray<NSArray<ORMSentenceRole *> *> *sequences;
+/* For each sequence, its join path, or NSNull for a sequence within one
+ * fact type; nil when no sequence has one. */
+@property (nonatomic, readonly, copy) NSArray *paths;
 @property (nonatomic, readonly) ORMRingType ringType;
 @property (nonatomic, readonly) BOOL isExclusiveOr;
 /* A value constraint, when set (its kind then means nothing): "{'M',

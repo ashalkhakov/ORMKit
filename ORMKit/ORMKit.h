@@ -28,6 +28,7 @@
 #import "ORMVerbalizer.h"
 #import "ORMFactSentence.h"
 #import "ORMConstraintSentence.h"
+#import "ORMJoinPathBuilder.h"
 #import "ORMCDModel.h"
 #import "ORMCoreDataMapping.h"
 #import "ORMCoreDataMapper.h"

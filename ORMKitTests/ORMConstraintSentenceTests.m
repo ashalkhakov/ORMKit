@@ -180,6 +180,111 @@ ORMSaidWithoutJoins(id element)
 	XCTAssertTrue(checked > 1500, @"%lu", (unsigned long)checked);
 }
 
+/* A constraint over a join path, read from its sentence and made in a
+ * copy of the model, is said back as it was: what the parser made is what
+ * NORMA had, as far as the sentence can tell. */
+- (void)testConstraintsOverJoinPathsReadBack
+{
+	NSUInteger same = 0;
+	NSUInteger tried = 0;
+	for (NSString *name in [self normaFixtures]) @autoreleasepool {
+		NSData *data = [self fixtureData:name];
+		ORMModel *model = [ORMModel modelOfDocument:ORMParseDocument(data, NULL) reason:NULL];
+		ORMVerbalizer *verbalizer = [[ORMVerbalizer alloc] initWithModel:model];
+		verbalizer.verbalizesPossibilities = NO;
+		for (ORMVerbalSentence *sentence in [verbalizer sentencesForModel]) @autoreleasepool {
+			ORMConstraint *constraint = sentence.sourceId != nil ? [model elementWithId:sentence.sourceId] : nil;
+			if (sentence.kind != ORMVerbalStatement || ![constraint isKindOfClass:[ORMConstraint class]]
+			    || (constraint.kind != ORMSubsetConstraint && constraint.kind != ORMEqualityConstraint
+			        && constraint.kind != ORMExclusionConstraint)
+			    || ORMSaidWithoutJoins(constraint)) {
+				continue;
+			}
+			tried++;
+			ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
+			NSArray *made = [editor addFromSentence:[sentence text] onDiagram:nil at:ORMAutomaticPlacement reason:NULL];
+			for (NSString *identifier in made) {
+				if ([[editor.model elementWithId:identifier] isKindOfClass:[ORMConstraint class]]) {
+					ORMVerbalizer *again = [[ORMVerbalizer alloc] initWithModel:editor.model];
+					if ([[[[again sentencesForElement:identifier] firstObject] text] isEqualToString:[sentence text]]) {
+						same++;
+					}
+				}
+			}
+		}
+	}
+	/* Two of NORMA's metamodel constraints walk subtype facts in ways a
+	 * sentence does not say. */
+	XCTAssertTrue(tried >= 20 && same + 2 >= tried, @"%lu of %lu", (unsigned long)same, (unsigned long)tried);
+}
+
+/* The path NORMA keeps, built from logic: StockMate's equality between
+ * "Address is in Region" and the join of "Address is in Country" and
+ * "Region is part of Country". */
+- (void)testAJoinPathIsBuiltAsNormaKeepsOne
+{
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[self fixtureDocument:@"StockMate.orm"] undoManager:nil];
+	ORMModel *model = editor.model;
+	ORMConstraint *original = nil;
+	for (ORMConstraint *constraint in model.constraints) {
+		if ([constraint.name isEqualToString:@"EqualityConstraint1"]) {
+			original = constraint;
+		}
+	}
+	ORMRoleSequence *joined = [original.roleSequences objectAtIndex:1];
+	ORMRoleSequence *plain = [original.roleSequences objectAtIndex:0];
+	ORMRole *address = [joined.roles objectAtIndex:0];
+	ORMRole *region = [joined.roles objectAtIndex:1];
+	NSString *reason = nil;
+	ORMJoinPathSpec *spec = [ORMJoinPathSpec
+		specWithAtoms:@[ @{ address.identifier: @"A", [address oppositeRole].identifier: @"C" },
+		                 @{ region.identifier: @"R", [region oppositeRole].identifier: @"C" } ]
+		      columns:@[ @"A", @"R" ]];
+	ORMJoinPathSpec *same = [ORMJoinPathSpec
+		specWithAtoms:@[ @{ [[plain.roles objectAtIndex:0] identifier]: @"A", [[plain.roles objectAtIndex:1] identifier]: @"R" } ]
+		      columns:@[ @"A", @"R" ]];
+	NSString *created = [editor addSetComparisonConstraint:ORMEqualityConstraint joinPaths:@[ same, spec ] reason:&reason];
+	XCTAssertNotNil(created, @"%@", reason);
+	ORMConstraint *built = [editor.model elementWithId:created];
+	ORMRelation *theirs = nil;
+	for (ORMConstraint *constraint in editor.model.constraints) {
+		if ([constraint.name isEqualToString:@"EqualityConstraint1"]) {
+			theirs = [ORMLogic relationForSequence:[constraint.roleSequences objectAtIndex:1]];
+		}
+	}
+	ORMRelation *ours = [ORMLogic relationForSequence:[built.roleSequences objectAtIndex:1]];
+	XCTAssertNotNil([[built.roleSequences objectAtIndex:1] joinPath]);
+	XCTAssertEqualObjects([ours description], [theirs description]);
+	/* And it is said as NORMA's is. */
+	ORMVerbalizer *verbalizer = [[ORMVerbalizer alloc] initWithModel:editor.model];
+	XCTAssertEqualObjects([[[verbalizer sentencesForElement:created] firstObject] text],
+	                      [[[verbalizer sentencesForElement:original.identifier] firstObject] text]);
+	/* The file it makes is one NORMA's reader reads back the same. */
+	ORMModel *reread = [ORMModel modelOfDocument:ORMParseDocument([editor dataForSaving], NULL) reason:NULL];
+	ORMConstraint *saved = [reread elementWithId:created];
+	XCTAssertEqualObjects([[ORMLogic relationForSequence:[saved.roleSequences objectAtIndex:1]] description],
+	                      [ours description]);
+}
+
+/* A model from sentences, joins and all. */
+- (void)testAJoinPathFromASentence
+{
+	ORMEditor *editor = [self editorWith:@[ @"Each Diplomat serves in some Country.", @"Each Diplomat speaks some Language.",
+		                                    @"Each Language is spoken in some Country.",
+		                                    (@"If some Diplomat serves in some Country then that Diplomat speaks some "
+		                                     @"Language that is spoken in that Country.") ]];
+	ORMConstraint *subset = nil;
+	for (ORMConstraint *constraint in editor.model.constraints) {
+		if (constraint.kind == ORMSubsetConstraint) {
+			subset = constraint;
+		}
+	}
+	XCTAssertNotNil([[subset.roleSequences lastObject] joinPath]);
+	XCTAssertTrue([[self textsOf:subset.identifier in:editor.model]
+		containsObject:@"If some Diplomat serves in some Country then that Diplomat speaks some Language that is spoken "
+		               @"in that Country."]);
+}
+
 - (ORMEditor *)editorWith:(NSArray<NSString *> *)sentences
 {
 	ORMEditor *editor = [self newEditor];

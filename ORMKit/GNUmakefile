@@ -24,6 +24,7 @@ ORMKit_HEADER_FILES = \
   ORMVerbalizer.h \
   ORMFactSentence.h \
   ORMConstraintSentence.h \
+  ORMJoinPathBuilder.h \
   ORMCDModel.h \
   ORMCoreDataMapping.h \
   ORMCoreDataMapper.h \
@@ -47,6 +48,7 @@ ORMKit_OBJC_FILES = \
   ORMVerbalizer+Logic.m \
   ORMFactSentence.m \
   ORMConstraintSentence.m \
+  ORMJoinPathBuilder.m \
   ORMCDModel.m \
   ORMCoreDataMapping.m \
   ORMCoreDataMapper.m \

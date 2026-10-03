@@ -118,8 +118,24 @@ subtyping; where two fact types read the same the sentence says so
 (`isAmbiguous`) and the first is taken. No reading matching, the clause is
 a new fact type: the word after a quantifier is an object type.
 
-Read now: every template above except frequency, value comparison, and
-constraints over join paths (a subset or equality whose clause names
-several fact types). The test reads back every other statement the
-verbalizer makes of the NORMA models in `Fixtures`, some 1,700, as the
-constraint it came from.
+A side of a subset, equality or exclusion may be a chain of clauses: the
+longest reading that matches where the text goes on, then "that"/"who"
+(going on from the object type the clause ended with) or "and" (a new
+clause, or one going on from the first's subject). Its object types'
+names are its variables ("some Lot" ... "that Lot" is one Lot), and a
+chain of more than one clause is a join path: the editor writes it as
+NORMA keeps one (`ORMJoinPathBuilder`), a root, PostInnerJoin and
+SameFactType pathed roles, sub-paths where it branches, and the
+projection of each role of the sequence.
+
+Read now: every template above except frequency and value comparison.
+The tests read back every statement the verbalizer makes of the NORMA
+models in `Fixtures` without joins, some 1,700, as the constraint it came
+from; and of the twenty over join paths, eighteen made again from their
+sentence are said back word for word (two of NORMA's metamodel
+constraints walk subtype facts in ways their sentence does not say).
+
+So that it can be read back, a subset's "then" leaves out a fact the "if"
+says of the same instances only when what that fact names is named
+anyway: "If some Lot has some LotNumber and is of some LotType then that
+Lot is of that LotType that tracks lot numbers."

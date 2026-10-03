@@ -541,6 +541,23 @@ ORMComparisonWords(NSString *name)
 			}
 			repeated = repeated || same;
 		}
+		/* Left out only when what it names is still named: else the
+		 * superset would not say which instances it compares ("then that
+		 * Lot is of that LotType that tracks lot numbers"). */
+		if (repeated) {
+			for (ORMVariable *variable in [part variables]) {
+				BOOL elsewhere = NO;
+				for (ORMFormula *other in parts) {
+					if (other == part) {
+						continue;
+					}
+					for (ORMVariable *named in [other variables]) {
+						elsewhere = elsewhere || [phrase canonical:named] == [phrase canonical:variable];
+					}
+				}
+				repeated = repeated && elsewhere;
+			}
+		}
 		if (!repeated) {
 			[kept addObject:part];
 		}
