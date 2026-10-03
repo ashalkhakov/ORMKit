@@ -103,22 +103,22 @@
 {
 	ORMEditor *editor = [self newEditor];
 	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
-	NSString *person = [editor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
 	                                    onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
-	NSString *smokes = [editor addFactTypeWithPlayers:@[ person ] reading:@"{0} smokes" onDiagram:diagram
+	NSString *smokes = [editor.factTypeEditor addFactTypeWithPlayers:@[ person ] reading:@"{0} smokes" onDiagram:diagram
 	                                               at:ORMAutomaticPlacement reason:NULL];
-	NSString *drinks = [editor addFactTypeWithPlayers:@[ person ] reading:@"{0} drinks" onDiagram:diagram
+	NSString *drinks = [editor.factTypeEditor addFactTypeWithPlayers:@[ person ] reading:@"{0} drinks" onDiagram:diagram
 	                                               at:ORMAutomaticPlacement reason:NULL];
-	NSString *exclusion = [editor addSetComparisonConstraint:ORMExclusionConstraint
+	NSString *exclusion = [editor.constraintEditor addSetComparisonConstraint:ORMExclusionConstraint
 	                                               sequences:@[ @[ [[[editor.model elementWithId:smokes] roles][0] identifier] ],
 	                                                            @[ [[[editor.model elementWithId:drinks] roles][0] identifier] ] ]
 	                                                  reason:NULL];
 	XCTAssertEqualObjects([self sentencesOf:exclusion in:editor.model], (@[ @"No Person smokes and drinks." ]));
-	NSString *mandatory = [editor addMandatoryConstraintOverRoles:@[ [[[editor.model elementWithId:smokes] roles][0] identifier],
+	NSString *mandatory = [editor.constraintEditor addMandatoryConstraintOverRoles:@[ [[[editor.model elementWithId:smokes] roles][0] identifier],
 	                                                                 [[[editor.model elementWithId:drinks] roles][0] identifier] ]
 	                                                       reason:NULL];
 	XCTAssertEqualObjects([self sentencesOf:mandatory in:editor.model], (@[ @"Each Person smokes or drinks." ]));
-	XCTAssertTrue([editor setModality:ORMDeontic of:mandatory reason:NULL]);
+	XCTAssertTrue([editor.constraintEditor setModality:ORMDeontic of:mandatory reason:NULL]);
 	XCTAssertEqualObjects([self sentencesOf:mandatory in:editor.model],
 	                      (@[ @"It is obligatory that each Person smokes or drinks." ]));
 }

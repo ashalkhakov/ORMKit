@@ -24,6 +24,13 @@ ORMDesignerTests_INCLUDE_DIRS = -I../ORMKit -I../ORMDesigner
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR)
 ORMDesignerTests_BUNDLE_LIBS += -lORMKit -lXCTest -ldispatch
 ORMDesignerTests_NEEDS_GUI = yes
+# The designer's XIBs: its classes load them from the bundle they are in,
+# which here is this one.
+ORMDesignerTests_RESOURCE_FILES = \
+  ../ORMDesigner/MainMenu.xib \
+  ../ORMDesigner/ORMQueryWindow.xib \
+  ../ORMDesigner/ORMCoreDataWindow.xib \
+  ../ORMDesigner/ORMDocumentWindow.xib
 
 ifeq ($(SANITIZE),1)
 ADDITIONAL_OBJCFLAGS += -fsanitize=address -fno-omit-frame-pointer -g

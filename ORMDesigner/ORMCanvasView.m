@@ -40,17 +40,29 @@ static const double ORMCanvasMargin = 240.0;
 	BOOL _printing;
 }
 
+- (void)setUp
+{
+	_selectedShapes = [NSMutableArray array];
+	_selectedRoles = [NSMutableArray array];
+	_picked = [NSMutableArray array];
+	_pickedPlayers = [NSMutableArray array];
+	_zoom = 1.5;
+	[self addTrackingRect:[self bounds] owner:self userData:NULL assumeInside:NO];
+}
+
 - (instancetype)initWithFrame:(NSRect)frame
 {
 	if ((self = [super initWithFrame:frame])) {
-		_selectedShapes = [NSMutableArray array];
-		_selectedRoles = [NSMutableArray array];
-		_picked = [NSMutableArray array];
-		_pickedPlayers = [NSMutableArray array];
-		_zoom = 1.5;
-		[self addTrackingRect:[self bounds] owner:self userData:NULL assumeInside:NO];
+		[self setUp];
 	}
 	return self;
+}
+
+/* From the document window's XIB, which does not call -initWithFrame:. */
+- (void)awakeFromNib
+{
+	[super awakeFromNib];
+	[self setUp];
 }
 
 - (BOOL)isFlipped
@@ -435,7 +447,7 @@ static const double ORMCanvasMargin = 240.0;
 		break;
 	case ORMToolNote: {
 		NSString *reason = nil;
-		NSString *note = [self.editor addNote:@"Note" attachedTo:@[] onDiagram:self.diagramId at:point reason:&reason];
+		NSString *note = [self.editor.elementEditor addNote:@"Note" attachedTo:@[] onDiagram:self.diagramId at:point reason:&reason];
 		[self finishTool];
 		[self selectElements:note != nil ? @[ note ] : @[]];
 		break;
@@ -515,7 +527,7 @@ static const double ORMCanvasMargin = 240.0;
 	case ORMGestureMove: {
 		NSSize delta = NSMakeSize(round(_at.x - _down.x), round(_at.y - _down.y));
 		if (fabs(delta.width) >= 1 || fabs(delta.height) >= 1) {
-			[self.editor moveShapes:[_selectedShapes copy] by:delta];
+			[self.editor.diagramEditor moveShapes:[_selectedShapes copy] by:delta];
 		}
 		break;
 	}
@@ -566,9 +578,9 @@ static const double ORMCanvasMargin = 240.0;
 	}
 	NSString *reason = nil;
 	NSString *created = value
-		? [self.editor addValueTypeNamed:name dataType:@"VariableLengthTextDataType" onDiagram:self.diagramId
+		? [self.editor.objectTypeEditor addValueTypeNamed:name dataType:@"VariableLengthTextDataType" onDiagram:self.diagramId
 		                              at:point reason:&reason]
-		: [self.editor addEntityTypeNamed:name referenceMode:@"id" kind:ORMReferenceModePopular onDiagram:self.diagramId
+		: [self.editor.objectTypeEditor addEntityTypeNamed:name referenceMode:@"id" kind:ORMReferenceModePopular onDiagram:self.diagramId
 		                               at:point reason:&reason];
 	if (created == nil) {
 		[self refuse:reason];
@@ -604,7 +616,7 @@ static const double ORMCanvasMargin = 240.0;
 	}
 	NSSize size = ORMDefaultFactTypeSize([players count]);
 	NSString *reason = nil;
-	NSString *fact = [self.editor addFactTypeWithPlayers:players reading:nil onDiagram:self.diagramId
+	NSString *fact = [self.editor.factTypeEditor addFactTypeWithPlayers:players reading:nil onDiagram:self.diagramId
 	                                                  at:NSMakePoint(point.x - size.width / 2, point.y - size.height / 2)
 	                                              reason:&reason];
 	[_pickedPlayers removeAllObjects];
@@ -686,34 +698,34 @@ static const double ORMCanvasMargin = 240.0;
 	NSString *created = nil;
 	switch (self.tool) {
 	case ORMToolUniqueness:
-		created = [self.editor addUniquenessConstraintOverRoles:all reason:&reason];
+		created = [self.editor.constraintEditor addUniquenessConstraintOverRoles:all reason:&reason];
 		break;
 	case ORMToolInclusiveOr:
-		created = [self.editor addMandatoryConstraintOverRoles:all reason:&reason];
+		created = [self.editor.constraintEditor addMandatoryConstraintOverRoles:all reason:&reason];
 		break;
 	case ORMToolExclusion:
-		created = [self.editor addSetComparisonConstraint:ORMExclusionConstraint sequences:[self sequencesForComparison]
+		created = [self.editor.constraintEditor addSetComparisonConstraint:ORMExclusionConstraint sequences:[self sequencesForComparison]
 		                                           reason:&reason];
 		break;
 	case ORMToolExclusiveOr:
-		created = [self.editor addExclusiveOrConstraintOverRoles:all reason:&reason];
+		created = [self.editor.constraintEditor addExclusiveOrConstraintOverRoles:all reason:&reason];
 		break;
 	case ORMToolSubset:
-		created = [self.editor addSetComparisonConstraint:ORMSubsetConstraint sequences:[self sequencesForComparison]
+		created = [self.editor.constraintEditor addSetComparisonConstraint:ORMSubsetConstraint sequences:[self sequencesForComparison]
 		                                           reason:&reason];
 		break;
 	case ORMToolEquality:
-		created = [self.editor addSetComparisonConstraint:ORMEqualityConstraint sequences:[self sequencesForComparison]
+		created = [self.editor.constraintEditor addSetComparisonConstraint:ORMEqualityConstraint sequences:[self sequencesForComparison]
 		                                           reason:&reason];
 		break;
 	case ORMToolFrequency:
-		created = [self.editor addFrequencyConstraintOverRoles:all min:2 max:0 reason:&reason];
+		created = [self.editor.constraintEditor addFrequencyConstraintOverRoles:all min:2 max:0 reason:&reason];
 		break;
 	case ORMToolRing:
-		created = [self.editor addRingConstraint:ORMRingIrreflexive overRoles:all reason:&reason];
+		created = [self.editor.constraintEditor addRingConstraint:ORMRingIrreflexive overRoles:all reason:&reason];
 		break;
 	case ORMToolValueComparison:
-		created = [self.editor addValueComparisonConstraint:@"LessThan" overRoles:all reason:&reason];
+		created = [self.editor.constraintEditor addValueComparisonConstraint:@"LessThan" overRoles:all reason:&reason];
 		break;
 	default:
 		break;
@@ -724,7 +736,7 @@ static const double ORMCanvasMargin = 240.0;
 	}
 	ORMConstraint *constraint = [self.editor.model elementWithId:created];
 	if ([constraint isExternal]) {
-		[self.editor placeElement:created onDiagram:self.diagramId at:ORMAutomaticPlacement];
+		[self.editor.diagramEditor placeElement:created onDiagram:self.diagramId at:ORMAutomaticPlacement];
 	}
 	[_picked removeAllObjects];
 	[self finishTool];
@@ -740,7 +752,7 @@ static const double ORMCanvasMargin = 240.0;
 		return;
 	}
 	NSString *reason = nil;
-	if ([self.editor addSubtype:sub.identifier of:sup.identifier reason:&reason] == nil) {
+	if ([self.editor.objectTypeEditor addSubtype:sub.identifier of:sup.identifier reason:&reason] == nil) {
 		[self refuse:reason];
 		return;
 	}
@@ -756,7 +768,7 @@ static const double ORMCanvasMargin = 240.0;
 		return;
 	}
 	NSString *reason = nil;
-	if (![self.editor setPlayer:player.identifier ofRole:role.identifier reason:&reason]) {
+	if (![self.editor.factTypeEditor setPlayer:player.identifier ofRole:role.identifier reason:&reason]) {
 		[self refuse:reason];
 		return;
 	}
@@ -838,10 +850,10 @@ static const double ORMCanvasMargin = 240.0;
 	BOOL done = YES;
 	if ([element isKindOfClass:[ORMModelNote class]]) {
 		if (![text isEqualToString:[(ORMModelNote *)element text]]) {
-			done = [self.editor setNoteText:text of:target reason:&reason];
+			done = [self.editor.elementEditor setNoteText:text of:target reason:&reason];
 		}
 	} else if (element != nil && ![text isEqualToString:[(ORMElement *)element name]]) {
-		done = [self.editor rename:target to:text reason:&reason];
+		done = [self.editor.elementEditor rename:target to:text reason:&reason];
 	}
 	if (!done) {
 		[self refuse:reason];
@@ -914,7 +926,7 @@ static const double ORMCanvasMargin = 240.0;
 - (void)nudge:(NSSize)delta
 {
 	if ([_selectedShapes count] > 0) {
-		[self.editor moveShapes:[_selectedShapes copy] by:delta];
+		[self.editor.diagramEditor moveShapes:[_selectedShapes copy] by:delta];
 	}
 }
 
@@ -962,7 +974,7 @@ static const double ORMCanvasMargin = 240.0;
 	}
 	/* Deleting a reading's shape means the reading's fact type here; a
 	 * diagram's shapes alone go with Remove from Diagram. */
-	[self.editor deleteElements:elements];
+	[self.editor.elementEditor deleteElements:elements];
 	[self clearSelection];
 }
 
@@ -972,7 +984,7 @@ static const double ORMCanvasMargin = 240.0;
 	if ([_selectedShapes count] == 0) {
 		return;
 	}
-	[self.editor deleteElements:[_selectedShapes copy]];
+	[self.editor.elementEditor deleteElements:[_selectedShapes copy]];
 	[self clearSelection];
 }
 
@@ -983,9 +995,9 @@ static const double ORMCanvasMargin = 240.0;
 	BOOL done = YES;
 	if ([_selectedRoles count] == 1) {
 		ORMRole *role = [self.editor.model elementWithId:[_selectedRoles firstObject]];
-		done = [self.editor setUnique:!role.isUnique role:role.identifier reason:&reason];
+		done = [self.editor.constraintEditor setUnique:!role.isUnique role:role.identifier reason:&reason];
 	} else if ([_selectedRoles count] > 1) {
-		done = [self.editor addUniquenessConstraintOverRoles:[_selectedRoles copy] reason:&reason] != nil;
+		done = [self.editor.constraintEditor addUniquenessConstraintOverRoles:[_selectedRoles copy] reason:&reason] != nil;
 	}
 	if (!done) {
 		[self refuse:reason];
@@ -999,12 +1011,12 @@ static const double ORMCanvasMargin = 240.0;
 	BOOL done = YES;
 	if ([_selectedRoles count] == 1) {
 		ORMRole *role = [self.editor.model elementWithId:[_selectedRoles firstObject]];
-		done = [self.editor setMandatory:!role.isMandatory role:role.identifier reason:&reason];
+		done = [self.editor.constraintEditor setMandatory:!role.isMandatory role:role.identifier reason:&reason];
 	} else if ([_selectedRoles count] > 1) {
-		NSString *created = [self.editor addMandatoryConstraintOverRoles:[_selectedRoles copy] reason:&reason];
+		NSString *created = [self.editor.constraintEditor addMandatoryConstraintOverRoles:[_selectedRoles copy] reason:&reason];
 		done = created != nil;
 		if (done) {
-			[self.editor placeElement:created onDiagram:self.diagramId at:ORMAutomaticPlacement];
+			[self.editor.diagramEditor placeElement:created onDiagram:self.diagramId at:ORMAutomaticPlacement];
 		}
 	}
 	if (!done) {
@@ -1031,7 +1043,7 @@ static const double ORMCanvasMargin = 240.0;
 		ORMFactTypeOrientation next = shape.orientation == ORMFactTypeHorizontal ? ORMFactTypeVerticalRotatedRight
 			: shape.orientation == ORMFactTypeVerticalRotatedRight ? ORMFactTypeVerticalRotatedLeft
 			                                                     : ORMFactTypeHorizontal;
-		[self.editor setOrientation:next ofShape:shape.identifier];
+		[self.editor.diagramEditor setOrientation:next ofShape:shape.identifier];
 	}
 }
 
@@ -1047,7 +1059,7 @@ static const double ORMCanvasMargin = 240.0;
 		[order addObject:role.identifier];
 	}
 	NSString *reason = nil;
-	if (![self.editor setRoleDisplayOrder:order ofShape:shape.identifier reason:&reason]) {
+	if (![self.editor.diagramEditor setRoleDisplayOrder:order ofShape:shape.identifier reason:&reason]) {
 		[self refuse:reason];
 	}
 }

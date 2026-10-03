@@ -449,14 +449,25 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 
 #pragma mark Editing
 
-@implementation ORMEditor (ORMQueries)
+@implementation ORMQueryEditor
+
+@synthesize editor = _editor;
+
+- (instancetype)initWithEditor:(ORMEditor *)editor
+{
+	if ((self = [super init])) {
+		_editor = editor;
+	}
+	return self;
+}
+
 
 - (NSXMLElement *)queriesContainer
 {
-	NSXMLElement *root = [self.document rootElement];
+	NSXMLElement *root = [_editor.document rootElement];
 	NSXMLElement *container = ORMChild(root, Q, @"Queries");
 	if (container == nil) {
-		container = ORMNewElement(self.document, Q, @"Queries");
+		container = ORMNewElement(_editor.document, Q, @"Queries");
 		[root addChild:container];
 	}
 	return container;
@@ -468,7 +479,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	if (identifier == nil) {
 		return nil;
 	}
-	for (NSXMLElement *element in ORMDescendants(ORMChild([self.document rootElement], Q, @"Queries"), Q, local)) {
+	for (NSXMLElement *element in ORMDescendants(ORMChild([_editor.document rootElement], Q, @"Queries"), Q, local)) {
 		if ([ORMAttribute(element, @"id") isEqualToString:identifier]) {
 			return element;
 		}
@@ -478,7 +489,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 
 - (NSString *)addQueryNamed:(NSString *)name from:(NSString *)objectTypeId reason:(NSString **)reason
 {
-	ORMObjectType *type = [self.model elementWithId:objectTypeId];
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
 	if (![type isKindOfClass:[ORMObjectType class]]) {
 		if (reason != NULL) {
 			*reason = @"A query starts at an object type.";
@@ -486,10 +497,10 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		return nil;
 	}
 	__block NSString *created = nil;
-	[self change:@"Add Query" with:^{
-		NSXMLElement *query = ORMNewElementWithId(self.document, Q, @"Query", nil);
+	[_editor change:@"Add Query" with:^{
+		NSXMLElement *query = ORMNewElementWithId(_editor.document, Q, @"Query", nil);
 		ORMSetAttribute(query, @"Name", [name length] > 0 ? name : [NSString stringWithFormat:@"%@ Query", type.name]);
-		NSXMLElement *root = ORMNewElementWithId(self.document, Q, @"Node", nil);
+		NSXMLElement *root = ORMNewElementWithId(_editor.document, Q, @"Node", nil);
 		ORMSetAttribute(root, @"ref", type.identifier);
 		ORMSetBoolAttribute(root, @"Projected", YES, NO);
 		[query addChild:root];
@@ -505,7 +516,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	if (query == nil) {
 		return;
 	}
-	[self change:@"Remove Query" with:^{
+	[_editor change:@"Remove Query" with:^{
 		NSXMLElement *container = (NSXMLElement *)[query parent];
 		[query detach];
 		ORMPruneIfEmpty(container);
@@ -522,7 +533,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		return NO;
 	}
 	if (![ORMAttribute(query, @"Name") isEqualToString:name]) {
-		[self change:@"Rename Query" with:^{
+		[_editor change:@"Rename Query" with:^{
 			ORMSetAttribute(query, @"Name", name);
 		}];
 	}
@@ -534,10 +545,10 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 {
 	NSString *roleId = ORMAttribute(node, @"Role");
 	if (roleId != nil) {
-		ORMRole *role = [self.model elementWithId:roleId];
+		ORMRole *role = [_editor.model elementWithId:roleId];
 		return [role isKindOfClass:[ORMRole class]] ? role.player : nil;
 	}
-	ORMObjectType *type = [self.model elementWithId:ORMRef(node)];
+	ORMObjectType *type = [_editor.model elementWithId:ORMRef(node)];
 	return [type isKindOfClass:[ORMObjectType class]] ? type : nil;
 }
 
@@ -545,7 +556,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 {
 	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
 	ORMObjectType *type = [self typeOfQueryNode:node];
-	ORMRole *entry = [self.model elementWithId:roleId];
+	ORMRole *entry = [_editor.model elementWithId:roleId];
 	if (node == nil || type == nil || ![entry isKindOfClass:[ORMRole class]]) {
 		if (reason != NULL) {
 			*reason = @"A step goes from a node of a query through a role.";
@@ -564,12 +575,12 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		return role != entry && !role.player.isImplicitBooleanValue;
 	}]];
 	__block NSString *created = nil;
-	[self change:@"Add Query Step" with:^{
-		NSXMLElement *step = ORMNewElementWithId(self.document, Q, @"Step", nil);
+	[_editor change:@"Add Query Step" with:^{
+		NSXMLElement *step = ORMNewElementWithId(_editor.document, Q, @"Step", nil);
 		ORMSetAttribute(step, @"ref", entry.factType.identifier);
 		ORMSetAttribute(step, @"Role", entry.identifier);
 		for (ORMRole *role in others) {
-			NSXMLElement *child = ORMNewElementWithId(self.document, Q, @"Node", nil);
+			NSXMLElement *child = ORMNewElementWithId(_editor.document, Q, @"Node", nil);
 			ORMSetAttribute(child, @"Role", role.identifier);
 			[step addChild:child];
 		}
@@ -585,7 +596,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	if (step == nil) {
 		return;
 	}
-	[self change:@"Remove Query Step" with:^{
+	[_editor change:@"Remove Query Step" with:^{
 		[step detach];
 	}];
 }
@@ -596,7 +607,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	if (node == nil || ORMBoolAttribute(node, @"Projected", NO) == projected) {
 		return;
 	}
-	[self change:projected ? @"List in Query" : @"Do Not List in Query" with:^{
+	[_editor change:projected ? @"List in Query" : @"Do Not List in Query" with:^{
 		ORMSetBoolAttribute(node, @"Projected", projected, NO);
 	}];
 }
@@ -617,7 +628,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		}
 		return NO;
 	}
-	[self change:@"Set Query Condition" with:^{
+	[_editor change:@"Set Query Condition" with:^{
 		ORMSetAttribute(node, @"Comparison", comparison);
 		ORMSetAttribute(node, @"Value", comparison != nil ? (value ?: @"") : nil);
 	}];
@@ -630,7 +641,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	if (node == nil || [ORMAttribute(node, @"Combine") isEqualToString:@"Or"] == flag) {
 		return;
 	}
-	[self change:@"Set Query Alternatives" with:^{
+	[_editor change:@"Set Query Alternatives" with:^{
 		ORMSetAttribute(node, @"Combine", flag ? @"Or" : nil);
 	}];
 }
@@ -642,7 +653,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	if (step == nil || [ORMAttribute(step, @"Operator") ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[self change:@"Set Query Operator" with:^{
+	[_editor change:@"Set Query Operator" with:^{
 		ORMSetAttribute(step, @"Operator", value);
 	}];
 }
@@ -661,7 +672,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		}
 		return NO;
 	}
-	[self change:@"Set Query Count" with:^{
+	[_editor change:@"Set Query Count" with:^{
 		ORMSetAttribute(step, @"Count", comparison);
 		ORMSetAttribute(step, @"CountValue",
 		                comparison != nil ? [NSString stringWithFormat:@"%lu", (unsigned long)value] : nil);

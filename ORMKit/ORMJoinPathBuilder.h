@@ -21,7 +21,11 @@
 + (instancetype)specWithAtoms:(NSArray<NSDictionary<NSString *, NSString *> *> *)atoms columns:(NSArray<NSString *> *)columns;
 @end
 
-@interface ORMEditor (ORMJoinPaths)
+/* Writes join paths as NORMA keeps them, for constraints over them. */
+@interface ORMJoinPathBuilder : NSObject
+- (instancetype)initWithEditor:(ORMEditor *)editor;
+@property (nonatomic, readonly, strong) ORMEditor *editor;
+
 /* A set comparison constraint (subset, equality, exclusion) whose
  * sequences may be join paths: a spec of one atom is a plain sequence of
  * the columns' roles, a spec of more a sequence of the roles where the

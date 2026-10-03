@@ -22,8 +22,18 @@ ORMDesigner_OBJC_LIBS += -lORMKit -ldispatch
 # The icon GNUstep shows in the About panel, on windows and in the dock
 # tile; the AppImage installs the same file as its desktop icon.
 ORMDesigner_APPLICATION_ICON = ORMDesigner.png
-ORMDesigner_RESOURCE_FILES = ORMDesigner.png
-# The menu bar is built in code (-[ORMAppDelegate newMainMenu]).
+# The windows and the menu bar are XIBs. Xcode compiles them to .nib; here
+# they are copied in as they are, and gnustep-gui reads the XIB directly
+# (GSXib5). Both are found by the same -initWithNibNamed:, so no path or
+# extension appears in the source.
+ORMDesigner_RESOURCE_FILES = \
+  ORMDesigner.png \
+  MainMenu.xib \
+  ORMQueryWindow.xib \
+  ORMCoreDataWindow.xib \
+  ORMDocumentWindow.xib
+# The app delegate loads the menu bar itself (-[ORMAppDelegate loadMainMenu]),
+# to set what a XIB cannot hold.
 ORMDesigner_MAIN_MODEL_FILE =
 
 ifeq ($(SANITIZE),1)

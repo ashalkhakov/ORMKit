@@ -13,7 +13,7 @@ Never regenerate a `.orm` from objects. `ORMModel` is a read-only
 projection rebuilt after each change; every change goes through `ORMEditor`,
 which also keeps up NORMA's denormalized data. Two invariants hold and are
 tested: an unchanged NORMA file is written back byte for byte, and
-normalizing one changes nothing. A change to `-[ORMEditor normalize]` that
+normalizing one changes nothing. A change to `-[ORMNormalizer normalize]` that
 breaks the second is a change to what NORMA would write: check it against
 the files in `ORMKitTests/Fixtures` (StockMate is NORMA's own;
 PreventiveMaintenance was written by another tool and is not authoritative).
@@ -32,6 +32,16 @@ xcodebuild -project ORMKit.xcodeproj -scheme ORMKitTests -destination 'platform=
 
 The Xcode project is generated from the GNUmakefiles' source lists; CI
 fails when the committed one is stale. Never edit `project.pbxproj` by hand.
+
+ORMDesigner's windows and menu bar are XIBs (`ORMDesigner/*.xib`), listed in
+`ORMDesigner_RESOURCE_FILES` and the test bundle's: Xcode compiles them,
+GNUstep reads them as they are. Springs and struts only (gnustep-gui has no
+Auto Layout); check a hand edit with `xcrun ibtool --errors --compile`.
+A key equivalent XML cannot carry (Backspace, Escape) is written as
+Interface Builder writes it, `<string key="keyEquivalent" base64-UTF8="YES">`.
+What differs by platform or comes from code (scroller autohiding on Apple
+only, colours, the tool buttons) is set in each controller's
+`-windowDidLoad`; a custom view sets itself up in `-awakeFromNib`.
 
 ## GNUstep patches live elsewhere
 

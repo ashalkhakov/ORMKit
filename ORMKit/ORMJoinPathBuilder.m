@@ -68,12 +68,23 @@ ORMSameFamily(ORMObjectType *a, ORMObjectType *b)
 	return [family containsObject:[NSValue valueWithNonretainedObject:b]];
 }
 
-@implementation ORMEditor (ORMJoinPaths)
+@implementation ORMJoinPathBuilder
+
+@synthesize editor = _editor;
+
+- (instancetype)initWithEditor:(ORMEditor *)editor
+{
+	if ((self = [super init])) {
+		_editor = editor;
+	}
+	return self;
+}
+
 
 /* The atom's roles in their fact type's order. */
 - (NSArray<NSString *> *)orderedRolesOf:(NSDictionary<NSString *, NSString *> *)atom
 {
-	ORMRole *any = [self.model elementWithId:[[atom allKeys] firstObject]];
+	ORMRole *any = [_editor.model elementWithId:[[atom allKeys] firstObject]];
 	NSMutableArray *ordered = [NSMutableArray array];
 	for (ORMRole *role in any.factType.roles) {
 		if ([atom objectForKey:role.identifier] != nil) {
@@ -216,7 +227,7 @@ ORMSameFamily(ORMObjectType *a, ORMObjectType *b)
  * pathed role element where each variable is first met. */
 - (void)write:(ORMPlannedPath *)path into:(NSXMLElement *)element met:(NSMutableDictionary *)met
 {
-	NSXMLDocument *document = self.document;
+	NSXMLDocument *document = _editor.document;
 	if ([path.pathedRoles count] > 0) {
 		NSXMLElement *pathedRoles = ORMNewElement(document, CORE, @"PathedRoles");
 		for (NSArray *pathed in path.pathedRoles) {
@@ -244,13 +255,13 @@ ORMSameFamily(ORMObjectType *a, ORMObjectType *b)
 /* The <orm:JoinRule> for the sequence, as NORMA writes one. */
 - (void)attach:(ORMPlannedJoin *)join to:(NSXMLElement *)sequence
 {
-	NSXMLDocument *document = self.document;
+	NSXMLDocument *document = _editor.document;
 	NSXMLElement *rule = ORMNewElement(document, CORE, @"JoinRule");
 	NSXMLElement *joinPath = ORMNewElementWithId(document, CORE, @"JoinPath", nil);
 	NSXMLElement *components = ORMNewElement(document, CORE, @"PathComponents");
 	NSXMLElement *lead = ORMNewElementWithId(document, CORE, @"RolePath", nil);
 	NSXMLElement *root = ORMNewElementWithId(document, CORE, @"RootObjectType", nil);
-	ORMRole *rootRole = [self.model elementWithId:[join.firstRoles objectForKey:join.root]];
+	ORMRole *rootRole = [_editor.model elementWithId:[join.firstRoles objectForKey:join.root]];
 	/* The root's own type when its name gives one of the player's
 	 * family ("some Mapping" for an Absorption's role): the path is of
 	 * those instances. */
@@ -259,7 +270,7 @@ ORMSameFamily(ORMObjectType *a, ORMObjectType *b)
 	while ([named length] > 1 && [[NSCharacterSet decimalDigitCharacterSet] characterIsMember:[named characterAtIndex:[named length] - 1]]) {
 		named = [named substringToIndex:[named length] - 1];
 	}
-	ORMObjectType *candidate = [self.model objectTypeNamed:named];
+	ORMObjectType *candidate = [_editor.model objectTypeNamed:named];
 	if (candidate != nil && candidate != rootType && ORMSameFamily(candidate, rootType)) {
 		rootType = candidate;
 	}
@@ -314,15 +325,15 @@ ORMSameFamily(ORMObjectType *a, ORMObjectType *b)
 	}
 	__block NSString *created = nil;
 	__block NSString *why = nil;
-	[self group:@"Add Constraint over a Join Path" with:^{
+	[_editor group:@"Add Constraint over a Join Path" with:^{
 		NSString *refused = nil;
-		created = [self addSetComparisonConstraint:kind sequences:sequences reason:&refused];
+		created = [_editor.constraintEditor addSetComparisonConstraint:kind sequences:sequences reason:&refused];
 		why = refused;
 		if (created == nil) {
 			return;
 		}
-		[self change:@"Add Join Path" with:^{
-			NSXMLElement *constraint = [self xml:created];
+		[_editor change:@"Add Join Path" with:^{
+			NSXMLElement *constraint = [_editor xml:created];
 			NSArray *elements = ORMGrandchildren(constraint, CORE, @"RoleSequences", CORE, @"RoleSequence");
 			for (NSUInteger i = 0; i < [elements count] && i < [plans count]; i++) {
 				if ([plans objectAtIndex:i] != [NSNull null]) {

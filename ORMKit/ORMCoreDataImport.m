@@ -67,7 +67,24 @@ ORMRequired(ORMCDRelationship *relationship)
 @implementation ORMImportState
 @end
 
-@implementation ORMEditor (ORMCoreDataImport)
+@implementation ORMCoreDataImporter
+
+@synthesize editor = _editor;
+
+/* The mappings of the editor's document: the import makes one. */
+- (ORMMappingEditor *)mappingEditor
+{
+	return [[ORMMappingEditor alloc] initWithEditor:_editor];
+}
+
+- (instancetype)initWithEditor:(ORMEditor *)editor
+{
+	if ((self = [super init])) {
+		_editor = editor;
+	}
+	return self;
+}
+
 
 /* An entity that only joins others: to-one relationships, two or more,
  * required and unique together, no other relationships. */
@@ -102,7 +119,7 @@ ORMRequired(ORMCDRelationship *relationship)
 {
 	NSString *dataType = ORMDataTypeForAttributeType(attribute.attributeType);
 	NSString *name = [ORMCoreDataMapper entityNameFor:attribute.name];
-	ORMObjectType *existing = [self.model objectTypeNamed:name];
+	ORMObjectType *existing = [_editor.model objectTypeNamed:name];
 	if (existing != nil && existing.kind == ORMValueType && [existing.dataType.typeName isEqualToString:dataType]
 	    && ![attribute.attributeType isEqualToString:@"Transformable"]) {
 		return existing.identifier;
@@ -110,10 +127,10 @@ ORMRequired(ORMCDRelationship *relationship)
 	if (existing != nil) {
 		name = [entityName stringByAppendingString:name];
 	}
-	name = [self uniqueObjectTypeName:name];
-	NSString *made = [self addValueTypeNamed:name dataType:dataType onDiagram:nil at:NSZeroPoint reason:NULL];
+	name = [_editor uniqueObjectTypeName:name];
+	NSString *made = [_editor.objectTypeEditor addValueTypeNamed:name dataType:dataType onDiagram:nil at:NSZeroPoint reason:NULL];
 	if (made != nil && [attribute.attributeType isEqualToString:@"String"] && [attribute.maxValue integerValue] > 0) {
-		[self setDataType:dataType length:[attribute.maxValue integerValue] scale:0 of:made reason:NULL];
+		[_editor.objectTypeEditor setDataType:dataType length:[attribute.maxValue integerValue] scale:0 of:made reason:NULL];
 	}
 	return made;
 }
@@ -123,12 +140,12 @@ ORMRequired(ORMCDRelationship *relationship)
 	NSString *path = [NSString stringWithFormat:@"%@.%@", entity.name, attribute.name];
 	/* A required Boolean is a unary: absent means false. */
 	if ([attribute.attributeType isEqualToString:@"Boolean"] && !attribute.optional) {
-		NSString *fact = [self addFactTypeWithPlayers:@[ typeId ] reading:ORMUnaryReadingFor(attribute.name)
+		NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:@[ typeId ] reading:ORMUnaryReadingFor(attribute.name)
 		                                    onDiagram:state.diagram at:ORMAutomaticPlacement reason:NULL];
-		ORMFactType *made = [self.model elementWithId:fact];
+		ORMFactType *made = [_editor.model elementWithId:fact];
 		for (ORMRole *role in made.roles) {
 			if (role.player.isImplicitBooleanValue) {
-				[self setName:attribute.name forSource:role.identifier inMapping:state.mapping];
+				[self.mappingEditor setName:attribute.name forSource:role.identifier inMapping:state.mapping];
 				[state.roles setObject:role.identifier forKey:path];
 			}
 		}
@@ -138,31 +155,31 @@ ORMRequired(ORMCDRelationship *relationship)
 	if (valueId == nil) {
 		return;
 	}
-	NSString *fact = [self addFactTypeWithPlayers:@[ typeId, valueId ] reading:@"{0} has {1}" onDiagram:state.diagram
+	NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:@[ typeId, valueId ] reading:@"{0} has {1}" onDiagram:state.diagram
 	                                           at:ORMAutomaticPlacement reason:NULL];
-	ORMFactType *made = [self.model elementWithId:fact];
+	ORMFactType *made = [_editor.model elementWithId:fact];
 	ORMRole *near = [made.roles objectAtIndex:0];
 	ORMRole *far = [made.roles objectAtIndex:1];
-	[self setUnique:YES role:near.identifier reason:NULL];
+	[_editor.constraintEditor setUnique:YES role:near.identifier reason:NULL];
 	if (!attribute.optional) {
-		[self setMandatory:YES role:near.identifier reason:NULL];
+		[_editor.constraintEditor setMandatory:YES role:near.identifier reason:NULL];
 	}
 	for (NSArray *names in entity.uniquenessConstraints) {
 		if ([names isEqualToArray:@[ attribute.name ]]) {
-			[self setUnique:YES role:far.identifier reason:NULL];
+			[_editor.constraintEditor setUnique:YES role:far.identifier reason:NULL];
 		}
 	}
 	NSString *values = ORMValueConstraintForAttribute(attribute);
 	if ([values length] > 0) {
-		[self setValueConstraint:values of:far.identifier reason:NULL];
+		[_editor.objectTypeEditor setValueConstraint:values of:far.identifier reason:NULL];
 	}
 	if ([attribute.attributeType isEqualToString:@"Transformable"]) {
-		[self setTransformableClass:[attribute.extraAttributes objectForKey:@"customClassName"]
+		[self.mappingEditor setTransformableClass:[attribute.extraAttributes objectForKey:@"customClassName"]
 		                transformer:[attribute.extraAttributes objectForKey:@"valueTransformerName"]
 		               ofObjectType:valueId
 		                  inMapping:state.mapping];
 	}
-	[self setName:attribute.name forSource:far.identifier inMapping:state.mapping];
+	[self.mappingEditor setName:attribute.name forSource:far.identifier inMapping:state.mapping];
 	[state.roles setObject:far.identifier forKey:path];
 }
 
@@ -197,26 +214,26 @@ ORMRequired(ORMCDRelationship *relationship)
 	if (from == nil || to == nil) {
 		return;
 	}
-	NSString *fact = [self addFactTypeWithPlayers:@[ from, to ] reading:[self readingFor:relationship]
+	NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:@[ from, to ] reading:[self readingFor:relationship]
 	                                    onDiagram:state.diagram at:ORMAutomaticPlacement reason:NULL];
-	ORMFactType *made = [self.model elementWithId:fact];
+	ORMFactType *made = [_editor.model elementWithId:fact];
 	ORMRole *near = [made.roles objectAtIndex:0];
 	ORMRole *far = [made.roles objectAtIndex:1];
 	BOOL manyBack = inverse == nil || inverse.toMany;
 	if (!relationship.toMany) {
-		[self setUnique:YES role:near.identifier reason:NULL];
+		[_editor.constraintEditor setUnique:YES role:near.identifier reason:NULL];
 	}
 	if (!manyBack) {
-		[self setUnique:YES role:far.identifier reason:NULL];
+		[_editor.constraintEditor setUnique:YES role:far.identifier reason:NULL];
 	}
 	if (relationship.toMany && manyBack) {
-		[self addUniquenessConstraintOverRoles:@[ near.identifier, far.identifier ] reason:NULL];
+		[_editor.constraintEditor addUniquenessConstraintOverRoles:@[ near.identifier, far.identifier ] reason:NULL];
 	}
 	if (ORMRequired(relationship)) {
-		[self setMandatory:YES role:near.identifier reason:NULL];
+		[_editor.constraintEditor setMandatory:YES role:near.identifier reason:NULL];
 	}
 	if (inverse != nil && ORMRequired(inverse)) {
-		[self setMandatory:YES role:far.identifier reason:NULL];
+		[_editor.constraintEditor setMandatory:YES role:far.identifier reason:NULL];
 	}
 	/* How many, beyond "some": a frequency. */
 	for (NSArray *pair in @[ @[ relationship, near ], @[ inverse ?: [NSNull null], far ] ]) {
@@ -224,13 +241,13 @@ ORMRequired(ORMCDRelationship *relationship)
 		if ((id)side == [NSNull null] || !side.toMany || (side.minCount <= 1 && side.maxCount == 0)) {
 			continue;
 		}
-		[self addFrequencyConstraintOverRoles:@[ [[pair lastObject] identifier] ] min:MAX(side.minCount, (NSUInteger)1)
+		[_editor.constraintEditor addFrequencyConstraintOverRoles:@[ [[pair lastObject] identifier] ] min:MAX(side.minCount, (NSUInteger)1)
 		                                  max:side.maxCount reason:NULL];
 	}
-	[self setName:relationship.name forSource:far.identifier inMapping:state.mapping];
+	[self.mappingEditor setName:relationship.name forSource:far.identifier inMapping:state.mapping];
 	[state.roles setObject:far.identifier forKey:[NSString stringWithFormat:@"%@.%@", entity.name, relationship.name]];
 	if (inverse != nil) {
-		[self setName:inverse.name forSource:near.identifier inMapping:state.mapping];
+		[self.mappingEditor setName:inverse.name forSource:near.identifier inMapping:state.mapping];
 		[state.roles setObject:near.identifier forKey:[NSString stringWithFormat:@"%@.%@", relationship.destination,
 		                                                                         inverse.name]];
 	} else {
@@ -300,9 +317,9 @@ ORMRequired(ORMCDRelationship *relationship)
 	NSString *reading = [players count] == 2 ? @"{0} is with {1}"
 		: [NSString stringWithFormat:@"%@ with %@", [[places subarrayWithRange:NSMakeRange(0, [places count] - 1)]
 		                                                componentsJoinedByString:@", "], [places lastObject]];
-	NSString *fact = [self addFactTypeWithPlayers:players reading:reading onDiagram:state.diagram
+	NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:players reading:reading onDiagram:state.diagram
 	                                           at:ORMAutomaticPlacement reason:NULL];
-	ORMFactType *made = [self.model elementWithId:fact];
+	ORMFactType *made = [_editor.model elementWithId:fact];
 	NSArray *roles = [made visibleRoles];
 	/* Each uniqueness over the fact type's roles, one of them over what
 	 * it joins. */
@@ -315,10 +332,10 @@ ORMRequired(ORMCDRelationship *relationship)
 			}
 		}
 		if ([spanned count] == [names count]) {
-			[self addUniquenessConstraintOverRoles:spanned reason:NULL];
+			[_editor.constraintEditor addUniquenessConstraintOverRoles:spanned reason:NULL];
 		}
 	}
-	NSString *nested = [self objectifyFactType:fact named:entity.name reason:NULL];
+	NSString *nested = [_editor.factTypeEditor objectifyFactType:fact named:entity.name reason:NULL];
 	if (nested == nil) {
 		return;
 	}
@@ -326,8 +343,8 @@ ORMRequired(ORMCDRelationship *relationship)
 	for (NSUInteger i = 0; i < [roles count]; i++) {
 		ORMRole *role = [roles objectAtIndex:i];
 		NSString *property = [properties objectAtIndex:i];
-		[self rename:role.identifier to:property reason:NULL];
-		[self setName:property forSource:role.identifier inMapping:state.mapping];
+		[_editor.elementEditor rename:role.identifier to:property reason:NULL];
+		[self.mappingEditor setName:property forSource:role.identifier inMapping:state.mapping];
 		[state.roles setObject:role.identifier forKey:[NSString stringWithFormat:@"%@.%@", entity.name, property]];
 	}
 }
@@ -349,13 +366,13 @@ ORMRequired(ORMCDRelationship *relationship)
 	state.notes = [NSMutableArray array];
 	NSString *name = [[[path lastPathComponent] stringByDeletingPathExtension] length] > 0
 		? [[path lastPathComponent] stringByDeletingPathExtension] : @"Core Data";
-	[self group:@"Import Core Data Model" with:^{
-		state.mapping = [self addCoreDataMappingNamed:name path:path];
+	[_editor group:@"Import Core Data Model" with:^{
+		state.mapping = [self.mappingEditor addCoreDataMappingNamed:name path:path];
 		/* Nothing absorbed: the model maps back as it came. */
-		[self setStyle:ORMStyleEntities ofMapping:state.mapping];
+		[self.mappingEditor setStyle:ORMStyleEntities ofMapping:state.mapping];
 		/* A new model's empty diagram, else one of its own. */
-		ORMDiagram *only = [self.model.diagrams count] == 1 ? [self.model.diagrams firstObject] : nil;
-		state.diagram = only != nil && [[only allShapes] count] == 0 ? only.identifier : [self addDiagramNamed:name];
+		ORMDiagram *only = [_editor.model.diagrams count] == 1 ? [_editor.model.diagrams firstObject] : nil;
+		state.diagram = only != nil && [[only allShapes] count] == 0 ? only.identifier : [_editor.diagramEditor addDiagramNamed:name];
 
 		/* Entity types first, but for the entities that only join. */
 		NSMutableDictionary *joins = [NSMutableDictionary dictionary];
@@ -365,21 +382,21 @@ ORMRequired(ORMCDRelationship *relationship)
 				[joins setObject:joined forKey:entity.name];
 				continue;
 			}
-			NSString *type = [self addEntityTypeNamed:[self uniqueObjectTypeName:entity.name] referenceMode:nil
+			NSString *type = [_editor.objectTypeEditor addEntityTypeNamed:[_editor uniqueObjectTypeName:entity.name] referenceMode:nil
 			                                     kind:ORMReferenceModeNone onDiagram:state.diagram
 			                                       at:ORMAutomaticPlacement reason:NULL];
 			if (type == nil) {
 				continue;
 			}
 			[state.types setObject:type forKey:entity.name];
-			[self setName:entity.name forSource:type inMapping:state.mapping];
+			[self.mappingEditor setName:entity.name forSource:type inMapping:state.mapping];
 		}
 		/* Subtyping, so subtypes take their supertype's identification. */
 		for (ORMCDEntity *entity in model.entities) {
 			NSString *sub = [state.types objectForKey:entity.name];
 			NSString *sup = entity.parentName != nil ? [state.types objectForKey:entity.parentName] : nil;
 			if (sub != nil && sup != nil) {
-				[self addSubtype:sub of:sup reason:NULL];
+				[_editor.objectTypeEditor addSubtype:sub of:sup reason:NULL];
 			}
 		}
 		/* Identification: a required, unique attribute is a reference
@@ -401,22 +418,22 @@ ORMRequired(ORMCDRelationship *relationship)
 			if (identifier == nil) {
 				continue;
 			}
-			if (![self setReferenceMode:identifier.name kind:ORMReferenceModePopular ofEntity:type reason:NULL]) {
+			if (![_editor.objectTypeEditor setReferenceMode:identifier.name kind:ORMReferenceModePopular ofEntity:type reason:NULL]) {
 				continue;
 			}
-			ORMObjectType *entityType = [self.model elementWithId:type];
+			ORMObjectType *entityType = [_editor.model elementWithId:type];
 			ORMObjectType *value = entityType.referenceModeValueType;
-			[self setDataType:ORMDataTypeForAttributeType(identifier.attributeType)
+			[_editor.objectTypeEditor setDataType:ORMDataTypeForAttributeType(identifier.attributeType)
 			           length:[identifier.attributeType isEqualToString:@"String"] ? [identifier.maxValue integerValue] : 0
 			            scale:0
 			               of:value.identifier
 			           reason:NULL];
 			/* The model is rebuilt: what it held is gone. */
-			entityType = [self.model elementWithId:type];
+			entityType = [_editor.model elementWithId:type];
 			value = entityType.referenceModeValueType;
 			for (ORMRole *role in entityType.referenceModeFactType.roles) {
 				if (role.player == value) {
-					[self setName:identifier.name forSource:role.identifier inMapping:state.mapping];
+					[self.mappingEditor setName:identifier.name forSource:role.identifier inMapping:state.mapping];
 					[state.roles setObject:role.identifier forKey:[NSString stringWithFormat:@"%@.%@", entity.name,
 					                                                                       identifier.name]];
 				}
@@ -455,16 +472,16 @@ ORMRequired(ORMCDRelationship *relationship)
 					/* The way back from a join: the objectification's role. */
 					NSString *role = [state.roles objectForKey:[NSString stringWithFormat:@"%@.%@", relationship.destination,
 					                                                                       relationship.inverseName]];
-					ORMRole *joinRole = [self.model elementWithId:role];
+					ORMRole *joinRole = [_editor.model elementWithId:role];
 					if (joinRole != nil) {
-						[self setName:relationship.name
+						[self.mappingEditor setName:relationship.name
 						    forSource:[joinRole.factType.identifier stringByAppendingFormat:@".%@", joinRole.identifier]
 						    inMapping:state.mapping];
 						if (ORMRequired(relationship)) {
-							[self setMandatory:YES role:joinRole.identifier reason:NULL];
+							[_editor.constraintEditor setMandatory:YES role:joinRole.identifier reason:NULL];
 						}
 						if (!relationship.toMany) {
-							[self setUnique:YES role:joinRole.identifier reason:NULL];
+							[_editor.constraintEditor setUnique:YES role:joinRole.identifier reason:NULL];
 						}
 					}
 					[done addObject:key];
@@ -508,16 +525,16 @@ ORMRequired(ORMCDRelationship *relationship)
 					                                                  [missing componentsJoinedByString:@", "]]];
 					continue;
 				}
-				NSString *unique = [self addUniquenessConstraintOverRoles:roles reason:NULL];
-				ORMObjectType *entityType = [self.model elementWithId:type];
+				NSString *unique = [_editor.constraintEditor addUniquenessConstraintOverRoles:roles reason:NULL];
+				ORMObjectType *entityType = [_editor.model elementWithId:type];
 				if (unique != nil && entityType.preferredIdentifier == nil && entity.parentName == nil) {
-					[self setPreferredIdentifier:unique reason:NULL];
+					[_editor.constraintEditor setPreferredIdentifier:unique reason:NULL];
 				}
 			}
 		}
 		/* An abstract entity is covered by its subentities. */
 		for (ORMCDEntity *entity in model.entities) {
-			ORMObjectType *supertype = [self.model elementWithId:[state.types objectForKey:entity.name] ?: @""];
+			ORMObjectType *supertype = [_editor.model elementWithId:[state.types objectForKey:entity.name] ?: @""];
 			if (!entity.isAbstract || supertype == nil || [supertype.subtypes count] == 0) {
 				continue;
 			}
@@ -528,21 +545,21 @@ ORMRequired(ORMCDRelationship *relationship)
 				}
 			}
 			if ([roles count] > 1) {
-				[self addMandatoryConstraintOverRoles:roles reason:NULL];
+				[_editor.constraintEditor addMandatoryConstraintOverRoles:roles reason:NULL];
 			} else if ([roles count] == 1) {
-				[self setMandatory:YES role:[roles firstObject] reason:NULL];
+				[_editor.constraintEditor setMandatory:YES role:[roles firstObject] reason:NULL];
 			}
 		}
 		/* An entity without a way to be told apart. */
 		for (ORMCDEntity *entity in model.entities) {
-			ORMObjectType *type = [self.model elementWithId:[state.types objectForKey:entity.name] ?: @""];
+			ORMObjectType *type = [_editor.model elementWithId:[state.types objectForKey:entity.name] ?: @""];
 			if (type != nil && type.preferredIdentifier == nil && [type.supertypes count] == 0 && type.nestedFactType == nil) {
 				[state.notes addObject:[NSString stringWithFormat:@"%@ has no uniqueness constraint to identify it by; "
 				                                                  @"ORM wants a reference scheme.", entity.name]];
 			}
 		}
-		[self setBaseline:model ofMapping:state.mapping];
-		[self arrangeDiagram:state.diagram];
+		[self.mappingEditor setBaseline:model ofMapping:state.mapping];
+		[_editor.diagramEditor arrangeDiagram:state.diagram];
 	}];
 	if (notes != NULL) {
 		*notes = state.notes;

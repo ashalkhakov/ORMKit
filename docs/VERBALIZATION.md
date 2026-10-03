@@ -103,7 +103,7 @@ The wordings marked **check**, and:
 ## Reading it back
 
 `ORMConstraintSentence` reads what the verbalizer writes: a sentence typed
-in the Fact Editor (or `-[ORMEditor addFromSentence:...]`) becomes the
+in the Fact Editor (or `-[ORMSentenceEditor addFromSentence:...]`) becomes the
 constraint, and what it names that the model lacks is made, as in NORMA:
 "Each Person was born in exactly one Country." on an empty model makes
 Person, Country, "{0} was born in {1}", and a uniqueness and a mandatory

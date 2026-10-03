@@ -202,7 +202,7 @@ ORMSaidWithoutJoins(id element)
 			}
 			tried++;
 			ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
-			NSArray *made = [editor addFromSentence:[sentence text] onDiagram:nil at:ORMAutomaticPlacement reason:NULL];
+			NSArray *made = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:[sentence text] onDiagram:nil at:ORMAutomaticPlacement reason:NULL];
 			for (NSString *identifier in made) {
 				if ([[editor.model elementWithId:identifier] isKindOfClass:[ORMConstraint class]]) {
 					ORMVerbalizer *again = [[ORMVerbalizer alloc] initWithModel:editor.model];
@@ -243,7 +243,7 @@ ORMSaidWithoutJoins(id element)
 	ORMJoinPathSpec *same = [ORMJoinPathSpec
 		specWithAtoms:@[ @{ [[plain.roles objectAtIndex:0] identifier]: @"A", [[plain.roles objectAtIndex:1] identifier]: @"R" } ]
 		      columns:@[ @"A", @"R" ]];
-	NSString *created = [editor addSetComparisonConstraint:ORMEqualityConstraint joinPaths:@[ same, spec ] reason:&reason];
+	NSString *created = [[[ORMJoinPathBuilder alloc] initWithEditor:editor] addSetComparisonConstraint:ORMEqualityConstraint joinPaths:@[ same, spec ] reason:&reason];
 	XCTAssertNotNil(created, @"%@", reason);
 	ORMConstraint *built = [editor.model elementWithId:created];
 	ORMRelation *theirs = nil;
@@ -291,7 +291,7 @@ ORMSaidWithoutJoins(id element)
 	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
 	for (NSString *text in sentences) {
 		NSString *reason = nil;
-		NSArray *made = [editor addFromSentence:text onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
+		NSArray *made = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:text onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
 		XCTAssertNotNil(made, @"%@: %@", text, reason);
 	}
 	return editor;
@@ -366,7 +366,7 @@ ORMSaidWithoutJoins(id element)
 	                                                 reason:&reason]));
 	XCTAssertTrue([reason length] > 0);
 	/* A fact type, though, is what the Fact Editor makes. */
-	NSArray *made = [editor addFromSentence:@"Person(.id) drives Car(.vin)" onDiagram:nil at:ORMAutomaticPlacement
+	NSArray *made = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:@"Person(.id) drives Car(.vin)" onDiagram:nil at:ORMAutomaticPlacement
 	                                 reason:&reason];
 	XCTAssertEqual([made count], (NSUInteger)1, @"%@", reason);
 	XCTAssertNotNil([editor.model objectTypeNamed:@"Car"]);

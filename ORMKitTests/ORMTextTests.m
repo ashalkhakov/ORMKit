@@ -79,18 +79,18 @@
 	ORMEditor *editor = [self newEditor];
 	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
 	NSString *reason = nil;
-	NSString *born = [editor addFactTypeFromSentence:@"Person(.id) was born in Country(.code)" onDiagram:diagram
+	NSString *born = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFactTypeFromSentence:@"Person(.id) was born in Country(.code)" onDiagram:diagram
 	                                               at:ORMAutomaticPlacement reason:&reason];
 	XCTAssertNotNil(born, @"%@", reason);
 	XCTAssertEqualObjects([[editor.model objectTypeNamed:@"Person"] displayName], @"Person(.id)");
 	XCTAssertEqualObjects([[[editor.model elementWithId:born] primaryReading] expandedText], @"Person was born in Country");
 	/* Known names need no marks; Name() is a value type. */
-	NSString *named = [editor addFactTypeFromSentence:@"Person has Name()" onDiagram:diagram at:ORMAutomaticPlacement
+	NSString *named = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFactTypeFromSentence:@"Person has Name()" onDiagram:diagram at:ORMAutomaticPlacement
 	                                           reason:&reason];
 	XCTAssertNotNil(named, @"%@", reason);
 	XCTAssertEqual([[editor.model objectTypeNamed:@"Name"] kind], ORMValueType);
 	/* Several words in brackets, a unit, a second reading. */
-	NSString *weighs = [editor addFactTypeFromSentence:@"[Order Line] weighs Mass(kg:) / Mass is weight of [Order Line]"
+	NSString *weighs = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFactTypeFromSentence:@"[Order Line] weighs Mass(kg:) / Mass is weight of [Order Line]"
 	                                         onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
 	XCTAssertNotNil(weighs, @"%@", reason);
 	XCTAssertEqualObjects([[editor.model objectTypeNamed:@"Mass"] displayName], @"Mass(kg:)");
@@ -99,13 +99,13 @@
 	XCTAssertEqualObjects([[[fact.readingOrders lastObject] readings].firstObject expandedText],
 	                      @"Mass is weight of Order Line");
 	/* A ring and a unary. */
-	NSString *ring = [editor addFactTypeFromSentence:@"Person is parent of Person" onDiagram:diagram
+	NSString *ring = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFactTypeFromSentence:@"Person is parent of Person" onDiagram:diagram
 	                                              at:ORMAutomaticPlacement reason:&reason];
 	XCTAssertEqual([[editor.model elementWithId:ring] arity], (NSUInteger)2);
-	NSString *smokes = [editor addFactTypeFromSentence:@"Person smokes." onDiagram:diagram at:ORMAutomaticPlacement
+	NSString *smokes = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFactTypeFromSentence:@"Person smokes." onDiagram:diagram at:ORMAutomaticPlacement
 	                                            reason:&reason];
 	XCTAssertTrue([[editor.model elementWithId:smokes] isUnary]);
-	XCTAssertNil([editor addFactTypeFromSentence:@"is lonely" onDiagram:diagram at:ORMAutomaticPlacement
+	XCTAssertNil([[[ORMSentenceEditor alloc] initWithEditor:editor] addFactTypeFromSentence:@"is lonely" onDiagram:diagram at:ORMAutomaticPlacement
 	                                      reason:&reason]);
 	XCTAssertNotNil([[editor.model.diagrams firstObject] shapeForSubject:weighs]);
 }

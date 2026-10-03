@@ -273,7 +273,7 @@ the ones in the `.xcdatamodeld`. `ormtool coredata` writes it as well, and
 ## Import: from Core Data to ORM
 
 An existing Core Data model can be brought into ORM
-(`-[ORMEditor importCoreDataModel:path:notes:reason:]`, `ormtool import`, and
+(`-[ORMCoreDataImporter importCoreDataModel:path:notes:reason:]`, `ormtool import`, and
 **Core Data ▸ Import Core Data Model…** in the designer). It is reverse
 engineering: from the logical model back to the conceptual one. Halpin and
 Bloesch's comparison of UML class diagrams with ORM (JDM 1999) gives the

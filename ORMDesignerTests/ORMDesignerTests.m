@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <XCTest/XCTest.h>
 #import "ORMAppDelegate.h"
+#import "ORMCanvasView.h"
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
@@ -198,6 +199,11 @@
 	ORMCoreDataController *coreData = [[ORMCoreDataController alloc] initWithEditor:_document.editor
 	                                                                   documentURL:documentURL];
 	[coreData synchronize:nil];
+	/* The window is the XIB's, its outlets connected. */
+	XCTAssertEqualObjects([[coreData valueForKey:@"pathField"] stringValue], @"StockMate.xcdatamodeld");
+	XCTAssertGreaterThan([(NSOutlineView *)[coreData valueForKey:@"preview"] numberOfRows], (NSInteger)10);
+	XCTAssertTrue([[[coreData valueForKey:@"statusLabel"] stringValue] hasPrefix:@"Wrote "],
+	              @"%@", [[coreData valueForKey:@"statusLabel"] stringValue]);
 	NSString *package = [directory stringByAppendingPathComponent:@"StockMate.xcdatamodeld"];
 	ORMCDModel *written = [ORMCDModel modelAtPath:package reason:NULL];
 	XCTAssertNotNil(written);
@@ -239,10 +245,43 @@
 	              [queries verbalizationText]);
 	XCTAssertTrue([[queries fetchText] rangeOfString:@"fetchRequestWithEntityName:@\"Warehouse\""].location != NSNotFound,
 	              @"%@", [queries fetchText]);
+	/* The window is the XIB's, its outlets connected: what it shows is what
+	 * the controller says. */
+	XCTAssertNotNil([queries window]);
+	XCTAssertEqualObjects([[[queries valueForKey:@"verbalizationView"] textStorage] string], [queries verbalizationText]);
+	XCTAssertEqualObjects([[[queries valueForKey:@"fetchView"] textStorage] string], [queries fetchText]);
+	XCTAssertEqual([(NSOutlineView *)[queries valueForKey:@"outline"] numberOfRows], (NSInteger)3);
 	/* Undone, the step is gone, and the window shows it. */
 	[[_document undoManager] undo];
 	[queries modelDidChange];
 	XCTAssertEqual([[ORMQuery queryWithId:query inModel:editor.model].root.steps count], 0u);
+}
+
+/* The menu bar comes from MainMenu.xib, with what the XIB cannot hold set
+ * in code. */
+- (void)testTheMenuBarIsLoaded
+{
+	NSMenu *menu = [ORMAppDelegate newMainMenu];
+	/* GNUstep's loader makes the application menu "Info" and adds Quit at
+	 * the end, as its menus have them. */
+	NSArray *titles = [[menu itemArray] valueForKey:@"title"];
+	NSArray *ours = @[ @"File", @"Edit", @"Model", @"Diagram", @"Core Data", @"Query", @"Window" ];
+	NSUInteger file = [titles indexOfObject:@"File"];
+	XCTAssertTrue(file != NSNotFound && file + [ours count] <= [titles count], @"%@", titles);
+	if (file != NSNotFound && file + [ours count] <= [titles count]) {
+		XCTAssertEqualObjects([titles subarrayWithRange:NSMakeRange(file, [ours count])], ours);
+	}
+	NSMenu *model = [[menu itemWithTitle:@"Model"] submenu];
+	XCTAssertEqual([[model itemWithTitle:@"Fact Type"] tag], (NSInteger)ORMToolFactType);
+	NSMenu *constraints = [[model itemWithTitle:@"Add Constraint"] submenu];
+	XCTAssertEqual([[constraints itemWithTitle:@"Value Comparison"] tag], (NSInteger)ORMToolValueComparison);
+	NSMenuItem *remove = [[[menu itemWithTitle:@"Edit"] submenu] itemWithTitle:@"Remove from Diagram"];
+	XCTAssertEqualObjects([remove keyEquivalent], @"\b");
+	NSMenuItem *synchronize = [[[menu itemWithTitle:@"Core Data"] submenu] itemWithTitle:@"Synchronize"];
+	XCTAssertEqualObjects([synchronize keyEquivalent], @"k");
+	XCTAssertEqual([synchronize keyEquivalentModifierMask] & (NSEventModifierFlagCommand | NSEventModifierFlagOption
+	                                                          | NSEventModifierFlagShift),
+	               NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagShift);
 }
 
 - (void)testEveryMenuItemHasSomewhereToGo

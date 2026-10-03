@@ -36,11 +36,3 @@
 @property (nonatomic, readonly, copy) NSArray<NSArray<NSNumber *> *> *readingOrders;
 @end
 
-@interface ORMEditor (ORMFactSentences)
-/* Makes what the sentence says: its new object types and the fact type,
- * placed on the diagram. The fact type's id. */
-- (NSString *)addFactTypeFromSentence:(NSString *)text
-                            onDiagram:(NSString *)diagramId
-                                   at:(NSPoint)point
-                               reason:(NSString **)reason;
-@end

@@ -90,7 +90,7 @@ ORMImport(NSArray<NSString *> *args)
 		editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:name] undoManager:nil];
 	}
 	NSArray *notes = nil;
-	if ([editor importCoreDataModel:coreData path:source notes:&notes reason:&reason] == nil) {
+	if ([[[ORMCoreDataImporter alloc] initWithEditor:editor] importCoreDataModel:coreData path:source notes:&notes reason:&reason] == nil) {
 		fprintf(stderr, "ormtool: %s: %s\n", [source UTF8String], [reason UTF8String]);
 		return 1;
 	}

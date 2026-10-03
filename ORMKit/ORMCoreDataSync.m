@@ -6,14 +6,25 @@
 
 #pragma mark Mappings in the document
 
-@implementation ORMEditor (ORMCoreDataMappings)
+@implementation ORMMappingEditor
+
+@synthesize editor = _editor;
+
+- (instancetype)initWithEditor:(ORMEditor *)editor
+{
+	if ((self = [super init])) {
+		_editor = editor;
+	}
+	return self;
+}
+
 
 - (NSXMLElement *)mappingsContainer
 {
-	NSXMLElement *root = [self.document rootElement];
+	NSXMLElement *root = [_editor.document rootElement];
 	NSXMLElement *container = ORMChild(root, CD, @"CoreDataMappings");
 	if (container == nil) {
-		container = ORMNewElement(self.document, CD, @"CoreDataMappings");
+		container = ORMNewElement(_editor.document, CD, @"CoreDataMappings");
 		[root addChild:container];
 	}
 	return container;
@@ -21,7 +32,7 @@
 
 - (NSXMLElement *)mappingElement:(NSString *)mappingId
 {
-	for (NSXMLElement *element in ORMChildren(ORMChild([self.document rootElement], CD, @"CoreDataMappings"), CD,
+	for (NSXMLElement *element in ORMChildren(ORMChild([_editor.document rootElement], CD, @"CoreDataMappings"), CD,
 	                                          @"Mapping")) {
 		if ([ORMAttribute(element, @"id") isEqualToString:mappingId]) {
 			return element;
@@ -33,9 +44,9 @@
 - (NSString *)addCoreDataMappingNamed:(NSString *)name path:(NSString *)path
 {
 	__block NSString *created = nil;
-	[self change:@"Add Core Data Mapping" with:^{
-		NSXMLElement *mapping = ORMNewElementWithId(self.document, CD, @"Mapping", nil);
-		NSString *mappingName = [name length] > 0 ? name : self.model.name;
+	[_editor change:@"Add Core Data Mapping" with:^{
+		NSXMLElement *mapping = ORMNewElementWithId(_editor.document, CD, @"Mapping", nil);
+		NSString *mappingName = [name length] > 0 ? name : _editor.model.name;
 		ORMSetAttribute(mapping, @"Name", mappingName);
 		ORMSetAttribute(mapping, @"Path", [path length] > 0 ? path
 		                                                 : [mappingName stringByAppendingPathExtension:@"xcdatamodeld"]);
@@ -52,7 +63,7 @@
 	if (mapping == nil) {
 		return;
 	}
-	[self change:@"Remove Core Data Mapping" with:^{
+	[_editor change:@"Remove Core Data Mapping" with:^{
 		NSXMLElement *container = (NSXMLElement *)[mapping parent];
 		[mapping detach];
 		ORMPruneIfEmpty(container);
@@ -66,7 +77,7 @@
 	if (mapping == nil || [ORMAttribute(mapping, attribute) ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[self change:action with:^{
+	[_editor change:action with:^{
 		ORMSetAttribute(mapping, attribute, value);
 	}];
 }
@@ -95,7 +106,7 @@
 	if (mapping == nil) {
 		return;
 	}
-	[self change:@"Set Mapping Scope" with:^{
+	[_editor change:@"Set Mapping Scope" with:^{
 		ORMSetAttribute(mapping, @"Scope", scope == ORMScopeDiagram ? @"Diagram"
 		                                   : scope == ORMScopeObjectTypes ? @"ObjectTypes" : @"Model");
 		for (NSXMLElement *include in ORMChildren(mapping, CD, @"Include")) {
@@ -103,7 +114,7 @@
 		}
 		NSUInteger index = 0;
 		for (NSString *identifier in scope == ORMScopeModel ? @[] : ids) {
-			[mapping insertChild:ORMNewRef(self.document, CD, @"Include", identifier) atIndex:index++];
+			[mapping insertChild:ORMNewRef(_editor.document, CD, @"Include", identifier) atIndex:index++];
 		}
 	}];
 }
@@ -148,14 +159,14 @@
 	if (wanted && existing != nil && (attribute == nil || [ORMAttribute(existing, attribute) isEqualToString:value])) {
 		return;
 	}
-	[self change:action with:^{
+	[_editor change:action with:^{
 		if (!wanted) {
 			[existing detach];
 			return;
 		}
 		NSXMLElement *child = existing;
 		if (child == nil) {
-			child = ORMNewElement(self.document, CD, local);
+			child = ORMNewElement(_editor.document, CD, local);
 			if (attribute == nil) {
 				ORMSetAttribute(child, @"Name", target);
 			} else {
@@ -181,7 +192,7 @@
 {
 	/* The style's own defaults then hold: what was set for another is
 	 * cleared. */
-	[self group:@"Set Mapping Style" with:^{
+	[_editor group:@"Set Mapping Style" with:^{
 		[self setMappingAttribute:@"FlattenSubtypes" value:nil of:mappingId action:@"Set Mapping Style"];
 		[self setMappingAttribute:@"AbsorbIdentifierTypes" value:nil of:mappingId action:@"Set Mapping Style"];
 		[self setMappingAttribute:@"Style"
@@ -202,7 +213,7 @@
                  ofObjectType:(NSString *)objectTypeId
                     inMapping:(NSString *)mappingId
 {
-	[self group:@"Map as Transformable" with:^{
+	[_editor group:@"Map as Transformable" with:^{
 		[self setMapping:ORMMapTransformable ofObjectType:objectTypeId inMapping:mappingId];
 		[self setChild:@"ObjectTypeMapping" target:objectTypeId attribute:@"Class"
 		         value:[className length] > 0 ? className : @"NSString" inMapping:mappingId
@@ -244,26 +255,9 @@
 	if ([[ORMChild(mapping, CD, @"Baseline") stringValue] isEqualToString:contents]) {
 		return;
 	}
-	[self change:@"Synchronize Core Data" with:^{
-		ORMSetChildText(self.document, mapping, CD, @"Baseline", contents);
+	[_editor change:@"Synchronize Core Data" with:^{
+		ORMSetChildText(_editor.document, mapping, CD, @"Baseline", contents);
 	}];
-}
-
-- (NSXMLDocument *)documentForNorma
-{
-	NSXMLDocument *copy = ORMCopyDocument([self documentForSaving]);
-	NSXMLElement *root = [copy rootElement];
-	for (NSString *uri in ORMKitNamespaces()) {
-		for (NSXMLElement *element in ORMDescendants(root, uri, nil)) {
-			[element detach];
-		}
-	}
-	for (NSXMLNode *namespace in [[root namespaces] copy]) {
-		if ([ORMKitNamespaces() containsObject:[namespace stringValue]]) {
-			[root removeNamespaceForPrefix:[namespace name]];
-		}
-	}
-	return copy;
 }
 
 @end
@@ -342,6 +336,7 @@ ORMValueConstraintForAttribute(ORMCDAttribute *attribute)
 @implementation ORMCoreDataSync
 {
 	ORMEditor *_editor;
+	ORMMappingEditor *_mappings;
 	NSString *_mappingId;
 	ORMCDModel *_theirs;
 	ORMCDModel *_base;
@@ -352,6 +347,7 @@ ORMValueConstraintForAttribute(ORMCDAttribute *attribute)
 {
 	if ((self = [super init])) {
 		_editor = editor;
+		_mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
 		_mappingId = [mappingId copy];
 		_theirs = theirs;
 		ORMCoreDataMapping *mapping = [ORMCoreDataMapping mappingWithId:mappingId inDocument:editor.document];
@@ -502,11 +498,11 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 	ORMEditor *editor = _editor;
 	NSString *mappingId = _mappingId;
 	change.toMapping = ^{
-		[editor setName:name forSource:source inMapping:mappingId];
+		[_mappings setName:name forSource:source inMapping:mappingId];
 	};
 	change.toModel = ^{
-		if (type != nil && [editor rename:type.identifier to:name reason:NULL]) {
-			[editor setName:nil forSource:source inMapping:mappingId];
+		if (type != nil && [editor.elementEditor rename:type.identifier to:name reason:NULL]) {
+			[_mappings setName:nil forSource:source inMapping:mappingId];
 		}
 	};
 }
@@ -523,14 +519,14 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 	NSString *source = base.source;
 	change.toMapping = ^{
 		if (type != nil) {
-			[editor setMapping:ORMMapIgnored ofObjectType:type.identifier inMapping:mappingId];
+			[_mappings setMapping:ORMMapIgnored ofObjectType:type.identifier inMapping:mappingId];
 		} else if (source != nil) {
-			[editor setExcluded:YES source:source inMapping:mappingId];
+			[_mappings setExcluded:YES source:source inMapping:mappingId];
 		}
 	};
 	change.toModel = ^{
 		if (source != nil) {
-			[editor deleteElements:@[ source ]];
+			[editor.elementEditor deleteElements:@[ source ]];
 		}
 	};
 }
@@ -578,12 +574,12 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 		change.possibleActions = @[ @(ORMSyncApplyToMapping), @(ORMSyncApplyToModel), @(ORMSyncDiscard) ];
 		change.action = change.conflicts ? ORMSyncDiscard : ORMSyncApplyToMapping;
 		change.toMapping = ^{
-			[editor setName:name forSource:source inMapping:mappingId];
+			[_mappings setName:name forSource:source inMapping:mappingId];
 		};
 		/* Into the model, as the role's name, which the mapping prefers. */
 		change.toModel = ^{
-			if (far != nil && [editor rename:far.identifier to:name reason:NULL]) {
-				[editor setName:nil forSource:source inMapping:mappingId];
+			if (far != nil && [editor.elementEditor rename:far.identifier to:name reason:NULL]) {
+				[_mappings setName:nil forSource:source inMapping:mappingId];
 			}
 		};
 	}
@@ -598,7 +594,7 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 			change.conflicts = ours != nil && ours.optional != was.optional;
 			change.action = change.conflicts ? ORMSyncDiscard : ORMSyncApplyToModel;
 			change.toModel = ^{
-				[editor setMandatory:mandatory role:near.identifier reason:NULL];
+				[editor.constraintEditor setMandatory:mandatory role:near.identifier reason:NULL];
 			};
 		}
 	}
@@ -610,7 +606,7 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 			                                text:[NSString stringWithFormat:@"%@ was made %@.", path,
 			                                                                unique ? @"to-one" : @"to-many"]];
 			change.toModel = ^{
-				[editor setUnique:unique role:near.identifier reason:NULL];
+				[editor.constraintEditor setUnique:unique role:near.identifier reason:NULL];
 			};
 		}
 	}
@@ -628,7 +624,7 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 			                                                                                                    valueType.name, (unsigned long)uses]
 			                                                                         : @""]];
 			change.toModel = ^{
-				[editor setDataType:dataType length:0 scale:0 of:valueType.identifier reason:NULL];
+				[editor.objectTypeEditor setDataType:dataType length:0 scale:0 of:valueType.identifier reason:NULL];
 			};
 		}
 		BOOL bounds = ![attribute.minValue ?: @"" isEqualToString:old.minValue ?: @""]
@@ -642,7 +638,7 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 			NSString *target = valueType != nil && [valueType.playedRoles count] == 1 ? valueType.identifier
 			                                                                           : far.identifier;
 			change.toModel = ^{
-				[editor setValueConstraint:values of:target reason:NULL];
+				[editor.objectTypeEditor setValueConstraint:values of:target reason:NULL];
 			};
 		}
 	}
@@ -668,12 +664,12 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 	NSString *source = property.source;
 	change.toMapping = ^{
 		if (source != nil) {
-			[editor setExcluded:YES source:source inMapping:mappingId];
+			[_mappings setExcluded:YES source:source inMapping:mappingId];
 		}
 	};
 	change.toModel = ^{
 		if (far != nil) {
-			[editor deleteElements:@[ far.factType.identifier ]];
+			[editor.elementEditor deleteElements:@[ far.factType.identifier ]];
 		}
 	};
 }
@@ -724,9 +720,9 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 		                                                                                                  : @"several properties"]];
 		change.toModel = ^{
 			if ([roles count] == 1) {
-				[editor setUnique:YES role:[roles firstObject] reason:NULL];
+				[editor.constraintEditor setUnique:YES role:[roles firstObject] reason:NULL];
 			} else {
-				[editor addUniquenessConstraintOverRoles:roles reason:NULL];
+				[editor.constraintEditor addUniquenessConstraintOverRoles:roles reason:NULL];
 			}
 		};
 	}
@@ -749,7 +745,7 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 			for (ORMConstraint *constraint in model.constraints) {
 				if (constraint.kind == ORMUniquenessConstraint && constraint.preferredIdentifierFor == nil
 				    && [[NSSet setWithArray:[constraint allRoles]] isEqualToSet:roles]) {
-					[editor deleteElements:@[ constraint.identifier ]];
+					[editor.elementEditor deleteElements:@[ constraint.identifier ]];
 					break;
 				}
 			}
@@ -784,32 +780,32 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 		if (existing != nil) {
 			valueName = [valueName stringByAppendingString:@"Value"];
 		}
-		valueId = [editor addValueTypeNamed:valueName dataType:ORMDataTypeForAttributeType(attribute.attributeType)
+		valueId = [editor.objectTypeEditor addValueTypeNamed:valueName dataType:ORMDataTypeForAttributeType(attribute.attributeType)
 		                          onDiagram:nil at:NSZeroPoint reason:NULL];
 	}
 	if (valueId == nil) {
 		return;
 	}
 	NSString *diagram = [self diagramShowing:objectTypeId];
-	NSString *fact = [editor addFactTypeWithPlayers:@[ objectTypeId, valueId ] reading:@"{0} has {1}"
+	NSString *fact = [editor.factTypeEditor addFactTypeWithPlayers:@[ objectTypeId, valueId ] reading:@"{0} has {1}"
 	                                      onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
 	ORMFactType *made = [editor.model elementWithId:fact];
 	ORMRole *near = [made.roles objectAtIndex:0];
 	ORMRole *far = [made.roles objectAtIndex:1];
-	[editor setUnique:YES role:near.identifier reason:NULL];
+	[editor.constraintEditor setUnique:YES role:near.identifier reason:NULL];
 	if (!attribute.optional) {
-		[editor setMandatory:YES role:near.identifier reason:NULL];
+		[editor.constraintEditor setMandatory:YES role:near.identifier reason:NULL];
 	}
 	for (NSArray *names in entity.uniquenessConstraints) {
 		if ([names isEqualToArray:@[ attribute.name ]]) {
-			[editor setUnique:YES role:far.identifier reason:NULL];
+			[editor.constraintEditor setUnique:YES role:far.identifier reason:NULL];
 		}
 	}
 	NSString *values = [self valueConstraintFor:attribute];
 	if ([values length] > 0) {
-		[editor setValueConstraint:values of:valueId reason:NULL];
+		[editor.objectTypeEditor setValueConstraint:values of:valueId reason:NULL];
 	}
-	[editor setName:attribute.name forSource:far.identifier inMapping:_mappingId];
+	[_mappings setName:attribute.name forSource:far.identifier inMapping:_mappingId];
 }
 
 /* Adds a binary fact type between the two object types for a relationship
@@ -821,7 +817,7 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 {
 	ORMEditor *editor = _editor;
 	NSString *diagram = [self diagramShowing:fromId];
-	NSString *fact = [editor addFactTypeWithPlayers:@[ fromId, toId ] reading:@"{0} has {1}" onDiagram:diagram
+	NSString *fact = [editor.factTypeEditor addFactTypeWithPlayers:@[ fromId, toId ] reading:@"{0} has {1}" onDiagram:diagram
 	                                             at:ORMAutomaticPlacement reason:NULL];
 	ORMFactType *made = [editor.model elementWithId:fact];
 	ORMRole *near = [made.roles objectAtIndex:0];
@@ -829,23 +825,23 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 	BOOL manyForward = relationship.toMany;
 	BOOL manyBackward = inverse == nil || inverse.toMany;
 	if (!manyForward) {
-		[editor setUnique:YES role:near.identifier reason:NULL];
+		[editor.constraintEditor setUnique:YES role:near.identifier reason:NULL];
 	}
 	if (!manyBackward) {
-		[editor setUnique:YES role:far.identifier reason:NULL];
+		[editor.constraintEditor setUnique:YES role:far.identifier reason:NULL];
 	}
 	if (manyForward && manyBackward) {
-		[editor addUniquenessConstraintOverRoles:@[ near.identifier, far.identifier ] reason:NULL];
+		[editor.constraintEditor addUniquenessConstraintOverRoles:@[ near.identifier, far.identifier ] reason:NULL];
 	}
 	if (!relationship.optional) {
-		[editor setMandatory:YES role:near.identifier reason:NULL];
+		[editor.constraintEditor setMandatory:YES role:near.identifier reason:NULL];
 	}
 	if (inverse != nil && !inverse.optional) {
-		[editor setMandatory:YES role:far.identifier reason:NULL];
+		[editor.constraintEditor setMandatory:YES role:far.identifier reason:NULL];
 	}
-	[editor setName:relationship.name forSource:far.identifier inMapping:_mappingId];
+	[_mappings setName:relationship.name forSource:far.identifier inMapping:_mappingId];
 	if (inverse != nil) {
-		[editor setName:inverse.name forSource:near.identifier inMapping:_mappingId];
+		[_mappings setName:inverse.name forSource:near.identifier inMapping:_mappingId];
 	}
 }
 
@@ -884,13 +880,12 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 	                                text:[NSString stringWithFormat:@"%@ %@ was added.",
 	                                                                isRelationship ? @"Relationship" : @"Attribute", path]];
 	change.possibleActions = @[ @(ORMSyncApplyToModel), @(ORMSyncApplyToMapping), @(ORMSyncDiscard) ];
-	ORMEditor *editor = _editor;
 	NSString *mappingId = _mappingId;
 	NSString *entityName = entity.name;
 	change.toMapping = ^{
-		[editor setKept:YES element:path inMapping:mappingId];
+		[_mappings setKept:YES element:path inMapping:mappingId];
 		if (inverse != nil) {
-			[editor setKept:YES element:[NSString stringWithFormat:@"%@.%@", relationship.destination, inverse.name]
+			[_mappings setKept:YES element:[NSString stringWithFormat:@"%@.%@", relationship.destination, inverse.name]
 			      inMapping:mappingId];
 		}
 	};
@@ -922,16 +917,16 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 	ORMEditor *editor = _editor;
 	NSString *mappingId = _mappingId;
 	change.toMapping = ^{
-		[editor setKept:YES element:entity.name inMapping:mappingId];
+		[_mappings setKept:YES element:entity.name inMapping:mappingId];
 	};
 	/* The entity type first; its properties are added as changes of
 	 * their own, after every added entity type exists. */
 	change.toModel = ^{
-		NSString *type = [editor addEntityTypeNamed:entity.name referenceMode:nil kind:ORMReferenceModeNone
+		NSString *type = [editor.objectTypeEditor addEntityTypeNamed:entity.name referenceMode:nil kind:ORMReferenceModeNone
 		                                  onDiagram:[[editor.model.diagrams firstObject] identifier]
 		                                         at:ORMAutomaticPlacement reason:NULL];
 		if (type != nil && ![[ORMCoreDataMapper entityNameFor:entity.name] isEqualToString:entity.name]) {
-			[editor setName:entity.name forSource:type inMapping:mappingId];
+			[_mappings setName:entity.name forSource:type inMapping:mappingId];
 		}
 	};
 	for (ORMCDProperty *property in [entity properties]) {
@@ -949,7 +944,7 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 			NSString *sub = [sync objectTypeIdFor:entity.name];
 			NSString *sup = [sync objectTypeIdFor:parent];
 			if (sub != nil && sup != nil) {
-				[editor addSubtype:sub of:sup reason:NULL];
+				[editor.objectTypeEditor addSubtype:sub of:sup reason:NULL];
 			}
 		};
 	}
@@ -1081,7 +1076,7 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 		self->_ours = [mapper map];
 		self->_notes = mapper.notes;
 		result = [self merge:self->_ours keeping:mapping.keptElements];
-		[editor setBaseline:result ofMapping:mappingId];
+		[_mappings setBaseline:result ofMapping:mappingId];
 	}];
 	return result;
 }

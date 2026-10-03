@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMConstraintSentence.h"
+#import "ORMSentenceEditor.h"
 #import "ORMFactSentence.h"
 #import "ORMJoinPathBuilder.h"
 #import "ORMReadingText.h"
@@ -1366,7 +1367,18 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 
 @end
 
-@implementation ORMEditor (ORMConstraintSentences)
+@implementation ORMSentenceEditor
+
+@synthesize editor = _editor;
+
+- (instancetype)initWithEditor:(ORMEditor *)editor
+{
+	if ((self = [super init])) {
+		_editor = editor;
+	}
+	return self;
+}
+
 
 - (NSArray<NSString *> *)addFromSentence:(NSString *)text
                                onDiagram:(NSString *)diagramId
@@ -1374,7 +1386,7 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
                                   reason:(NSString **)reason
 {
 	NSString *why = nil;
-	ORMConstraintSentence *sentence = [ORMConstraintSentence sentenceWithString:text model:self.model reason:&why];
+	ORMConstraintSentence *sentence = [ORMConstraintSentence sentenceWithString:text model:_editor.model reason:&why];
 	NSString *trimmed = ORMTrimmed(text ?: @"");
 	BOOL constraintLike = NO;
 	for (NSString *lead in @[ @"Each ", @"For each ", @"No ", @"If ", @"In each population of ", @"The possible value",
@@ -1401,15 +1413,15 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 	}
 	NSMutableArray *made = [NSMutableArray array];
 	__block NSString *failure = nil;
-	[self group:@"Add from Sentence" with:^{
+	[_editor group:@"Add from Sentence" with:^{
 		/* The fact types first, and the object types they need. */
 		NSMapTable *factIds = [NSMapTable strongToStrongObjectsMapTable];
 		for (ORMSentenceFact *fact in sentence.factTypes) {
 			NSMutableArray *players = [NSMutableArray array];
 			for (NSString *name in fact.playerNames) {
-				NSString *identifier = [[self.model objectTypeNamed:name] identifier];
+				NSString *identifier = [[_editor.model objectTypeNamed:name] identifier];
 				if (identifier == nil) {
-					identifier = [self addEntityTypeNamed:name referenceMode:nil kind:ORMReferenceModeNone
+					identifier = [_editor.objectTypeEditor addEntityTypeNamed:name referenceMode:nil kind:ORMReferenceModeNone
 					                            onDiagram:diagramId at:ORMAutomaticPlacement reason:&failure];
 					if (identifier == nil) {
 						return;
@@ -1418,7 +1430,7 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 				}
 				[players addObject:identifier];
 			}
-			NSString *factId = [self addFactTypeWithPlayers:players reading:fact.reading onDiagram:diagramId
+			NSString *factId = [_editor.factTypeEditor addFactTypeWithPlayers:players reading:fact.reading onDiagram:diagramId
 			                                             at:point reason:&failure];
 			if (factId == nil) {
 				return;
@@ -1430,7 +1442,7 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 			if (role.role != nil) {
 				return role.role.identifier;
 			}
-			ORMFactType *fact = [self.model elementWithId:[factIds objectForKey:role.fact]];
+			ORMFactType *fact = [_editor.model elementWithId:[factIds objectForKey:role.fact]];
 			NSArray *roles = [fact visibleRoles];
 			return role.index < [roles count] ? [[roles objectAtIndex:role.index] identifier] : nil;
 		};
@@ -1450,12 +1462,12 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 			NSString *created = nil;
 			if (constraint.values != nil) {
 				NSString *target = constraint.valuesOfRole != nil ? roleId(constraint.valuesOfRole)
-					: [[self.model objectTypeNamed:constraint.valuesOfObjectType] identifier];
+					: [[_editor.model objectTypeNamed:constraint.valuesOfObjectType] identifier];
 				if (target == nil && constraint.valuesOfRole == nil) {
 					/* Values belong to a value type: text when they are
 					 * quoted, numbers when not. */
 					BOOL text = [constraint.values rangeOfString:@"'"].location != NSNotFound;
-					target = [self addValueTypeNamed:constraint.valuesOfObjectType
+					target = [_editor.objectTypeEditor addValueTypeNamed:constraint.valuesOfObjectType
 					                        dataType:text ? @"VariableLengthTextDataType" : @"DecimalNumericDataType"
 					                       onDiagram:diagramId
 					                              at:ORMAutomaticPlacement
@@ -1464,7 +1476,7 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 						[made addObject:target];
 					}
 				}
-				if (target == nil || ![self setValueConstraint:constraint.values of:target reason:&failure]) {
+				if (target == nil || ![_editor.objectTypeEditor setValueConstraint:constraint.values of:target reason:&failure]) {
 					failure = failure ?: [NSString stringWithFormat:@"No object type is named %@.",
 					                                                constraint.valuesOfObjectType];
 					return;
@@ -1473,7 +1485,7 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 			}
 			/* What the model says already is not said twice. */
 			if ([first count] == 1 && [sequences count] == 1) {
-				ORMRole *role = [self.model elementWithId:[first firstObject]];
+				ORMRole *role = [_editor.model elementWithId:[first firstObject]];
 				if ((constraint.kind == ORMUniquenessConstraint && role.isUnique)
 				    || (constraint.kind == ORMMandatoryConstraint && !constraint.isExclusiveOr && role.isMandatory)) {
 					continue;
@@ -1481,20 +1493,20 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 			}
 			switch (constraint.kind) {
 			case ORMUniquenessConstraint:
-				created = [self addUniquenessConstraintOverRoles:first reason:&failure];
+				created = [_editor.constraintEditor addUniquenessConstraintOverRoles:first reason:&failure];
 				break;
 			case ORMMandatoryConstraint:
-				created = constraint.isExclusiveOr ? [self addExclusiveOrConstraintOverRoles:first reason:&failure]
-				                                   : [self addMandatoryConstraintOverRoles:first reason:&failure];
+				created = constraint.isExclusiveOr ? [_editor.constraintEditor addExclusiveOrConstraintOverRoles:first reason:&failure]
+				                                   : [_editor.constraintEditor addMandatoryConstraintOverRoles:first reason:&failure];
 				break;
 			case ORMRingConstraint:
-				created = [self addRingConstraint:constraint.ringType overRoles:first reason:&failure];
+				created = [_editor.constraintEditor addRingConstraint:constraint.ringType overRoles:first reason:&failure];
 				break;
 			case ORMSubsetConstraint:
 			case ORMEqualityConstraint:
 			case ORMExclusionConstraint:
 				if (constraint.paths == nil) {
-					created = [self addSetComparisonConstraint:constraint.kind sequences:sequences reason:&failure];
+					created = [_editor.constraintEditor addSetComparisonConstraint:constraint.kind sequences:sequences reason:&failure];
 					break;
 				}
 				{
@@ -1530,7 +1542,7 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 						}
 						[specs addObject:[ORMJoinPathSpec specWithAtoms:atoms columns:sentencePath.columns]];
 					}
-					created = [self addSetComparisonConstraint:constraint.kind joinPaths:specs reason:&failure];
+					created = [[[ORMJoinPathBuilder alloc] initWithEditor:_editor] addSetComparisonConstraint:constraint.kind joinPaths:specs reason:&failure];
 				}
 				break;
 			default:
@@ -1541,7 +1553,7 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 				return;
 			}
 			if (sentence.modality == ORMDeontic) {
-				[self setModality:ORMDeontic of:created reason:NULL];
+				[_editor.constraintEditor setModality:ORMDeontic of:created reason:NULL];
 			}
 			[made addObject:created];
 		}

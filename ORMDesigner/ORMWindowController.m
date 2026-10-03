@@ -4,20 +4,32 @@
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
 
-static const double ORMToolbarHeight = 34;
-static const double ORMStatusHeight = 22;
 static const double ORMFactBarHeight = 30;
-static const double ORMBrowserBarHeight = 30;
+
+@interface ORMWindowController ()
+@property (nonatomic, readwrite, strong) IBOutlet ORMCanvasView *canvas;
+@property (nonatomic, readwrite, strong) IBOutlet ORMInspectorView *inspector;
+@property (nonatomic, readwrite, strong) IBOutlet NSTextView *verbalization;
+@property (nonatomic, readwrite, strong) IBOutlet NSTextField *factEditor;
+@property (nonatomic, readwrite, strong) IBOutlet NSPopUpButton *diagramPopup;
+@property (nonatomic, readwrite, strong) IBOutlet NSTextField *status;
+@property (nonatomic, strong) IBOutlet NSOutlineView *browserOutline;
+@property (nonatomic, strong) IBOutlet NSView *toolBar;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *addPopUp;
+@property (nonatomic, strong) IBOutlet NSSearchField *filterField;
+@property (nonatomic, strong) IBOutlet NSScrollView *canvasScroll;
+@property (nonatomic, strong) IBOutlet NSScrollView *verbalizationScroll;
+@property (nonatomic, strong) IBOutlet NSScrollView *inspectorScroll;
+@property (nonatomic, strong) IBOutlet NSSplitView *columnsSplit;
+@property (nonatomic, strong) IBOutlet NSSplitView *middleSplit;
+@end
 
 @implementation ORMWindowController
 {
 	__weak ORMDocument *_document;
-	NSSplitView *_columns;
-	NSSplitView *_middle;
 	NSMutableArray<NSButton *> *_toolButtons;
 	ORMCoreDataController *_coreData;
 	ORMQueryController *_queries;
-	NSSearchField *_filterField;
 	/* What the verbalization shows when nothing is selected: the model, or
 	 * nothing. */
 	BOOL _verbalizesModel;
@@ -25,19 +37,10 @@ static const double ORMBrowserBarHeight = 30;
 
 - (instancetype)initWithDocument:(ORMDocument *)document
 {
-	NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(80, 80, 1280, 820)
-	                                               styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-	                                                         | NSWindowStyleMaskMiniaturizable
-	                                                         | NSWindowStyleMaskResizable
-	                                                 backing:NSBackingStoreBuffered
-	                                                   defer:YES];
-	[window setMinSize:NSMakeSize(760, 480)];
-	if ((self = [super initWithWindow:window])) {
+	if ((self = [super initWithWindowNibName:@"ORMDocumentWindow"])) {
 		_document = document;
 		_toolButtons = [NSMutableArray array];
-		[window setReleasedWhenClosed:NO];
-		[self buildWindow];
-		[self editorDidChange];
+		[self window];
 	}
 	return self;
 }
@@ -55,24 +58,10 @@ static const double ORMBrowserBarHeight = 30;
 	return button;
 }
 
-- (NSTextField *)label:(NSString *)text frame:(NSRect)frame
+/* The tools across the top: made here, each as wide as its title is in
+ * the font the platform has. */
+- (void)makeToolButtons
 {
-	NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
-	[label setStringValue:text];
-	[label setEditable:NO];
-	[label setBordered:NO];
-	[label setBezeled:NO];
-	[label setDrawsBackground:NO];
-	[label setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	return label;
-}
-
-- (void)buildToolbar:(NSView *)content
-{
-	NSRect bounds = [content bounds];
-	NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(0, NSHeight(bounds) - ORMToolbarHeight, NSWidth(bounds),
-	                                                       ORMToolbarHeight)];
-	[bar setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
 	NSArray *tools = @[ @[ @"Select", @(ORMToolPointer) ], @[ @"Entity", @(ORMToolEntityType) ],
 	                    @[ @"Value", @(ORMToolValueType) ], @[ @"Fact", @(ORMToolFactType) ],
 	                    @[ @"Subtype", @(ORMToolSubtype) ], @[ @"Role →", @(ORMToolConnectRole) ],
@@ -88,78 +77,10 @@ static const double ORMBrowserBarHeight = 30;
 		NSButton *button = [self button:title action:@selector(toolClicked:) frame:NSMakeRect(x, 4, width, 26)];
 		[button setButtonType:NSButtonTypePushOnPushOff];
 		[button setTag:[[tool objectAtIndex:1] integerValue]];
-		[bar addSubview:button];
+		[self.toolBar addSubview:button];
 		[_toolButtons addObject:button];
 		x += width + 2;
 	}
-	NSButton *zoomIn = [self button:@"+" action:@selector(zoomCanvasIn:) frame:NSMakeRect(NSWidth(bounds) - 36, 4, 30, 26)];
-	NSButton *zoomOut = [self button:@"−" action:@selector(zoomCanvasOut:) frame:NSMakeRect(NSWidth(bounds) - 68, 4, 30, 26)];
-	[zoomIn setAutoresizingMask:NSViewMinXMargin];
-	[zoomOut setAutoresizingMask:NSViewMinXMargin];
-	[bar addSubview:zoomIn];
-	[bar addSubview:zoomOut];
-	_diagramPopup = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(NSWidth(bounds) - 260, 5, 186, 24) pullsDown:NO];
-	[_diagramPopup setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	[_diagramPopup setAutoresizingMask:NSViewMinXMargin];
-	[_diagramPopup setTarget:self];
-	[_diagramPopup setAction:@selector(chooseDiagram:)];
-	[bar addSubview:_diagramPopup];
-	[content addSubview:bar];
-}
-
-- (NSScrollView *)scrollViewWithFrame:(NSRect)frame document:(NSView *)view
-{
-	NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:frame];
-	[scroll setHasVerticalScroller:YES];
-	[scroll setHasHorizontalScroller:YES];
-#if defined(__APPLE__)
-	/* gnustep-gui recurses without end tiling a scroll view that autohides
-	 * its scrollers around a view that resizes with it: NSScrollView -tile
-	 * resizes the clip view, which resizes the document view, which
-	 * reflects back into -tile. */
-	[scroll setAutohidesScrollers:YES];
-#endif
-	[scroll setBorderType:NSNoBorder];
-	[scroll setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-	[scroll setDocumentView:view];
-	return scroll;
-}
-
-/* Below the browser, as below Xcode's navigators: what to add, and a
- * filter. */
-- (NSView *)browserBarWithWidth:(double)width
-{
-	NSView *bar = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, ORMBrowserBarHeight)];
-	[bar setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
-	NSPopUpButton *add = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(4, 3, 40, 24) pullsDown:YES];
-	[add setBordered:NO];
-	[add setToolTip:@"Add to the model"];
-	[add addItemWithTitle:@"+"];
-	NSArray *items = @[ @[ @"New Entity Type", NSStringFromSelector(@selector(newEntityType:)) ],
-	                    @[ @"New Value Type", NSStringFromSelector(@selector(newValueType:)) ],
-	                    @[ @"New Fact Type…", NSStringFromSelector(@selector(focusFactEditor:)) ],
-	                    @[], @[ @"New Diagram", NSStringFromSelector(@selector(newDiagram:)) ] ];
-	for (NSArray *item in items) {
-		if ([item count] == 0) {
-			[[add menu] addItem:[NSMenuItem separatorItem]];
-			continue;
-		}
-		NSMenuItem *menuItem = [[NSMenuItem alloc] initWithTitle:[item objectAtIndex:0]
-		                                                  action:NSSelectorFromString([item objectAtIndex:1])
-		                                           keyEquivalent:@""];
-		[menuItem setTarget:self];
-		[[add menu] addItem:menuItem];
-	}
-	[bar addSubview:add];
-	_filterField = [[NSSearchField alloc] initWithFrame:NSMakeRect(48, 4, width - 54, 22)];
-	[_filterField setAutoresizingMask:NSViewWidthSizable];
-	[_filterField setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	[[_filterField cell] setPlaceholderString:@"Filter"];
-	[_filterField setDelegate:(id)self];
-	[_filterField setTarget:self];
-	[_filterField setAction:@selector(filterBrowser:)];
-	[bar addSubview:_filterField];
-	return bar;
 }
 
 - (void)filterBrowser:(id)sender
@@ -200,103 +121,38 @@ static const double ORMBrowserBarHeight = 30;
 	[_canvas createObjectTypeAt:ORMAutomaticPlacement value:YES];
 }
 
-- (void)buildWindow
+/* What the XIB does not say: the tools, the browser around its outline,
+ * the delegates of the custom views, the colours, and the panes' sizes. */
+- (void)windowDidLoad
 {
-	NSView *content = [[self window] contentView];
-	NSRect bounds = [content bounds];
-	[self buildToolbar:content];
-
-	_status = [self label:@"" frame:NSMakeRect(8, 3, NSWidth(bounds) - 16, 16)];
-	[_status setAutoresizingMask:NSViewWidthSizable | NSViewMaxYMargin];
-	[content addSubview:_status];
-
-	NSRect area = NSMakeRect(0, ORMStatusHeight, NSWidth(bounds), NSHeight(bounds) - ORMStatusHeight - ORMToolbarHeight);
-	_columns = [[NSSplitView alloc] initWithFrame:area];
-	[_columns setVertical:YES];
-	[_columns setDividerStyle:NSSplitViewDividerStyleThin];
-	[_columns setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-	[_columns setDelegate:self];
-
-	/* The browser. */
-	NSOutlineView *outline = [[NSOutlineView alloc] initWithFrame:NSMakeRect(0, 0, 220, 400)];
-	NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:@"name"];
-	[column setWidth:200];
-	[[column headerCell] setStringValue:@"Model"];
-	[outline addTableColumn:column];
-	[outline setOutlineTableColumn:column];
-	[outline setHeaderView:nil];
-	[outline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	_browser = [[ORMModelBrowser alloc] initWithOutlineView:outline];
+	[super windowDidLoad];
+	[self makeToolButtons];
+	[self.browserOutline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	_browser = [[ORMModelBrowser alloc] initWithOutlineView:self.browserOutline];
 	_browser.delegate = self;
-	NSView *left = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 220, NSHeight(area))];
-	NSScrollView *outlineScroll = [self scrollViewWithFrame:NSMakeRect(0, ORMBrowserBarHeight, 220,
-	                                                                   NSHeight(area) - ORMBrowserBarHeight)
-	                                              document:outline];
-	[outlineScroll setHasHorizontalScroller:NO];
-	[left addSubview:outlineScroll];
-	[left addSubview:[self browserBarWithWidth:220]];
-
-	/* The diagram, the fact editor and the verbalization. */
-	NSView *center = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth(area) - 520, NSHeight(area))];
-	_middle = [[NSSplitView alloc] initWithFrame:[center bounds]];
-	[_middle setVertical:NO];
-	[_middle setDividerStyle:NSSplitViewDividerStyleThin];
-	[_middle setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-	[_middle setDelegate:self];
-	_canvas = [[ORMCanvasView alloc] initWithFrame:NSMakeRect(0, 0, 800, 600)];
-	_canvas.delegate = self;
-	NSScrollView *canvasScroll = [self scrollViewWithFrame:NSMakeRect(0, 0, NSWidth([center bounds]), 420) document:_canvas];
-	[canvasScroll setBackgroundColor:ORMPaperColor()];
-	NSView *lower = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth([center bounds]), 200)];
-	NSView *factBar = [[NSView alloc] initWithFrame:NSMakeRect(0, 200 - ORMFactBarHeight, NSWidth([lower bounds]),
-	                                                           ORMFactBarHeight)];
-	[factBar setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
-	[factBar addSubview:[self label:@"Fact:" frame:NSMakeRect(6, 7, 34, 16)]];
-	_factEditor = [[NSTextField alloc] initWithFrame:NSMakeRect(42, 4, NSWidth([factBar bounds]) - 110, 22)];
-	[_factEditor setAutoresizingMask:NSViewWidthSizable];
-	[_factEditor setFont:[NSFont systemFontOfSize:12]];
-	[[_factEditor cell] setPlaceholderString:@"Person(.id) was born in Country(.code)  ·  Each Person was born in exactly one Country."];
-	[_factEditor setTarget:self];
-	[_factEditor setAction:@selector(factEditorReturn:)];
-	[factBar addSubview:_factEditor];
-	NSButton *add = [self button:@"Add" action:@selector(factEditorReturn:)
-	                       frame:NSMakeRect(NSWidth([factBar bounds]) - 64, 3, 58, 24)];
-	[add setAutoresizingMask:NSViewMinXMargin];
-	[factBar addSubview:add];
-	[lower addSubview:factBar];
-	_verbalization = [[NSTextView alloc] initWithFrame:NSMakeRect(0, 0, NSWidth([lower bounds]), 200 - ORMFactBarHeight)];
-	[_verbalization setEditable:NO];
-	[_verbalization setSelectable:YES];
-	[_verbalization setRichText:YES];
-	[_verbalization setDelegate:self];
-	[_verbalization setAutoresizingMask:NSViewWidthSizable];
-	[_verbalization setTextContainerInset:NSMakeSize(6, 6)];
+	[self.addPopUp setBordered:NO];
+	self.canvas.delegate = self;
+	self.inspector.delegate = self;
+#if defined(__APPLE__)
+	/* gnustep-gui recurses without end tiling a scroll view that autohides
+	 * its scrollers around a view that resizes with it: NSScrollView -tile
+	 * resizes the clip view, which resizes the document view, which
+	 * reflects back into -tile. */
+	for (NSScrollView *scroll in @[ self.canvasScroll, self.verbalizationScroll, self.inspectorScroll,
+	                                [self.browserOutline enclosingScrollView] ]) {
+		[scroll setAutohidesScrollers:YES];
+	}
+#endif
+	[self.canvasScroll setBackgroundColor:ORMPaperColor()];
+	[self.verbalization setTextContainerInset:NSMakeSize(6, 6)];
 	/* Colours set outright: a text view left to choose draws black on
 	 * black under some gnustep-gui themes. */
-	[_verbalization setBackgroundColor:ORMPaperColor()];
-	[_verbalization setTextColor:ORMInkColor()];
-	NSScrollView *verbalScroll = [self scrollViewWithFrame:NSMakeRect(0, 0, NSWidth([lower bounds]),
-	                                                                  200 - ORMFactBarHeight)
-	                                             document:_verbalization];
-	[verbalScroll setHasHorizontalScroller:NO];
-	[lower addSubview:verbalScroll];
-	[_middle addSubview:canvasScroll];
-	[_middle addSubview:lower];
-	[center addSubview:_middle];
-
-	/* The inspector. */
-	_inspector = [[ORMInspectorView alloc] initWithFrame:NSMakeRect(0, 0, 280, 600)];
-	_inspector.delegate = self;
-	[_inspector setAutoresizingMask:NSViewWidthSizable];
-	NSScrollView *right = [self scrollViewWithFrame:NSMakeRect(0, 0, 280, NSHeight(area)) document:_inspector];
-	[right setHasHorizontalScroller:NO];
-
-	[_columns addSubview:left];
-	[_columns addSubview:center];
-	[_columns addSubview:right];
-	[content addSubview:_columns];
-	[self layoutColumns:_columns];
-	[self layoutMiddle:_middle];
+	[self.verbalization setBackgroundColor:ORMPaperColor()];
+	[self.verbalization setTextColor:ORMInkColor()];
+	[self.factEditor setFont:[NSFont systemFontOfSize:12]];
+	[self layoutColumns:self.columnsSplit];
+	[self layoutMiddle:self.middleSplit];
+	[self editorDidChange];
 }
 
 #pragma mark Splits
@@ -337,7 +193,7 @@ static const double ORMBrowserBarHeight = 30;
 - (void)splitView:(NSSplitView *)split resizeSubviewsWithOldSize:(NSSize)oldSize
 {
 	(void)oldSize;
-	if (split == _columns) {
+	if (split == _columnsSplit) {
 		[self layoutColumns:split];
 	} else {
 		[self layoutMiddle:split];
@@ -553,7 +409,7 @@ static const double ORMBrowserBarHeight = 30;
 	/* A fact type as the Fact Editor takes it, or a constraint as the
 	 * verbalizer says it; what either names that the model lacks is made. */
 	NSString *reason = nil;
-	NSArray *made = [[self editor] addFromSentence:text onDiagram:_canvas.diagramId at:ORMAutomaticPlacement
+	NSArray *made = [[[ORMSentenceEditor alloc] initWithEditor:[self editor]] addFromSentence:text onDiagram:_canvas.diagramId at:ORMAutomaticPlacement
 	                                         reason:&reason];
 	if (made == nil) {
 		NSBeep();
@@ -607,7 +463,7 @@ static const double ORMBrowserBarHeight = 30;
 - (IBAction)newDiagram:(id)sender
 {
 	(void)sender;
-	NSString *diagram = [[self editor] addDiagramNamed:nil];
+	NSString *diagram = [[self editor].diagramEditor addDiagramNamed:nil];
 	[self openDiagram:diagram];
 	[self say:@"Show elements on it from the browser with Diagram ▸ Show Selection on Diagram."];
 }
@@ -628,13 +484,13 @@ static const double ORMBrowserBarHeight = 30;
 		[self say:@"A model keeps at least one diagram."];
 		return;
 	}
-	[[self editor] deleteElements:@[ _canvas.diagramId ]];
+	[[self editor].elementEditor deleteElements:@[ _canvas.diagramId ]];
 }
 
 - (IBAction)arrangeDiagram:(id)sender
 {
 	(void)sender;
-	[[self editor] arrangeDiagram:_canvas.diagramId];
+	[[self editor].diagramEditor arrangeDiagram:_canvas.diagramId];
 }
 
 /* The elements picked: on the canvas, or else in the inspector (from the
@@ -658,10 +514,10 @@ static const double ORMBrowserBarHeight = 30;
 			id item = [editor.model elementWithId:element];
 			if ([item isKindOfClass:[ORMFactType class]]) {
 				for (ORMRole *role in [(ORMFactType *)item visibleRoles]) {
-					[editor placeElement:role.player.identifier onDiagram:self->_canvas.diagramId at:ORMAutomaticPlacement];
+					[editor.diagramEditor placeElement:role.player.identifier onDiagram:self->_canvas.diagramId at:ORMAutomaticPlacement];
 				}
 			}
-			[editor placeElement:element onDiagram:self->_canvas.diagramId at:ORMAutomaticPlacement];
+			[editor.diagramEditor placeElement:element onDiagram:self->_canvas.diagramId at:ORMAutomaticPlacement];
 		}
 	}];
 	[_canvas selectElements:elements];
@@ -684,12 +540,12 @@ static const double ORMBrowserBarHeight = 30;
 					continue;
 				}
 				for (ORMRole *other in [role.factType visibleRoles]) {
-					[editor placeElement:other.player.identifier onDiagram:diagram at:ORMAutomaticPlacement];
+					[editor.diagramEditor placeElement:other.player.identifier onDiagram:diagram at:ORMAutomaticPlacement];
 				}
-				[editor placeElement:role.factType.identifier onDiagram:diagram at:ORMAutomaticPlacement];
+				[editor.diagramEditor placeElement:role.factType.identifier onDiagram:diagram at:ORMAutomaticPlacement];
 			}
 			for (ORMObjectType *related in [type.supertypes arrayByAddingObjectsFromArray:type.subtypes]) {
-				[editor placeElement:related.identifier onDiagram:diagram at:ORMAutomaticPlacement];
+				[editor.diagramEditor placeElement:related.identifier onDiagram:diagram at:ORMAutomaticPlacement];
 			}
 		}
 	}];
@@ -713,7 +569,7 @@ static const double ORMBrowserBarHeight = 30;
 {
 	(void)sender;
 	NSString *reason = nil;
-	if ([[self editor] objectifyFactType:[self selectedFactType] named:nil reason:&reason] == nil) {
+	if ([[self editor].factTypeEditor objectifyFactType:[self selectedFactType] named:nil reason:&reason] == nil) {
 		NSBeep();
 		[self say:reason];
 	}
@@ -723,7 +579,7 @@ static const double ORMBrowserBarHeight = 30;
 {
 	(void)sender;
 	NSString *reason = nil;
-	if (![[self editor] unobjectifyFactType:[self selectedFactType] reason:&reason]) {
+	if (![[self editor].factTypeEditor unobjectifyFactType:[self selectedFactType] reason:&reason]) {
 		NSBeep();
 		[self say:reason];
 	}
@@ -888,7 +744,7 @@ static const double ORMBrowserBarHeight = 30;
 	NSSet *diagrams = [NSSet setWithArray:[[self editor].model.diagrams valueForKey:@"identifier"]];
 	BOOL onlyEmpty = [diagrams count] == 1 && [[[[self editor].model.diagrams firstObject] allShapes] count] == 0;
 	NSArray *notes = nil;
-	NSString *mapping = model != nil ? [[self editor] importCoreDataModel:model
+	NSString *mapping = model != nil ? [[[ORMCoreDataImporter alloc] initWithEditor:[self editor]] importCoreDataModel:model
 	                                                                 path:[controller pathRelativeToDocument:path]
 	                                                                notes:&notes
 	                                                               reason:&reason]

@@ -10,7 +10,7 @@ and RDLKit (library, designer, tests, CI, AppImage).
 ORMKit/            the library: Foundation and NSXML only
 ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
 Tools/ormtool/     check, verbalize, normalize, draw as SVG, and map to and from Core Data from a shell
-ORMDesigner/       the editor (AppKit), its UI built in code
+ORMDesigner/       the editor (AppKit): its windows and menu bar XIBs, springs and struts
 ORMDesignerTests/  the editor driven through its window, headless
 docs/              this, and COREDATA-MAPPING.md
 .github/ .tools/ Scripts/   CI, the GNUstep docker image, AppImage packaging
@@ -32,11 +32,20 @@ types, notes, diagrams and shapes), rebuilt after every change. Its objects
 hold the element they were read from; their links to one another are weak
 and the model holds them all.
 
-`ORMEditor` makes every change. Each operation is one undoable step: undo
-restores a snapshot of the document. Operations take ids and refuse with a
-reason in words (`NSString **reason`) rather than an `NSError`, for the
-status line. After each change the editor keeps up what NORMA keeps
-denormalized:
+`ORMEditor` is the editing session over one document: every change goes
+through it, as one undoable step (undo restores a snapshot of the document).
+The changes themselves are made by objects with one responsibility each:
+
+- the parts of every session, reached through it: `objectTypeEditor`,
+  `factTypeEditor`, `constraintEditor`, `diagramEditor` and `elementEditor`
+  (names, definitions, notes, deletion);
+- what a feature adds, made with a session and unknown to it:
+  `ORMQueryEditor`, `ORMMappingEditor`, `ORMCoreDataImporter`,
+  `ORMSentenceEditor` (the Fact Editor), `ORMJoinPathBuilder`.
+
+Operations take ids and refuse with a reason in words (`NSString **reason`)
+rather than an `NSError`, for the status line. After each change the
+session's `ORMNormalizer` keeps up what NORMA keeps denormalized:
 
 - each object type's `PlayedRoles` and each fact type's `InternalConstraints`;
 - the derived attributes `_IsMandatory`, `_Multiplicity`, `_Name`, `_ReferenceMode`;
@@ -64,19 +73,22 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMXML` | namespaces, element helpers, ids (`_` + GUID), inches to points, NORMA's serialization |
 | `ORMModel`, `ORMDiagram` | the projection |
 | `ORMDiagramPainter` | ORM2 notation and its geometry, drawn onto any `ORMDrawingSurface`: the editor's AppKit view, `ORMSVGSurface` |
-| `ORMEditor` (+ `Objects`, `Facts`, `Constraints`, `Diagram`) | every change, and normalization |
+| `ORMEditor` | the editing session: every change as an undoable step, saving |
+| `ORMObjectTypeEditor`, `ORMFactTypeEditor`, `ORMConstraintEditor`, `ORMDiagramEditor`, `ORMElementEditor` | the session's parts: each kind of element edited |
+| `ORMNormalizer` | NORMA's denormalized data, kept up after each change |
 | `ORMReadingText` | readings taken apart: placeholders, front text, hyphen-bound text |
 | `ORMValueConstraintParser` | `{'M', 'F'}`, `[0..100)`, `{18..}` |
 | `ORMFactSentence` | NORMA's Fact Editor: `Person(.id) was born in Country(.code)` |
 | `ORMConstraintSentence` | constraints as the verbalizer says them, read back: `Each Person was born in exactly one Country.` |
+| `ORMSentenceEditor` | what the Fact Editor takes: either kind of sentence, made into the model |
 | `ORMJoinPathBuilder` | join paths written as NORMA keeps them, from logic: the fact types walked and the variables playing their roles |
 | `ORMPath` | NORMA's role paths (join paths, derivation rules), calculations, sample populations, cardinality |
 | `ORMLogic` | sequences, join paths and derivations as logic: variables, fact atoms, and/or/xor/not |
 | `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something (VERBALIZATION.md); plain text and HTML |
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
-| `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync` | the mapping, both ways (COREDATA-MAPPING.md) |
-| `ORMCoreDataImport` | a Core Data model brought into ORM, with a mapping back to it |
-| `ORMQuery`, `ORMQueryFetch` | conceptual queries after ConQuer, as logic and as Core Data fetch requests (QUERIES.md) |
+| `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways (COREDATA-MAPPING.md) |
+| `ORMCoreDataImporter` | a Core Data model brought into ORM, with a mapping back to it |
+| `ORMQuery`, `ORMQueryEditor`, `ORMQueryFetch` | conceptual queries after ConQuer, as logic and as Core Data fetch requests (QUERIES.md) |
 | `ORMCoreDataValidation` | the constraints Core Data cannot enforce, as an Objective-C category on each entity's class |
 
 ORMKit has no AppKit and no Core Data: the Core Data side is Xcode's source

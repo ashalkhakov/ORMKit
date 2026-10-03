@@ -55,6 +55,14 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 	return self;
 }
 
+/* From the document window's XIB, which does not call -initWithFrame:. */
+- (void)awakeFromNib
+{
+	[super awakeFromNib];
+	_rows = [NSMutableArray array];
+	_views = [NSMutableArray array];
+}
+
 - (BOOL)isFlipped
 {
 	return YES;
@@ -162,13 +170,13 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 	[rows addObject:ORMRow(ORMRowText, @"Name", ^id {
 		return [[editor.model elementWithId:identifier] name];
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor rename:identifier to:value reason:reason];
+		return [editor.elementEditor rename:identifier to:value reason:reason];
 	})];
 	if (type.kind != ORMObjectifiedType) {
 		ORMInspectorRow *kind = ORMRow(ORMRowPopup, @"Kind", ^id {
 			return @([(ORMObjectType *)[editor.model elementWithId:identifier] kind] == ORMValueType ? 1 : 0);
 		}, ^BOOL(id value, NSString **reason) {
-			return [editor setValueType:[value integerValue] == 1 of:identifier reason:reason];
+			return [editor.objectTypeEditor setValueType:[value integerValue] == 1 of:identifier reason:reason];
 		});
 		kind.options = @[ @"Entity Type", @"Value Type" ];
 		[rows addObject:kind];
@@ -183,7 +191,7 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 				: now.referenceModeKind == ORMReferenceModeUnitBased ? [now.referenceMode stringByAppendingString:@":"]
 				                                                     : now.referenceMode;
 		}, ^BOOL(id value, NSString **reason) {
-			return [editor setReferenceMode:value kind:ORMReferenceModeGeneral ofEntity:identifier reason:reason];
+			return [editor.objectTypeEditor setReferenceMode:value kind:ORMReferenceModeGeneral ofEntity:identifier reason:reason];
 		})];
 	}
 	ORMObjectType *valueType = type.kind == ORMValueType ? type : type.referenceModeValueType;
@@ -200,7 +208,7 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 			return @(index == NSNotFound ? 0 : index);
 		}, ^BOOL(id value, NSString **reason) {
 			ORMObjectType *now = [editor.model elementWithId:valueId];
-			return [editor setDataType:[typeNames objectAtIndex:[value unsignedIntegerValue]] length:now.dataTypeLength
+			return [editor.objectTypeEditor setDataType:[typeNames objectAtIndex:[value unsignedIntegerValue]] length:now.dataTypeLength
 			                     scale:now.dataTypeScale of:valueId reason:reason];
 		});
 		dataType.options = titles;
@@ -210,7 +218,7 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 			return length > 0 ? [NSString stringWithFormat:@"%ld", (long)length] : @"";
 		}, ^BOOL(id value, NSString **reason) {
 			ORMObjectType *now = [editor.model elementWithId:valueId];
-			return [editor setDataType:now.dataType.typeName ?: @"UnspecifiedDataType" length:[value integerValue]
+			return [editor.objectTypeEditor setDataType:now.dataType.typeName ?: @"UnspecifiedDataType" length:[value integerValue]
 			                     scale:now.dataTypeScale of:valueId reason:reason];
 		})];
 		[rows addObject:ORMRow(ORMRowText, @"Scale", ^id {
@@ -218,30 +226,30 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 			return scale > 0 ? [NSString stringWithFormat:@"%ld", (long)scale] : @"";
 		}, ^BOOL(id value, NSString **reason) {
 			ORMObjectType *now = [editor.model elementWithId:valueId];
-			return [editor setDataType:now.dataType.typeName ?: @"UnspecifiedDataType" length:now.dataTypeLength
+			return [editor.objectTypeEditor setDataType:now.dataType.typeName ?: @"UnspecifiedDataType" length:now.dataTypeLength
 			                     scale:[value integerValue] of:valueId reason:reason];
 		})];
 		[rows addObject:ORMRow(ORMRowText, @"Values", ^id {
 			ORMValueConstraint *constraint = [(ORMObjectType *)[editor.model elementWithId:valueId] valueConstraint];
 			return constraint != nil ? [constraint displayText] : @"";
 		}, ^BOOL(id value, NSString **reason) {
-			return [editor setValueConstraint:value of:valueId reason:reason];
+			return [editor.objectTypeEditor setValueConstraint:value of:valueId reason:reason];
 		})];
 	}
 	[rows addObject:ORMRow(ORMRowCheck, @"Independent", ^id {
 		return @([(ORMObjectType *)[editor.model elementWithId:identifier] isIndependent]);
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setIndependent:[value boolValue] of:identifier reason:reason];
+		return [editor.objectTypeEditor setIndependent:[value boolValue] of:identifier reason:reason];
 	})];
 	[rows addObject:ORMRow(ORMRowCheck, @"Personal", ^id {
 		return @([(ORMObjectType *)[editor.model elementWithId:identifier] isPersonal]);
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setPersonal:[value boolValue] of:identifier reason:reason];
+		return [editor.objectTypeEditor setPersonal:[value boolValue] of:identifier reason:reason];
 	})];
 	[rows addObject:ORMRow(ORMRowCheck, @"External", ^id {
 		return @([(ORMObjectType *)[editor.model elementWithId:identifier] isExternal]);
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setExternal:[value boolValue] of:identifier reason:reason];
+		return [editor.objectTypeEditor setExternal:[value boolValue] of:identifier reason:reason];
 	})];
 	[rows addObjectsFromArray:[self textRowsFor:identifier]];
 	return rows;
@@ -264,12 +272,12 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 		ORMRow(ORMRowText, @"Definition", ^id {
 			return ORMNestedTextOf([editor.model elementWithId:identifier], @"Definitions", @"Definition");
 		}, ^BOOL(id value, NSString **reason) {
-			return [editor setDefinition:value of:identifier reason:reason];
+			return [editor.elementEditor setDefinition:value of:identifier reason:reason];
 		}),
 		ORMRow(ORMRowText, @"Note", ^id {
 			return ORMNestedTextOf([editor.model elementWithId:identifier], @"Notes", @"Note");
 		}, ^BOOL(id value, NSString **reason) {
-			return [editor setNote:value of:identifier reason:reason];
+			return [editor.elementEditor setNote:value of:identifier reason:reason];
 		}),
 	];
 }
@@ -295,7 +303,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 		if (text == nil) {
 			return NO;
 		}
-		return [editor setReadingText:text of:readingId reason:reason];
+		return [editor.factTypeEditor setReadingText:text of:readingId reason:reason];
 	});
 }
 
@@ -327,7 +335,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 			if (text == nil) {
 				return NO;
 			}
-			return [editor addReading:text forRoles:@[ [[reversed objectAtIndex:0] identifier],
+			return [editor.factTypeEditor addReading:text forRoles:@[ [[reversed objectAtIndex:0] identifier],
 			                                           [[reversed objectAtIndex:1] identifier] ] reason:reason] != nil;
 		})];
 	}
@@ -338,22 +346,22 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 		return @([(ORMFactType *)[editor.model elementWithId:identifier] objectifyingType] != nil);
 	}, ^BOOL(id value, NSString **reason) {
 		if ([value boolValue]) {
-			return [editor objectifyFactType:identifier named:nil reason:reason] != nil;
+			return [editor.factTypeEditor objectifyFactType:identifier named:nil reason:reason] != nil;
 		}
-		return [editor unobjectifyFactType:identifier reason:reason];
+		return [editor.factTypeEditor unobjectifyFactType:identifier reason:reason];
 	})];
 	if (fact.objectifyingType != nil) {
 		[rows addObject:ORMRow(ORMRowText, @"As", ^id {
 			return [[(ORMFactType *)[editor.model elementWithId:identifier] objectifyingType] name] ?: @"";
 		}, ^BOOL(id value, NSString **reason) {
 			ORMObjectType *type = [(ORMFactType *)[editor.model elementWithId:identifier] objectifyingType];
-			return [editor rename:type.identifier to:value reason:reason];
+			return [editor.elementEditor rename:type.identifier to:value reason:reason];
 		})];
 	}
 	[rows addObject:ORMRow(ORMRowText, @"Derivation", ^id {
 		return [[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] informalText] ?: @"";
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setDerivationNote:value of:identifier reason:reason];
+		return [editor.factTypeEditor setDerivationNote:value of:identifier reason:reason];
 	})];
 	[rows addObjectsFromArray:[self textRowsFor:identifier]];
 	return rows;
@@ -371,23 +379,23 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 	[rows addObject:ORMRow(ORMRowText, @"Role Name", ^id {
 		return [[editor.model elementWithId:identifier] name] ?: @"";
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor rename:identifier to:value reason:reason];
+		return [editor.elementEditor rename:identifier to:value reason:reason];
 	})];
 	[rows addObject:ORMRow(ORMRowCheck, @"Mandatory", ^id {
 		return @([(ORMRole *)[editor.model elementWithId:identifier] isMandatory]);
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setMandatory:[value boolValue] role:identifier reason:reason];
+		return [editor.constraintEditor setMandatory:[value boolValue] role:identifier reason:reason];
 	})];
 	[rows addObject:ORMRow(ORMRowCheck, @"Unique", ^id {
 		return @([(ORMRole *)[editor.model elementWithId:identifier] isUnique]);
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setUnique:[value boolValue] role:identifier reason:reason];
+		return [editor.constraintEditor setUnique:[value boolValue] role:identifier reason:reason];
 	})];
 	[rows addObject:ORMRow(ORMRowText, @"Values", ^id {
 		ORMValueConstraint *constraint = [(ORMRole *)[editor.model elementWithId:identifier] valueConstraint];
 		return constraint != nil ? [constraint displayText] : @"";
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setValueConstraint:value of:identifier reason:reason];
+		return [editor.objectTypeEditor setValueConstraint:value of:identifier reason:reason];
 	})];
 	[rows addObjectsFromArray:[self rowsForFactType:role.factType]];
 	return rows;
@@ -412,12 +420,12 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 	[rows addObject:ORMRow(ORMRowText, @"Name", ^id {
 		return [[editor.model elementWithId:identifier] name] ?: @"";
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor rename:identifier to:value reason:reason];
+		return [editor.elementEditor rename:identifier to:value reason:reason];
 	})];
 	ORMInspectorRow *modality = ORMRow(ORMRowPopup, @"Modality", ^id {
 		return @([(ORMConstraint *)[editor.model elementWithId:identifier] modality] == ORMDeontic ? 1 : 0);
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setModality:[value integerValue] == 1 ? ORMDeontic : ORMAlethic of:identifier reason:reason];
+		return [editor.constraintEditor setModality:[value integerValue] == 1 ? ORMDeontic : ORMAlethic of:identifier reason:reason];
 	});
 	modality.options = @[ @"Alethic (necessary)", @"Deontic (obligatory)" ];
 	[rows addObject:modality];
@@ -432,7 +440,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 				}
 				return NO;
 			}
-			return [editor setPreferredIdentifier:identifier reason:reason];
+			return [editor.constraintEditor setPreferredIdentifier:identifier reason:reason];
 		})];
 		break;
 	}
@@ -442,7 +450,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 			                                                             minFrequency]];
 		}, ^BOOL(id value, NSString **reason) {
 			ORMConstraint *now = [editor.model elementWithId:identifier];
-			return [editor setFrequencyMin:(NSUInteger)MAX(0, [value integerValue]) max:now.maxFrequency of:identifier
+			return [editor.constraintEditor setFrequencyMin:(NSUInteger)MAX(0, [value integerValue]) max:now.maxFrequency of:identifier
 			                        reason:reason];
 		})];
 		[rows addObject:ORMRow(ORMRowText, @"At Most", ^id {
@@ -450,7 +458,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 			return max > 0 ? [NSString stringWithFormat:@"%lu", (unsigned long)max] : @"";
 		}, ^BOOL(id value, NSString **reason) {
 			ORMConstraint *now = [editor.model elementWithId:identifier];
-			return [editor setFrequencyMin:now.minFrequency max:(NSUInteger)MAX(0, [value integerValue]) of:identifier
+			return [editor.constraintEditor setFrequencyMin:now.minFrequency max:(NSUInteger)MAX(0, [value integerValue]) of:identifier
 			                        reason:reason];
 		})];
 		break;
@@ -469,7 +477,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 			}, ^BOOL(id value, NSString **reason) {
 				ORMRingType type = [(ORMConstraint *)[editor.model elementWithId:identifier] ringType];
 				type = [value boolValue] ? (type | bit) : (type & ~bit);
-				return [editor setRingType:type of:identifier reason:reason];
+				return [editor.constraintEditor setRingType:type of:identifier reason:reason];
 			})];
 		}
 		break;
@@ -489,7 +497,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 	[rows addObject:ORMRow(ORMRowText, @"Text", ^id {
 		return [(ORMModelNote *)[editor.model elementWithId:identifier] text] ?: @"";
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor setNoteText:value of:identifier reason:reason];
+		return [editor.elementEditor setNoteText:value of:identifier reason:reason];
 	})];
 	return rows;
 }
@@ -503,7 +511,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 	[rows addObject:ORMRow(ORMRowText, @"Name", ^id {
 		return [[editor.model elementWithId:identifier] name] ?: @"";
 	}, ^BOOL(id value, NSString **reason) {
-		return [editor rename:identifier to:value reason:reason];
+		return [editor.elementEditor rename:identifier to:value reason:reason];
 	})];
 	[rows addObject:ORMRow(ORMRowLabel, @"Model", ^id {
 		return editor.model.name ?: @"";

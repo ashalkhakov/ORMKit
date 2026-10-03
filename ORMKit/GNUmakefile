@@ -19,11 +19,17 @@ ORMKit_HEADER_FILES = \
   ORMReadingText.h \
   ORMValueConstraintParser.h \
   ORMEditor.h \
+  ORMObjectTypeEditor.h \
+  ORMFactTypeEditor.h \
+  ORMConstraintEditor.h \
+  ORMDiagramEditor.h \
+  ORMElementEditor.h \
   ORMPath.h \
   ORMLogic.h \
   ORMVerbalizer.h \
   ORMFactSentence.h \
   ORMConstraintSentence.h \
+  ORMSentenceEditor.h \
   ORMJoinPathBuilder.h \
   ORMCDModel.h \
   ORMCoreDataMapping.h \
@@ -42,10 +48,12 @@ ORMKit_OBJC_FILES = \
   ORMReadingText.m \
   ORMValueConstraintParser.m \
   ORMEditor.m \
-  ORMEditor+Objects.m \
-  ORMEditor+Facts.m \
-  ORMEditor+Constraints.m \
-  ORMEditor+Diagram.m \
+  ORMNormalizer.m \
+  ORMObjectTypeEditor.m \
+  ORMFactTypeEditor.m \
+  ORMConstraintEditor.m \
+  ORMDiagramEditor.m \
+  ORMElementEditor.m \
   ORMPath.m \
   ORMLogic.m \
   ORMVerbalizer.m \

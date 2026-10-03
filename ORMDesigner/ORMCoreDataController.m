@@ -23,26 +23,28 @@ ORMActionTitles(void)
 	return @[ @"Apply to the ORM model", @"Keep in the mapping only", @"Discard (ORM wins)" ];
 }
 
+@interface ORMCoreDataController ()
+@property (nonatomic, strong) IBOutlet NSPopUpButton *mappingPopUp;
+@property (nonatomic, strong) IBOutlet NSTextField *pathField;
+@property (nonatomic, strong) IBOutlet NSTextField *validationPathField;
+@property (nonatomic, strong) IBOutlet NSButton *identifiersCheck;
+@property (nonatomic, strong) IBOutlet NSButton *flattenCheck;
+@property (nonatomic, strong) IBOutlet NSButton *valueSetsCheck;
+@property (nonatomic, strong) IBOutlet NSButton *absorbIdentifiersCheck;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *stylePopUp;
+@property (nonatomic, strong) IBOutlet NSTextField *transformableClassField;
+@property (nonatomic, strong) IBOutlet NSTextField *statusLabel;
+@property (nonatomic, strong) IBOutlet NSTabView *tabs;
+@property (nonatomic, strong) IBOutlet NSOutlineView *preview;
+@property (nonatomic, strong) IBOutlet NSTableView *typesTable;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *typeMappingPopUp;
+@property (nonatomic, strong) IBOutlet NSTextView *reportView;
+@property (nonatomic, strong) IBOutlet NSTableView *changesTable;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *changeActionPopUp;
+@end
+
 @implementation ORMCoreDataController
 {
-	NSPopUpButton *_mappings;
-	NSTextField *_path;
-	NSTextField *_validationPath;
-	NSButton *_identifiers;
-	NSButton *_flatten;
-	NSButton *_valueSets;
-	NSButton *_absorbIdentifiers;
-	NSPopUpButton *_style;
-	NSTextField *_transformableClass;
-	NSPopUpButton *_codegen;
-	NSTextField *_status;
-	NSTabView *_tabs;
-	NSOutlineView *_preview;
-	NSTableView *_types;
-	NSPopUpButton *_typeMapping;
-	NSTextView *_report;
-	NSTableView *_changesTable;
-	NSPopUpButton *_changeAction;
 	NSArray<ORMPreviewItem *> *_items;
 	NSArray<ORMObjectType *> *_objectTypes;
 	ORMCoreDataSync *_sync;
@@ -50,233 +52,29 @@ ORMActionTitles(void)
 
 - (instancetype)initWithEditor:(ORMEditor *)editor documentURL:(NSURL *)documentURL
 {
-	NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(160, 120, 900, 640)
-	                                               styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-	                                                         | NSWindowStyleMaskResizable
-	                                                 backing:NSBackingStoreBuffered
-	                                                   defer:YES];
-	[window setTitle:@"Core Data Mappings"];
-	[window setReleasedWhenClosed:NO];
-	[window setMinSize:NSMakeSize(640, 420)];
-	if ((self = [super initWithWindow:window])) {
+	if ((self = [super initWithWindowNibName:@"ORMCoreDataWindow"])) {
 		_editor = editor;
 		_documentURL = [documentURL copy];
-		[self build];
-		[self modelDidChange];
+		[self window];
 	}
 	return self;
 }
 
-#pragma mark Building
-
-- (NSTextField *)label:(NSString *)text frame:(NSRect)frame
+/* What the XIB does not say: the report's font. */
+- (void)windowDidLoad
 {
-	NSTextField *label = [[NSTextField alloc] initWithFrame:frame];
-	[label setStringValue:text];
-	[label setEditable:NO];
-	[label setBordered:NO];
-	[label setBezeled:NO];
-	[label setDrawsBackground:NO];
-	[label setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	return label;
-}
-
-- (NSButton *)button:(NSString *)title action:(SEL)action frame:(NSRect)frame
-{
-	NSButton *button = [[NSButton alloc] initWithFrame:frame];
-	[button setTitle:title];
-	[button setBezelStyle:NSBezelStyleRounded];
-	[button setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	[button setTarget:self];
-	[button setAction:action];
-	return button;
-}
-
-- (NSButton *)check:(NSString *)title action:(SEL)action frame:(NSRect)frame
-{
-	NSButton *check = [self button:title action:action frame:frame];
-	[check setButtonType:NSButtonTypeSwitch];
-	return check;
-}
-
-- (NSScrollView *)scroll:(NSView *)view frame:(NSRect)frame
-{
-	NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:frame];
-	[scroll setHasVerticalScroller:YES];
-	[scroll setBorderType:NSBezelBorder];
-	[scroll setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-	[scroll setDocumentView:view];
-	return scroll;
-}
-
-- (NSTableColumn *)column:(NSString *)identifier title:(NSString *)title width:(double)width
-{
-	NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:identifier];
-	[[column headerCell] setStringValue:title];
-	[column setWidth:width];
-	[column setEditable:NO];
-	return column;
-}
-
-- (void)build
-{
-	NSView *content = [[self window] contentView];
-	NSRect bounds = [content bounds];
-	double top = NSHeight(bounds);
-	double width = NSWidth(bounds);
-
-	[content addSubview:[self label:@"Mapping:" frame:NSMakeRect(12, top - 32, 60, 18)]];
-	_mappings = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(74, top - 36, 220, 24) pullsDown:NO];
-	[_mappings setTarget:self];
-	[_mappings setAction:@selector(chooseMapping:)];
-	[_mappings setAutoresizingMask:NSViewMinYMargin];
-	[content addSubview:_mappings];
-	NSButton *add = [self button:@"+" action:@selector(addMapping:) frame:NSMakeRect(298, top - 36, 30, 24)];
-	NSButton *remove = [self button:@"−" action:@selector(removeMapping:) frame:NSMakeRect(330, top - 36, 30, 24)];
-	NSButton *sync = [self button:@"Synchronize" action:@selector(synchronize:) frame:NSMakeRect(width - 130, top - 36, 118, 24)];
-	for (NSView *view in @[ add, remove ]) {
-		[view setAutoresizingMask:NSViewMinYMargin];
-		[content addSubview:view];
-	}
-	[sync setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
-	[content addSubview:sync];
-
-	[content addSubview:[self label:@"Model:" frame:NSMakeRect(12, top - 62, 60, 18)]];
-	_path = [[NSTextField alloc] initWithFrame:NSMakeRect(74, top - 64, width - 420, 22)];
-	[_path setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	[[_path cell] setSendsActionOnEndEditing:YES];
-	[_path setTarget:self];
-	[_path setAction:@selector(pathChanged:)];
-	[_path setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
-	[content addSubview:_path];
-	/* What the store is for: the style's defaults for what is absorbed. */
-	NSTextField *styleLabel = [self label:@"Style:" frame:NSMakeRect(width - 336, top - 62, 40, 18)];
-	[styleLabel setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
-	[content addSubview:styleLabel];
-	_style = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(width - 294, top - 65, 166, 24) pullsDown:NO];
-	[_style addItemsWithTitles:@[ @"Application", @"Relational (Rmap)", @"Entities (reporting)" ]];
-	[_style setTarget:self];
-	[_style setAction:@selector(styleChanged:)];
-	[_style setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
-	[content addSubview:_style];
-	NSButton *choose = [self button:@"Choose…" action:@selector(choosePath:) frame:NSMakeRect(width - 120, top - 64, 108, 24)];
-	[choose setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
-	[content addSubview:choose];
-
-	_identifiers = [self check:@"Reference modes as attributes" action:@selector(optionChanged:)
-	                     frame:NSMakeRect(74, top - 90, 210, 20)];
-	_flatten = [self check:@"Flatten subtypes" action:@selector(optionChanged:) frame:NSMakeRect(290, top - 90, 130, 20)];
-	_valueSets = [self check:@"Value sets as entities" action:@selector(optionChanged:)
-	                   frame:NSMakeRect(424, top - 90, 170, 20)];
-	_absorbIdentifiers = [self check:@"Absorb identifier-only types (Rmap)" action:@selector(optionChanged:)
-	                           frame:NSMakeRect(598, top - 90, 250, 20)];
-	for (NSView *view in @[ _identifiers, _flatten, _valueSets, _absorbIdentifiers ]) {
-		[view setAutoresizingMask:NSViewMinYMargin];
-		[content addSubview:view];
-	}
-
-	/* Where the code checking what Core Data cannot goes; Synchronize
-	 * writes it there with the model. */
-	[content addSubview:[self label:@"Validation code:" frame:NSMakeRect(12, top - 118, 104, 18)]];
-	_validationPath = [[NSTextField alloc] initWithFrame:NSMakeRect(118, top - 120, width - 250, 22)];
-	[_validationPath setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	[[_validationPath cell] setPlaceholderString:@"A directory for the constraints Core Data cannot enforce, as code; "
-	                                             @"empty for none"];
-	[[_validationPath cell] setSendsActionOnEndEditing:YES];
-	[_validationPath setTarget:self];
-	[_validationPath setAction:@selector(validationPathChanged:)];
-	[_validationPath setAutoresizingMask:NSViewWidthSizable | NSViewMinYMargin];
-	[content addSubview:_validationPath];
-	NSButton *chooseValidation = [self button:@"Choose…" action:@selector(chooseValidationPath:)
-	                                    frame:NSMakeRect(width - 120, top - 120, 108, 24)];
-	[chooseValidation setAutoresizingMask:NSViewMinYMargin | NSViewMinXMargin];
-	[content addSubview:chooseValidation];
-
-	_tabs = [[NSTabView alloc] initWithFrame:NSMakeRect(8, 30, width - 16, top - 154)];
-	[_tabs setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
-	NSRect inner = NSMakeRect(0, 0, NSWidth([_tabs frame]) - 20, NSHeight([_tabs frame]) - 40);
-
-	_preview = [[NSOutlineView alloc] initWithFrame:inner];
-	NSTableColumn *name = [self column:@"name" title:@"Entity / Property" width:220];
-	[name setEditable:YES];
-	[_preview addTableColumn:name];
-	[_preview addTableColumn:[self column:@"type" title:@"Type" width:170]];
-	[_preview addTableColumn:[self column:@"source" title:@"From the ORM model" width:360]];
-	[_preview setOutlineTableColumn:name];
-	[_preview setDataSource:(id)self];
-	[_preview setDelegate:(id)self];
-	NSTabViewItem *previewTab = [[NSTabViewItem alloc] initWithIdentifier:@"preview"];
-	[previewTab setLabel:@"Entities"];
-	[previewTab setView:[self scroll:_preview frame:inner]];
-	[_tabs addTabViewItem:previewTab];
-
-	NSView *typesPane = [[NSView alloc] initWithFrame:inner];
-	_types = [[NSTableView alloc] initWithFrame:inner];
-	[_types addTableColumn:[self column:@"objectType" title:@"Object Type" width:260]];
-	[_types addTableColumn:[self column:@"mapping" title:@"Maps As" width:200]];
-	[_types setDataSource:(id)self];
-	[_types setDelegate:(id)self];
-	NSScrollView *typesScroll = [self scroll:_types frame:NSMakeRect(0, 34, NSWidth(inner), NSHeight(inner) - 34)];
-	[typesPane addSubview:typesScroll];
-	[typesPane addSubview:[self label:@"Map the selected object type as:" frame:NSMakeRect(4, 8, 200, 18)]];
-	_typeMapping = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(206, 4, 160, 24) pullsDown:NO];
-	[_typeMapping addItemsWithTitles:ORMMappingTitles()];
-	[_typeMapping setTarget:self];
-	[_typeMapping setAction:@selector(typeMappingChanged:)];
-	[typesPane addSubview:_typeMapping];
-	/* A Transformable value type's class: NSURL for a URL, NSString when
-	 * left empty. */
-	[typesPane addSubview:[self label:@"Class:" frame:NSMakeRect(374, 8, 40, 18)]];
-	_transformableClass = [[NSTextField alloc] initWithFrame:NSMakeRect(416, 5, 140, 22)];
-	[_transformableClass setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	[[_transformableClass cell] setPlaceholderString:@"NSString"];
-	[_transformableClass setTarget:self];
-	[_transformableClass setAction:@selector(typeMappingChanged:)];
-	[typesPane addSubview:_transformableClass];
-	NSTabViewItem *typesTab = [[NSTabViewItem alloc] initWithIdentifier:@"types"];
-	[typesTab setLabel:@"Object Types"];
-	[typesTab setView:typesPane];
-	[_tabs addTabViewItem:typesTab];
-
-	_report = [[NSTextView alloc] initWithFrame:inner];
-	[_report setEditable:NO];
-	[_report setBackgroundColor:[NSColor textBackgroundColor]];
-	[_report setTextColor:[NSColor textColor]];
-	[_report setFont:[NSFont systemFontOfSize:12]];
-	NSTabViewItem *reportTab = [[NSTabViewItem alloc] initWithIdentifier:@"report"];
-	[reportTab setLabel:@"Report"];
-	[reportTab setView:[self scroll:_report frame:inner]];
-	[_tabs addTabViewItem:reportTab];
-
-	NSView *changesPane = [[NSView alloc] initWithFrame:inner];
-	_changesTable = [[NSTableView alloc] initWithFrame:inner];
-	[_changesTable addTableColumn:[self column:@"change" title:@"Changed in Core Data" width:440]];
-	[_changesTable addTableColumn:[self column:@"action" title:@"Action" width:220]];
-	[_changesTable setDataSource:(id)self];
-	[_changesTable setDelegate:(id)self];
-	[changesPane addSubview:[self scroll:_changesTable frame:NSMakeRect(0, 34, NSWidth(inner), NSHeight(inner) - 34)]];
-	[changesPane addSubview:[self label:@"Action for the selected change:" frame:NSMakeRect(4, 8, 190, 18)]];
-	_changeAction = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(196, 4, 210, 24) pullsDown:NO];
-	[_changeAction addItemsWithTitles:ORMActionTitles()];
-	[_changeAction setTarget:self];
-	[_changeAction setAction:@selector(changeActionChanged:)];
-	[changesPane addSubview:_changeAction];
-	NSButton *apply = [self button:@"Apply and Write" action:@selector(applyAndWrite:)
-	                         frame:NSMakeRect(NSWidth(inner) - 140, 4, 136, 24)];
-	[apply setAutoresizingMask:NSViewMinXMargin];
-	[changesPane addSubview:apply];
-	NSTabViewItem *changesTab = [[NSTabViewItem alloc] initWithIdentifier:@"changes"];
-	[changesTab setLabel:@"Changes"];
-	[changesTab setView:changesPane];
-	[_tabs addTabViewItem:changesTab];
-	[content addSubview:_tabs];
-
-	_status = [self label:@"" frame:NSMakeRect(12, 6, width - 24, 18)];
-	[_status setAutoresizingMask:NSViewWidthSizable];
-	[content addSubview:_status];
+	[super windowDidLoad];
+	[self.reportView setFont:[NSFont systemFontOfSize:12]];
+	[self modelDidChange];
 }
 
 #pragma mark The mapping
+
+/* The document's mappings, edited. */
+- (ORMMappingEditor *)mappings
+{
+	return [[ORMMappingEditor alloc] initWithEditor:self.editor];
+}
 
 - (ORMCoreDataMapping *)mapping
 {
@@ -285,7 +83,7 @@ ORMActionTitles(void)
 
 - (void)say:(NSString *)message
 {
-	[_status setStringValue:message ?: @""];
+	[_statusLabel setStringValue:message ?: @""];
 }
 
 - (void)modelDidChange
@@ -294,26 +92,26 @@ ORMActionTitles(void)
 	if (self.mappingId == nil || [self mapping] == nil) {
 		self.mappingId = [[mappings firstObject] identifier];
 	}
-	[_mappings removeAllItems];
+	[_mappingPopUp removeAllItems];
 	for (ORMCoreDataMapping *mapping in mappings) {
-		[_mappings addItemWithTitle:mapping.name ?: @"Mapping"];
-		[[_mappings lastItem] setRepresentedObject:mapping.identifier];
+		[_mappingPopUp addItemWithTitle:mapping.name ?: @"Mapping"];
+		[[_mappingPopUp lastItem] setRepresentedObject:mapping.identifier];
 		if ([mapping.identifier isEqualToString:self.mappingId]) {
-			[_mappings selectItem:[_mappings lastItem]];
+			[_mappingPopUp selectItem:[_mappingPopUp lastItem]];
 		}
 	}
 	ORMCoreDataMapping *mapping = [self mapping];
 	BOOL enabled = mapping != nil;
-	for (NSControl *control in @[ _path, _validationPath, _identifiers, _flatten, _valueSets, _absorbIdentifiers, _style ]) {
+	for (NSControl *control in @[ _pathField, _validationPathField, _identifiersCheck, _flattenCheck, _valueSetsCheck, _absorbIdentifiersCheck, _stylePopUp ]) {
 		[control setEnabled:enabled];
 	}
-	[_path setStringValue:mapping.path ?: @""];
-	[_validationPath setStringValue:mapping.validationPath ?: @""];
-	[_identifiers setState:mapping == nil || mapping.materializesIdentifiers ? NSControlStateValueOn : NSControlStateValueOff];
-	[_flatten setState:mapping.flattensSubtypes ? NSControlStateValueOn : NSControlStateValueOff];
-	[_valueSets setState:mapping == nil || mapping.valueSetsAsEntities ? NSControlStateValueOn : NSControlStateValueOff];
-	[_absorbIdentifiers setState:mapping.absorbsIdentifierTypes ? NSControlStateValueOn : NSControlStateValueOff];
-	[_style selectItemAtIndex:mapping != nil ? mapping.style : ORMStyleApplication];
+	[_pathField setStringValue:mapping.path ?: @""];
+	[_validationPathField setStringValue:mapping.validationPath ?: @""];
+	[_identifiersCheck setState:mapping == nil || mapping.materializesIdentifiers ? NSControlStateValueOn : NSControlStateValueOff];
+	[_flattenCheck setState:mapping.flattensSubtypes ? NSControlStateValueOn : NSControlStateValueOff];
+	[_valueSetsCheck setState:mapping == nil || mapping.valueSetsAsEntities ? NSControlStateValueOn : NSControlStateValueOff];
+	[_absorbIdentifiersCheck setState:mapping.absorbsIdentifierTypes ? NSControlStateValueOn : NSControlStateValueOff];
+	[_stylePopUp selectItemAtIndex:mapping != nil ? mapping.style : ORMStyleApplication];
 	[self remap];
 }
 
@@ -354,13 +152,13 @@ ORMActionTitles(void)
 			[report appendFormat:@"%@\n%@\n\n", [headings objectAtIndex:kind], [lines componentsJoinedByString:@"\n"]];
 		}
 	}
-	[_report setString:[report length] > 0 ? report : @"Everything the model says, Core Data holds."];
+	[_reportView setString:[report length] > 0 ? report : @"Everything the model says, Core Data holds."];
 
 	_objectTypes = [[self.editor.model visibleObjectTypes] sortedArrayUsingComparator:^NSComparisonResult(ORMObjectType *a,
 	                                                                                                      ORMObjectType *b) {
 		return [a.name localizedCaseInsensitiveCompare:b.name];
 	}];
-	[_types reloadData];
+	[_typesTable reloadData];
 	[_changesTable reloadData];
 	if (mapping.baseline == nil) {
 		[self say:[NSString stringWithFormat:@"%lu entities. Not written yet: Synchronize writes the model.",
@@ -383,7 +181,7 @@ ORMActionTitles(void)
 - (IBAction)chooseMapping:(id)sender
 {
 	(void)sender;
-	self.mappingId = [[_mappings selectedItem] representedObject];
+	self.mappingId = [[_mappingPopUp selectedItem] representedObject];
 	_sync = nil;
 	[self modelDidChange];
 }
@@ -393,7 +191,7 @@ ORMActionTitles(void)
 	(void)sender;
 	NSString *base = self.editor.model.name ?: @"Model";
 	NSString *name = [[ORMCoreDataMapper entityNameFor:base] length] > 0 ? [ORMCoreDataMapper entityNameFor:base] : @"Model";
-	self.mappingId = [self.editor addCoreDataMappingNamed:name path:[name stringByAppendingPathExtension:@"xcdatamodeld"]];
+	self.mappingId = [[self mappings] addCoreDataMappingNamed:name path:[name stringByAppendingPathExtension:@"xcdatamodeld"]];
 	[self modelDidChange];
 }
 
@@ -401,7 +199,7 @@ ORMActionTitles(void)
 {
 	(void)sender;
 	if (self.mappingId != nil) {
-		[self.editor removeCoreDataMapping:self.mappingId];
+		[[self mappings] removeCoreDataMapping:self.mappingId];
 		self.mappingId = nil;
 		[self modelDidChange];
 	}
@@ -411,11 +209,11 @@ ORMActionTitles(void)
 {
 	(void)sender;
 	NSString *reason = nil;
-	if (self.mappingId != nil && ![[_path stringValue] isEqualToString:[self mapping].path]
-	    && ![self.editor setPath:[_path stringValue] ofMapping:self.mappingId reason:&reason]) {
+	if (self.mappingId != nil && ![[_pathField stringValue] isEqualToString:[self mapping].path]
+	    && ![[self mappings] setPath:[_pathField stringValue] ofMapping:self.mappingId reason:&reason]) {
 		NSBeep();
 		[self say:reason];
-		[_path setStringValue:[self mapping].path ?: @""];
+		[_pathField setStringValue:[self mapping].path ?: @""];
 	}
 }
 
@@ -441,15 +239,15 @@ ORMActionTitles(void)
 	if ([panel runModal] != NSModalResponseOK) {
 		return;
 	}
-	[self.editor setPath:[self pathRelativeToDocument:[[panel URL] path]] ofMapping:self.mappingId reason:NULL];
+	[[self mappings] setPath:[self pathRelativeToDocument:[[panel URL] path]] ofMapping:self.mappingId reason:NULL];
 	[self modelDidChange];
 }
 
 - (void)validationPathChanged:(id)sender
 {
 	(void)sender;
-	if (self.mappingId != nil && ![[_validationPath stringValue] isEqualToString:[self mapping].validationPath ?: @""]) {
-		[self.editor setValidationPath:[_validationPath stringValue] ofMapping:self.mappingId];
+	if (self.mappingId != nil && ![[_validationPathField stringValue] isEqualToString:[self mapping].validationPath ?: @""]) {
+		[[self mappings] setValidationPath:[_validationPathField stringValue] ofMapping:self.mappingId];
 	}
 }
 
@@ -467,7 +265,7 @@ ORMActionTitles(void)
 	if ([panel runModal] != NSModalResponseOK) {
 		return;
 	}
-	[self.editor setValidationPath:[self pathRelativeToDocument:[[panel URL] path]] ofMapping:self.mappingId];
+	[[self mappings] setValidationPath:[self pathRelativeToDocument:[[panel URL] path]] ofMapping:self.mappingId];
 	[self modelDidChange];
 }
 
@@ -477,7 +275,7 @@ ORMActionTitles(void)
 	if (self.mappingId == nil) {
 		return;
 	}
-	[self.editor setStyle:(ORMMappingStyle)[_style indexOfSelectedItem] ofMapping:self.mappingId];
+	[[self mappings] setStyle:(ORMMappingStyle)[_stylePopUp indexOfSelectedItem] ofMapping:self.mappingId];
 }
 
 - (void)optionChanged:(id)sender
@@ -486,21 +284,21 @@ ORMActionTitles(void)
 		return;
 	}
 	BOOL on = [sender state] == NSControlStateValueOn;
-	if (sender == _identifiers) {
-		[self.editor setMaterializesIdentifiers:on ofMapping:self.mappingId];
-	} else if (sender == _flatten) {
-		[self.editor setFlattensSubtypes:on ofMapping:self.mappingId];
-	} else if (sender == _valueSets) {
-		[self.editor setValueSetsAsEntities:on ofMapping:self.mappingId];
-	} else if (sender == _absorbIdentifiers) {
-		[self.editor setAbsorbsIdentifierTypes:on ofMapping:self.mappingId];
+	if (sender == _identifiersCheck) {
+		[[self mappings] setMaterializesIdentifiers:on ofMapping:self.mappingId];
+	} else if (sender == _flattenCheck) {
+		[[self mappings] setFlattensSubtypes:on ofMapping:self.mappingId];
+	} else if (sender == _valueSetsCheck) {
+		[[self mappings] setValueSetsAsEntities:on ofMapping:self.mappingId];
+	} else if (sender == _absorbIdentifiersCheck) {
+		[[self mappings] setAbsorbsIdentifierTypes:on ofMapping:self.mappingId];
 	}
 }
 
 - (void)typeMappingChanged:(id)sender
 {
 	(void)sender;
-	NSInteger row = [_types selectedRow];
+	NSInteger row = [_typesTable selectedRow];
 	if (row < 0 || (NSUInteger)row >= [_objectTypes count]) {
 		NSBeep();
 		[self say:@"Select an object type first."];
@@ -510,12 +308,12 @@ ORMActionTitles(void)
 		[self addMapping:nil];
 	}
 	ORMObjectType *type = [_objectTypes objectAtIndex:(NSUInteger)row];
-	ORMObjectTypeMapping how = (ORMObjectTypeMapping)[_typeMapping indexOfSelectedItem];
+	ORMObjectTypeMapping how = (ORMObjectTypeMapping)[_typeMappingPopUp indexOfSelectedItem];
 	if (how == ORMMapTransformable) {
-		[self.editor setTransformableClass:[_transformableClass stringValue] transformer:nil ofObjectType:type.identifier
+		[[self mappings] setTransformableClass:[_transformableClassField stringValue] transformer:nil ofObjectType:type.identifier
 		                         inMapping:self.mappingId];
 	} else {
-		[self.editor setMapping:how ofObjectType:type.identifier inMapping:self.mappingId];
+		[[self mappings] setMapping:how ofObjectType:type.identifier inMapping:self.mappingId];
 	}
 }
 
@@ -527,11 +325,11 @@ ORMActionTitles(void)
 		return;
 	}
 	ORMSyncChange *change = [_sync.changes objectAtIndex:(NSUInteger)row];
-	ORMSyncAction action = (ORMSyncAction)[_changeAction indexOfSelectedItem];
+	ORMSyncAction action = (ORMSyncAction)[_changeActionPopUp indexOfSelectedItem];
 	if (![change.possibleActions containsObject:@(action)]) {
 		NSBeep();
 		[self say:@"That change cannot be made that way."];
-		[_changeAction selectItemAtIndex:change.action];
+		[_changeActionPopUp selectItemAtIndex:change.action];
 		return;
 	}
 	change.action = action;
@@ -611,7 +409,7 @@ ORMActionTitles(void)
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
-	if (tableView == _types) {
+	if (tableView == _typesTable) {
 		return (NSInteger)[_objectTypes count];
 	}
 	if (tableView == _changesTable) {
@@ -622,7 +420,7 @@ ORMActionTitles(void)
 
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
-	if (tableView == _types) {
+	if (tableView == _typesTable) {
 		ORMObjectType *type = [_objectTypes objectAtIndex:(NSUInteger)row];
 		if ([[column identifier] isEqual:@"objectType"]) {
 			return [type displayName];
@@ -651,13 +449,13 @@ ORMActionTitles(void)
 {
 	NSTableView *table = [notification object];
 	NSInteger row = [table selectedRow];
-	if (table == _types && row >= 0) {
+	if (table == _typesTable && row >= 0) {
 		ORMObjectType *type = [_objectTypes objectAtIndex:(NSUInteger)row];
-		[_typeMapping selectItemAtIndex:[[self mapping] mappingOfObjectType:type.identifier]];
-		[_transformableClass setStringValue:[[[self mapping].transformables objectForKey:type.identifier] firstObject] ?: @""];
-		[_transformableClass setEnabled:type.kind == ORMValueType];
+		[_typeMappingPopUp selectItemAtIndex:[[self mapping] mappingOfObjectType:type.identifier]];
+		[_transformableClassField setStringValue:[[[self mapping].transformables objectForKey:type.identifier] firstObject] ?: @""];
+		[_transformableClassField setEnabled:type.kind == ORMValueType];
 	} else if (table == _changesTable && row >= 0 && _sync != nil) {
-		[_changeAction selectItemAtIndex:[[_sync.changes objectAtIndex:(NSUInteger)row] action]];
+		[_changeActionPopUp selectItemAtIndex:[[_sync.changes objectAtIndex:(NSUInteger)row] action]];
 	}
 }
 
@@ -757,7 +555,7 @@ ORMActionTitles(void)
 	if (self.mappingId == nil) {
 		[self addMapping:nil];
 	}
-	[self.editor setName:[value description] forSource:source inMapping:self.mappingId];
+	[[self mappings] setName:[value description] forSource:source inMapping:self.mappingId];
 }
 
 @end

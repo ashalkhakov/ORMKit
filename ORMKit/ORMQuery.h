@@ -107,7 +107,12 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
 + (NSString *)readingOfStep:(ORMQueryStep *)step;
 @end
 
-@interface ORMEditor (ORMQueries)
+/* A document's queries, edited: each change through the editor, undone with
+ * the model. */
+@interface ORMQueryEditor : NSObject
+- (instancetype)initWithEditor:(ORMEditor *)editor;
+@property (nonatomic, readonly, strong) ORMEditor *editor;
+
 /* A query starting at the object type, which is ticked. Its id. */
 - (NSString *)addQueryNamed:(NSString *)name from:(NSString *)objectTypeId reason:(NSString **)reason;
 - (void)removeQuery:(NSString *)queryId;

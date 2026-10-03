@@ -107,7 +107,7 @@ Q3 ✓USbranch                        fetches USbranch:
 ## Where queries live
 
 Queries live in the `.orm`, in ORMKit's own namespace, beside the Core Data
-mappings. Every change goes through the editor (`ORMEditor (ORMQueries)`), so
+mappings. Every change goes through the editor (`ORMQueryEditor`), so
 a query is undone with the model. **Save a Copy for NORMA** leaves them out:
 
 ```xml

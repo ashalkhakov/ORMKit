@@ -52,7 +52,7 @@ static NSString *const ORMShopModel =
 {
 	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Imported"] undoManager:nil];
 	NSString *reason = nil;
-	NSString *made = [editor importCoreDataModel:model path:@"/tmp/Shop.xcdatamodeld" notes:notes reason:&reason];
+	NSString *made = [[[ORMCoreDataImporter alloc] initWithEditor:editor] importCoreDataModel:model path:@"/tmp/Shop.xcdatamodeld" notes:notes reason:&reason];
 	XCTAssertNotNil(made, @"%@", reason);
 	if (mapping != NULL) {
 		*mapping = made;
@@ -172,8 +172,8 @@ ORMSignature(ORMCDModel *model)
 	for (NSString *file in files) {
 		@autoreleasepool {
 			ORMEditor *source = [[ORMEditor alloc] initWithDocument:[self fixtureDocument:file] undoManager:nil];
-			NSString *sourceMapping = [source addCoreDataMappingNamed:@"Model" path:@"/tmp/Model.xcdatamodeld"];
-			[source setStyle:ORMStyleEntities ofMapping:sourceMapping];
+			NSString *sourceMapping = [[[ORMMappingEditor alloc] initWithEditor:source] addCoreDataMappingNamed:@"Model" path:@"/tmp/Model.xcdatamodeld"];
+			[[[ORMMappingEditor alloc] initWithEditor:source] setStyle:ORMStyleEntities ofMapping:sourceMapping];
 			ORMCDModel *first = [self remap:source mapping:sourceMapping];
 			NSString *mapping = nil;
 			ORMEditor *editor = [self imported:first mapping:&mapping notes:NULL];
@@ -191,7 +191,7 @@ ORMSignature(ORMCDModel *model)
 	                                             reason:NULL];
 	ORMEditor *editor = [self newEditor];
 	NSUInteger types = [editor.model.objectTypes count];
-	XCTAssertNotNil([editor importCoreDataModel:shop path:@"/tmp/Shop.xcdatamodeld" notes:NULL reason:NULL]);
+	XCTAssertNotNil([[[ORMCoreDataImporter alloc] initWithEditor:editor] importCoreDataModel:shop path:@"/tmp/Shop.xcdatamodeld" notes:NULL reason:NULL]);
 	XCTAssertGreaterThan([editor.model.objectTypes count], types);
 	[self.undoManager undo];
 	XCTAssertEqual([editor.model.objectTypes count], types);
@@ -200,7 +200,7 @@ ORMSignature(ORMCDModel *model)
 - (void)testEmptyModelIsRefused
 {
 	NSString *reason = nil;
-	XCTAssertNil([[self newEditor] importCoreDataModel:[ORMCDModel model] path:@"/tmp/E.xcdatamodeld" notes:NULL
+	XCTAssertNil([[[ORMCoreDataImporter alloc] initWithEditor:[self newEditor]] importCoreDataModel:[ORMCDModel model] path:@"/tmp/E.xcdatamodeld" notes:NULL
 	                                            reason:&reason]);
 	XCTAssertNotNil(reason);
 }

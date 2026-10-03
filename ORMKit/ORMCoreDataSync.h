@@ -12,7 +12,12 @@ NSString *ORMDataTypeForAttributeType(NSString *type);
  * pattern: "{1..10}", "{'M', 'F'}"; "" for none, nil when it cannot say. */
 NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
 
-@interface ORMEditor (ORMCoreDataMappings)
+/* A document's Core Data mappings, edited: their options, overrides and
+ * baselines, each change through the editor, undone with the model. */
+@interface ORMMappingEditor : NSObject
+- (instancetype)initWithEditor:(ORMEditor *)editor;
+@property (nonatomic, readonly, strong) ORMEditor *editor;
+
 /* A new mapping, of the whole model, to the .xcdatamodeld at the path. Its id. */
 - (NSString *)addCoreDataMappingNamed:(NSString *)name path:(NSString *)path;
 - (void)removeCoreDataMapping:(NSString *)mappingId;
@@ -39,9 +44,6 @@ NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
 - (void)setExcluded:(BOOL)excluded source:(NSString *)sourceId inMapping:(NSString *)mappingId;
 - (void)setKept:(BOOL)kept element:(NSString *)path inMapping:(NSString *)mappingId;
 - (void)setBaseline:(ORMCDModel *)model ofMapping:(NSString *)mappingId;
-/* The document without ORMKit's own elements, for a NORMA that does not
- * know them: what "Save a Copy for NORMA" writes. */
-- (NSXMLDocument *)documentForNorma;
 @end
 
 typedef NS_ENUM(NSInteger, ORMSyncChangeKind) {

@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMFactSentence.h"
+#import "ORMSentenceEditor.h"
 #import "ORMReadingText.h"
 
 @interface ORMFactSentencePlayer ()
@@ -215,14 +216,14 @@ ORMParseReading(NSString *text, NSArray<NSString *> *known)
 
 @end
 
-@implementation ORMEditor (ORMFactSentences)
+@implementation ORMSentenceEditor (ORMFactSentences)
 
 - (NSString *)addFactTypeFromSentence:(NSString *)text
                             onDiagram:(NSString *)diagramId
                                    at:(NSPoint)point
                                reason:(NSString **)reason
 {
-	ORMFactSentence *sentence = [ORMFactSentence sentenceWithString:text model:self.model reason:reason];
+	ORMFactSentence *sentence = [ORMFactSentence sentenceWithString:text model:self.editor.model reason:reason];
 	if (sentence == nil) {
 		return nil;
 	}
@@ -235,20 +236,20 @@ ORMParseReading(NSString *text, NSArray<NSString *> *known)
 	}
 	__block NSString *created = nil;
 	__block NSString *failure = nil;
-	[self group:@"Add Fact Type" with:^{
+	[self.editor group:@"Add Fact Type" with:^{
 		NSMutableDictionary *ids = [NSMutableDictionary dictionary];
 		for (ORMFactSentencePlayer *player in sentence.players) {
 			if ([ids objectForKey:player.name] != nil) {
 				continue;
 			}
-			ORMObjectType *existing = [self.model objectTypeNamed:player.name];
+			ORMObjectType *existing = [self.editor.model objectTypeNamed:player.name];
 			NSString *identifier = existing.identifier;
 			NSString *why = nil;
 			if (identifier == nil && player.isValueType) {
-				identifier = [self addValueTypeNamed:player.name dataType:nil onDiagram:diagramId
+				identifier = [self.editor.objectTypeEditor addValueTypeNamed:player.name dataType:nil onDiagram:diagramId
 				                                  at:ORMAutomaticPlacement reason:&why];
 			} else if (identifier == nil) {
-				identifier = [self addEntityTypeNamed:player.name referenceMode:player.referenceMode
+				identifier = [self.editor.objectTypeEditor addEntityTypeNamed:player.name referenceMode:player.referenceMode
 				                                 kind:player.referenceMode != nil ? player.referenceModeKind
 				                                                                  : ORMReferenceModeNone
 				                            onDiagram:diagramId at:ORMAutomaticPlacement reason:&why];
@@ -264,19 +265,19 @@ ORMParseReading(NSString *text, NSArray<NSString *> *known)
 			[players addObject:[ids objectForKey:player.name]];
 		}
 		NSString *why = nil;
-		created = [self addFactTypeWithPlayers:players reading:[sentence.readings firstObject] onDiagram:diagramId
+		created = [self.editor.factTypeEditor addFactTypeWithPlayers:players reading:[sentence.readings firstObject] onDiagram:diagramId
 		                                    at:point reason:&why];
 		if (created == nil) {
 			failure = why;
 			return;
 		}
-		NSArray *roles = [[self.model elementWithId:created] roles];
+		NSArray *roles = [[self.editor.model elementWithId:created] roles];
 		for (NSUInteger r = 1; r < [sentence.readings count]; r++) {
 			NSMutableArray *order = [NSMutableArray array];
 			for (NSNumber *index in [sentence.readingOrders objectAtIndex:r]) {
 				[order addObject:[[roles objectAtIndex:[index unsignedIntegerValue]] identifier]];
 			}
-			[self addReading:[sentence.readings objectAtIndex:r] forRoles:order reason:NULL];
+			[self.editor.factTypeEditor addReading:[sentence.readings objectAtIndex:r] forRoles:order reason:NULL];
 		}
 	}];
 	if (failure != nil) {

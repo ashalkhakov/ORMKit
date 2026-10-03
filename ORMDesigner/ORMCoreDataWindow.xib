@@ -1,0 +1,577 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+    <dependencies>
+        <deployment identifier="macosx"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="ORMCoreDataController">
+            <connections>
+                <outlet property="preview" destination="preview" id="previewOutlet0"/>
+                <outlet property="typesTable" destination="typesTable" id="typesTableOutlet1"/>
+                <outlet property="typeMappingPopUp" destination="typeMappingPopUp" id="typeMappingPopUpOutlet2"/>
+                <outlet property="transformableClassField" destination="transformableClassField" id="transformableClassFieldOutlet3"/>
+                <outlet property="reportView" destination="reportView" id="reportViewOutlet4"/>
+                <outlet property="changesTable" destination="changesTable" id="changesTableOutlet5"/>
+                <outlet property="changeActionPopUp" destination="changeActionPopUp" id="changeActionPopUpOutlet6"/>
+                <outlet property="mappingPopUp" destination="mappingPopUp" id="mappingPopUpOutlet7"/>
+                <outlet property="pathField" destination="pathField" id="pathFieldOutlet8"/>
+                <outlet property="stylePopUp" destination="stylePopUp" id="stylePopUpOutlet9"/>
+                <outlet property="identifiersCheck" destination="identifiersCheck" id="identifiersCheckOutlet10"/>
+                <outlet property="flattenCheck" destination="flattenCheck" id="flattenCheckOutlet11"/>
+                <outlet property="valueSetsCheck" destination="valueSetsCheck" id="valueSetsCheckOutlet12"/>
+                <outlet property="absorbIdentifiersCheck" destination="absorbIdentifiersCheck" id="absorbIdentifiersCheckOutlet13"/>
+                <outlet property="validationPathField" destination="validationPathField" id="validationPathFieldOutlet14"/>
+                <outlet property="tabs" destination="tabs" id="tabsOutlet15"/>
+                <outlet property="statusLabel" destination="statusLabel" id="statusLabelOutlet16"/>
+                <outlet property="window" destination="coreDataWindow" id="coreDataWindowOutlet17"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <window title="Core Data Mappings" allowsToolTipsWhenApplicationIsInactive="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="coreDataWindow">
+            <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
+            <rect key="contentRect" x="160" y="120" width="900" height="640"/>
+            <rect key="screenRect" x="0.0" y="0.0" width="1920" height="1055"/>
+            <value key="minSize" type="size" width="640" height="420"/>
+            <view key="contentView" id="coreDataWindowContent">
+                <rect key="frame" x="0" y="0" width="900" height="640"/>
+                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                <subviews>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="mappingLabel">
+                        <rect key="frame" x="12" y="608" width="60" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Mapping:" id="mappingLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <popUpButton verticalHuggingPriority="750" id="mappingPopUp">
+                        <rect key="frame" x="74" y="604" width="220" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="mappingPopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="mappingPopUpMenu"/>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="chooseMapping:" target="-2" id="mappingPopUpAction"/>
+                        </connections>
+                    </popUpButton>
+                    <button verticalHuggingPriority="750" id="addMappingButton">
+                        <rect key="frame" x="298" y="604" width="30" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="+" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="addMappingButtonCell">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="addMapping:" target="-2" id="addMappingButtonAction"/>
+                        </connections>
+                    </button>
+                    <button verticalHuggingPriority="750" id="removeMappingButton">
+                        <rect key="frame" x="330" y="604" width="30" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="push" title="−" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="removeMappingButtonCell">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="removeMapping:" target="-2" id="removeMappingButtonAction"/>
+                        </connections>
+                    </button>
+                    <button verticalHuggingPriority="750" id="synchronizeButton">
+                        <rect key="frame" x="770" y="604" width="118" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMinX="YES"/>
+                        <buttonCell key="cell" type="push" title="Synchronize" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="synchronizeButtonCell">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="synchronize:" target="-2" id="synchronizeButtonAction"/>
+                        </connections>
+                    </button>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="modelLabel">
+                        <rect key="frame" x="12" y="578" width="60" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Model:" id="modelLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField verticalHuggingPriority="750" id="pathField">
+                        <rect key="frame" x="74" y="576" width="480" height="22"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="pathFieldCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <action selector="pathChanged:" target="-2" id="pathFieldAction"/>
+                        </connections>
+                    </textField>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="styleLabel">
+                        <rect key="frame" x="564" y="578" width="40" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMinX="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Style:" id="styleLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <popUpButton verticalHuggingPriority="750" id="stylePopUp">
+                        <rect key="frame" x="606" y="575" width="166" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMinX="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="stylePopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="stylePopUpMenu">
+                                <items>
+                                    <menuItem title="Application" id="stylePopUpItem0"/>
+                                    <menuItem title="Relational (Rmap)" id="stylePopUpItem1"/>
+                                    <menuItem title="Entities (reporting)" id="stylePopUpItem2"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="styleChanged:" target="-2" id="stylePopUpAction"/>
+                        </connections>
+                    </popUpButton>
+                    <button verticalHuggingPriority="750" id="choosePathButton">
+                        <rect key="frame" x="780" y="576" width="108" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMinX="YES"/>
+                        <buttonCell key="cell" type="push" title="Choose…" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="choosePathButtonCell">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="choosePath:" target="-2" id="choosePathButtonAction"/>
+                        </connections>
+                    </button>
+                    <button id="identifiersCheck">
+                        <rect key="frame" x="74" y="550" width="210" height="20"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="check" title="Reference modes as attributes" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="identifiersCheckCell">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="optionChanged:" target="-2" id="identifiersCheckAction"/>
+                        </connections>
+                    </button>
+                    <button id="flattenCheck">
+                        <rect key="frame" x="290" y="550" width="130" height="20"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="check" title="Flatten subtypes" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="flattenCheckCell">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="optionChanged:" target="-2" id="flattenCheckAction"/>
+                        </connections>
+                    </button>
+                    <button id="valueSetsCheck">
+                        <rect key="frame" x="424" y="550" width="170" height="20"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="check" title="Value sets as entities" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="valueSetsCheckCell">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="optionChanged:" target="-2" id="valueSetsCheckAction"/>
+                        </connections>
+                    </button>
+                    <button id="absorbIdentifiersCheck">
+                        <rect key="frame" x="598" y="550" width="250" height="20"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <buttonCell key="cell" type="check" title="Absorb identifier-only types (Rmap)" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="absorbIdentifiersCheckCell">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="optionChanged:" target="-2" id="absorbIdentifiersCheckAction"/>
+                        </connections>
+                    </button>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="validationLabel">
+                        <rect key="frame" x="12" y="522" width="104" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Validation code:" id="validationLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <textField verticalHuggingPriority="750" id="validationPathField">
+                        <rect key="frame" x="118" y="520" width="650" height="22"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="A directory for the constraints Core Data cannot enforce, as code; empty for none" drawsBackground="YES" id="validationPathFieldCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                        <connections>
+                            <action selector="validationPathChanged:" target="-2" id="validationPathFieldAction"/>
+                        </connections>
+                    </textField>
+                    <button verticalHuggingPriority="750" id="chooseValidationButton">
+                        <rect key="frame" x="780" y="520" width="108" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMinX="YES"/>
+                        <buttonCell key="cell" type="push" title="Choose…" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="chooseValidationButtonCell">
+                            <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="chooseValidationPath:" target="-2" id="chooseValidationButtonAction"/>
+                        </connections>
+                    </button>
+                    <tabView id="tabs">
+                        <rect key="frame" x="8" y="30" width="884" height="486"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                        <font key="font" metaFont="smallSystem"/>
+                        <tabViewItems>
+                            <tabViewItem label="Entities" identifier="preview" id="tabspreviewItem">
+                                <view key="view" id="tabspreviewView">
+                                    <rect key="frame" x="10" y="33" width="864" height="440"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                        <scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="previewScroll">
+                                            <rect key="frame" x="0" y="0" width="864" height="440"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" copiesOnScroll="NO" id="previewClip">
+                                                <rect key="frame" x="1" y="1" width="847" height="438"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <outlineView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="previewHeader" indentationPerLevel="14" outlineTableColumn="previewnameColumn" id="preview">
+                                                        <rect key="frame" x="0" y="0" width="847" height="415"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <size key="intercellSpacing" width="3" height="2"/>
+                                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                        <tableColumns>
+                                                            <tableColumn identifier="name" width="220" minWidth="40" maxWidth="4000" id="previewnameColumn">
+                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Entity / Property">
+                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                </tableHeaderCell>
+                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="previewnameCell">
+                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                </textFieldCell>
+                                                            </tableColumn>
+                                                            <tableColumn identifier="type" width="170" minWidth="40" maxWidth="4000" editable="NO" id="previewtypeColumn">
+                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Type">
+                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                </tableHeaderCell>
+                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="previewtypeCell">
+                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                </textFieldCell>
+                                                            </tableColumn>
+                                                            <tableColumn identifier="source" width="360" minWidth="40" maxWidth="4000" editable="NO" id="previewsourceColumn">
+                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="From the ORM model">
+                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                </tableHeaderCell>
+                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="previewsourceCell">
+                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                </textFieldCell>
+                                                            </tableColumn>
+                                                        </tableColumns>
+                                                        <connections>
+                                                            <outlet property="dataSource" destination="-2" id="previewDataSource"/>
+                                                            <outlet property="delegate" destination="-2" id="previewDelegate"/>
+                                                        </connections>
+                                                    </outlineView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="previewHScroller">
+                                                <rect key="frame" x="1" y="424" width="847" height="15"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                            </scroller>
+                                            <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="previewVScroller">
+                                                <rect key="frame" x="848" y="1" width="15" height="438"/>
+                                                <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+                                            </scroller>
+                                            <tableHeaderView key="headerView" wantsLayer="YES" id="previewHeader">
+                                                <rect key="frame" x="0" y="0" width="847" height="23"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                            </tableHeaderView>
+                                        </scrollView>
+                                    </subviews>
+                                </view>
+                            </tabViewItem>
+                            <tabViewItem label="Object Types" identifier="types" id="tabstypesItem">
+                                <view key="view" id="tabstypesView">
+                                    <rect key="frame" x="10" y="33" width="864" height="440"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                        <scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="typesTableScroll">
+                                            <rect key="frame" x="0" y="34" width="864" height="406"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" copiesOnScroll="NO" id="typesTableClip">
+                                                <rect key="frame" x="1" y="1" width="847" height="404"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="typesTableHeader" id="typesTable">
+                                                        <rect key="frame" x="0" y="0" width="847" height="381"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <size key="intercellSpacing" width="3" height="2"/>
+                                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                        <tableColumns>
+                                                            <tableColumn identifier="objectType" width="260" minWidth="40" maxWidth="4000" editable="NO" id="typesTableobjectTypeColumn">
+                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Object Type">
+                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                </tableHeaderCell>
+                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="typesTableobjectTypeCell">
+                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                </textFieldCell>
+                                                            </tableColumn>
+                                                            <tableColumn identifier="mapping" width="200" minWidth="40" maxWidth="4000" editable="NO" id="typesTablemappingColumn">
+                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Maps As">
+                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                </tableHeaderCell>
+                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="typesTablemappingCell">
+                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                </textFieldCell>
+                                                            </tableColumn>
+                                                        </tableColumns>
+                                                        <connections>
+                                                            <outlet property="dataSource" destination="-2" id="typesTableDataSource"/>
+                                                            <outlet property="delegate" destination="-2" id="typesTableDelegate"/>
+                                                        </connections>
+                                                    </tableView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="typesTableHScroller">
+                                                <rect key="frame" x="1" y="390" width="847" height="15"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                            </scroller>
+                                            <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="typesTableVScroller">
+                                                <rect key="frame" x="848" y="1" width="15" height="404"/>
+                                                <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+                                            </scroller>
+                                            <tableHeaderView key="headerView" wantsLayer="YES" id="typesTableHeader">
+                                                <rect key="frame" x="0" y="0" width="847" height="23"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                            </tableHeaderView>
+                                        </scrollView>
+                                        <textField focusRingType="none" verticalHuggingPriority="750" id="typeMappingLabel">
+                                            <rect key="frame" x="4" y="8" width="200" height="18"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Map the selected object type as:" id="typeMappingLabelCell">
+                                                <font key="font" metaFont="smallSystem"/>
+                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                            </textFieldCell>
+                                        </textField>
+                                        <popUpButton verticalHuggingPriority="750" id="typeMappingPopUp">
+                                            <rect key="frame" x="206" y="4" width="160" height="24"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="typeMappingPopUpCell">
+                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                <font key="font" metaFont="smallSystem"/>
+                                                <menu key="menu" id="typeMappingPopUpMenu">
+                                                    <items>
+                                                        <menuItem title="Automatic" id="typeMappingPopUpItem0"/>
+                                                        <menuItem title="Entity" id="typeMappingPopUpItem1"/>
+                                                        <menuItem title="Absorbed" id="typeMappingPopUpItem2"/>
+                                                        <menuItem title="Ignored" id="typeMappingPopUpItem3"/>
+                                                        <menuItem title="Transformable" id="typeMappingPopUpItem4"/>
+                                                    </items>
+                                                </menu>
+                                            </popUpButtonCell>
+                                            <connections>
+                                                <action selector="typeMappingChanged:" target="-2" id="typeMappingPopUpAction"/>
+                                            </connections>
+                                        </popUpButton>
+                                        <textField focusRingType="none" verticalHuggingPriority="750" id="classLabel">
+                                            <rect key="frame" x="374" y="8" width="40" height="18"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Class:" id="classLabelCell">
+                                                <font key="font" metaFont="smallSystem"/>
+                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                            </textFieldCell>
+                                        </textField>
+                                        <textField verticalHuggingPriority="750" id="transformableClassField">
+                                            <rect key="frame" x="416" y="5" width="140" height="22"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="NSString" drawsBackground="YES" id="transformableClassFieldCell">
+                                                <font key="font" metaFont="smallSystem"/>
+                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                            </textFieldCell>
+                                            <connections>
+                                                <action selector="typeMappingChanged:" target="-2" id="transformableClassFieldAction"/>
+                                            </connections>
+                                        </textField>
+                                    </subviews>
+                                </view>
+                            </tabViewItem>
+                            <tabViewItem label="Report" identifier="report" id="tabsreportItem">
+                                <view key="view" id="tabsreportView">
+                                    <rect key="frame" x="10" y="33" width="864" height="440"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                        <scrollView borderType="line" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" id="reportViewScroll">
+                                            <rect key="frame" x="0" y="0" width="864" height="440"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" drawsBackground="NO" copiesOnScroll="NO" id="reportViewClip">
+                                                <rect key="frame" x="1" y="1" width="847" height="438"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <textView editable="NO" selectable="YES" importsGraphics="NO" richText="NO" verticallyResizable="YES" spellCheckingEnabled="NO" smartInsertDeleteEnabled="NO" id="reportView">
+                                                        <rect key="frame" x="0" y="0" width="847" height="438"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <size key="minSize" width="847" height="438"/>
+                                                        <size key="maxSize" width="10000" height="10000000"/>
+                                                    </textView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="reportViewVScroller">
+                                                <rect key="frame" x="848" y="1" width="15" height="438"/>
+                                                <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+                                            </scroller>
+                                        </scrollView>
+                                    </subviews>
+                                </view>
+                            </tabViewItem>
+                            <tabViewItem label="Changes" identifier="changes" id="tabschangesItem">
+                                <view key="view" id="tabschangesView">
+                                    <rect key="frame" x="10" y="33" width="864" height="440"/>
+                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                    <subviews>
+                                        <scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="changesTableScroll">
+                                            <rect key="frame" x="0" y="34" width="864" height="406"/>
+                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                            <clipView key="contentView" copiesOnScroll="NO" id="changesTableClip">
+                                                <rect key="frame" x="1" y="1" width="847" height="404"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                <subviews>
+                                                    <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="changesTableHeader" id="changesTable">
+                                                        <rect key="frame" x="0" y="0" width="847" height="381"/>
+                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        <size key="intercellSpacing" width="3" height="2"/>
+                                                        <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                        <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+                                                        <tableColumns>
+                                                            <tableColumn identifier="change" width="440" minWidth="40" maxWidth="4000" editable="NO" id="changesTablechangeColumn">
+                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Changed in Core Data">
+                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                </tableHeaderCell>
+                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="changesTablechangeCell">
+                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                </textFieldCell>
+                                                            </tableColumn>
+                                                            <tableColumn identifier="action" width="220" minWidth="40" maxWidth="4000" editable="NO" id="changesTableactionColumn">
+                                                                <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Action">
+                                                                    <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+                                                                </tableHeaderCell>
+                                                                <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="changesTableactionCell">
+                                                                    <font key="font" metaFont="smallSystem"/>
+                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                    <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                </textFieldCell>
+                                                            </tableColumn>
+                                                        </tableColumns>
+                                                        <connections>
+                                                            <outlet property="dataSource" destination="-2" id="changesTableDataSource"/>
+                                                            <outlet property="delegate" destination="-2" id="changesTableDelegate"/>
+                                                        </connections>
+                                                    </tableView>
+                                                </subviews>
+                                            </clipView>
+                                            <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="changesTableHScroller">
+                                                <rect key="frame" x="1" y="390" width="847" height="15"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                            </scroller>
+                                            <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="changesTableVScroller">
+                                                <rect key="frame" x="848" y="1" width="15" height="404"/>
+                                                <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+                                            </scroller>
+                                            <tableHeaderView key="headerView" wantsLayer="YES" id="changesTableHeader">
+                                                <rect key="frame" x="0" y="0" width="847" height="23"/>
+                                                <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                            </tableHeaderView>
+                                        </scrollView>
+                                        <textField focusRingType="none" verticalHuggingPriority="750" id="changeActionLabel">
+                                            <rect key="frame" x="4" y="8" width="190" height="18"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Action for the selected change:" id="changeActionLabelCell">
+                                                <font key="font" metaFont="smallSystem"/>
+                                                <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                            </textFieldCell>
+                                        </textField>
+                                        <popUpButton verticalHuggingPriority="750" id="changeActionPopUp">
+                                            <rect key="frame" x="196" y="4" width="210" height="24"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="changeActionPopUpCell">
+                                                <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                                                <font key="font" metaFont="smallSystem"/>
+                                                <menu key="menu" id="changeActionPopUpMenu">
+                                                    <items>
+                                                        <menuItem title="Apply to the ORM model" id="changeActionPopUpItem0"/>
+                                                        <menuItem title="Keep in the mapping only" id="changeActionPopUpItem1"/>
+                                                        <menuItem title="Discard (ORM wins)" id="changeActionPopUpItem2"/>
+                                                    </items>
+                                                </menu>
+                                            </popUpButtonCell>
+                                            <connections>
+                                                <action selector="changeActionChanged:" target="-2" id="changeActionPopUpAction"/>
+                                            </connections>
+                                        </popUpButton>
+                                        <button verticalHuggingPriority="750" id="applyButton">
+                                            <rect key="frame" x="724" y="4" width="136" height="24"/>
+                                            <autoresizingMask key="autoresizingMask" flexibleMinX="YES"/>
+                                            <buttonCell key="cell" type="push" title="Apply and Write" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="applyButtonCell">
+                                                <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                                <font key="font" metaFont="smallSystem"/>
+                                            </buttonCell>
+                                            <connections>
+                                                <action selector="applyAndWrite:" target="-2" id="applyButtonAction"/>
+                                            </connections>
+                                        </button>
+                                    </subviews>
+                                </view>
+                            </tabViewItem>
+                        </tabViewItems>
+                    </tabView>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="statusLabel">
+                        <rect key="frame" x="12" y="6" width="876" height="18"/>
+                        <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="" id="statusLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                </subviews>
+            </view>
+            <connections>
+                <outlet property="delegate" destination="-2" id="coreDataWindowDelegate"/>
+            </connections>
+        </window>
+    </objects>
+</document>

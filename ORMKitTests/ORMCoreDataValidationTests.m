@@ -19,7 +19,7 @@
 
 - (NSString *)fact:(NSArray *)players reading:(NSString *)reading in:(ORMEditor *)editor
 {
-	NSString *fact = [editor addFactTypeWithPlayers:players reading:reading onDiagram:[self diagramOf:editor]
+	NSString *fact = [editor.factTypeEditor addFactTypeWithPlayers:players reading:reading onDiagram:[self diagramOf:editor]
 	                                             at:ORMAutomaticPlacement reason:NULL];
 	XCTAssertNotNil(fact, @"%@", reading);
 	return fact;
@@ -33,55 +33,55 @@
 {
 	ORMEditor *editor = [self newEditor];
 	NSString *diagram = [self diagramOf:editor];
-	NSString *person = [editor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
 	                                    onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
-	NSString *nickname = [editor addValueTypeNamed:@"Nickname" dataType:@"VariableLengthTextDataType"
+	NSString *nickname = [editor.objectTypeEditor addValueTypeNamed:@"Nickname" dataType:@"VariableLengthTextDataType"
 	                                     onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
-	NSString *legalName = [editor addValueTypeNamed:@"LegalName" dataType:@"VariableLengthTextDataType"
+	NSString *legalName = [editor.objectTypeEditor addValueTypeNamed:@"LegalName" dataType:@"VariableLengthTextDataType"
 	                                      onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
-	NSString *date = [editor addValueTypeNamed:@"Date" dataType:@"DateAndTimeTemporalDataType" onDiagram:diagram
+	NSString *date = [editor.objectTypeEditor addValueTypeNamed:@"Date" dataType:@"DateAndTimeTemporalDataType" onDiagram:diagram
 	                                        at:ORMAutomaticPlacement reason:NULL];
-	NSString *age = [editor addValueTypeNamed:@"Age" dataType:@"SignedIntegerNumericDataType" onDiagram:diagram
+	NSString *age = [editor.objectTypeEditor addValueTypeNamed:@"Age" dataType:@"SignedIntegerNumericDataType" onDiagram:diagram
 	                                       at:ORMAutomaticPlacement reason:NULL];
 
 	NSString *employed = [[self rolesOf:[self fact:@[ person ] reading:@"{0} is employed" in:editor] in:editor]
 		firstObject];
 	NSString *retired = [[self rolesOf:[self fact:@[ person ] reading:@"{0} is retired" in:editor] in:editor]
 		firstObject];
-	XCTAssertNotNil(([editor addSetComparisonConstraint:ORMExclusionConstraint sequences:@[ @[ employed ], @[ retired ] ]
+	XCTAssertNotNil(([editor.constraintEditor addSetComparisonConstraint:ORMExclusionConstraint sequences:@[ @[ employed ], @[ retired ] ]
 	                                            reason:NULL]));
 
 	NSArray *hasNickname = [self rolesOf:[self fact:@[ person, nickname ] reading:@"{0} has {1}" in:editor] in:editor];
 	NSArray *hasLegalName = [self rolesOf:[self fact:@[ person, legalName ] reading:@"{0} has {1}" in:editor]
 	                                   in:editor];
-	[editor setUnique:YES role:[hasNickname firstObject] reason:NULL];
-	[editor setUnique:YES role:[hasLegalName firstObject] reason:NULL];
-	XCTAssertNotNil(([editor addMandatoryConstraintOverRoles:@[ [hasNickname firstObject], [hasLegalName firstObject] ]
+	[editor.constraintEditor setUnique:YES role:[hasNickname firstObject] reason:NULL];
+	[editor.constraintEditor setUnique:YES role:[hasLegalName firstObject] reason:NULL];
+	XCTAssertNotNil(([editor.constraintEditor addMandatoryConstraintOverRoles:@[ [hasNickname firstObject], [hasLegalName firstObject] ]
 	                                                 reason:NULL]));
 
 	NSArray *parent = [self rolesOf:[self fact:@[ person, person ] reading:@"{0} is parent of {1}" in:editor] in:editor];
-	[editor addUniquenessConstraintOverRoles:parent reason:NULL];
-	XCTAssertNotNil(([editor addRingConstraint:ORMRingAcyclic overRoles:parent reason:NULL]));
+	[editor.constraintEditor addUniquenessConstraintOverRoles:parent reason:NULL];
+	XCTAssertNotNil(([editor.constraintEditor addRingConstraint:ORMRingAcyclic overRoles:parent reason:NULL]));
 
 	NSArray *born = [self rolesOf:[self fact:@[ person, date ] reading:@"{0} was born on {1}" in:editor] in:editor];
 	NSArray *died = [self rolesOf:[self fact:@[ person, date ] reading:@"{0} died on {1}" in:editor] in:editor];
-	[editor setUnique:YES role:[born firstObject] reason:NULL];
-	[editor setUnique:YES role:[died firstObject] reason:NULL];
-	XCTAssertNotNil(([editor addValueComparisonConstraint:@"GreaterThanOrEqual"
+	[editor.constraintEditor setUnique:YES role:[born firstObject] reason:NULL];
+	[editor.constraintEditor setUnique:YES role:[died firstObject] reason:NULL];
+	XCTAssertNotNil(([editor.constraintEditor addValueComparisonConstraint:@"GreaterThanOrEqual"
 	                                           overRoles:@[ [died lastObject], [born lastObject] ]
 	                                              reason:NULL]));
-	XCTAssertNotNil(([editor addSetComparisonConstraint:ORMSubsetConstraint
+	XCTAssertNotNil(([editor.constraintEditor addSetComparisonConstraint:ORMSubsetConstraint
 	                                         sequences:@[ @[ [died firstObject] ], @[ [born firstObject] ] ]
 	                                            reason:NULL]));
 
 	NSArray *hasAge = [self rolesOf:[self fact:@[ person, age ] reading:@"{0} has {1}" in:editor] in:editor];
-	[editor setUnique:YES role:[hasAge firstObject] reason:NULL];
-	XCTAssertTrue(([editor setValueConstraint:@"{0..17, 65..120}" of:age reason:NULL]));
+	[editor.constraintEditor setUnique:YES role:[hasAge firstObject] reason:NULL];
+	XCTAssertTrue(([editor.objectTypeEditor setValueConstraint:@"{0..17, 65..120}" of:age reason:NULL]));
 
-	NSString *obligation = [editor addSetComparisonConstraint:ORMSubsetConstraint
+	NSString *obligation = [editor.constraintEditor addSetComparisonConstraint:ORMSubsetConstraint
 	                                                sequences:@[ @[ employed ], @[ [hasLegalName firstObject] ] ]
 	                                                   reason:NULL];
-	XCTAssertTrue(([editor setModality:ORMDeontic of:obligation reason:NULL]));
+	XCTAssertTrue(([editor.constraintEditor setModality:ORMDeontic of:obligation reason:NULL]));
 	return editor;
 }
 
@@ -137,14 +137,14 @@
 	ORMEditor *editor = [self staff];
 	NSString *diagram = [self diagramOf:editor];
 	NSString *person = [[editor.model objectTypeNamed:@"Person"] identifier];
-	NSString *employee = [editor addEntityTypeNamed:@"Employee" referenceMode:nil kind:ORMReferenceModeNone
+	NSString *employee = [editor.objectTypeEditor addEntityTypeNamed:@"Employee" referenceMode:nil kind:ORMReferenceModeNone
 	                                      onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
-	XCTAssertNotNil(([editor addSubtype:employee of:person reason:NULL]));
+	XCTAssertNotNil(([editor.objectTypeEditor addSubtype:employee of:person reason:NULL]));
 	NSString *full = [[self rolesOf:[self fact:@[ employee ] reading:@"{0} is full time" in:editor] in:editor]
 		firstObject];
 	NSString *part = [[self rolesOf:[self fact:@[ employee ] reading:@"{0} is part time" in:editor] in:editor]
 		firstObject];
-	XCTAssertNotNil(([editor addExclusiveOrConstraintOverRoles:@[ full, part ] reason:NULL]));
+	XCTAssertNotNil(([editor.constraintEditor addExclusiveOrConstraintOverRoles:@[ full, part ] reason:NULL]));
 
 	NSString *code = [[[self generatorFor:editor] files] objectForKey:@"StaffValidation.m"];
 	NSRange at = [code rangeOfString:@"@implementation Employee (ORMValidation)"];

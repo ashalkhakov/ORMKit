@@ -21,16 +21,26 @@ static const double ORMReadingGap = 0.0647 * 72.0;
 /* Room between shapes when the editor places them. */
 static const double ORMSpacing = 0.5 * 72.0;
 
-@implementation ORMEditor (ORMDiagramEditing)
+@implementation ORMDiagramEditor
+
+@synthesize editor = _editor;
+
+- (instancetype)initWithEditor:(ORMEditor *)editor
+{
+	if ((self = [super init])) {
+		_editor = editor;
+	}
+	return self;
+}
 
 #pragma mark Shapes
 
 - (NSXMLElement *)newShape:(NSString *)local subject:(NSString *)subjectId bounds:(NSRect)bounds
 {
-	NSXMLElement *shape = ORMNewElementWithId(self.document, DIAGRAM, local, nil);
+	NSXMLElement *shape = ORMNewElementWithId(_editor.document, DIAGRAM, local, nil);
 	ORMSetAttribute(shape, @"IsExpanded", @"true");
 	ORMSetAttribute(shape, @"AbsoluteBounds", ORMFormatBounds(bounds));
-	ORMInsertChild(shape, ORMNewRef(self.document, DIAGRAM, @"Subject", subjectId));
+	ORMInsertChild(shape, ORMNewRef(_editor.document, DIAGRAM, @"Subject", subjectId));
 	return shape;
 }
 
@@ -38,7 +48,7 @@ static const double ORMSpacing = 0.5 * 72.0;
 {
 	NSXMLElement *shapes = ORMChild(diagram, DIAGRAM, @"Shapes");
 	if (shapes == nil) {
-		shapes = ORMNewElement(self.document, DIAGRAM, @"Shapes");
+		shapes = ORMNewElement(_editor.document, DIAGRAM, @"Shapes");
 		/* Shapes come before the diagram's Subject. */
 		[diagram insertChild:shapes atIndex:0];
 	}
@@ -47,7 +57,7 @@ static const double ORMSpacing = 0.5 * 72.0;
 
 - (ORMDiagram *)diagramWithId:(NSString *)diagramId
 {
-	ORMDiagram *diagram = [self.model elementWithId:diagramId];
+	ORMDiagram *diagram = [_editor.model elementWithId:diagramId];
 	return [diagram isKindOfClass:[ORMDiagram class]] ? diagram : nil;
 }
 
@@ -127,7 +137,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 - (NSPoint)placeFor:(NSString *)elementId onDiagram:(NSString *)diagramId
 {
 	ORMDiagram *diagram = [self diagramWithId:diagramId];
-	id element = [self.model elementWithId:elementId];
+	id element = [_editor.model elementWithId:elementId];
 	NSArray *linked = [self linkedShapesOf:element on:diagram];
 	NSPoint center;
 	if ([linked count] > 0) {
@@ -169,7 +179,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 - (NSString *)placeElement:(NSString *)elementId onDiagram:(NSString *)diagramId at:(NSPoint)point
 {
 	ORMDiagram *diagram = [self diagramWithId:diagramId];
-	id element = [self.model elementWithId:elementId];
+	id element = [_editor.model elementWithId:elementId];
 	if (diagram == nil || element == nil) {
 		return nil;
 	}
@@ -209,7 +219,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	}
 	NSRect bounds = NSMakeRect(origin.x, origin.y, size.width, size.height);
 	__block NSString *created = nil;
-	[self change:@"Place on Diagram" with:^{
+	[_editor change:@"Place on Diagram" with:^{
 		NSXMLElement *shape = [self newShape:local subject:elementId bounds:bounds];
 		if ([element isKindOfClass:[ORMFactType class]]) {
 			ORMFactType *fact = element;
@@ -219,13 +229,13 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 				NSRect readingBounds = NSMakeRect(NSMinX(bounds), NSMaxY(bounds) + ORMReadingGap,
 				                                  MAX(0.2, 0.05 * [text length]) * 72.0, ORMReadingShapeHeight);
 				NSXMLElement *reading = [self newShape:@"ReadingShape" subject:order.identifier bounds:readingBounds];
-				NSXMLElement *relative = ORMNewElement(self.document, DIAGRAM, @"RelativeShapes");
+				NSXMLElement *relative = ORMNewElement(_editor.document, DIAGRAM, @"RelativeShapes");
 				[relative addChild:reading];
 				ORMInsertChild(shape, relative);
 			}
-			NSXMLElement *display = ORMNewElement(self.document, DIAGRAM, @"RoleDisplayOrder");
+			NSXMLElement *display = ORMNewElement(_editor.document, DIAGRAM, @"RoleDisplayOrder");
 			for (ORMRole *role in fact.roles) {
-				[display addChild:ORMNewRef(self.document, DIAGRAM, @"Role", role.identifier)];
+				[display addChild:ORMNewRef(_editor.document, DIAGRAM, @"Role", role.identifier)];
 			}
 			ORMInsertChild(shape, display);
 		}
@@ -237,8 +247,8 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 
 - (void)showFactType:(NSString *)factTypeId onDiagram:(NSString *)diagramId at:(NSPoint)point
 {
-	ORMFactType *fact = [self.model elementWithId:factTypeId];
-	[self group:@"Add Fact Type" with:^{
+	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
+	[_editor group:@"Add Fact Type" with:^{
 		for (ORMRole *role in [fact visibleRoles]) {
 			if (role.player != nil && [[self diagramWithId:diagramId] shapeForSubject:role.player.identifier] == nil) {
 				[self placeElement:role.player.identifier onDiagram:diagramId at:ORMAutomaticPlacement];
@@ -250,7 +260,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 
 - (void)removeShapesOfSubjects:(NSSet<NSString *> *)subjectIds
 {
-	for (ORMDiagram *diagram in self.model.diagrams) {
+	for (ORMDiagram *diagram in _editor.model.diagrams) {
 		for (ORMShape *shape in [diagram allShapes]) {
 			if ([subjectIds containsObject:shape.subjectId ?: @""]) {
 				[shape.element detach];
@@ -264,14 +274,14 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 - (NSString *)addDiagramNamed:(NSString *)name
 {
 	__block NSString *created = nil;
-	[self change:@"Add Diagram" with:^{
-		NSXMLElement *root = [self.document rootElement];
-		NSXMLElement *diagram = ORMNewElementWithId(self.document, DIAGRAM, @"ORMDiagram", nil);
+	[_editor change:@"Add Diagram" with:^{
+		NSXMLElement *root = [_editor.document rootElement];
+		NSXMLElement *diagram = ORMNewElementWithId(_editor.document, DIAGRAM, @"ORMDiagram", nil);
 		ORMSetAttribute(diagram, @"IsCompleteView", @"false");
 		ORMSetAttribute(diagram, @"Name", [name length] > 0 ? name : [self nextDiagramName]);
 		ORMSetAttribute(diagram, @"BaseFontName", @"Tahoma");
 		ORMSetAttribute(diagram, @"BaseFontSize", @"0.0972222238779068");
-		[diagram addChild:ORMNewRef(self.document, DIAGRAM, @"Subject", self.model.identifier)];
+		[diagram addChild:ORMNewRef(_editor.document, DIAGRAM, @"Subject", _editor.model.identifier)];
 		/* After the last diagram, before what NORMA's extensions keep. */
 		NSArray *diagrams = ORMChildren(root, DIAGRAM, @"ORMDiagram");
 		NSUInteger index = [diagrams count] > 0 ? [[diagrams lastObject] index] + 1 : [root childCount];
@@ -284,7 +294,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 - (NSString *)nextDiagramName
 {
 	NSMutableSet *names = [NSMutableSet set];
-	for (ORMDiagram *diagram in self.model.diagrams) {
+	for (ORMDiagram *diagram in _editor.model.diagrams) {
 		[names addObject:diagram.name];
 	}
 	for (NSUInteger i = 1;; i++) {
@@ -302,7 +312,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	NSMutableArray *pending = [NSMutableArray array];
 	NSSet *named = [NSSet setWithArray:shapeIds];
 	for (NSString *shapeId in shapeIds) {
-		ORMShape *shape = [self.model elementWithId:shapeId];
+		ORMShape *shape = [_editor.model elementWithId:shapeId];
 		if (![shape isKindOfClass:[ORMShape class]]) {
 			continue;
 		}
@@ -332,7 +342,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	if ([moved count] == 0 || (delta.width == 0 && delta.height == 0)) {
 		return;
 	}
-	[self change:@"Move" with:^{
+	[_editor change:@"Move" with:^{
 		for (ORMShape *shape in moved) {
 			NSRect bounds = NSOffsetRect(shape.bounds, delta.width, delta.height);
 			ORMSetAttribute(shape.element, @"AbsoluteBounds", ORMFormatBounds(bounds));
@@ -342,13 +352,13 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 
 - (void)setBounds:(NSRect)bounds ofShape:(NSString *)shapeId
 {
-	ORMShape *shape = [self.model elementWithId:shapeId];
+	ORMShape *shape = [_editor.model elementWithId:shapeId];
 	if (![shape isKindOfClass:[ORMShape class]] || NSEqualRects(shape.bounds, bounds)) {
 		return;
 	}
 	NSSize delta = NSMakeSize(NSMinX(bounds) - NSMinX(shape.bounds), NSMinY(bounds) - NSMinY(shape.bounds));
 	NSArray *carried = [self movedShapes:@[ shapeId ]];
-	[self change:@"Resize" with:^{
+	[_editor change:@"Resize" with:^{
 		ORMSetAttribute(shape.element, @"AbsoluteBounds", ORMFormatBounds(bounds));
 		for (ORMShape *child in carried) {
 			if (child != shape) {
@@ -361,7 +371,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 
 - (BOOL)setRoleDisplayOrder:(NSArray<NSString *> *)roleIds ofShape:(NSString *)shapeId reason:(NSString **)reason
 {
-	ORMShape *shape = [self.model elementWithId:shapeId];
+	ORMShape *shape = [_editor.model elementWithId:shapeId];
 	if (![shape isKindOfClass:[ORMShape class]] || shape.kind != ORMShapeFactType) {
 		if (reason != NULL) {
 			*reason = @"Pick a fact type on the diagram.";
@@ -378,11 +388,11 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 		}
 		return NO;
 	}
-	[self change:@"Reorder Roles" with:^{
+	[_editor change:@"Reorder Roles" with:^{
 		[ORMChild(shape.element, DIAGRAM, @"RoleDisplayOrder") detach];
-		NSXMLElement *display = ORMNewElement(self.document, DIAGRAM, @"RoleDisplayOrder");
+		NSXMLElement *display = ORMNewElement(_editor.document, DIAGRAM, @"RoleDisplayOrder");
 		for (NSString *roleId in roleIds) {
-			[display addChild:ORMNewRef(self.document, DIAGRAM, @"Role", roleId)];
+			[display addChild:ORMNewRef(_editor.document, DIAGRAM, @"Role", roleId)];
 		}
 		ORMInsertChild(shape.element, display);
 	}];
@@ -391,7 +401,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 
 - (void)setOrientation:(ORMFactTypeOrientation)orientation ofShape:(NSString *)shapeId
 {
-	ORMShape *shape = [self.model elementWithId:shapeId];
+	ORMShape *shape = [_editor.model elementWithId:shapeId];
 	if (![shape isKindOfClass:[ORMShape class]] || shape.kind != ORMShapeFactType || shape.orientation == orientation) {
 		return;
 	}
@@ -405,7 +415,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 		bounds = NSMakeRect(center.x - NSHeight(bounds) / 2, center.y - NSWidth(bounds) / 2, NSHeight(bounds),
 		                    NSWidth(bounds));
 	}
-	[self change:@"Rotate Fact Type" with:^{
+	[_editor change:@"Rotate Fact Type" with:^{
 		ORMSetAttribute(shape.element, @"DisplayOrientation", name);
 		ORMSetAttribute(shape.element, @"AbsoluteBounds", ORMFormatBounds(bounds));
 	}];
@@ -558,7 +568,7 @@ typedef struct {
 		[placed setObject:[NSValue valueWithPoint:NSMakePoint(x, y)] forKey:shape.identifier];
 	}
 	free(nodes);
-	[self change:@"Arrange Diagram" with:^{
+	[_editor change:@"Arrange Diagram" with:^{
 		for (ORMShape *shape in shapes) {
 			NSPoint at = [[placed objectForKey:shape.identifier] pointValue];
 			NSSize delta = NSMakeSize(at.x - NSMinX(shape.bounds), at.y - NSMinY(shape.bounds));

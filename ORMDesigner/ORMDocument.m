@@ -52,14 +52,14 @@ NSString * const ORMDocumentType = @"org.ormkit.orm";
 	/* A model NORMA saved without a diagram gets one to draw on. */
 	if ([model.diagrams count] == 0 && [document rootElement] != model.modelElement) {
 		[[self undoManager] disableUndoRegistration];
-		NSString *diagram = [_editor addDiagramNamed:model.name];
+		NSString *diagram = [_editor.diagramEditor addDiagramNamed:model.name];
 		for (ORMObjectType *type in [_editor.model visibleObjectTypes]) {
-			[_editor placeElement:type.identifier onDiagram:diagram at:ORMAutomaticPlacement];
+			[_editor.diagramEditor placeElement:type.identifier onDiagram:diagram at:ORMAutomaticPlacement];
 		}
 		for (ORMFactType *fact in [_editor.model ordinaryFactTypes]) {
-			[_editor placeElement:fact.identifier onDiagram:diagram at:ORMAutomaticPlacement];
+			[_editor.diagramEditor placeElement:fact.identifier onDiagram:diagram at:ORMAutomaticPlacement];
 		}
-		[_editor arrangeDiagram:diagram];
+		[_editor.diagramEditor arrangeDiagram:diagram];
 		[[self undoManager] enableUndoRegistration];
 	}
 	for (NSWindowController *controller in [self windowControllers]) {

@@ -33,7 +33,11 @@
  * mapping's baseline, so what ORM cannot say (deletion rules, fetch
  * requests, configurations) stays as it was. */
 
-@interface ORMEditor (ORMCoreDataImport)
+/* Brings a Core Data model into the editor's model. */
+@interface ORMCoreDataImporter : NSObject
+- (instancetype)initWithEditor:(ORMEditor *)editor;
+@property (nonatomic, readonly, strong) ORMEditor *editor;
+
 /* Makes the Core Data model's ORM counterpart in this model, on a diagram
  * of its own (the model's only diagram, when that is empty), as one step,
  * with a mapping to the .xcdatamodeld at the path. The mapping's id; what

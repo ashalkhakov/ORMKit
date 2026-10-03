@@ -7,6 +7,11 @@
 
 @implementation ORMCoreDataTests
 
+- (ORMMappingEditor *)mappingsOf:(ORMEditor *)editor
+{
+	return [[ORMMappingEditor alloc] initWithEditor:editor];
+}
+
 - (ORMCDModel *)map:(ORMModel *)model
 {
 	return [[[ORMCoreDataMapper alloc] initWithModel:model mapping:nil] map];
@@ -19,7 +24,7 @@
 
 - (NSString *)entity:(NSString *)name mode:(NSString *)mode in:(ORMEditor *)editor
 {
-	return [editor addEntityTypeNamed:name referenceMode:mode
+	return [editor.objectTypeEditor addEntityTypeNamed:name referenceMode:mode
 	                             kind:mode != nil ? ORMReferenceModePopular : ORMReferenceModeNone
 	                        onDiagram:[self diagramOf:editor] at:ORMAutomaticPlacement reason:NULL];
 }
@@ -63,7 +68,7 @@
 - (ORMCDModel *)map:(NSString *)fixture configuring:(void (^)(ORMEditor *editor, NSString *mapping))configure
 {
 	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[self fixtureDocument:fixture] undoManager:nil];
-	NSString *mappingId = [editor addCoreDataMappingNamed:@"Test" path:@"Test.xcdatamodeld"];
+	NSString *mappingId = [[self mappingsOf:editor] addCoreDataMappingNamed:@"Test" path:@"Test.xcdatamodeld"];
 	configure(editor, mappingId);
 	ORMCoreDataMapping *mapping = [ORMCoreDataMapping mappingWithId:mappingId inDocument:editor.document];
 	return [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping] map];
@@ -99,7 +104,7 @@ ORMSquashed(NSString *name)
 		}
 		NSString *sql = [[NSString alloc] initWithData:[self fixtureData:sqlName] encoding:NSUTF8StringEncoding];
 		ORMCDModel *mapped = [self map:name configuring:^(ORMEditor *editor, NSString *mapping) {
-			[editor setStyle:ORMStyleRelational ofMapping:mapping];
+			[[self mappingsOf:editor] setStyle:ORMStyleRelational ofMapping:mapping];
 		}];
 		NSMutableSet *entities = [NSMutableSet set];
 		for (ORMCDEntity *entity in mapped.entities) {
@@ -138,7 +143,7 @@ ORMSquashed(NSString *name)
 	__block NSString *valueTypeId = nil;
 	ORMCDModel *mapped = [self map:@"StockMate.orm" configuring:^(ORMEditor *editor, NSString *mapping) {
 		valueTypeId = [[editor.model objectTypeNamed:@"Barcode"] identifier];
-		[editor setTransformableClass:@"NSURL" transformer:nil ofObjectType:valueTypeId inMapping:mapping];
+		[[self mappingsOf:editor] setTransformableClass:@"NSURL" transformer:nil ofObjectType:valueTypeId inMapping:mapping];
 	}];
 	ORMCDAttribute *barcode = nil;
 	for (ORMCDAttribute *attribute in [[mapped entityNamed:@"Product"] attributes]) {
@@ -201,14 +206,14 @@ ORMSquashed(NSString *name)
 - (void)testTheStyleDecidesWhatIsAbsorbed
 {
 	ORMCDModel *entities = [self map:@"StockMate.orm" configuring:^(ORMEditor *editor, NSString *mapping) {
-		[editor setStyle:ORMStyleEntities ofMapping:mapping];
+		[[self mappingsOf:editor] setStyle:ORMStyleEntities ofMapping:mapping];
 	}];
 	XCTAssertNotNil([entities entityNamed:@"Address"]);
 	XCTAssertNotNil([entities entityNamed:@"Street"]);
 	XCTAssertNil([self momcRejects:entities]);
 	/* An object type's own mapping decides over the style. */
 	ORMCDModel *kept = [self map:@"StockMate.orm" configuring:^(ORMEditor *editor, NSString *mapping) {
-		[editor setMapping:ORMMapAsEntity ofObjectType:[[editor.model objectTypeNamed:@"Address"] identifier]
+		[[self mappingsOf:editor] setMapping:ORMMapAsEntity ofObjectType:[[editor.model objectTypeNamed:@"Address"] identifier]
 		         inMapping:mapping];
 	}];
 	XCTAssertNotNil([kept entityNamed:@"Address"]);
@@ -251,11 +256,11 @@ ORMSquashed(NSString *name)
 	ORMEditor *editor = [self newEditor];
 	NSString *notebook = [self entity:@"Notebook" mode:@"id" in:editor];
 	NSString *note = [self entity:@"Note" mode:@"id" in:editor];
-	NSString *contains = [editor addFactTypeWithPlayers:@[ notebook, note ] reading:@"{0} contains {1}" onDiagram:nil
+	NSString *contains = [editor.factTypeEditor addFactTypeWithPlayers:@[ notebook, note ] reading:@"{0} contains {1}" onDiagram:nil
 	                                                 at:NSZeroPoint reason:NULL];
 	NSArray *roles = [self rolesOf:contains in:editor];
-	[editor setUnique:YES role:[roles[1] identifier] reason:NULL];
-	[editor setMandatory:YES role:[roles[1] identifier] reason:NULL];
+	[editor.constraintEditor setUnique:YES role:[roles[1] identifier] reason:NULL];
+	[editor.constraintEditor setMandatory:YES role:[roles[1] identifier] reason:NULL];
 	ORMCDModel *mapped = [self map:editor.model];
 	ORMCDRelationship *notes = [[mapped entityNamed:@"Notebook"] relationshipNamed:@"notes"];
 	ORMCDRelationship *back = [[mapped entityNamed:@"Note"] relationshipNamed:@"notebook"];
@@ -276,16 +281,16 @@ ORMSquashed(NSString *name)
 	ORMEditor *editor = [self newEditor];
 	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
 	NSString *club = [self entity:@"Club" mode:@"code" in:editor];
-	NSString *language = [editor addValueTypeNamed:@"Language" dataType:@"VariableLengthTextDataType" onDiagram:nil
+	NSString *language = [editor.objectTypeEditor addValueTypeNamed:@"Language" dataType:@"VariableLengthTextDataType" onDiagram:nil
 	                                            at:NSZeroPoint reason:NULL];
-	NSString *joined = [editor addFactTypeWithPlayers:@[ person, club ] reading:@"{0} joined {1}" onDiagram:nil
+	NSString *joined = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, club ] reading:@"{0} joined {1}" onDiagram:nil
 	                                               at:NSZeroPoint reason:NULL];
 	NSArray *joinedRoles = [self rolesOf:joined in:editor];
-	[editor addUniquenessConstraintOverRoles:@[ [joinedRoles[0] identifier], [joinedRoles[1] identifier] ] reason:NULL];
-	NSString *speaks = [editor addFactTypeWithPlayers:@[ person, language ] reading:@"{0} speaks {1}" onDiagram:nil
+	[editor.constraintEditor addUniquenessConstraintOverRoles:@[ [joinedRoles[0] identifier], [joinedRoles[1] identifier] ] reason:NULL];
+	NSString *speaks = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, language ] reading:@"{0} speaks {1}" onDiagram:nil
 	                                               at:NSZeroPoint reason:NULL];
 	NSArray *speaksRoles = [self rolesOf:speaks in:editor];
-	[editor addUniquenessConstraintOverRoles:@[ [speaksRoles[0] identifier], [speaksRoles[1] identifier] ] reason:NULL];
+	[editor.constraintEditor addUniquenessConstraintOverRoles:@[ [speaksRoles[0] identifier], [speaksRoles[1] identifier] ] reason:NULL];
 	ORMCDModel *mapped = [self map:editor.model];
 	XCTAssertTrue([[[mapped entityNamed:@"Person"] relationshipNamed:@"clubs"] toMany]);
 	XCTAssertTrue([[[mapped entityNamed:@"Club"] relationshipNamed:@"people"] toMany] ||
@@ -303,12 +308,12 @@ ORMSquashed(NSString *name)
 	NSString *party = [self entity:@"Party" mode:@"id" in:editor];
 	NSString *person = [self entity:@"Person" mode:nil in:editor];
 	NSString *company = [self entity:@"Company" mode:nil in:editor];
-	NSString *personFact = [editor addSubtype:person of:party reason:NULL];
-	NSString *companyFact = [editor addSubtype:company of:party reason:NULL];
-	NSString *name = [editor addValueTypeNamed:@"PersonName" dataType:nil onDiagram:nil at:NSZeroPoint reason:NULL];
-	NSString *named = [editor addFactTypeWithPlayers:@[ person, name ] reading:@"{0} has {1}" onDiagram:nil
+	NSString *personFact = [editor.objectTypeEditor addSubtype:person of:party reason:NULL];
+	NSString *companyFact = [editor.objectTypeEditor addSubtype:company of:party reason:NULL];
+	NSString *name = [editor.objectTypeEditor addValueTypeNamed:@"PersonName" dataType:nil onDiagram:nil at:NSZeroPoint reason:NULL];
+	NSString *named = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, name ] reading:@"{0} has {1}" onDiagram:nil
 	                                              at:NSZeroPoint reason:NULL];
-	[editor setUnique:YES role:[[self rolesOf:named in:editor][0] identifier] reason:NULL];
+	[editor.constraintEditor setUnique:YES role:[[self rolesOf:named in:editor][0] identifier] reason:NULL];
 	ORMCDModel *mapped = [self map:editor.model];
 	XCTAssertEqualObjects([[mapped entityNamed:@"Person"] parentName], @"Party");
 	XCTAssertFalse([[mapped entityNamed:@"Party"] isAbstract]);
@@ -316,7 +321,7 @@ ORMSquashed(NSString *name)
 	/* Every party is a person or a company. */
 	NSString *supertypeOfPerson = [[self rolesOf:personFact in:editor][1] identifier];
 	NSString *supertypeOfCompany = [[self rolesOf:companyFact in:editor][1] identifier];
-	[editor addMandatoryConstraintOverRoles:@[ supertypeOfPerson, supertypeOfCompany ] reason:NULL];
+	[editor.constraintEditor addMandatoryConstraintOverRoles:@[ supertypeOfPerson, supertypeOfCompany ] reason:NULL];
 	mapped = [self map:editor.model];
 	XCTAssertTrue([[mapped entityNamed:@"Party"] isAbstract]);
 	XCTAssertNil([self momcRejects:mapped]);
@@ -327,15 +332,15 @@ ORMSquashed(NSString *name)
 	ORMEditor *editor = [self newEditor];
 	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
 	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
-	NSString *year = [editor addValueTypeNamed:@"Year" dataType:@"SignedIntegerNumericDataType" onDiagram:nil
+	NSString *year = [editor.objectTypeEditor addValueTypeNamed:@"Year" dataType:@"SignedIntegerNumericDataType" onDiagram:nil
 	                                        at:NSZeroPoint reason:NULL];
-	NSString *visited = [editor addFactTypeWithPlayers:@[ person, country, year ] reading:@"{0} visited {1} in {2}"
+	NSString *visited = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, country, year ] reading:@"{0} visited {1} in {2}"
 	                                         onDiagram:nil at:NSZeroPoint reason:NULL];
 	NSArray *roles = [self rolesOf:visited in:editor];
-	[editor addUniquenessConstraintOverRoles:@[ [roles[0] identifier], [roles[1] identifier] ] reason:NULL];
-	NSString *married = [editor addFactTypeWithPlayers:@[ person, person ] reading:@"{0} married {1}" onDiagram:nil
+	[editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[0] identifier], [roles[1] identifier] ] reason:NULL];
+	NSString *married = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, person ] reading:@"{0} married {1}" onDiagram:nil
 	                                                at:NSZeroPoint reason:NULL];
-	[editor objectifyFactType:married named:@"Marriage" reason:NULL];
+	[editor.factTypeEditor objectifyFactType:married named:@"Marriage" reason:NULL];
 	ORMCDModel *mapped = [self map:editor.model];
 	ORMCDEntity *visit = [mapped entityNamed:@"PersonVisitedCountryInYear"];
 	XCTAssertNotNil(visit);
@@ -352,16 +357,16 @@ ORMSquashed(NSString *name)
 {
 	ORMEditor *editor = [self newEditor];
 	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
-	NSString *gender = [editor addValueTypeNamed:@"Gender" dataType:@"FixedLengthTextDataType" onDiagram:nil
+	NSString *gender = [editor.objectTypeEditor addValueTypeNamed:@"Gender" dataType:@"FixedLengthTextDataType" onDiagram:nil
 	                                          at:NSZeroPoint reason:NULL];
-	NSString *age = [editor addValueTypeNamed:@"Age" dataType:@"UnsignedSmallIntegerNumericDataType" onDiagram:nil
+	NSString *age = [editor.objectTypeEditor addValueTypeNamed:@"Age" dataType:@"UnsignedSmallIntegerNumericDataType" onDiagram:nil
 	                                       at:NSZeroPoint reason:NULL];
-	[editor setValueConstraint:@"{'M', 'F'}" of:gender reason:NULL];
-	[editor setValueConstraint:@"{0..140}" of:age reason:NULL];
+	[editor.objectTypeEditor setValueConstraint:@"{'M', 'F'}" of:gender reason:NULL];
+	[editor.objectTypeEditor setValueConstraint:@"{0..140}" of:age reason:NULL];
 	for (NSString *value in @[ gender, age ]) {
-		NSString *fact = [editor addFactTypeWithPlayers:@[ person, value ] reading:@"{0} has {1}" onDiagram:nil
+		NSString *fact = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, value ] reading:@"{0} has {1}" onDiagram:nil
 		                                             at:NSZeroPoint reason:NULL];
-		[editor setUnique:YES role:[[self rolesOf:fact in:editor][0] identifier] reason:NULL];
+		[editor.constraintEditor setUnique:YES role:[[self rolesOf:fact in:editor][0] identifier] reason:NULL];
 	}
 	ORMCDEntity *entity = [[self map:editor.model] entityNamed:@"Person"];
 	XCTAssertEqualObjects([[entity attributeNamed:@"gender"] regularExpression], @"^(?:M|F)$");
@@ -389,9 +394,9 @@ ORMSquashed(NSString *name)
 	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
 	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
 	for (NSString *reading in @[ @"{0} was born in {1}", @"{0} lives in {1}" ]) {
-		NSString *fact = [editor addFactTypeWithPlayers:@[ person, country ] reading:reading onDiagram:nil
+		NSString *fact = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, country ] reading:reading onDiagram:nil
 		                                             at:NSZeroPoint reason:NULL];
-		[editor setUnique:YES role:[[self rolesOf:fact in:editor][0] identifier] reason:NULL];
+		[editor.constraintEditor setUnique:YES role:[[self rolesOf:fact in:editor][0] identifier] reason:NULL];
 	}
 	ORMCDEntity *entity = [[self map:editor.model] entityNamed:@"Person"];
 	XCTAssertNotNil([entity relationshipNamed:@"country"]);
@@ -403,16 +408,16 @@ ORMSquashed(NSString *name)
 	ORMEditor *editor = [self newEditor];
 	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
 	NSString *secret = [self entity:@"Secret" mode:@"id" in:editor];
-	NSString *knows = [editor addFactTypeWithPlayers:@[ person, secret ] reading:@"{0} knows {1}" onDiagram:nil
+	NSString *knows = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, secret ] reading:@"{0} knows {1}" onDiagram:nil
 	                                              at:NSZeroPoint reason:NULL];
-	[editor setUnique:YES role:[[self rolesOf:knows in:editor][0] identifier] reason:NULL];
-	NSString *mapping = [editor addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
-	[editor setName:@"Human" forSource:person inMapping:mapping];
+	[editor.constraintEditor setUnique:YES role:[[self rolesOf:knows in:editor][0] identifier] reason:NULL];
+	NSString *mapping = [[self mappingsOf:editor] addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
+	[[self mappingsOf:editor] setName:@"Human" forSource:person inMapping:mapping];
 	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
 	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:read] map];
 	XCTAssertNotNil([mapped entityNamed:@"Human"]);
 	XCTAssertNotNil([[mapped entityNamed:@"Human"] relationshipNamed:@"secret"]);
-	[editor setMapping:ORMMapIgnored ofObjectType:secret inMapping:mapping];
+	[[self mappingsOf:editor] setMapping:ORMMapIgnored ofObjectType:secret inMapping:mapping];
 	read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
 	mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:read] map];
 	XCTAssertNil([mapped entityNamed:@"Secret"]);
@@ -427,7 +432,7 @@ ORMSquashed(NSString *name)
 /* A model with a mapping synchronized once: the baseline written. */
 - (NSString *)syncedMappingIn:(ORMEditor *)editor
 {
-	NSString *mapping = [editor addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
+	NSString *mapping = [[self mappingsOf:editor] addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
 	ORMCoreDataSync *sync = [[ORMCoreDataSync alloc] initWithEditor:editor mapping:mapping theirs:nil];
 	XCTAssertEqual([sync.changes count], (NSUInteger)0);
 	[sync apply];
@@ -444,11 +449,11 @@ ORMSquashed(NSString *name)
 {
 	ORMEditor *editor = [self newEditor];
 	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
-	NSString *name = [editor addValueTypeNamed:@"Name" dataType:@"VariableLengthTextDataType" onDiagram:nil
+	NSString *name = [editor.objectTypeEditor addValueTypeNamed:@"Name" dataType:@"VariableLengthTextDataType" onDiagram:nil
 	                                        at:NSZeroPoint reason:NULL];
-	NSString *named = [editor addFactTypeWithPlayers:@[ person, name ] reading:@"{0} has {1}" onDiagram:nil
+	NSString *named = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, name ] reading:@"{0} has {1}" onDiagram:nil
 	                                              at:NSZeroPoint reason:NULL];
-	[editor setUnique:YES role:[[self rolesOf:named in:editor][0] identifier] reason:NULL];
+	[editor.constraintEditor setUnique:YES role:[[self rolesOf:named in:editor][0] identifier] reason:NULL];
 	return editor;
 }
 
@@ -598,7 +603,7 @@ ORMSquashed(NSString *name)
 	ORMCDModel *theirs = [self baselineOf:mapping in:editor];
 	[[theirs entityNamed:@"Person"] attributeNamed:@"name"].name = @"fullName";
 	NSString *nameRole = [[[[editor.model objectTypeNamed:@"Name"] playedRoles] firstObject] identifier];
-	[editor setName:@"label" forSource:nameRole inMapping:mapping];
+	[[self mappingsOf:editor] setName:@"label" forSource:nameRole inMapping:mapping];
 	ORMCoreDataSync *sync = [[ORMCoreDataSync alloc] initWithEditor:editor mapping:mapping theirs:theirs];
 	ORMSyncChange *change = sync.changes.firstObject;
 	XCTAssertTrue(change.conflicts);
@@ -610,7 +615,7 @@ ORMSquashed(NSString *name)
 - (void)testAModelMadeElsewhereIsAdopted
 {
 	ORMEditor *editor = [self personModel];
-	NSString *mapping = [editor addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
+	NSString *mapping = [[self mappingsOf:editor] addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
 	/* The same model, written by hand: no traces, matched by name. */
 	ORMCDModel *theirs = [[self map:editor.model] copy];
 	for (ORMCDEntity *entity in theirs.entities) {

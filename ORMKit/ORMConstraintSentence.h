@@ -90,13 +90,3 @@
 @property (nonatomic, readonly, copy) NSArray<ORMSentenceFact *> *factTypes;
 @end
 
-@interface ORMEditor (ORMConstraintSentences)
-/* Makes what the sentence says, as one step: the object types and fact
- * types it names that the model lacks (placed on the diagram), then its
- * constraints. A sentence that is no constraint is taken as a fact type,
- * as the Fact Editor takes it. The ids of what was made. */
-- (NSArray<NSString *> *)addFromSentence:(NSString *)text
-                               onDiagram:(NSString *)diagramId
-                                      at:(NSPoint)point
-                                  reason:(NSString **)reason;
-@end

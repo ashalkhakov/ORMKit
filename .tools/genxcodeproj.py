@@ -46,6 +46,10 @@ APP_HEADERS = [h for h in headers_in("ORMDesigner") if h != "ORMDesignerCompat.h
 APP_TEST_FILES = make_list("ORMDesignerTests/GNUmakefile", "ORMDesignerTests_OBJC_FILES")
 APP_TESTS = [t for t in APP_TEST_FILES if not t.startswith("../")]
 APP_TESTED = [os.path.basename(t) for t in APP_TEST_FILES if t.startswith("../ORMDesigner/")]
+# The designer's XIBs, which its classes load from the bundle they are in.
+APP_TEST_RESOURCES = [os.path.basename(t) for t in make_list("ORMDesignerTests/GNUmakefile",
+                                                            "ORMDesignerTests_RESOURCE_FILES")
+                      if t.startswith("../ORMDesigner/")]
 DOCS = ["README.md", "CLAUDE.md", "docs/ARCHITECTURE.md", "docs/COREDATA-MAPPING.md"]
 
 objects = {}  # id -> (comment, fields)
@@ -67,7 +71,7 @@ def names(ids):
 
 
 FILE_TYPES = {".m": "sourcecode.c.objc", ".h": "sourcecode.c.h", ".md": "net.daringfireball.markdown",
-              ".png": "image.png", ".plist": "text.plist.xml"}
+              ".png": "image.png", ".plist": "text.plist.xml", ".xib": "file.xib"}
 
 
 def fileref(path):
@@ -156,6 +160,8 @@ app_embed = phase("PBXCopyFilesBuildPhase", "ORMDesigner", "Embed Frameworks",
 app_tests_sources = phase("PBXSourcesBuildPhase", "ORMDesignerTests", "Sources",
                           [buildfile("ORMDesignerTests", app_test_refs[s]) for s in APP_TESTS]
                           + [buildfile("ORMDesignerTests.app", app_refs[s]) for s in APP_TESTED])
+app_tests_resources = phase("PBXResourcesBuildPhase", "ORMDesignerTests", "Resources",
+                            [buildfile("ORMDesignerTests.app", app_refs[r]) for r in APP_TEST_RESOURCES])
 app_tests_frameworks = phase("PBXFrameworksBuildPhase", "ORMDesignerTests", "Frameworks",
                              [buildfile("ORMDesignerTests", p_kit), buildfile("ORMDesignerTests", sdk["AppKit"]),
                               buildfile("ORMDesignerTests", sdk["XCTest"])])
@@ -322,7 +328,7 @@ t_tool = target("ormtool", [tool_sources, tool_frameworks], [dependency("ormtool
                 "com.apple.product-type.tool")
 t_app = target("ORMDesigner", [app_sources, app_resources, app_frameworks, app_embed],
                [dependency("ORMDesigner", t_kit, "ORMKit")], p_app, "com.apple.product-type.application")
-t_app_tests = target("ORMDesignerTests", [app_tests_sources, app_tests_frameworks],
+t_app_tests = target("ORMDesignerTests", [app_tests_sources, app_tests_resources, app_tests_frameworks],
                      [dependency("ORMDesignerTests", t_kit, "ORMKit")], p_app_tests,
                      "com.apple.product-type.bundle.unit-test")
 

@@ -9,8 +9,8 @@
 /* A document's window: the model browser on the left, the diagram with the
  * fact editor and the verbalization of the selection in the middle, the
  * inspector on the right, the tools across the top and a status line at the
- * bottom. Built in code, without Auto Layout (gnustep-gui has none): panes
- * keep their place with springs and struts. */
+ * bottom. ORMDocumentWindow.xib, without Auto Layout (gnustep-gui has none):
+ * panes keep their place with springs and struts. */
 @interface ORMWindowController : NSWindowController <ORMCanvasDelegate, ORMInspectorDelegate, ORMModelBrowserDelegate,
                                                      NSTextFieldDelegate, NSTextViewDelegate, NSSplitViewDelegate>
 - (instancetype)initWithDocument:(ORMDocument *)document;

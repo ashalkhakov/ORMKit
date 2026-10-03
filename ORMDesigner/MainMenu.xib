@@ -1,0 +1,445 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" useAutolayout="YES" customObjectInstantitationMethod="direct">
+    <dependencies>
+        <deployment identifier="macosx"/>
+        <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
+    </dependencies>
+    <objects>
+        <customObject id="-2" userLabel="File's Owner" customClass="ORMAppDelegate">
+            <connections>
+                <outlet property="mainMenu" destination="mainMenu" id="mainMenuOutlet"/>
+            </connections>
+        </customObject>
+        <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+        <customObject id="-3" userLabel="Application" customClass="NSObject"/>
+        <menu title="MainMenu" systemMenu="main" id="mainMenu">
+            <items>
+                <menuItem title="ORMDesigner" id="oRMDesignerMenuItem">
+                    <menu key="submenu" title="ORMDesigner" systemMenu="apple" id="oRMDesignerMenu">
+                        <items>
+                            <menuItem title="About ORMDesigner" id="aboutORMDesigner">
+                                <connections>
+                                    <action selector="orderFrontStandardAboutPanel:" target="-3" id="aboutORMDesignerAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator"/>
+                            <menuItem title="Hide ORMDesigner" keyEquivalent="h" id="hideORMDesigner">
+                                <connections>
+                                    <action selector="hide:" target="-3" id="hideORMDesignerAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Quit ORMDesigner" keyEquivalent="q" id="quitORMDesigner">
+                                <connections>
+                                    <action selector="terminate:" target="-3" id="quitORMDesignerAction"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="File" id="fileMenuItem">
+                    <menu key="submenu" title="File" id="fileMenu">
+                        <items>
+                            <menuItem title="New" keyEquivalent="n" id="new">
+                                <connections>
+                                    <action selector="newDocument:" target="-1" id="newAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Open…" keyEquivalent="o" id="open">
+                                <connections>
+                                    <action selector="openDocument:" target="-1" id="openAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator2"/>
+                            <menuItem title="Close" keyEquivalent="w" id="close">
+                                <connections>
+                                    <action selector="performClose:" target="-1" id="closeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Save" keyEquivalent="s" id="save">
+                                <connections>
+                                    <action selector="saveDocument:" target="-1" id="saveAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Save As…" keyEquivalent="s" id="saveAs">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" shift="YES"/>
+                                <connections>
+                                    <action selector="saveDocumentAs:" target="-1" id="saveAsAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Save a Copy for NORMA…" id="saveaCopyforNORMA">
+                                <connections>
+                                    <action selector="saveCopyForNorma:" target="-1" id="saveaCopyforNORMAAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Revert to Saved" id="reverttoSaved">
+                                <connections>
+                                    <action selector="revertDocumentToSaved:" target="-1" id="reverttoSavedAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator3"/>
+                            <menuItem title="Export Diagram as PDF…" keyEquivalent="e" id="exportDiagramasPDF">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" shift="YES"/>
+                                <connections>
+                                    <action selector="exportDiagramAsPDF:" target="-1" id="exportDiagramasPDFAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Export Diagram as PNG…" id="exportDiagramasPNG">
+                                <connections>
+                                    <action selector="exportDiagramAsPNG:" target="-1" id="exportDiagramasPNGAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Export Verbalization…" id="exportVerbalization">
+                                <connections>
+                                    <action selector="exportVerbalization:" target="-1" id="exportVerbalizationAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator4"/>
+                            <menuItem title="Print…" keyEquivalent="p" id="print">
+                                <connections>
+                                    <action selector="printDocument:" target="-1" id="printAction"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Edit" id="editMenuItem">
+                    <menu key="submenu" title="Edit" id="editMenu">
+                        <items>
+                            <menuItem title="Undo" keyEquivalent="z" id="undo">
+                                <connections>
+                                    <action selector="undo:" target="-1" id="undoAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Redo" keyEquivalent="z" id="redo">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" shift="YES"/>
+                                <connections>
+                                    <action selector="redo:" target="-1" id="redoAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator5"/>
+                            <menuItem title="Cut" keyEquivalent="x" id="cut">
+                                <connections>
+                                    <action selector="cut:" target="-1" id="cutAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Copy" keyEquivalent="c" id="copy">
+                                <connections>
+                                    <action selector="copy:" target="-1" id="copyAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Paste" keyEquivalent="v" id="paste">
+                                <connections>
+                                    <action selector="paste:" target="-1" id="pasteAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Delete" id="delete">
+                                <connections>
+                                    <action selector="delete:" target="-1" id="deleteAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Remove from Diagram" id="removefromDiagram">
+                                <string key="keyEquivalent" base64-UTF8="YES">
+CA
+</string>
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" shift="YES"/>
+                                <connections>
+                                    <action selector="removeFromDiagram:" target="-1" id="removefromDiagramAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Select All" keyEquivalent="a" id="selectAll">
+                                <connections>
+                                    <action selector="selectAll:" target="-1" id="selectAllAction"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Model" id="modelMenuItem">
+                    <menu key="submenu" title="Model" id="modelMenu">
+                        <items>
+                            <menuItem title="Pointer" tag="0" id="pointerTool">
+                                <connections>
+                                    <action selector="chooseTool:" target="-1" id="pointerToolAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Entity Type" tag="1" id="entityTypeTool">
+                                <connections>
+                                    <action selector="chooseTool:" target="-1" id="entityTypeToolAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Value Type" tag="2" id="valueTypeTool">
+                                <connections>
+                                    <action selector="chooseTool:" target="-1" id="valueTypeToolAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Fact Type" tag="3" id="factTypeTool">
+                                <connections>
+                                    <action selector="chooseTool:" target="-1" id="factTypeToolAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Fact Editor" keyEquivalent="f" id="factEditor">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="focusFactEditor:" target="-1" id="factEditorAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="New Entity Type" id="newEntityType">
+                                <connections>
+                                    <action selector="newEntityType:" target="-1" id="newEntityTypeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="New Value Type" id="newValueType">
+                                <connections>
+                                    <action selector="newValueType:" target="-1" id="newValueTypeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Filter Model Browser" keyEquivalent="j" id="filterModelBrowser">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="focusBrowserFilter:" target="-1" id="filterModelBrowserAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Subtype" tag="4" id="subtypeTool">
+                                <connections>
+                                    <action selector="chooseTool:" target="-1" id="subtypeToolAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Connect Role" tag="5" id="connectRoleTool">
+                                <connections>
+                                    <action selector="chooseTool:" target="-1" id="connectRoleToolAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Note" tag="6" id="noteTool">
+                                <connections>
+                                    <action selector="chooseTool:" target="-1" id="noteToolAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator6"/>
+                            <menuItem title="Toggle Uniqueness" keyEquivalent="u" id="toggleUniqueness">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="toggleUniqueness:" target="-1" id="toggleUniquenessAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Toggle Mandatory" keyEquivalent="m" id="toggleMandatory">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="toggleMandatory:" target="-1" id="toggleMandatoryAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Add Constraint" id="addConstraintItem">
+                                <menu key="submenu" title="Add Constraint" id="addConstraintMenu">
+                                    <items>
+                                        <menuItem title="Uniqueness" tag="7" id="uniquenessTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="uniquenessToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Inclusive Or (Mandatory)" tag="8" id="inclusiveOrMandatoryTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="inclusiveOrMandatoryToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Exclusion" tag="9" id="exclusionTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="exclusionToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Exclusive Or" tag="10" id="exclusiveOrTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="exclusiveOrToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Subset" tag="11" id="subsetTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="subsetToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Equality" tag="12" id="equalityTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="equalityToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Frequency" tag="13" id="frequencyTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="frequencyToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Ring" tag="14" id="ringTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="ringToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                        <menuItem title="Value Comparison" tag="15" id="valueComparisonTool">
+                                            <connections>
+                                                <action selector="chooseTool:" target="-1" id="valueComparisonToolAction"/>
+                                            </connections>
+                                        </menuItem>
+                                    </items>
+                                </menu>
+                            </menuItem>
+                            <menuItem title="Next Role Sequence" keyEquivalent="&#9;" id="nextRoleSequence">
+                                <modifierMask key="keyEquivalentModifierMask" option="YES"/>
+                                <connections>
+                                    <action selector="nextRoleSequence:" target="-1" id="nextRoleSequenceAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Finish Constraint" keyEquivalent="&#13;" id="finishConstraint">
+                                <connections>
+                                    <action selector="commitPending:" target="-1" id="finishConstraintAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator7"/>
+                            <menuItem title="Objectify Fact Type" id="objectifyFactType">
+                                <connections>
+                                    <action selector="objectifyFactType:" target="-1" id="objectifyFactTypeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Unobjectify Fact Type" id="unobjectifyFactType">
+                                <connections>
+                                    <action selector="unobjectifyFactType:" target="-1" id="unobjectifyFactTypeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Show Verbalization of Model" keyEquivalent="v" id="showVerbalizationofModel">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="verbalizeModel:" target="-1" id="showVerbalizationofModelAction"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Diagram" id="diagramMenuItem">
+                    <menu key="submenu" title="Diagram" id="diagramMenu">
+                        <items>
+                            <menuItem title="New Diagram" keyEquivalent="n" id="newDiagram">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="newDiagram:" target="-1" id="newDiagramAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Rename Diagram…" id="renameDiagram">
+                                <connections>
+                                    <action selector="renameDiagram:" target="-1" id="renameDiagramAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Delete Diagram" id="deleteDiagram">
+                                <connections>
+                                    <action selector="deleteDiagram:" target="-1" id="deleteDiagramAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator8"/>
+                            <menuItem title="Show Selection on Diagram" keyEquivalent="d" id="showSelectiononDiagram">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="showOnDiagram:" target="-1" id="showSelectiononDiagramAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Show Related" keyEquivalent="r" id="showRelated">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="showRelated:" target="-1" id="showRelatedAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Arrange" id="arrange">
+                                <connections>
+                                    <action selector="arrangeDiagram:" target="-1" id="arrangeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Rotate Fact Type" id="rotateFactType">
+                                <connections>
+                                    <action selector="rotateFactType:" target="-1" id="rotateFactTypeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Reverse Role Order" id="reverseRoleOrder">
+                                <connections>
+                                    <action selector="reverseRoleOrder:" target="-1" id="reverseRoleOrderAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator9"/>
+                            <menuItem title="Zoom In" keyEquivalent="+" id="zoomIn">
+                                <connections>
+                                    <action selector="zoomIn:" target="-1" id="zoomInAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Zoom Out" keyEquivalent="-" id="zoomOut">
+                                <connections>
+                                    <action selector="zoomOut:" target="-1" id="zoomOutAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Actual Size" keyEquivalent="0" id="actualSize">
+                                <connections>
+                                    <action selector="zoomToActualSize:" target="-1" id="actualSizeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Zoom to Fit" keyEquivalent="9" id="zoomtoFit">
+                                <connections>
+                                    <action selector="zoomToFit:" target="-1" id="zoomtoFitAction"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Core Data" id="coreDataMenuItem">
+                    <menu key="submenu" title="Core Data" id="coreDataMenu">
+                        <items>
+                            <menuItem title="Mappings…" keyEquivalent="k" id="mappings">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="showCoreDataMappings:" target="-1" id="mappingsAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Synchronize" keyEquivalent="k" id="synchronize">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES" shift="YES"/>
+                                <connections>
+                                    <action selector="synchronizeCoreData:" target="-1" id="synchronizeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="separator10"/>
+                            <menuItem title="Import Core Data Model…" id="importCoreDataModel">
+                                <connections>
+                                    <action selector="importCoreData:" target="-1" id="importCoreDataModelAction"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Query" id="queryMenuItem">
+                    <menu key="submenu" title="Query" id="queryMenu">
+                        <items>
+                            <menuItem title="Queries…" keyEquivalent="y" id="queries">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
+                                <connections>
+                                    <action selector="showQueries:" target="-1" id="queriesAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="New Query from Selection" keyEquivalent="y" id="newQueryfromSelection">
+                                <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES" shift="YES"/>
+                                <connections>
+                                    <action selector="newQueryFromSelection:" target="-1" id="newQueryfromSelectionAction"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+                <menuItem title="Window" id="windowMenuItem">
+                    <menu key="submenu" title="Window" systemMenu="window" id="windowsMenu">
+                        <items>
+                            <menuItem title="Minimize" keyEquivalent="m" id="minimize">
+                                <connections>
+                                    <action selector="performMiniaturize:" target="-1" id="minimizeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Bring All to Front" id="bringAlltoFront">
+                                <connections>
+                                    <action selector="arrangeInFront:" target="-1" id="bringAlltoFrontAction"/>
+                                </connections>
+                            </menuItem>
+                        </items>
+                    </menu>
+                </menuItem>
+            </items>
+            <point key="canvasLocation" x="140" y="154"/>
+        </menu>
+    </objects>
+</document>

@@ -159,11 +159,11 @@ ORMMultiplicityText(ORMMultiplicity multiplicity)
 {
 	NSString *reason = nil;
 	ORMEditor *editor = [self newEditor];
-	NSString *gender = [editor addValueTypeNamed:@"Gender" dataType:@"FixedLengthTextDataType" onDiagram:nil
+	NSString *gender = [editor.objectTypeEditor addValueTypeNamed:@"Gender" dataType:@"FixedLengthTextDataType" onDiagram:nil
 	                                          at:NSZeroPoint reason:&reason];
-	XCTAssertTrue([editor setValueConstraint:@"{'M', 'F'}" of:gender reason:&reason], @"%@", reason);
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"{'M', 'F'}" of:gender reason:&reason], @"%@", reason);
 	XCTAssertEqualObjects([[[editor.model elementWithId:gender] valueConstraint] displayText], @"{'M', 'F'}");
-	XCTAssertTrue([editor setValueConstraint:@"(0..100]" of:gender reason:&reason], @"%@", reason);
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"(0..100]" of:gender reason:&reason], @"%@", reason);
 	XCTAssertEqualObjects([[[editor.model elementWithId:gender] valueConstraint] displayText], @"{(0..100]}");
 }
 

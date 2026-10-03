@@ -23,19 +23,19 @@
 
 - (NSString *)entity:(NSString *)name mode:(NSString *)mode numeric:(BOOL)numeric
 {
-	NSString *type = [_editor addEntityTypeNamed:name referenceMode:mode
+	NSString *type = [_editor.objectTypeEditor addEntityTypeNamed:name referenceMode:mode
 	                                        kind:mode != nil ? ORMReferenceModePopular : ORMReferenceModeNone
 	                                   onDiagram:_diagram at:ORMAutomaticPlacement reason:NULL];
 	if (numeric) {
 		ORMObjectType *value = [[_editor.model elementWithId:type] referenceModeValueType];
-		[_editor setDataType:@"SignedIntegerNumericDataType" length:0 scale:0 of:value.identifier reason:NULL];
+		[_editor.objectTypeEditor setDataType:@"SignedIntegerNumericDataType" length:0 scale:0 of:value.identifier reason:NULL];
 	}
 	return type;
 }
 
 - (NSString *)value:(NSString *)name numeric:(BOOL)numeric
 {
-	return [_editor addValueTypeNamed:name
+	return [_editor.objectTypeEditor addValueTypeNamed:name
 	                         dataType:numeric ? @"SignedIntegerNumericDataType" : @"VariableLengthTextDataType"
 	                        onDiagram:_diagram at:ORMAutomaticPlacement reason:NULL];
 }
@@ -49,25 +49,25 @@
                       inverse:(NSString *)inverse
                    uniqueness:(NSString *)uniqueness
 {
-	NSString *fact = [_editor addFactTypeWithPlayers:players reading:reading onDiagram:_diagram
+	NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:players reading:reading onDiagram:_diagram
 	                                              at:ORMAutomaticPlacement reason:NULL];
 	XCTAssertNotNil(fact, @"%@", reading);
 	NSArray *roles = [[[_editor.model elementWithId:fact] roles] valueForKey:@"identifier"];
 	if (inverse != nil) {
-		NSString *reading = [_editor addReading:inverse forRoles:@[ [roles lastObject], [roles firstObject] ] reason:NULL];
+		NSString *reading = [_editor.factTypeEditor addReading:inverse forRoles:@[ [roles lastObject], [roles firstObject] ] reason:NULL];
 		XCTAssertNotNil(reading, @"%@", inverse);
 	}
 	if ([uniqueness hasPrefix:@"1"]) {
-		[_editor setUnique:YES role:[roles firstObject] reason:NULL];
+		[_editor.constraintEditor setUnique:YES role:[roles firstObject] reason:NULL];
 	}
 	if ([uniqueness hasPrefix:@"11"]) {
-		[_editor setUnique:YES role:[roles lastObject] reason:NULL];
+		[_editor.constraintEditor setUnique:YES role:[roles lastObject] reason:NULL];
 	}
 	if ([uniqueness hasPrefix:@"*"]) {
-		[_editor addUniquenessConstraintOverRoles:roles reason:NULL];
+		[_editor.constraintEditor addUniquenessConstraintOverRoles:roles reason:NULL];
 	}
 	if ([uniqueness hasSuffix:@"!"]) {
-		[_editor setMandatory:YES role:[roles firstObject] reason:NULL];
+		[_editor.constraintEditor setMandatory:YES role:[roles firstObject] reason:NULL];
 	}
 	[_facts setObject:roles forKey:name];
 	return roles;
@@ -79,8 +79,8 @@
 	for (NSString *name in facts) {
 		[far addObject:[[_facts objectForKey:name] lastObject]];
 	}
-	NSString *unique = [_editor addUniquenessConstraintOverRoles:far reason:NULL];
-	XCTAssertTrue([_editor setPreferredIdentifier:unique reason:NULL], @"%@", type);
+	NSString *unique = [_editor.constraintEditor addUniquenessConstraintOverRoles:far reason:NULL];
+	XCTAssertTrue([_editor.constraintEditor setPreferredIdentifier:unique reason:NULL], @"%@", type);
 }
 
 - (void)setUp
@@ -111,15 +111,15 @@
 	                uniqueness:@"11"];
 	NSArray *other = [self fact:@"hasOtherPhone" players:@[ employee, phone ] reading:@"{0} has other- {1}" inverse:nil
 	                 uniqueness:@"*"];
-	[_editor addSetComparisonConstraint:ORMExclusionConstraint
+	[_editor.constraintEditor addSetComparisonConstraint:ORMExclusionConstraint
 	                          sequences:@[ @[ [main lastObject] ], @[ [other lastObject] ] ]
 	                             reason:NULL];
-	[_editor addSetComparisonConstraint:ORMSubsetConstraint
+	[_editor.constraintEditor addSetComparisonConstraint:ORMSubsetConstraint
 	                          sequences:@[ @[ [other firstObject] ], @[ [main firstObject] ] ]
 	                             reason:NULL];
 	NSArray *reports = [self fact:@"reportsTo" players:@[ employee, employee ] reading:@"{0} reports to {1}"
 	                      inverse:@"{0} supervises {1}" uniqueness:@"1"];
-	[_editor addRingConstraint:ORMRingAcyclic overRoles:reports reason:NULL];
+	[_editor.constraintEditor addRingConstraint:ORMRingAcyclic overRoles:reports reason:NULL];
 	[self fact:@"earns" players:@[ employee, salary ] reading:@"{0} earns {1}" inverse:@"{0} is earned by {1}"
 	    uniqueness:@"1!"];
 	[self fact:@"drives" players:@[ employee, car ] reading:@"{0} drives {1}" inverse:@"{0} is driven by {1}"
@@ -135,8 +135,8 @@
 	                    inverse:@"{0} employs {1}" uniqueness:@"1!"];
 	NSArray *heads = [self fact:@"heads" players:@[ employee, branch ] reading:@"{0} heads {1}"
 	                    inverse:@"{0} is headed by {1}" uniqueness:@"11"];
-	[_editor setMandatory:YES role:[heads lastObject] reason:NULL];
-	[_editor addSetComparisonConstraint:ORMSubsetConstraint sequences:@[ heads, works ] reason:NULL];
+	[_editor.constraintEditor setMandatory:YES role:[heads lastObject] reason:NULL];
+	[_editor.constraintEditor addSetComparisonConstraint:ORMSubsetConstraint sequences:@[ heads, works ] reason:NULL];
 	[self fact:@"locatedIn" players:@[ branch, city ] reading:@"{0} is located in {1}"
 	    inverse:@"{0} is location of {1}" uniqueness:@"1!"];
 	[self fact:@"cityName" players:@[ city, cityname ] reading:@"{0} has {1}" inverse:nil uniqueness:@"1!"];
@@ -148,11 +148,11 @@
 	[self fact:@"usedIn" players:@[ language, country ] reading:@"{0} is used in {1}" inverse:@"{0} uses {1}"
 	    uniqueness:@"*"];
 	NSString *usBranch = [self entity:@"USbranch" mode:nil numeric:NO];
-	[_editor addSubtype:usBranch of:branch reason:NULL];
-	NSString *achieved = [_editor addFactTypeWithPlayers:@[ usBranch, rank, year ] reading:@"{0} achieved {1} in {2}"
+	[_editor.objectTypeEditor addSubtype:usBranch of:branch reason:NULL];
+	NSString *achieved = [_editor.factTypeEditor addFactTypeWithPlayers:@[ usBranch, rank, year ] reading:@"{0} achieved {1} in {2}"
 	                                           onDiagram:_diagram at:ORMAutomaticPlacement reason:NULL];
 	NSArray *achievedRoles = [[[_editor.model elementWithId:achieved] roles] valueForKey:@"identifier"];
-	[_editor addUniquenessConstraintOverRoles:@[ [achievedRoles objectAtIndex:0], [achievedRoles objectAtIndex:2] ]
+	[_editor.constraintEditor addUniquenessConstraintOverRoles:@[ [achievedRoles objectAtIndex:0], [achievedRoles objectAtIndex:2] ]
 	                                   reason:NULL];
 	[_facts setObject:achievedRoles forKey:@"achieved"];
 }
@@ -160,6 +160,11 @@
 - (ORMQuery *)query:(NSString *)queryId
 {
 	return [ORMQuery queryWithId:queryId inModel:_editor.model];
+}
+
+- (ORMQueryEditor *)queries
+{
+	return [[ORMQueryEditor alloc] initWithEditor:_editor];
 }
 
 - (ORMQueryNode *)root:(NSString *)queryId
@@ -186,7 +191,7 @@
                              step:(NSString **)stepId
 {
 	NSString *reason = nil;
-	NSString *step = [_editor addStepTo:nodeId through:roleId reason:&reason];
+	NSString *step = [[self queries] addStepTo:nodeId through:roleId reason:&reason];
 	XCTAssertNotNil(step, @"%@", reason);
 	if (stepId != NULL) {
 		*stepId = step;
@@ -231,8 +236,8 @@
 	if (found != nil) {
 		return found;
 	}
-	NSString *mapping = [_editor addCoreDataMappingNamed:@"Company" path:@"Company.xcdatamodeld"];
-	[_editor setMapping:ORMMapAsEntity ofObjectType:[self typeId:@"City"] inMapping:mapping];
+	NSString *mapping = [[[ORMMappingEditor alloc] initWithEditor:_editor] addCoreDataMappingNamed:@"Company" path:@"Company.xcdatamodeld"];
+	[[[ORMMappingEditor alloc] initWithEditor:_editor] setMapping:ORMMapAsEntity ofObjectType:[self typeId:@"City"] inMapping:mapping];
 	return [ORMCoreDataMapping mappingWithId:mapping inDocument:_editor.document];
 }
 
@@ -250,10 +255,10 @@
  * point. */
 - (NSString *)q1
 {
-	NSString *q = [_editor addQueryNamed:@"Q1" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *q = [[self queries] addQueryNamed:@"Q1" from:[self typeId:@"Employee"] reason:NULL];
 	ORMQueryNode *city = [self from:[self root:q].identifier through:[self role:@"livesIn" at:0] in:q];
 	ORMQueryNode *branch = [self from:city.identifier through:[self role:@"locatedIn" at:1] in:q];
-	XCTAssertTrue([_editor setCondition:@"=" value:@"52" ofNode:branch.identifier reason:NULL]);
+	XCTAssertTrue([[self queries] setCondition:@"=" value:@"52" ofNode:branch.identifier reason:NULL]);
 	return q;
 }
 
@@ -297,11 +302,11 @@
 /* Q2: employee drivers and their branches. */
 - (void)testQ2
 {
-	NSString *q = [_editor addQueryNamed:@"Q2" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *q = [[self queries] addQueryNamed:@"Q2" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *root = [self root:q].identifier;
 	[self from:root through:[self role:@"drives" at:0] in:q];
 	ORMQueryNode *branch = [self from:root through:[self role:@"worksFor" at:0] in:q];
-	[_editor setProjected:YES ofNode:branch.identifier];
+	[[self queries] setProjected:YES ofNode:branch.identifier];
 	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee\n"
 	                                                    @"  + drives Car\n"
 	                                                    @"  + works for ✓Branch\n");
@@ -315,21 +320,21 @@
  * the name and cars (if any) of each one's head. */
 - (void)testQ3
 {
-	NSString *q = [_editor addQueryNamed:@"Q3" from:[self typeId:@"USbranch"] reason:NULL];
+	NSString *q = [[self queries] addQueryNamed:@"Q3" from:[self typeId:@"USbranch"] reason:NULL];
 	NSString *root = [self root:q].identifier;
 	NSString *notAchieved = nil;
 	NSArray *achieved = [self from:root through:[self role:@"achieved" at:0] in:q step:&notAchieved];
-	[_editor setOperator:ORMQueryNot ofStep:notAchieved];
-	[_editor setCondition:@"=" value:@"1" ofNode:[[achieved firstObject] identifier] reason:NULL];
-	[_editor setCondition:@"<" value:@"1998" ofNode:[[achieved lastObject] identifier] reason:NULL];
+	[[self queries] setOperator:ORMQueryNot ofStep:notAchieved];
+	[[self queries] setCondition:@"=" value:@"1" ofNode:[[achieved firstObject] identifier] reason:NULL];
+	[[self queries] setCondition:@"<" value:@"1998" ofNode:[[achieved lastObject] identifier] reason:NULL];
 	ORMQueryNode *branch = [self from:root through:[self subtyping:@"USbranch" supertype:NO] in:q];
 	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
 	ORMQueryNode *name = [self from:head.identifier through:[self role:@"hasName" at:0] in:q];
-	[_editor setProjected:YES ofNode:name.identifier];
+	[[self queries] setProjected:YES ofNode:name.identifier];
 	NSString *maybe = nil;
 	ORMQueryNode *car = [[self from:head.identifier through:[self role:@"drives" at:0] in:q step:&maybe] firstObject];
-	[_editor setOperator:ORMQueryMaybe ofStep:maybe];
-	[_editor setProjected:YES ofNode:car.identifier];
+	[[self queries] setOperator:ORMQueryMaybe ofStep:maybe];
+	[[self queries] setProjected:YES ofNode:car.identifier];
 
 	XCTAssertEqualObjects([[self query:q] outlineText], @"✓USbranch\n"
 	                                                    @"  + not achieved Rank = 1 in Year < 1998\n"
@@ -352,24 +357,24 @@
  * of Texas or speaks Latin. */
 - (void)testCountsAndAlternatives
 {
-	NSString *polyglots = [_editor addQueryNamed:@"Polyglots" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *polyglots = [[self queries] addQueryNamed:@"Polyglots" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *speaks = nil;
 	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
-	XCTAssertTrue([_editor setCount:@">" value:1 ofStep:speaks reason:NULL]);
+	XCTAssertTrue([[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL]);
 	XCTAssertEqualObjects([self fetch:polyglots].predicateFormat, @"languages.@count > 1");
 	XCTAssertTrue([[[self query:polyglots] outlineText] rangeOfString:@"count(Language) for Employee > 1"].location
 	              != NSNotFound);
 	XCTAssertTrue([[self english:polyglots] hasSuffix:@"the number of that Language is greater than 1."],
 	              @"%@", [self english:polyglots]);
 
-	NSString *q = [_editor addQueryNamed:@"Q" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *q = [[self queries] addQueryNamed:@"Q" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *root = [self root:q].identifier;
-	[_editor setCondition:@">" value:@"100" ofNode:root reason:NULL];
-	[_editor setCombinesWithOr:YES ofNode:root];
+	[[self queries] setCondition:@">" value:@"100" ofNode:root reason:NULL];
+	[[self queries] setCombinesWithOr:YES ofNode:root];
 	ORMQueryNode *country = [self from:root through:[self role:@"bornIn" at:0] in:q];
-	[_editor setCondition:@"=" value:@"USA" ofNode:country.identifier reason:NULL];
+	[[self queries] setCondition:@"=" value:@"USA" ofNode:country.identifier reason:NULL];
 	ORMQueryNode *language = [self from:root through:[self role:@"speaks" at:0] in:q];
-	[_editor setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL];
+	[[self queries] setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL];
 	XCTAssertEqualObjects([self fetch:q].predicateFormat,
 	                      @"(nr > 100) AND ((country.name == \"USA\") OR (SUBQUERY(languages, $x1, $x1.name == "
 	                      @"\"Latin\").@count > 0))");
@@ -390,11 +395,11 @@
 
 - (void)testAStepMustBeOneTheNodePlays
 {
-	NSString *q = [_editor addQueryNamed:@"Q" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *q = [[self queries] addQueryNamed:@"Q" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *reason = nil;
-	XCTAssertNil([_editor addStepTo:[self root:q].identifier through:[self role:@"carModel" at:0] reason:&reason]);
+	XCTAssertNil([[self queries] addStepTo:[self root:q].identifier through:[self role:@"carModel" at:0] reason:&reason]);
 	XCTAssertTrue([reason rangeOfString:@"Employee"].location != NSNotFound, @"%@", reason);
-	XCTAssertFalse([_editor setCondition:@"~" value:@"x" ofNode:[self root:q].identifier reason:&reason]);
+	XCTAssertFalse([[self queries] setCondition:@"~" value:@"x" ofNode:[self root:q].identifier reason:&reason]);
 }
 
 /* Queries are in the document: saved, undone, and left out of what is
@@ -417,9 +422,9 @@
 
 	[self.undoManager undo];
 	XCTAssertTrue([[[self query:q] outlineText] rangeOfString:@"= 52"].location == NSNotFound);
-	[_editor renameQuery:q to:@"Neighbours of 52" reason:NULL];
+	[[self queries] renameQuery:q to:@"Neighbours of 52" reason:NULL];
 	XCTAssertEqualObjects([self query:q].name, @"Neighbours of 52");
-	[_editor removeQuery:q];
+	[[self queries] removeQuery:q];
 	XCTAssertEqual([[ORMQuery queriesInModel:_editor.model] count], 0u);
 }
 
@@ -428,7 +433,7 @@
 {
 	NSString *q = [self q1];
 	ORMFactType *located = [[_editor.model elementWithId:[self role:@"locatedIn" at:0]] factType];
-	[_editor deleteElements:@[ located.identifier ]];
+	[_editor.elementEditor deleteElements:@[ located.identifier ]];
 	ORMQuery *query = [self query:q];
 	XCTAssertFalse(query.isComplete);
 	XCTAssertEqualObjects([query outlineText], @"✓Employee\n  + lives in City\n");

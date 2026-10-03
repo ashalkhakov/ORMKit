@@ -70,7 +70,7 @@
 	NSXMLDocument *document = [self fixtureDocument:@"StockMate.orm"];
 	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:document undoManager:nil];
 	ORMObjectType *product = [editor.model objectTypeNamed:@"Product"];
-	XCTAssertTrue([editor rename:product.identifier to:@"Article" reason:NULL]);
+	XCTAssertTrue([editor.elementEditor rename:product.identifier to:@"Article" reason:NULL]);
 	NSXMLDocument *saved = [editor documentForSaving];
 	NSXMLElement *root = [saved rootElement];
 	for (NSXMLNode *child in [root children]) {
