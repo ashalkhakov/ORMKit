@@ -37,6 +37,20 @@
 @property (nonatomic, readonly, copy) NSString *identifierKeyPath;
 @end
 
+/* A second fetch the request needs: an object type absorbed into the
+ * entities that use it (an Address, a City) joins them on its parts' values,
+ * which no relationship connects. The joined entity is fetched first, and
+ * the request asks its own parts to equal those of one of the objects found. */
+@interface ORMQueryJoin : NSObject
+/* What the joined objects are passed as, to -predicateJoining:. */
+@property (nonatomic, readonly, copy) NSString *name;
+@property (nonatomic, readonly, copy) NSString *entityName;
+@property (nonatomic, readonly, copy) NSString *predicateFormat;
+/* Each part: @[ the key path on the fetched object, the key path on the
+ * joined one ]. */
+@property (nonatomic, readonly, copy) NSArray<NSArray<NSString *> *> *pairs;
+@end
+
 @interface ORMQueryFetch : NSObject
 - (instancetype)initWithQuery:(ORMQuery *)query coreData:(ORMCDModel *)coreData;
 /* Through the mapping (the defaults for nil). */
@@ -47,6 +61,11 @@
 /* NSPredicate's format: "TRUEPREDICATE" for every object. */
 @property (nonatomic, readonly, copy) NSString *predicateFormat;
 @property (nonatomic, readonly, copy) NSArray<ORMQueryColumn *> *columns;
+/* The fetches to make first, each a join of the request's. */
+@property (nonatomic, readonly, copy) NSArray<ORMQueryJoin *> *joins;
+/* The request's predicate with each join's objects, by its name: its
+ * predicateFormat and, for each join, its parts equal to one object's. */
+- (NSPredicate *)predicateJoining:(NSDictionary<NSString *, NSArray *> *)joined;
 /* What could not be said, and was left out. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
 - (BOOL)isComplete;

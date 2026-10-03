@@ -121,6 +121,8 @@ COREDATA-MAPPING.md, "Traces"):
 | a label met again, in scope | `$x1.city == city` |
 | a label met again, out of scope | `ANY $x2.isOwnedByEmployees == SELF` |
 | a node compared with another | `$x1.country != country` |
+| a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname == "Brisbane"` |
+| a step through an absorbed object type to an entity that absorbs it too | a join: a second fetch (below) |
 
 Fetching the subtype matters. A store fetching Academic has none of
 Professor's properties, so `chair.name == "Informatics"` is only valid on a
@@ -132,6 +134,37 @@ identifier's key path beside them for display (`employee.cars.regnr`). Through
 a to-many, such a key path reaches every related object, not only those that
 meet the conditions: a fetch request returns objects, not the rows ConQuer
 lists.
+
+## Joins through absorbed object types
+
+By default the mapping absorbs a value-like composite (City, Address) into
+the entities that use it: its parts become their attributes. Going through
+it is then a join on those parts' values, as the paper's SQL S1 joins
+Employee and Branch on city name, state code and country. No relationship
+connects the two entities. A predicate cannot fetch one entity inside
+another's request. Nor can a subquery range over fetched objects in Core
+Data's SQLite store ("Unsupported subquery collection expression type").
+So the request is two fetches:
+
+```
+✓Employee                        join1: Branch where nr == 52
+  + lives in City                Employee where cityCityname != nil
+    + is location of Branch = 52   AND (cityCityname == join1's AND cityStateStatecode == join1's
+                                        AND cityStateCountry == join1's, for one of join1)
+```
+
+`ORMQueryFetch.joins` lists the fetches to make first. Each has its entity,
+its predicate, and the pairs of key paths whose values must be equal.
+`-predicateJoining:` builds the request's predicate from the objects they
+found, and `objectiveCSource` writes the same thing as code. A join is made
+only where the absorbed object type is reached directly from the fetched
+object, not inside a `not`, an `or` or a subquery, which would need fetches
+within fetches. Those are noted.
+
+The query is the same whichever way City is mapped. Mapped as an entity, it
+is a relationship and one fetch (`SUBQUERY(city.branches, $x1, $x1.nr ==
+52)`); absorbed, it is two. This is ConQuer's semantic stability. Both were
+run against Core Data's SQLite store.
 
 ## Examples, from the paper
 
@@ -204,11 +237,8 @@ mapping, or the defaults) follow every change. Changes undo with the model.
   Core Data's SQLite store may not translate). The same goes for a label
   whose earlier occurrence had conditions of its own: any object its path
   reaches is taken, not only those meeting them. Both cases are noted.
-- **Joins through an absorbed object type:** with City absorbed into Employee
-  and Branch, Q1 joins on City's parts, which are attributes of two entities
-  that no relationship connects. A predicate cannot say that. It takes a
-  second fetch, which is not made yet. Until then the fetch notes it, and
-  mapping City as an entity makes the query work.
+- **Joins inside a `not`, an `or` or a subquery,** through an absorbed
+  object type. These need nested fetches.
 - **Aggregates other than count**, grouped by something other than the node
   above (ConQuer-II's for-clauses); sorting.
 - **Queries as derived fact types** that other queries use (ConQuer-II's

@@ -317,13 +317,55 @@
 	              != NSNotFound);
 }
 
-/* Absorbed, City's parts are attributes of employees and branches: the
- * join is on their values, which a predicate cannot say. */
-- (void)testQ1ThroughAnAbsorbedCityIsNoted
+/* Absorbed, City's parts are attributes of employees and branches, and no
+ * relationship joins them: branch 52 is fetched first, and the employees
+ * whose city parts are its. The query is the same; the request is two. */
+- (void)testQ1JoinsThroughAnAbsorbedCity
 {
 	ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:[self query:[self q1]] model:_editor.model mapping:nil];
+	XCTAssertEqual([fetch.notes count], 0u, @"%@", fetch.notes);
+	XCTAssertEqualObjects(fetch.entityName, @"Employee");
+	XCTAssertEqualObjects(fetch.predicateFormat, @"cityCityname != nil");
+	XCTAssertEqual([fetch.joins count], 1u);
+	ORMQueryJoin *join = [fetch.joins firstObject];
+	XCTAssertEqualObjects(join.entityName, @"Branch");
+	XCTAssertEqualObjects(join.predicateFormat, @"nr == 52");
+	NSArray *expected = @[ @[ @"cityCityname", @"cityCityname" ], @[ @"cityStateStatecode", @"cityStateStatecode" ],
+	                       @[ @"cityStateCountry", @"cityStateCountry" ] ];
+	XCTAssertEqualObjects(join.pairs, expected);
+
+	/* Branch 52 is in Brisbane, Queensland, Australia: who lives there. */
+	NSDictionary *australia = @{ @"name": @"Australia" };
+	NSDictionary *branch = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD", @"cityStateCountry": australia };
+	NSPredicate *predicate = [fetch predicateJoining:@{ join.name: @[ branch ] }];
+	NSDictionary *local = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD", @"cityStateCountry": australia };
+	NSDictionary *elsewhere = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD",
+	                             @"cityStateCountry": @{ @"name": @"Elsewhere" } };
+	XCTAssertTrue([predicate evaluateWithObject:local]);
+	XCTAssertFalse([predicate evaluateWithObject:elsewhere]);
+	/* No such branch: nobody. */
+	XCTAssertFalse([[fetch predicateJoining:@{ join.name: @[] }] evaluateWithObject:local]);
+
+	NSString *source = [fetch objectiveCSource];
+	XCTAssertTrue([source rangeOfString:@"cityCityname == %@ AND cityStateStatecode == %@ AND cityStateCountry == %@"]
+	                  .location != NSNotFound, @"%@", source);
+	XCTAssertTrue([source rangeOfString:@"orPredicateWithSubpredicates:join1Matches"].location != NSNotFound);
+}
+
+/* A join inside a not takes fetches within fetches: noted, not made. */
+- (void)testAJoinUnderNotIsNoted
+{
+	NSString *q = [[self queries] addQueryNamed:@"Q" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *lives = nil;
+	ORMQueryNode *city = [[self from:[self root:q].identifier through:[self role:@"livesIn" at:0] in:q step:&lives]
+		firstObject];
+	[[self queries] setOperator:ORMQueryNot ofStep:lives];
+	ORMQueryNode *branch = [self from:city.identifier through:[self role:@"locatedIn" at:1] in:q];
+	[[self queries] setCondition:@"=" value:@"52" ofNode:branch.identifier reason:NULL];
+	ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:[self query:q] model:_editor.model mapping:nil];
 	XCTAssertFalse([fetch isComplete]);
-	XCTAssertTrue([[fetch.notes firstObject] hasPrefix:@"City is absorbed into what uses it"], @"%@", fetch.notes);
+	XCTAssertEqual([fetch.joins count], 0u);
+	XCTAssertTrue([[fetch.notes firstObject] rangeOfString:@"inside a not"].location != NSNotFound, @"%@", fetch.notes);
 }
 
 /* Q2: employee drivers and their branches. */

@@ -11,6 +11,16 @@
 @implementation ORMQueryColumn
 @end
 
+@interface ORMQueryJoin ()
+@property (nonatomic, readwrite, copy) NSString *name;
+@property (nonatomic, readwrite, copy) NSString *entityName;
+@property (nonatomic, readwrite, copy) NSString *predicateFormat;
+@property (nonatomic, readwrite, copy) NSArray<NSArray<NSString *> *> *pairs;
+@end
+
+@implementation ORMQueryJoin
+@end
+
 static NSDictionary<NSString *, NSString *> *
 ORMPredicateOperators(void)
 {
@@ -60,6 +70,10 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	NSMutableDictionary<NSString *, NSString *> *_paths;
 	/* The subqueries' variables open where the translation is. */
 	NSMutableArray<NSString *> *_scope;
+	NSMutableArray<ORMQueryJoin *> *_joins;
+	/* How many nots and alternatives enclose where the translation is: a
+	 * join is made only where none does. */
+	NSUInteger _guarded;
 }
 
 - (instancetype)initWithQuery:(ORMQuery *)query model:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping
@@ -78,6 +92,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		_expressions = [NSMutableDictionary dictionary];
 		_paths = [NSMutableDictionary dictionary];
 		_scope = [NSMutableArray array];
+		_joins = [NSMutableArray array];
 		_bySource = [NSMutableDictionary dictionary];
 		for (ORMCDEntity *entity in coreData.entities) {
 			for (ORMCDProperty *property in [entity properties]) {
@@ -104,6 +119,35 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 - (NSArray<ORMQueryColumn *> *)columns
 {
 	return [_columns copy];
+}
+
+- (NSArray<ORMQueryJoin *> *)joins
+{
+	return [_joins copy];
+}
+
+- (NSPredicate *)predicateJoining:(NSDictionary<NSString *, NSArray *> *)joined
+{
+	NSMutableArray *conjuncts = [NSMutableArray arrayWithObject:[NSPredicate predicateWithFormat:_predicateFormat]];
+	for (ORMQueryJoin *join in _joins) {
+		NSMutableArray *alternatives = [NSMutableArray array];
+		for (id object in [joined objectForKey:join.name]) {
+			NSMutableArray *parts = [NSMutableArray array];
+			for (NSArray *pair in join.pairs) {
+				id value = [object valueForKeyPath:[pair lastObject]];
+				[parts addObject:[NSComparisonPredicate
+					predicateWithLeftExpression:[NSExpression expressionForKeyPath:[pair firstObject]]
+					            rightExpression:[NSExpression expressionForConstantValue:value]
+					                   modifier:NSDirectPredicateModifier
+					                       type:NSEqualToPredicateOperatorType
+					                    options:0]];
+			}
+			[alternatives addObject:[NSCompoundPredicate andPredicateWithSubpredicates:parts]];
+		}
+		[conjuncts addObject:[alternatives count] > 0 ? [NSCompoundPredicate orPredicateWithSubpredicates:alternatives]
+		                                              : [NSPredicate predicateWithValue:NO]];
+	}
+	return [NSCompoundPredicate andPredicateWithSubpredicates:conjuncts];
 }
 
 - (NSArray<NSString *> *)notes
@@ -425,7 +469,10 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	NSMutableArray *steps = [NSMutableArray array];
 	for (ORMQueryStep *step in node.steps) {
 		BOOL listed = columns && step.operatorKind != ORMQueryNot;
+		BOOL guarded = step.operatorKind != ORMQueryAnd || (node.combinesWithOr && [node.steps count] > 1);
+		_guarded += guarded ? 1 : 0;
 		NSString *predicate = [self predicateForStep:step entity:entity prefix:prefix path:path columns:listed];
+		_guarded -= guarded ? 1 : 0;
 		if (step.operatorKind == ORMQueryMaybe) {
 			continue;
 		}
@@ -470,8 +517,130 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		if (property != nil) {
 			return [self binaryStep:step node:node property:property prefix:prefix path:path columns:columns];
 		}
+		/* Absorbed: its parts are the entity's own properties. */
+		if ([[self absorbedParts:node.role.identifier on:entity] count] > 0) {
+			return [self absorbed:node base:node.role.identifier entity:entity prefix:prefix path:path
+			              columns:columns];
+		}
 	}
 	return [self entityStep:step entity:entity prefix:prefix path:path columns:columns];
+}
+
+#pragma mark Absorbed object types
+
+/* The properties an absorbed object type's parts are on the entity: @[ the
+ * trace below the base ("/role/role"), the property ], its own and its
+ * ancestors'. */
+- (NSArray<NSArray *> *)absorbedParts:(NSString *)base on:(ORMCDEntity *)entity
+{
+	NSMutableArray *parts = [NSMutableArray array];
+	NSString *lead = [base stringByAppendingString:@"/"];
+	for (ORMCDEntity *at = entity; at != nil; at = at.parentName != nil ? [_coreData entityNamed:at.parentName] : nil) {
+		for (ORMCDProperty *property in [at properties]) {
+			if ([property.source hasPrefix:lead] && ![property.source hasSuffix:@".inverse"]) {
+				[parts addObject:@[ [property.source substringFromIndex:[base length]], property ]];
+			}
+		}
+	}
+	return parts;
+}
+
+/* An object type absorbed into the entity as properties whose traces start
+ * with the base: a step to one of its parts is that property; a step on to
+ * another entity that absorbs it too is a join. */
+- (NSString *)absorbed:(ORMQueryNode *)node
+                  base:(NSString *)base
+                entity:(ORMCDEntity *)entity
+                prefix:(NSString *)prefix
+                  path:(NSString *)path
+               columns:(BOOL)columns
+{
+	NSArray *parts = [self absorbedParts:base on:entity];
+	if (node.comparison != nil || node.label != nil) {
+		[self note:[NSString stringWithFormat:@"%@ is absorbed: it has no one value to compare or correlate.",
+		                                      node.objectType.name]];
+	}
+	if (columns && node.isProjected) {
+		[self column:node keyPath:[self keyPath:path adding:[(ORMCDProperty *)[[parts firstObject] lastObject] name]]
+		  identifier:nil];
+	}
+	NSMutableArray *conditions = [NSMutableArray array];
+	for (ORMQueryStep *step in node.steps) {
+		ORMQueryNode *next = [step.nodes firstObject];
+		if ([step.nodes count] != 1 || step.operatorKind == ORMQueryMaybe) {
+			continue;
+		}
+		NSString *partBase = [base stringByAppendingFormat:@"/%@", next.role.identifier];
+		ORMCDProperty *part = [self propertyOf:entity source:partBase];
+		NSString *condition = nil;
+		_guarded += step.operatorKind == ORMQueryNot ? 1 : 0;
+		if (part != nil) {
+			condition = [self binaryStep:step node:next property:part prefix:prefix path:path columns:columns];
+		} else if ([[self absorbedParts:partBase on:entity] count] > 0) {
+			condition = [self absorbed:next base:partBase entity:entity prefix:prefix path:path columns:columns];
+		} else {
+			condition = [self join:step node:next from:base entity:entity prefix:prefix];
+		}
+		_guarded -= step.operatorKind == ORMQueryNot ? 1 : 0;
+		if (condition != nil) {
+			[conditions addObject:step.operatorKind == ORMQueryNot ? [NSString stringWithFormat:@"NOT (%@)", condition]
+			                                                       : condition];
+		}
+	}
+	if ([conditions count] == 0) {
+		/* Played: its parts are there. */
+		return [NSString stringWithFormat:@"%@%@ != nil", prefix,
+		                                  [(ORMCDProperty *)[[parts firstObject] lastObject] name]];
+	}
+	return ORMJoined(conditions, @"AND");
+}
+
+/* Through an absorbed object type to an entity that absorbs it too: the
+ * entity is fetched first, and its parts' values are what the fetched
+ * object's must equal. */
+- (NSString *)join:(ORMQueryStep *)step
+              node:(ORMQueryNode *)node
+              from:(NSString *)base
+            entity:(ORMCDEntity *)entity
+            prefix:(NSString *)prefix
+{
+	ORMCDEntity *joined = [self entityOf:node.objectType];
+	NSString *joinedBase = step.entryRole.identifier;
+	NSArray *ours = [self absorbedParts:base on:entity];
+	NSArray *theirs = joined != nil ? [self absorbedParts:joinedBase on:joined] : @[];
+	NSMutableArray *pairs = [NSMutableArray array];
+	for (NSArray *part in ours) {
+		for (NSArray *their in theirs) {
+			if ([[part firstObject] isEqualToString:[their firstObject]]) {
+				[pairs addObject:@[ [prefix stringByAppendingString:[(ORMCDProperty *)[part lastObject] name]],
+				                    [(ORMCDProperty *)[their lastObject] name] ]];
+			}
+		}
+	}
+	NSString *what = [[step.factType primaryReading] expandedText] ?: step.factType.name;
+	if (joined == nil || [pairs count] == 0 || [pairs count] != [ours count]) {
+		[self note:[NSString stringWithFormat:@"\"%@\" joins on parts %@ does not have as %@ does.", what,
+		                                      joined.name ?: node.objectType.name, entity.name]];
+		return nil;
+	}
+	if (_guarded > 0 || [_scope count] > 0) {
+		[self note:[NSString stringWithFormat:@"\"%@\" joins %@ with %@ inside a not, an or or a subquery, "
+		                                      @"which takes nested fetches: not made yet.",
+		                                      what, entity.name, joined.name]];
+		return nil;
+	}
+	/* What the joined objects must be, said from them. */
+	NSMutableArray *scope = _scope;
+	_scope = [NSMutableArray array];
+	NSString *predicate = [self predicateFor:node entity:joined prefix:@"" path:@"" columns:NO];
+	_scope = scope;
+	ORMQueryJoin *join = [[ORMQueryJoin alloc] init];
+	join.name = [NSString stringWithFormat:@"join%lu", (unsigned long)[_joins count] + 1];
+	join.entityName = joined.name;
+	join.predicateFormat = predicate ?: @"TRUEPREDICATE";
+	join.pairs = pairs;
+	[_joins addObject:join];
+	return nil;
 }
 
 - (NSString *)counted:(NSString *)subquery step:(ORMQueryStep *)step
@@ -639,19 +808,56 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 
 #pragma mark Source
 
+/* A format string as an Objective-C literal. */
+static NSString *
+ORMSourceLiteral(NSString *format)
+{
+	return [[[format stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+		stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""]
+		stringByReplacingOccurrencesOfString:@"%" withString:@"%%"];
+}
+
 - (NSString *)objectiveCSource
 {
 	if (_entityName == nil) {
 		return @"";
 	}
-	NSString *format = [[[_predicateFormat stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
-		stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""]
-		stringByReplacingOccurrencesOfString:@"%" withString:@"%%"];
 	NSMutableString *out = [NSMutableString string];
 	[out appendFormat:@"/* %@ */\n", [_query.name stringByReplacingOccurrencesOfString:@"*/" withString:@"* /"]];
+	/* The joined objects first: their parts are what the request matches. */
+	for (ORMQueryJoin *join in _joins) {
+		[out appendFormat:@"NSFetchRequest *%@ = [NSFetchRequest fetchRequestWithEntityName:@\"%@\"];\n", join.name,
+		                  join.entityName];
+		if (![join.predicateFormat isEqualToString:@"TRUEPREDICATE"]) {
+			[out appendFormat:@"%@.predicate = [NSPredicate predicateWithFormat:@\"%@\"];\n", join.name,
+			                  ORMSourceLiteral(join.predicateFormat)];
+		}
+		NSMutableArray *formats = [NSMutableArray array];
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSArray *pair in join.pairs) {
+			[formats addObject:[NSString stringWithFormat:@"%@ == %%@", ORMSourceLiteral([pair firstObject])]];
+			[values addObject:[NSString stringWithFormat:@"[object valueForKeyPath:@\"%@\"]", [pair lastObject]]];
+		}
+		[out appendFormat:@"NSMutableArray *%@Matches = [NSMutableArray array];\n"
+		                  @"for (NSManagedObject *object in [context executeFetchRequest:%@ error:NULL]) {\n"
+		                  @"    [%@Matches addObject:[NSPredicate predicateWithFormat:@\"%@\", %@]];\n"
+		                  @"}\n",
+		                  join.name, join.name, join.name,
+		                  [formats componentsJoinedByString:@" AND "],
+		                  [values componentsJoinedByString:@", "]];
+	}
 	[out appendFormat:@"NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:@\"%@\"];\n", _entityName];
-	if (![_predicateFormat isEqualToString:@"TRUEPREDICATE"]) {
-		[out appendFormat:@"request.predicate = [NSPredicate predicateWithFormat:@\"%@\"];\n", format];
+	NSString *own = [NSString stringWithFormat:@"[NSPredicate predicateWithFormat:@\"%@\"]", ORMSourceLiteral(_predicateFormat)];
+	if ([_joins count] > 0) {
+		NSMutableArray *conjuncts = [NSMutableArray arrayWithObject:own];
+		for (ORMQueryJoin *join in _joins) {
+			[conjuncts addObject:[NSString stringWithFormat:@"[NSCompoundPredicate orPredicateWithSubpredicates:%@Matches]",
+			                                                join.name]];
+		}
+		[out appendFormat:@"request.predicate = [NSCompoundPredicate andPredicateWithSubpredicates:@[\n    %@ ]];\n",
+		                  [conjuncts componentsJoinedByString:@",\n    "]];
+	} else if (![_predicateFormat isEqualToString:@"TRUEPREDICATE"]) {
+		[out appendFormat:@"request.predicate = %@;\n", own];
 	}
 	if ([_columns count] > 0) {
 		[out appendString:@"/* Listed, from each object fetched:\n"];
