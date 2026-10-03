@@ -100,9 +100,26 @@ The wordings marked **check**, and:
 - "Portable data type:" and "Informal Definition:" are NORMA's labels, kept
   for the browser; Halpin has no wording for them.
 
-## Next
+## Reading it back
 
-A parser over the same templates turns a sentence the modeller types
-("Each Person was born in exactly one Country.") into the constraint, as
-the Fact Editor already does for fact types; the verbalize-then-parse round
-trip is its test.
+`ORMConstraintSentence` reads what the verbalizer writes: a sentence typed
+in the Fact Editor (or `-[ORMEditor addFromSentence:...]`) becomes the
+constraint, and what it names that the model lacks is made, as in NORMA:
+"Each Person was born in exactly one Country." on an empty model makes
+Person, Country, "{0} was born in {1}", and a uniqueness and a mandatory
+constraint on Person's role, as one step to undo.
+
+A clause is matched against every reading of the model, each placeholder
+an object type's name (or a subtype's or supertype's, optionally numbered:
+"Person2") after an optional quantifier; a clause may leave its subject out
+when it goes on from the one before ("...or has some DriverLicence"). A
+reading naming the players themselves is preferred to one matched through
+subtyping; where two fact types read the same the sentence says so
+(`isAmbiguous`) and the first is taken. No reading matching, the clause is
+a new fact type: the word after a quantifier is an object type.
+
+Read now: every template above except frequency, value comparison, and
+constraints over join paths (a subset or equality whose clause names
+several fact types). The test reads back every other statement the
+verbalizer makes of the NORMA models in `Fixtures`, some 1,700, as the
+constraint it came from.

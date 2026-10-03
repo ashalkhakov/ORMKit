@@ -68,6 +68,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMReadingText` | readings taken apart: placeholders, front text, hyphen-bound text |
 | `ORMValueConstraintParser` | `{'M', 'F'}`, `[0..100)`, `{18..}` |
 | `ORMFactSentence` | NORMA's Fact Editor: `Person(.id) was born in Country(.code)` |
+| `ORMConstraintSentence` | constraints as the verbalizer says them, read back: `Each Person was born in exactly one Country.` |
 | `ORMPath` | NORMA's role paths (join paths, derivation rules), calculations, sample populations, cardinality |
 | `ORMLogic` | sequences, join paths and derivations as logic: variables, fact atoms, and/or/xor/not |
 | `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something (VERBALIZATION.md); plain text and HTML |

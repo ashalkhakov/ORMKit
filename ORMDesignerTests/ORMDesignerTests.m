@@ -124,6 +124,30 @@
 	XCTAssertTrue([[_controller.status stringValue] length] > 0);
 }
 
+/* The fact editor takes constraints as the verbalizer says them, and
+ * makes what they name. */
+- (void)testTheFactEditorTakesConstraintSentences
+{
+	[self open:@"StockMate.orm"];
+	/* A frequency is not read yet: refused, saying why, and nothing made. */
+	[_controller.factEditor setStringValue:@"Each Supplier supplies at least 2 Product."];
+	XCTAssertFalse([_controller addFactFromEditor]);
+	XCTAssertNil([_document.editor.model objectTypeNamed:@"Each"]);
+	XCTAssertTrue([[_controller.status stringValue] length] > 0);
+	[_controller.factEditor setStringValue:@"Each Supplier supplies some Product."];
+	XCTAssertTrue([_controller addFactFromEditor], @"%@", [_controller.status stringValue]);
+	ORMModel *model = _document.editor.model;
+	ORMObjectType *supplier = [model objectTypeNamed:@"Supplier"];
+	XCTAssertNotNil(supplier);
+	ORMRole *role = nil;
+	for (ORMRole *each in supplier.playedRoles) {
+		role = each;
+	}
+	XCTAssertTrue(role.isMandatory);
+	XCTAssertTrue([[self verbalizationText] rangeOfString:@"Each Supplier supplies some Product."].location != NSNotFound,
+	              @"%@", [self verbalizationText]);
+}
+
 - (void)testRolesAreConstrainedFromTheCanvas
 {
 	[self open:@"StockMate.orm"];

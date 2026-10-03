@@ -23,6 +23,7 @@ ORMKit_HEADER_FILES = \
   ORMLogic.h \
   ORMVerbalizer.h \
   ORMFactSentence.h \
+  ORMConstraintSentence.h \
   ORMCDModel.h \
   ORMCoreDataMapping.h \
   ORMCoreDataMapper.h \
@@ -45,6 +46,7 @@ ORMKit_OBJC_FILES = \
   ORMVerbalizer.m \
   ORMVerbalizer+Logic.m \
   ORMFactSentence.m \
+  ORMConstraintSentence.m \
   ORMCDModel.m \
   ORMCoreDataMapping.m \
   ORMCoreDataMapper.m \

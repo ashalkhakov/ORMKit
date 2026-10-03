@@ -253,7 +253,7 @@ static const double ORMBrowserBarHeight = 30;
 	_factEditor = [[NSTextField alloc] initWithFrame:NSMakeRect(42, 4, NSWidth([factBar bounds]) - 110, 22)];
 	[_factEditor setAutoresizingMask:NSViewWidthSizable];
 	[_factEditor setFont:[NSFont systemFontOfSize:12]];
-	[[_factEditor cell] setPlaceholderString:@"Person(.id) was born in Country(.code)"];
+	[[_factEditor cell] setPlaceholderString:@"Person(.id) was born in Country(.code)  ·  Each Person was born in exactly one Country."];
 	[_factEditor setTarget:self];
 	[_factEditor setAction:@selector(factEditorReturn:)];
 	[factBar addSubview:_factEditor];
@@ -546,17 +546,36 @@ static const double ORMBrowserBarHeight = 30;
 	if ([[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] length] == 0) {
 		return NO;
 	}
+	/* A fact type as the Fact Editor takes it, or a constraint as the
+	 * verbalizer says it; what either names that the model lacks is made. */
 	NSString *reason = nil;
-	NSString *fact = [[self editor] addFactTypeFromSentence:text onDiagram:_canvas.diagramId at:ORMAutomaticPlacement
-	                                                 reason:&reason];
-	if (fact == nil) {
+	NSArray *made = [[self editor] addFromSentence:text onDiagram:_canvas.diagramId at:ORMAutomaticPlacement
+	                                         reason:&reason];
+	if (made == nil) {
 		NSBeep();
 		[self say:reason];
 		return NO;
 	}
 	[_factEditor setStringValue:@""];
-	[self showElement:fact];
-	[self say:@"Added. Select a role and press U for uniqueness, M for mandatory."];
+	ORMModel *model = [self editor].model;
+	NSString *shown = nil;
+	BOOL constraint = NO;
+	for (NSString *identifier in made) {
+		id element = [model elementWithId:identifier];
+		if ([element isKindOfClass:[ORMConstraint class]]) {
+			constraint = YES;
+		}
+		if (shown == nil && [element isKindOfClass:[ORMFactType class]]) {
+			shown = identifier;
+		}
+	}
+	shown = shown ?: [made lastObject];
+	if (shown != nil) {
+		[self showElement:shown];
+	}
+	[self say:[made count] == 0 ? @"The model says that already."
+	          : constraint ? @"Added. The verbalization below says it back."
+	                       : @"Added. Select a role and press U for uniqueness, M for mandatory."];
 	return YES;
 }
 

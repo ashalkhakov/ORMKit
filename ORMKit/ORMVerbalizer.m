@@ -758,17 +758,28 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		BOOL fromRole = [use.roles firstObject] == role;
 		ORMConstraint *unique = role.isUnique ? [self constraint:ORMUniquenessConstraint onlyOn:role] : nil;
 		ORMConstraint *mandatory = role.isMandatory ? [self constraint:ORMMandatoryConstraint onlyOn:role] : nil;
-		ORMModality modality = MAX(unique.modality, mandatory.modality);
-		NSString *otherQuantifier = nil;
-		if (role.isUnique && role.isMandatory) {
-			otherQuantifier = @"exactly one";
-		} else if (role.isUnique) {
-			otherQuantifier = @"at most one";
-		} else if (role.isMandatory) {
-			otherQuantifier = @"some";
+		/* "exactly one" says both, when both are of one modality; else
+		 * each is said as what it is ("It is obligatory that each Person
+		 * was born in some Country" beside "...at most one Country"). */
+		NSMutableArray *statements = [NSMutableArray array];
+		if (role.isUnique && role.isMandatory && unique.modality == mandatory.modality) {
+			[statements addObject:@[ @"exactly one", @[ unique ?: [NSNull null], mandatory ?: [NSNull null] ] ]];
+		} else {
+			if (role.isUnique) {
+				[statements addObject:@[ @"at most one", @[ unique ?: [NSNull null], [NSNull null] ] ]];
+			}
+			if (role.isMandatory) {
+				[statements addObject:@[ @"some", @[ [NSNull null], mandatory ?: [NSNull null] ] ]];
+			}
 		}
-		if (otherQuantifier != nil) {
-			self.source = (unique ?: mandatory).identifier;
+		for (NSArray *said in statements) {
+			NSString *quantifier = [said firstObject];
+			ORMConstraint *saidUnique = [[said lastObject] firstObject] == [NSNull null] ? nil : [[said lastObject] firstObject];
+			ORMConstraint *saidMandatory = [[said lastObject] lastObject] == [NSNull null] ? nil : [[said lastObject] lastObject];
+			BOOL saysUnique = [quantifier isEqualToString:@"exactly one"] || [quantifier isEqualToString:@"at most one"];
+			BOOL saysMandatory = [quantifier isEqualToString:@"exactly one"] || [quantifier isEqualToString:@"some"];
+			ORMModality modality = saysUnique ? saidUnique.modality : saidMandatory.modality;
+			self.source = (saidUnique ?: saidMandatory).identifier;
 			ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 			if (!fromRole) {
 				/* No reading starts with the role: say it from its side. */
@@ -776,7 +787,6 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 				[b objectType:role.player.name id:role.player.identifier];
 				[b plain:@", "];
 			}
-			NSString *quantifier = otherQuantifier;
 			[b append:[self clause:use terms:^ORMSpokenTerm *(ORMRole *r) {
 				if (r == role) {
 					return ORMMakeTerm(fromRole ? @"each" : @"that", r.player.name, r.player.identifier);
@@ -784,18 +794,18 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 				return ORMMakeTerm(quantifier, r.player.name, r.player.identifier);
 			}]];
 			ORMVerbalSentence *statement = [self emit:b modality:modality];
-			if (role.isUnique) {
+			if (saysUnique) {
 				/* "It is impossible that the same Person was born in more
 				 * than one Country." */
 				b = [[ORMSentenceBuilder alloc] init];
 				[b append:[self clause:use terms:^ORMSpokenTerm *(ORMRole *r) {
 					return ORMMakeTerm(r == role ? @"the same" : @"more than one", r.player.name, r.player.identifier);
 				}]];
-				[self negate:statement with:b modality:unique.modality source:unique];
+				[self negate:statement with:b modality:saidUnique.modality source:saidUnique];
 			}
-			if (role.isMandatory) {
-				[self negate:statement with:[self noneOf:@[ role ] use:@[ use ]] modality:mandatory.modality
-				      source:mandatory];
+			if (saysMandatory) {
+				[self negate:statement with:[self noneOf:@[ role ] use:@[ use ]] modality:saidMandatory.modality
+				      source:saidMandatory];
 			}
 		}
 		if (!role.isUnique && self.verbalizesPossibilities && other != nil && !spanning) {
@@ -1189,13 +1199,12 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	ORMRole *first = [roles firstObject];
 	ORMRole *second = [roles lastObject];
 	ORMReadingUse *use = [self readingOf:first.factType from:first];
-	ORMObjectType *player = first.player;
 	return [self clause:use terms:^ORMSpokenTerm *(ORMRole *r) {
 		if (r == first) {
-			return ORMMakeTerm(nil, a, player.identifier);
+			return ORMMakeTerm(nil, a, first.player.identifier);
 		}
 		if (r == second) {
-			return ORMMakeTerm(quantifier, c, player.identifier);
+			return ORMMakeTerm(quantifier, c, second.player.identifier);
 		}
 		return ORMMakeTerm(@"some", r.player.name, r.player.identifier);
 	}];
@@ -1208,9 +1217,13 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		return;
 	}
 	ORMObjectType *player = [[roles firstObject] player];
+	ORMObjectType *other = [[roles lastObject] player];
 	NSString *name = player.name ?: @"?";
-	NSString *v1 = [name stringByAppendingString:@"1"];
-	NSString *v2 = [name stringByAppendingString:@"2"];
+	/* The two roles' players, numbered when they are one type (a ring
+	 * may join subtypes of one type: Girl is going out with Boy). */
+	BOOL one = other == player || other == nil;
+	NSString *v1 = one ? [name stringByAppendingString:@"1"] : name;
+	NSString *v2 = one ? [name stringByAppendingString:@"2"] : (other.name ?: @"?");
 	NSString *v3 = [name stringByAppendingString:@"3"];
 	ORMRingType type = constraint.ringType;
 	ORMModality modality = constraint.modality;

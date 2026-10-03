@@ -14,6 +14,7 @@ ORMKitTests_OBJC_FILES = \
   ORMTextTests.m \
   ORMEditorTests.m \
   ORMLogicTests.m \
+  ORMConstraintSentenceTests.m \
   ORMSVGTests.m \
   ORMVerbalizerTests.m \
   ORMCoreDataTests.m
