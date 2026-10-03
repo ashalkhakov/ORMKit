@@ -524,6 +524,44 @@
 	XCTAssertFalse([predicate evaluateWithObject:employee(@[], @[ a ])]);
 }
 
+/* ConQuer-II's: "what are the branches and total salary costs of branches
+ * with a total salary cost of more than $1 000 000?", the richest first. */
+- (void)testTotalsAndSorting
+{
+	NSString *q = [[self queries] addQueryNamed:@"Payroll" from:[self typeId:@"Branch"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	NSString *employs = nil;
+	ORMQueryNode *employee = [[self from:root through:[self role:@"worksFor" at:1] in:q step:&employs] firstObject];
+	ORMQueryNode *salary = [self from:employee.identifier through:[self role:@"earns" at:0] in:q];
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setAggregate:ORMQueryTotal ofNode:salary.identifier comparison:@">" value:@"1000000"
+	                                    ofStep:employs reason:&reason], @"%@", reason);
+	XCTAssertFalse([[self queries] setAggregate:ORMQueryTotal ofNode:root comparison:@">" value:@"1" ofStep:employs
+	                                     reason:&reason]);
+	[[self queries] setSortOrder:ORMQueryDescending ofNode:root];
+
+	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch ↓\n"
+	                                                    @"  + employs Employee\n"
+	                                                    @"    + total(Salary) for Branch > 1000000\n"
+	                                                    @"    + earns Salary\n");
+	XCTAssertTrue([[self english:q] hasSuffix:@"the total of that Salary is greater than 1000000 in descending order of "
+	                                          @"Branch."], @"%@", [self english:q]);
+	ORMQueryFetch *fetch = [self fetch:q];
+	XCTAssertEqualObjects(fetch.predicateFormat, @"employees.@sum.salary.usd > 1000000");
+	XCTAssertEqualObjects(fetch.sortDescriptors, @[ [NSSortDescriptor sortDescriptorWithKey:@"nr" ascending:NO] ]);
+	XCTAssertTrue([[fetch objectiveCSource] rangeOfString:@"sortDescriptorWithKey:@\"nr\" ascending:NO"].location
+	              != NSNotFound);
+
+	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
+	NSDictionary *rich = @{ @"employees": [NSSet setWithObjects:@{ @"salary": @{ @"usd": @600000 } },
+	                                                            @{ @"salary": @{ @"usd": @500000 } }, nil] };
+	NSDictionary *poor = @{ @"employees": [NSSet setWithObject:@{ @"salary": @{ @"usd": @900000 } }] };
+	BOOL richHolds = [predicate evaluateWithObject:rich];
+	BOOL poorHolds = [predicate evaluateWithObject:poor];
+	XCTAssertTrue(richHolds);
+	XCTAssertFalse(poorHolds);
+}
+
 /* Who speaks more than one language; who is above 100 and lives in a city
  * of Texas or speaks Latin. */
 - (void)testCountsAndAlternatives

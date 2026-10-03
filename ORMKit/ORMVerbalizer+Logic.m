@@ -802,6 +802,18 @@ ORMDerivationMark(ORMDerivationRule *rule)
 		[b keyword:@" where "];
 		[phrase say:relation.formula from:root relative:NO into:b];
 	}
+	/* The order: "in ascending order of EmployeeName, then ...". */
+	BOOL first = YES;
+	for (ORMQueryNode *node in [query nodes]) {
+		if (node.sortOrder == ORMQueryUnsorted) {
+			continue;
+		}
+		[b keyword:first ? @" in " : @", then "];
+		[b keyword:node.sortOrder == ORMQueryAscending ? @"ascending order of " : @"descending order of "];
+		ORMSpokenTerm *term = [phrase termFor:[variables objectForKey:node.identifier]];
+		[b objectType:term.name id:term.elementId];
+		first = NO;
+	}
 	[self emit:b];
 }
 

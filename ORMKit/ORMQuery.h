@@ -37,6 +37,22 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
 	ORMQueryMaybe,
 };
 
+/* What a step's aggregate condition computes over the objects its node
+ * reaches for each one above it: ConQuer's count, total, avg, max, min. */
+typedef NS_ENUM(NSInteger, ORMQueryAggregate) {
+	ORMQueryCount,
+	ORMQueryTotal,
+	ORMQueryAverage,
+	ORMQueryMaximum,
+	ORMQueryMinimum,
+};
+
+typedef NS_ENUM(NSInteger, ORMQuerySort) {
+	ORMQueryUnsorted,
+	ORMQueryAscending,
+	ORMQueryDescending,
+};
+
 @class ORMQueryStep;
 
 /* An object type in the outline. */
@@ -63,6 +79,8 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
 /* Its steps, each from it; alternatives when combinesWithOr. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryStep *> *steps;
 @property (nonatomic, readonly) BOOL combinesWithOr;
+/* The order the results are listed in, by it. */
+@property (nonatomic, readonly) ORMQuerySort sortOrder;
 /* Whether its value is a number, so its condition is not quoted. */
 - (BOOL)isNumeric;
 @end
@@ -76,9 +94,14 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
 @property (nonatomic, readonly) ORMQueryOperator operatorKind;
 /* The object types playing its other roles, in the fact type's order. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryNode *> *nodes;
-/* How many of its first node each parent has: "count(Language) > 1".
- * nil for no count. */
+/* An aggregate condition, for each node above: "count(Language) > 1",
+ * "total(Salary) > 1000000". Its comparison nil for none. The node is one
+ * of the step's, or below them; the step's first node by default. */
+@property (nonatomic, readonly) ORMQueryAggregate aggregate;
+@property (nonatomic, readonly, weak) ORMQueryNode *aggregateNode;
 @property (nonatomic, readonly, copy) NSString *countComparison;
+@property (nonatomic, readonly, copy) NSString *aggregateValue;
+/* The value as a whole number, for a count. */
 @property (nonatomic, readonly) NSUInteger countValue;
 /* Through a subtype link: "is Professor". */
 - (BOOL)isSubtyping;
@@ -114,6 +137,8 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
 - (ORMRelation *)relation;
 /* The variable of each node in -relation, by node id. */
 - (NSDictionary<NSString *, ORMVariable *> *)variablesOfRelation:(ORMRelation *)relation;
+/* ConQuer's names for them: "count", "total", "avg", "max", "min". */
++ (NSString *)nameOfAggregate:(ORMQueryAggregate)aggregate;
 /* What a step reads as from the node above: "was awarded {1} in {2}",
  * with {n} the step's nth node. */
 + (NSString *)readingOfStep:(ORMQueryStep *)step;
@@ -146,6 +171,15 @@ typedef NS_ENUM(NSInteger, ORMQueryOperator) {
 - (void)setLabel:(NSString *)label ofNode:(NSString *)nodeId;
 - (void)setCombinesWithOr:(BOOL)flag ofNode:(NSString *)nodeId;
 - (void)setOperator:(ORMQueryOperator)operatorKind ofStep:(NSString *)stepId;
+/* An aggregate of the node (nil: the step's first), one of the step's or
+ * below them; comparison nil clears it. A total or average is of numbers. */
+- (BOOL)setAggregate:(ORMQueryAggregate)aggregate
+              ofNode:(NSString *)nodeId
+          comparison:(NSString *)comparison
+               value:(NSString *)value
+              ofStep:(NSString *)stepId
+              reason:(NSString **)reason;
+- (void)setSortOrder:(ORMQuerySort)order ofNode:(NSString *)nodeId;
 /* comparison nil clears the count. */
 - (BOOL)setCount:(NSString *)comparison
            value:(NSUInteger)value

@@ -43,6 +43,13 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 
 #pragma mark The projection
 
+/* As the XML names them. */
+static NSArray<NSString *> *
+ORMQueryAggregateNames(void)
+{
+	return @[ @"Count", @"Total", @"Average", @"Maximum", @"Minimum" ];
+}
+
 @interface ORMQueryNode ()
 @property (nonatomic, readwrite, copy) NSString *identifier;
 @property (nonatomic, readwrite, strong) ORMObjectType *objectType;
@@ -56,6 +63,7 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 @property (nonatomic, readwrite, copy) NSString *label;
 @property (nonatomic, readwrite, copy) NSArray<ORMQueryStep *> *steps;
 @property (nonatomic, readwrite) BOOL combinesWithOr;
+@property (nonatomic, readwrite) ORMQuerySort sortOrder;
 @end
 
 @interface ORMQueryStep ()
@@ -67,6 +75,10 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 @property (nonatomic, readwrite, copy) NSArray<ORMQueryNode *> *nodes;
 @property (nonatomic, readwrite, copy) NSString *countComparison;
 @property (nonatomic, readwrite) NSUInteger countValue;
+@property (nonatomic, readwrite) ORMQueryAggregate aggregate;
+@property (nonatomic, readwrite, weak) ORMQueryNode *aggregateNode;
+@property (nonatomic, copy) NSString *aggregateNodeId;
+@property (nonatomic, readwrite, copy) NSString *aggregateValue;
 @end
 
 @interface ORMQuery ()
@@ -152,6 +164,15 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 				node.comparedNode = other;
 			}
 		}
+		/* What each step aggregates: its own node unless it says. */
+		for (ORMQueryStep *step in node.steps) {
+			step.aggregateNode = [step.nodes firstObject];
+			for (ORMQueryNode *other in step.aggregateNodeId != nil ? nodes : @[]) {
+				if ([other.identifier isEqualToString:step.aggregateNodeId]) {
+					step.aggregateNode = other;
+				}
+			}
+		}
 		/* What it was compared with is gone: so is the condition. */
 		if (node.comparedNodeId != nil && node.comparedNode == nil) {
 			node.comparison = nil;
@@ -173,6 +194,9 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	node.comparedNodeId = ORMAttribute(element, @"CompareTo");
 	node.label = [ORMAttribute(element, @"Label") length] > 0 ? ORMAttribute(element, @"Label") : nil;
 	node.combinesWithOr = [ORMAttribute(element, @"Combine") isEqualToString:@"Or"];
+	NSString *sort = ORMAttribute(element, @"Sort");
+	node.sortOrder = [sort isEqualToString:@"Ascending"] ? ORMQueryAscending
+		: [sort isEqualToString:@"Descending"] ? ORMQueryDescending : ORMQueryUnsorted;
 	NSMutableArray *steps = [NSMutableArray array];
 	for (NSXMLElement *stepElement in ORMChildren(element, Q, @"Step")) {
 		ORMQueryStep *step = [self stepOf:stepElement parent:node model:model];
@@ -202,7 +226,11 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	step.operatorKind = [operator isEqualToString:@"Not"] ? ORMQueryNot
 		: [operator isEqualToString:@"Maybe"] ? ORMQueryMaybe : ORMQueryAnd;
 	step.countComparison = ORMAttribute(element, @"Count");
-	step.countValue = (NSUInteger)[ORMAttribute(element, @"CountValue") integerValue];
+	step.aggregateValue = ORMAttribute(element, @"CountValue");
+	step.countValue = (NSUInteger)[step.aggregateValue integerValue];
+	NSUInteger aggregate = [ORMQueryAggregateNames() indexOfObject:ORMAttribute(element, @"Aggregate") ?: @"Count"];
+	step.aggregate = aggregate != NSNotFound ? (ORMQueryAggregate)aggregate : ORMQueryCount;
+	step.aggregateNodeId = ORMAttribute(element, @"AggregateNode");
 	NSMutableArray *nodes = [NSMutableArray array];
 	for (NSXMLElement *nodeElement in ORMChildren(element, Q, @"Node")) {
 		ORMRole *role = [model elementWithId:ORMAttribute(nodeElement, @"Role")];
@@ -216,6 +244,11 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 	}
 	step.nodes = nodes;
 	return step;
+}
+
++ (NSString *)nameOfAggregate:(ORMQueryAggregate)aggregate
+{
+	return [@[ @"count", @"total", @"avg", @"max", @"min" ] objectAtIndex:(NSUInteger)aggregate];
 }
 
 + (NSArray<ORMRole *> *)rolesFrom:(ORMObjectType *)type
@@ -348,8 +381,9 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 
 - (NSString *)nodeText:(ORMQueryNode *)node
 {
-	return [NSString stringWithFormat:@"%@%@%@", node.isProjected ? @"✓" : @"", [node designation],
-	                                  [self conditionText:node]];
+	NSString *sort = node.sortOrder == ORMQueryAscending ? @" ↑" : node.sortOrder == ORMQueryDescending ? @" ↓" : @"";
+	return [NSString stringWithFormat:@"%@%@%@%@", node.isProjected ? @"✓" : @"", [node designation],
+	                                  [self conditionText:node], sort];
 }
 
 - (NSString *)outlineText
@@ -377,10 +411,10 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		                                                                                                       : @"";
 		[out appendFormat:@"%@+ %@%@%@\n", pad, node.combinesWithOr && !first ? @"or " : @"", operator, reading];
 		first = NO;
-		if (step.countComparison != nil && [step.nodes count] > 0) {
-			[out appendFormat:@"%@  + count(%@) for %@ %@ %lu\n", pad,
-			                  [[step.nodes firstObject] designation], [node designation], step.countComparison,
-			                  (unsigned long)step.countValue];
+		if (step.countComparison != nil && step.aggregateNode != nil) {
+			[out appendFormat:@"%@  + %@(%@) for %@ %@ %@\n", pad, [ORMQuery nameOfAggregate:step.aggregate],
+			                  [step.aggregateNode designation], [node designation], step.countComparison,
+			                  step.aggregateValue ?: @""];
 		}
 		for (ORMQueryNode *child in step.nodes) {
 			if ([child.steps count] == 0) {
@@ -480,15 +514,16 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 			[conjuncts addObject:inner];
 		}
 	}
-	if (step.countComparison != nil && [step.nodes count] > 0) {
-		ORMTerm *count = [ORMTerm termWithFunction:@"count"
-		                                 arguments:@[ [ORMTerm termWithVariable:[variables
-		                                                                            objectForKey:[[step.nodes firstObject]
-		                                                                                             identifier]]] ]
-		                                 aggregate:YES];
+	if (step.countComparison != nil && step.aggregateNode != nil) {
+		NSString *function = [@[ @"count", @"total", @"average", @"maximum", @"minimum" ]
+			objectAtIndex:(NSUInteger)step.aggregate];
+		ORMTerm *aggregate = [ORMTerm termWithFunction:function
+		                                     arguments:@[ [ORMTerm termWithVariable:[variables
+		                                                                                objectForKey:step.aggregateNode
+		                                                                                                 .identifier]] ]
+		                                     aggregate:YES];
 		[conjuncts addObject:[ORMFormula compare:step.countComparison
-		                                operands:@[ count, [ORMTerm termWithConstant:[NSString stringWithFormat:@"%lu",
-		                                                                              (unsigned long)step.countValue]] ]]];
+		                                operands:@[ aggregate, [ORMTerm termWithConstant:step.aggregateValue ?: @""] ]]];
 	}
 	ORMFormula *formula = [conjuncts count] == 1 ? atom : [ORMFormula combine:ORMFormulaAnd children:conjuncts];
 	return step.operatorKind == ORMQueryNot ? [ORMFormula not:formula] : formula;
@@ -784,8 +819,64 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		ORMSetAttribute(step, @"Count", comparison);
 		ORMSetAttribute(step, @"CountValue",
 		                comparison != nil ? [NSString stringWithFormat:@"%lu", (unsigned long)value] : nil);
+		ORMSetAttribute(step, @"Aggregate", nil);
+		ORMSetAttribute(step, @"AggregateNode", nil);
 	}];
 	return YES;
+}
+
+- (BOOL)setAggregate:(ORMQueryAggregate)aggregate
+              ofNode:(NSString *)nodeId
+          comparison:(NSString *)comparison
+               value:(NSString *)value
+              ofStep:(NSString *)stepId
+              reason:(NSString **)reason
+{
+	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
+	NSXMLElement *node = nodeId != nil ? [self queryElement:nodeId named:@"Node"] : nil;
+	/* The node is one of the step's or below them. */
+	BOOL below = node == nil;
+	for (NSXMLNode *at = [node parent]; at != nil && !below; at = [at parent]) {
+		below = at == step;
+	}
+	if (step == nil || !below || (comparison != nil && ![ORMQueryComparisons() containsObject:comparison])) {
+		if (reason != NULL) {
+			*reason = step == nil ? @"There is no such step."
+				: !below ? @"An aggregate is of a node the step reaches."
+				         : [NSString stringWithFormat:@"An aggregate compares with %@.",
+				                                      [ORMQueryComparisons() componentsJoinedByString:@", "]];
+		}
+		return NO;
+	}
+	ORMObjectType *type = node != nil ? [self typeOfQueryNode:node] : nil;
+	ORMObjectType *valued = type.kind == ORMValueType ? type : type.referenceModeValueType;
+	if ((aggregate == ORMQueryTotal || aggregate == ORMQueryAverage) && type != nil
+	    && valued.dataType.family != ORMDataTypeNumeric) {
+		if (reason != NULL) {
+			*reason = [NSString stringWithFormat:@"A total or an average is of numbers; %@ is not one.", type.name];
+		}
+		return NO;
+	}
+	[_editor change:@"Set Query Aggregate" with:^{
+		ORMSetAttribute(step, @"Count", comparison);
+		ORMSetAttribute(step, @"CountValue", comparison != nil ? (value ?: @"") : nil);
+		ORMSetAttribute(step, @"Aggregate", comparison != nil && aggregate != ORMQueryCount
+		                                        ? [ORMQueryAggregateNames() objectAtIndex:(NSUInteger)aggregate] : nil);
+		ORMSetAttribute(step, @"AggregateNode", comparison != nil ? nodeId : nil);
+	}];
+	return YES;
+}
+
+- (void)setSortOrder:(ORMQuerySort)order ofNode:(NSString *)nodeId
+{
+	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
+	NSString *value = order == ORMQueryAscending ? @"Ascending" : order == ORMQueryDescending ? @"Descending" : nil;
+	if (node == nil || [ORMAttribute(node, @"Sort") ?: @"" isEqualToString:value ?: @""]) {
+		return;
+	}
+	[_editor change:@"Set Query Sort" with:^{
+		ORMSetAttribute(node, @"Sort", value);
+	}];
 }
 
 @end

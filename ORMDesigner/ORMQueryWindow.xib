@@ -20,6 +20,9 @@
                 <outlet property="countComparisonPopUp" destination="countComparisonPopUp" id="countComparisonPopUpOutlet10"/>
                 <outlet property="countField" destination="countField" id="countFieldOutlet11"/>
                 <outlet property="labelField" destination="labelField" id="labelFieldOutlet"/>
+                <outlet property="sortPopUp" destination="sortPopUp" id="sortPopUpOutlet"/>
+                <outlet property="aggregateNodePopUp" destination="aggregateNodePopUp" id="aggregateNodePopUpOutlet"/>
+                <outlet property="aggregatePopUp" destination="aggregatePopUp" id="aggregatePopUpOutlet"/>
                 <outlet property="removeStepButton" destination="removeStepButton" id="removeStepButtonOutlet12"/>
                 <outlet property="verbalizationView" destination="verbalizationText" id="verbalizationTextOutlet13"/>
                 <outlet property="fetchView" destination="fetchText" id="fetchTextOutlet14"/>
@@ -310,6 +313,33 @@
                             <action selector="labelChanged:" target="-2" id="labelFieldAction"/>
                         </connections>
                     </textField>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="sortLabel">
+                        <rect key="frame" x="716" y="258" width="34" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Sort:" id="sortLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <popUpButton verticalHuggingPriority="750" id="sortPopUp">
+                        <rect key="frame" x="750" y="254" width="110" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="sortPopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="sortPopUpMenu">
+                                <items>
+                                    <menuItem title="—" id="sortPopUpItem0"/>
+                                    <menuItem title="ascending" id="sortPopUpItem1"/>
+                                    <menuItem title="descending" id="sortPopUpItem2"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="sortChanged:" target="-2" id="sortPopUpAction"/>
+                        </connections>
+                    </popUpButton>
                     <textField focusRingType="none" verticalHuggingPriority="750" id="stepLabel">
                         <rect key="frame" x="12" y="228" width="40" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
@@ -337,17 +367,49 @@
                             <action selector="operatorChanged:" target="-2" id="operatorPopUpAction"/>
                         </connections>
                     </popUpButton>
-                    <textField focusRingType="none" verticalHuggingPriority="750" id="countLabel">
-                        <rect key="frame" x="150" y="228" width="44" height="18"/>
+                    <popUpButton verticalHuggingPriority="750" id="aggregatePopUp">
+                        <rect key="frame" x="150" y="224" width="76" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
-                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Count:" id="countLabelCell">
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="aggregatePopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="aggregatePopUpMenu">
+                                <items>
+                                    <menuItem title="count" id="aggregatePopUpItem0"/>
+                                    <menuItem title="total" id="aggregatePopUpItem1"/>
+                                    <menuItem title="avg" id="aggregatePopUpItem2"/>
+                                    <menuItem title="max" id="aggregatePopUpItem3"/>
+                                    <menuItem title="min" id="aggregatePopUpItem4"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="countChanged:" target="-2" id="aggregatePopUpAction"/>
+                        </connections>
+                    </popUpButton>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="ofLabel">
+                        <rect key="frame" x="230" y="228" width="16" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="of" id="ofLabelCell">
                             <font key="font" metaFont="smallSystem"/>
                             <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
                             <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
+                    <popUpButton verticalHuggingPriority="750" id="aggregateNodePopUp">
+                        <rect key="frame" x="248" y="224" width="150" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="aggregateNodePopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="aggregateNodePopUpMenu"/>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="countChanged:" target="-2" id="aggregateNodePopUpAction"/>
+                        </connections>
+                    </popUpButton>
                     <popUpButton verticalHuggingPriority="750" id="countComparisonPopUp">
-                        <rect key="frame" x="194" y="224" width="64" height="24"/>
+                        <rect key="frame" x="402" y="224" width="64" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
                         <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="countComparisonPopUpCell">
                             <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
@@ -369,7 +431,7 @@
                         </connections>
                     </popUpButton>
                     <textField verticalHuggingPriority="750" id="countField">
-                        <rect key="frame" x="262" y="226" width="60" height="22"/>
+                        <rect key="frame" x="470" y="226" width="80" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
                         <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="countFieldCell">
                             <font key="font" metaFont="smallSystem"/>
@@ -381,7 +443,7 @@
                         </connections>
                     </textField>
                     <button verticalHuggingPriority="750" id="removeStepButton">
-                        <rect key="frame" x="334" y="224" width="110" height="24"/>
+                        <rect key="frame" x="562" y="224" width="110" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
                         <buttonCell key="cell" type="push" title="Remove Step" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="removeStepButtonCell">
                             <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>

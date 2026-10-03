@@ -322,6 +322,40 @@
 	XCTAssertTrue([[built outlineText] rangeOfString:@"Warehouse = Warehouse1"].location != NSNotFound, @"%@", [built outlineText]);
 }
 
+/* An aggregate and an order, set in the window: warehouses with more
+ * than two locations, the last first. */
+- (void)testAQueryAggregatesAndSortsAsSet
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Warehouse"] identifier]];
+	[[queries valueForKey:@"sortPopUp"] selectItemAtIndex:ORMQueryDescending];
+	[queries performSelector:@selector(sortChanged:) withObject:nil];
+	ORMRole *contains = nil;
+	for (ORMRole *role in [queries availableRoles]) {
+		for (ORMRole *other in role.factType.roles) {
+			if (other != role && [other.player.name isEqualToString:@"Location"]) {
+				contains = role;
+			}
+		}
+	}
+	NSString *step = [queries addStepThrough:contains];
+	XCTAssertEqualObjects(queries.selectedId, step);
+	[[queries valueForKey:@"aggregatePopUp"] selectItemAtIndex:ORMQueryCount];
+	[[queries valueForKey:@"countComparisonPopUp"] selectItemWithTitle:@">"];
+	[[queries valueForKey:@"countField"] setStringValue:@"2"];
+	[queries performSelector:@selector(countChanged:) withObject:nil];
+
+	ORMQuery *built = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqual(built.root.sortOrder, ORMQueryDescending);
+	ORMQueryStep *made = [built.root.steps firstObject];
+	XCTAssertEqualObjects(made.countComparison, @">");
+	XCTAssertEqual(made.countValue, 2u);
+	XCTAssertEqualObjects(made.aggregateNode.objectType.name, @"Location");
+	XCTAssertTrue([[queries fetchText] rangeOfString:@"ascending:NO"].location != NSNotFound, @"%@", [queries fetchText]);
+}
+
 - (void)testEveryMenuItemHasSomewhereToGo
 {
 	[self open:@"StockMate.orm"];

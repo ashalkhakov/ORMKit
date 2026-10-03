@@ -71,6 +71,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	/* The subqueries' variables open where the translation is. */
 	NSMutableArray<NSString *> *_scope;
 	NSMutableArray<ORMQueryJoin *> *_joins;
+	NSMutableArray<NSSortDescriptor *> *_sorts;
 	/* How many nots and alternatives enclose where the translation is: a
 	 * join is made only where none does. */
 	NSUInteger _guarded;
@@ -93,6 +94,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 		_paths = [NSMutableDictionary dictionary];
 		_scope = [NSMutableArray array];
 		_joins = [NSMutableArray array];
+		_sorts = [NSMutableArray array];
 		_bySource = [NSMutableDictionary dictionary];
 		for (ORMCDEntity *entity in coreData.entities) {
 			for (ORMCDProperty *property in [entity properties]) {
@@ -119,6 +121,60 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 - (NSArray<ORMQueryColumn *> *)columns
 {
 	return [_columns copy];
+}
+
+- (NSArray<NSSortDescriptor *> *)sortDescriptors
+{
+	return [_sorts copy];
+}
+
+/* Whether the key path from the fetched object reaches one object or value:
+ * no to-many on the way. */
+- (BOOL)reachesOne:(NSString *)keyPath
+{
+	ORMCDEntity *at = _fetched;
+	for (NSString *key in [keyPath componentsSeparatedByString:@"."]) {
+		if (at == nil || [key isEqualToString:@"self"]) {
+			continue;
+		}
+		ORMCDProperty *property = nil;
+		for (ORMCDEntity *e = at; e != nil && property == nil;
+		     e = e.parentName != nil ? [_coreData entityNamed:e.parentName] : nil) {
+			property = [e propertyNamed:key];
+		}
+		if ([property isKindOfClass:[ORMCDRelationship class]]) {
+			if (((ORMCDRelationship *)property).toMany) {
+				return NO;
+			}
+			at = [_coreData entityNamed:((ORMCDRelationship *)property).destination];
+		} else {
+			at = nil;
+		}
+	}
+	return YES;
+}
+
+/* What the results are listed in order of: each sorted node's column. */
+- (void)sort
+{
+	for (ORMQueryNode *node in [_query nodes]) {
+		if (node.sortOrder == ORMQueryUnsorted) {
+			continue;
+		}
+		ORMQueryColumn *column = nil;
+		for (ORMQueryColumn *each in _columns) {
+			if ([each.nodeId isEqualToString:node.identifier]) {
+				column = each;
+			}
+		}
+		NSString *key = column.identifierKeyPath ?: column.keyPath;
+		if (column == nil || [key isEqualToString:@"self"] || ![self reachesOne:key]) {
+			[self note:[NSString stringWithFormat:@"%@ is sorted by, but %@.", [node designation],
+			                                      column == nil ? @"not listed" : @"not one value for each result"]];
+			continue;
+		}
+		[_sorts addObject:[NSSortDescriptor sortDescriptorWithKey:key ascending:node.sortOrder == ORMQueryAscending]];
+	}
 }
 
 - (NSArray<ORMQueryJoin *> *)joins
@@ -435,6 +491,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	}
 	NSString *predicate = [self predicateFor:root entity:entity prefix:@"" path:@"" columns:YES];
 	_predicateFormat = predicate ?: @"TRUEPREDICATE";
+	[self sort];
 }
 
 /* What the node and its steps require of the object at the prefix ("",
@@ -652,6 +709,100 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	return [subquery stringByAppendingString:@".@count > 0"];
 }
 
+/* The key path from an object of the entity at the node to the target, one
+ * of the nodes below it: through to-ones, to an attribute or an entity's
+ * identifier. nil when there is no such path. */
+- (NSString *)keyPathFrom:(ORMQueryNode *)node entity:(ORMCDEntity *)entity to:(ORMQueryNode *)target
+{
+	if (node == target) {
+		ORMCDAttribute *identifier = entity != nil ? [self identifierOf:node.objectType on:entity] : nil;
+		return identifier != nil ? identifier.name : nil;
+	}
+	for (ORMQueryStep *step in node.steps) {
+		for (ORMQueryNode *next in step.nodes) {
+			ORMCDProperty *property = [self propertyOf:entity source:next.role.identifier];
+			if ([property isKindOfClass:[ORMCDAttribute class]] && next == target) {
+				return property.name;
+			}
+			if ([property isKindOfClass:[ORMCDRelationship class]] && !((ORMCDRelationship *)property).toMany) {
+				NSString *rest = [self keyPathFrom:next
+				                            entity:[_coreData entityNamed:((ORMCDRelationship *)property).destination]
+				                                to:target];
+				if (rest != nil) {
+					return [NSString stringWithFormat:@"%@.%@", property.name, rest];
+				}
+			}
+		}
+	}
+	return nil;
+}
+
+/* Whether what is below the node asks more of it than that it is there:
+ * a condition, a label, a not, an alternative, a count. */
+- (BOOL)narrows:(ORMQueryNode *)node
+{
+	if (node.comparison != nil || node.label != nil || node.combinesWithOr) {
+		return YES;
+	}
+	for (ORMQueryStep *step in node.steps) {
+		if (step.operatorKind != ORMQueryAnd || step.countComparison != nil) {
+			return YES;
+		}
+		for (ORMQueryNode *next in step.nodes) {
+			if ([self narrows:next]) {
+				return YES;
+			}
+		}
+	}
+	return NO;
+}
+
+/* The step's aggregate over the objects of the collection ("employees"),
+ * each of the member entity: "employees.@sum.salary.usd > 1000000". Over
+ * them all: Core Data's store aggregates no subquery, so conditions below
+ * the step do not narrow it, and are noted. */
+- (NSString *)aggregated:(NSString *)subquery
+              collection:(NSString *)collection
+                  member:(ORMCDEntity *)member
+                 through:(NSString *)firstHop
+                    from:(ORMQueryNode *)start
+                    step:(ORMQueryStep *)step
+{
+	if (step == nil || step.countComparison == nil || step.aggregate == ORMQueryCount) {
+		return [self counted:subquery step:step];
+	}
+	NSString *function = [@[ @"@count", @"@sum", @"@avg", @"@max", @"@min" ] objectAtIndex:(NSUInteger)step.aggregate];
+	/* From the member, or from where its first hop leads. */
+	ORMCDProperty *hop = firstHop != nil ? [member propertyNamed:firstHop] : nil;
+	ORMCDEntity *startEntity = [hop isKindOfClass:[ORMCDRelationship class]]
+		? [_coreData entityNamed:((ORMCDRelationship *)hop).destination] : (hop == nil ? member : nil);
+	NSString *rest = startEntity != nil ? [self keyPathFrom:start entity:startEntity to:step.aggregateNode] : nil;
+	if (rest == nil && firstHop != nil && start == step.aggregateNode) {
+		rest = @"";
+	}
+	NSString *path = firstHop != nil ? ([rest length] > 0 ? [NSString stringWithFormat:@"%@.%@", firstHop, rest] : firstHop)
+	                                 : rest;
+	NSString *operator = [ORMPredicateOperators() objectForKey:step.countComparison];
+	if (path == nil || operator == nil) {
+		[self note:[NSString stringWithFormat:@"%@(%@) is of nothing one key path reaches from %@.",
+		                                      [ORMQuery nameOfAggregate:step.aggregate],
+		                                      [step.aggregateNode designation], collection]];
+		return [self counted:subquery step:nil];
+	}
+	if ([self narrows:start] || (start != step.aggregateNode && [self narrows:step.aggregateNode])) {
+		[self note:[NSString stringWithFormat:@"%@(%@) is over every %@, not only those meeting the conditions below "
+		                                      @"it: Core Data aggregates no subquery.",
+		                                      [ORMQuery nameOfAggregate:step.aggregate],
+		                                      [step.aggregateNode designation], start.objectType.name]];
+	}
+	NSString *value = step.aggregateValue ?: @"";
+	NSScanner *scanner = [NSScanner scannerWithString:value];
+	double number = 0;
+	BOOL numeric = [scanner scanDouble:&number] && [scanner isAtEnd];
+	return [NSString stringWithFormat:@"%@.%@.%@ %@ %@", collection, function, path, operator,
+	                                  numeric ? value : ORMPredicateString(value)];
+}
+
 /* Through a binary to an attribute or a relationship of the entity. */
 - (NSString *)binaryStep:(ORMQueryStep *)step
                     node:(ORMQueryNode *)node
@@ -704,7 +855,7 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	[_scope removeLastObject];
 	/* Nothing asked of them: how many there are. */
 	NSString *subquery = inner != nil ? [NSString stringWithFormat:@"SUBQUERY(%@, %@, %@)", key, variable, inner] : key;
-	return [self counted:subquery step:step];
+	return [self aggregated:subquery collection:key member:destination through:nil from:node step:step];
 }
 
 /* Through a fact type that is an entity of its own (an objectification,
@@ -768,10 +919,22 @@ ORMJoined(NSArray<NSString *> *parts, NSString *connective)
 	if (variable == nil) {
 		return inner ?: [NSString stringWithFormat:@"%@%@ != nil", prefix, relationship.name];
 	}
-	NSString *subquery = inner != nil ? [NSString stringWithFormat:@"SUBQUERY(%@%@, %@, %@)", prefix, relationship.name,
-	                                                               variable, inner]
-	                                  : [prefix stringByAppendingString:relationship.name];
-	return [self counted:subquery step:step];
+	NSString *collection = [prefix stringByAppendingString:relationship.name];
+	NSString *subquery = inner != nil ? [NSString stringWithFormat:@"SUBQUERY(%@, %@, %@)", collection, variable, inner]
+	                                  : collection;
+	/* Through the role of the fact type's entity the aggregated node is
+	 * at, or below. */
+	ORMQueryNode *start = nil;
+	NSString *firstHop = nil;
+	for (ORMQueryNode *node in step.nodes) {
+		for (ORMQueryNode *at = step.aggregateNode; at != nil && start == nil; at = at.step.parent) {
+			if (at == node) {
+				start = node;
+				firstHop = [[self propertyOf:factEntity source:node.role.identifier] name];
+			}
+		}
+	}
+	return [self aggregated:subquery collection:collection member:factEntity through:firstHop from:start step:step];
 }
 
 /* To a subtype: the object is of its entity; to a supertype: it is. */
@@ -858,6 +1021,14 @@ ORMSourceLiteral(NSString *format)
 		                  [conjuncts componentsJoinedByString:@",\n    "]];
 	} else if (![_predicateFormat isEqualToString:@"TRUEPREDICATE"]) {
 		[out appendFormat:@"request.predicate = %@;\n", own];
+	}
+	if ([_sorts count] > 0) {
+		NSMutableArray *sorts = [NSMutableArray array];
+		for (NSSortDescriptor *sort in _sorts) {
+			[sorts addObject:[NSString stringWithFormat:@"[NSSortDescriptor sortDescriptorWithKey:@\"%@\" ascending:%@]",
+			                                            [sort key], [sort ascending] ? @"YES" : @"NO"]];
+		}
+		[out appendFormat:@"request.sortDescriptors = @[ %@ ];\n", [sorts componentsJoinedByString:@", "]];
 	}
 	if ([_columns count] > 0) {
 		[out appendString:@"/* Listed, from each object fetched:\n"];

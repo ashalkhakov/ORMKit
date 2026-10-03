@@ -21,6 +21,9 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSPopUpButton *countComparisonPopUp;
 @property (nonatomic, strong) IBOutlet NSTextField *countField;
 @property (nonatomic, strong) IBOutlet NSTextField *labelField;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *aggregatePopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *aggregateNodePopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *sortPopUp;
 @property (nonatomic, strong) IBOutlet NSButton *removeStepButton;
 @property (nonatomic, strong) IBOutlet NSTextView *verbalizationView;
 @property (nonatomic, strong) IBOutlet NSTextView *fetchView;
@@ -42,6 +45,9 @@ ORMComparisonTitles(void)
 	NSArray<NSString *> *_roots;
 	NSArray<ORMRole *> *_available;
 	NSString *_selectedId;
+	/* The outline is being filled: what it says of its selection is its
+	 * old one, not the user's. */
+	BOOL _reloading;
 }
 
 - (instancetype)initWithEditor:(ORMEditor *)editor
@@ -148,6 +154,7 @@ ORMComparisonTitles(void)
 	if (_selectedId == nil) {
 		_selectedId = _query.root.identifier;
 	}
+	_reloading = YES;
 	[_outline reloadData];
 	/* Each root, not nil: GNUstep expands nothing for a nil item. */
 	for (NSString *root in _roots) {
@@ -157,6 +164,7 @@ ORMComparisonTitles(void)
 	if (row >= 0) {
 		[_outline selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row] byExtendingSelection:NO];
 	}
+	_reloading = NO;
 	[self selectionDidChange];
 	[self showQuery];
 }
@@ -225,10 +233,12 @@ ORMComparisonTitles(void)
 {
 	ORMQueryNode *node = [self selectedNode];
 	ORMQueryStep *step = [self selectedStep];
-	for (NSControl *control in @[ _listCheck, _comparisonPopUp, _valueField, _alternativesCheck, _labelField ]) {
+	for (NSControl *control in @[ _listCheck, _comparisonPopUp, _valueField, _alternativesCheck, _labelField,
+	                              _sortPopUp ]) {
 		[control setEnabled:node != nil];
 	}
-	for (NSControl *control in @[ _operatorPopUp, _countComparisonPopUp, _countField, _removeStepButton ]) {
+	for (NSControl *control in @[ _operatorPopUp, _aggregatePopUp, _aggregateNodePopUp, _countComparisonPopUp, _countField,
+	                              _removeStepButton ]) {
 		[control setEnabled:step != nil];
 	}
 	[_listCheck setState:node.isProjected ? NSControlStateValueOn : NSControlStateValueOff];
@@ -241,9 +251,23 @@ ORMComparisonTitles(void)
 	[_operatorPopUp selectItemAtIndex:step != nil ? step.operatorKind : 0];
 	NSUInteger count = step.countComparison != nil ? [ORMComparisonTitles() indexOfObject:step.countComparison] : 0;
 	[_countComparisonPopUp selectItemAtIndex:count != NSNotFound ? (NSInteger)count : 0];
-	[_countField setStringValue:step.countComparison != nil ? [NSString stringWithFormat:@"%lu",
-	                                                                                    (unsigned long)step.countValue]
-	                                                        : @""];
+	[_countField setStringValue:step.countComparison != nil ? step.aggregateValue ?: @"" : @""];
+	[_aggregatePopUp selectItemAtIndex:step != nil ? step.aggregate : 0];
+	[_sortPopUp selectItemAtIndex:node != nil ? node.sortOrder : 0];
+	/* What the step's aggregate can be of: the nodes it reaches. */
+	[_aggregateNodePopUp removeAllItems];
+	NSMutableArray *below = [NSMutableArray arrayWithArray:step.nodes ?: @[]];
+	for (NSUInteger i = 0; i < [below count]; i++) {
+		ORMQueryNode *at = [below objectAtIndex:i];
+		[_aggregateNodePopUp addItemWithTitle:[at designation]];
+		[[_aggregateNodePopUp lastItem] setRepresentedObject:at.identifier];
+		if (at == step.aggregateNode) {
+			[_aggregateNodePopUp selectItem:[_aggregateNodePopUp lastItem]];
+		}
+		for (ORMQueryStep *next in at.steps) {
+			[below addObjectsFromArray:next.nodes];
+		}
+	}
 	_available = node != nil ? [ORMQuery rolesFrom:node.objectType] : @[];
 	[_roles reloadData];
 }
@@ -399,6 +423,15 @@ ORMComparisonTitles(void)
 	}
 }
 
+- (void)sortChanged:(id)sender
+{
+	(void)sender;
+	ORMQueryNode *node = [self selectedNode];
+	if (node != nil) {
+		[[self queries] setSortOrder:(ORMQuerySort)MAX(0, [_sortPopUp indexOfSelectedItem]) ofNode:node.identifier];
+	}
+}
+
 - (void)alternativesChanged:(id)sender
 {
 	(void)sender;
@@ -426,12 +459,17 @@ ORMComparisonTitles(void)
 	}
 	NSInteger index = [_countComparisonPopUp indexOfSelectedItem];
 	NSString *comparison = index > 0 ? [ORMComparisonTitles() objectAtIndex:(NSUInteger)index] : nil;
-	NSUInteger value = (NSUInteger)MAX(0, [_countField integerValue]);
-	if ([comparison ?: @"" isEqualToString:step.countComparison ?: @""] && (comparison == nil || value == step.countValue)) {
+	NSString *value = [_countField stringValue];
+	ORMQueryAggregate aggregate = (ORMQueryAggregate)MAX(0, [_aggregatePopUp indexOfSelectedItem]);
+	NSString *nodeId = [[_aggregateNodePopUp selectedItem] representedObject];
+	if ([comparison ?: @"" isEqualToString:step.countComparison ?: @""] && aggregate == step.aggregate
+	    && [nodeId ?: @"" isEqualToString:step.aggregateNode.identifier ?: @""]
+	    && (comparison == nil || [value isEqualToString:step.aggregateValue ?: @""])) {
 		return;
 	}
 	NSString *reason = nil;
-	if (![[self queries] setCount:comparison value:value ofStep:step.identifier reason:&reason]) {
+	if (![[self queries] setAggregate:aggregate ofNode:nodeId comparison:comparison value:value ofStep:step.identifier
+	                           reason:&reason]) {
 		NSBeep();
 		[self say:reason];
 	}
@@ -487,6 +525,9 @@ ORMComparisonTitles(void)
 		[text appendFormat:@" %@ %@", node.comparison,
 		                   [node isNumeric] ? node.value : [NSString stringWithFormat:@"'%@'", node.value ?: @""]];
 	}
+	if (node.sortOrder != ORMQueryUnsorted) {
+		[text appendString:node.sortOrder == ORMQueryAscending ? @" ↑" : @" ↓"];
+	}
 	if (node.combinesWithOr && [node.steps count] > 1) {
 		[text appendString:@"   (any of these)"];
 	}
@@ -508,7 +549,8 @@ ORMComparisonTitles(void)
 	}
 	NSString *operator = step.operatorKind == ORMQueryNot ? @"not " : step.operatorKind == ORMQueryMaybe ? @"maybe " : @"";
 	NSString *count = step.countComparison != nil
-		? [NSString stringWithFormat:@"   count %@ %lu", step.countComparison, (unsigned long)step.countValue]
+		? [NSString stringWithFormat:@"   %@(%@) %@ %@", [ORMQuery nameOfAggregate:step.aggregate],
+		                             [step.aggregateNode designation], step.countComparison, step.aggregateValue ?: @""]
 		: @"";
 	return [NSString stringWithFormat:@"+ %@%@%@", operator, reading, count];
 }
@@ -530,6 +572,9 @@ ORMComparisonTitles(void)
 - (void)outlineViewSelectionDidChange:(NSNotification *)notification
 {
 	(void)notification;
+	if (_reloading) {
+		return;
+	}
 	NSInteger row = [_outline selectedRow];
 	_selectedId = row >= 0 ? [_outline itemAtRow:row] : nil;
 	[self selectionDidChange];

@@ -33,6 +33,8 @@ identified (a name, a state, a country).
 | `+ not ...` | there is no such step |
 | `+ maybe ...` | the step if there is one: listed, but leaves nothing out (the outer join) |
 | `+ count(X) for Y > n` | how many X each Y has, compared |
+| `+ total(Salary) for Branch > 1000000` | an aggregate (count, total, avg, max, min) of a node the step reaches, for each object above it |
+| `✓Branch ↓` | the results in descending (↑ ascending) order of that node |
 | `+ or ...` | the node's steps are alternatives, not all required |
 | `+ is Professor` | a subtype link, from the supertype or from the subtype |
 | `City1` | a label: nodes of one object type with the same label are the same object |
@@ -117,6 +119,8 @@ COREDATA-MAPPING.md, "Traces"):
 | not | `NOT (...)` |
 | maybe | nothing |
 | count(X) > n | `cars.@count > 1`, or `SUBQUERY(...).@count > 1` |
+| total, avg, max, min | `employees.@sum.salary.usd > 1000000`: over every object the step reaches |
+| a sorted listed node | a sort descriptor on its identifier or value, through to-ones |
 | a condition on an entity | on its identifier: `city.branches.nr`, `code == "UQ"` |
 | a label met again, in scope | `$x1.city == city` |
 | a label met again, out of scope | `ANY $x2.isOwnedByEmployees == SELF` |
@@ -239,8 +243,12 @@ mapping, or the defaults) follow every change. Changes undo with the model.
   reaches is taken, not only those meeting them. Both cases are noted.
 - **Joins inside a `not`, an `or` or a subquery,** through an absorbed
   object type. These need nested fetches.
-- **Aggregates other than count**, grouped by something other than the node
-  above (ConQuer-II's for-clauses); sorting.
+- **Aggregates beyond a step's own group:**
+  - grouped by something other than the node above (ConQuer-II's for-clauses,
+    `max(Rating) for Employee > avg(Rating) for Department`);
+  - compared with another aggregate;
+  - narrowed by the conditions under the step. Core Data's store aggregates
+    no subquery, so this case is noted.
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point

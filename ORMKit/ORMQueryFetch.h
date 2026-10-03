@@ -61,6 +61,9 @@
 /* NSPredicate's format: "TRUEPREDICATE" for every object. */
 @property (nonatomic, readonly, copy) NSString *predicateFormat;
 @property (nonatomic, readonly, copy) NSArray<ORMQueryColumn *> *columns;
+/* The listed nodes the query sorts by, in outline order, each by its
+ * identifier or value; through to-ones only. */
+@property (nonatomic, readonly, copy) NSArray<NSSortDescriptor *> *sortDescriptors;
 /* The fetches to make first, each a join of the request's. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryJoin *> *joins;
 /* The request's predicate with each join's objects, by its name: its
