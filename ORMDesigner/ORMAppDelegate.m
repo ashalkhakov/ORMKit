@@ -21,7 +21,9 @@
 	if (![nib instantiateWithOwner:self topLevelObjects:NULL]) {
 		return nil;
 	}
-	[ORMSampleMenu fillMenu:self.sampleMenu fromFolders:[ORMSampleMenu foldersInBundle:bundle]];
+	[ORMSampleMenu fillMenu:self.sampleMenu
+	             withModels:[ORMSampleMenu modelsInBundle:bundle]
+	                folders:[ORMSampleMenu foldersInBundle:bundle]];
 	NSMutableArray *pending = [NSMutableArray arrayWithObject:self.mainMenu];
 	while ([pending count] > 0) {
 		NSMenu *menu = [pending lastObject];

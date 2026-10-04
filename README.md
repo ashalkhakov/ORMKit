@@ -112,4 +112,5 @@ are Clifford Heath's ActiveFacts examples, under the MIT license
 `ORMKitTests/Fixtures/NORMA` are NORMA's sample and test models, under the
 Common Public License 1.0 (`ORMKitTests/Fixtures/NORMA/LICENSE.txt`). Neither
 is part of the library. The models in `Samples/` are ORMKit's own, of
-schemas Halpin's papers publish.
+schemas Halpin's papers publish; StockMate, which ORMDesigner also bundles,
+is its author's, used with their leave.

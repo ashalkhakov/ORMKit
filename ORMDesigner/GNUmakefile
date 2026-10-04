@@ -35,9 +35,10 @@ ORMDesigner_RESOURCE_FILES = \
   ORMCoreDataWindow.xib \
   ORMDocumentWindow.xib \
   ../Samples \
-  ../ORMKitTests/Fixtures/ActiveFacts
-# The samples (File > Open Sample) are copied in as folders: Resources/Samples
-# and Resources/ActiveFacts, the latter with its license.
+  ../ORMKitTests/Fixtures/ActiveFacts \
+  ../ORMKitTests/Fixtures/StockMate.orm
+# The samples (File > Open Sample): Resources/Samples and Resources/ActiveFacts
+# copied in as folders, the latter with its license, and StockMate.
 # The app delegate loads the menu bar itself (-[ORMAppDelegate loadMainMenu]),
 # to set what a XIB cannot hold.
 ORMDesigner_MAIN_MODEL_FILE =

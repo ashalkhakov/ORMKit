@@ -256,6 +256,10 @@
 			isa = PBXBuildFile;
 			fileRef = 1FEE443031897F3DF350AAF5 /* ORMFileTests.m */;
 		};
+		60AA3CFA894F84306DC0E0D3 /* StockMate.orm */ = {
+			isa = PBXBuildFile;
+			fileRef = 3C1726E2FC3F6CF80B0834BA /* StockMate.orm */;
+		};
 		614C9E4D806B9970DA87094F /* ORMModel.m */ = {
 			isa = PBXBuildFile;
 			fileRef = EC982668FBE20641550E0F20 /* ORMModel.m */;
@@ -880,6 +884,13 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMModelBrowser.h;
+			sourceTree = "<group>";
+		};
+		3C1726E2FC3F6CF80B0834BA /* StockMate.orm */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = text;
+			name = StockMate.orm;
+			path = ../ORMKitTests/Fixtures/StockMate.orm;
 			sourceTree = "<group>";
 		};
 		3E15238847061772056A2E92 /* ORMQueryPlan.m */ = {
@@ -1740,6 +1751,7 @@
 				1E949A0478DFF0A12FDAF766 /* ORMDocumentWindow.xib */,
 				D711E759700637DA41F98E72 /* Samples */,
 				6B2E3F09A4B47656091F7CF0 /* ActiveFacts */,
+				3C1726E2FC3F6CF80B0834BA /* StockMate.orm */,
 				8E6B3AABD78CF5D2CDBBBF87 /* ORMDesigner-Info.plist */,
 			);
 			path = ORMDesigner;
@@ -1938,6 +1950,7 @@
 				743EBF4B19D84D4AA842CA7A /* ORMDocumentWindow.xib */,
 				D168115F32EC066EDB5712D6 /* Samples */,
 				B80459DC79B9783F55045E56 /* ActiveFacts */,
+				60AA3CFA894F84306DC0E0D3 /* StockMate.orm */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

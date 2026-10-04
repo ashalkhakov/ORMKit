@@ -99,15 +99,17 @@
 {
 	NSString *root = [[[[self fixturePath:@"ActiveFacts"] stringByDeletingLastPathComponent]
 		stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
-	NSArray *folders = @[ [NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples"]],
-	                      [NSURL fileURLWithPath:[self fixturePath:@"ActiveFacts"]] ];
+	NSArray *models = [[ORMSampleMenu modelsIn:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples"]]]
+		arrayByAddingObject:[NSURL fileURLWithPath:[self fixturePath:@"StockMate.orm"]]];
 	NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Open Sample"];
-	[ORMSampleMenu fillMenu:menu fromFolders:folders];
+	[ORMSampleMenu fillMenu:menu
+	             withModels:models
+	                folders:@[ [NSURL fileURLWithPath:[self fixturePath:@"ActiveFacts"]] ]];
 	NSMutableArray *titles = [NSMutableArray array];
 	for (NSMenuItem *item in [menu itemArray]) {
 		[titles addObject:[item isSeparatorItem] ? @"-" : [item title]];
 	}
-	XCTAssertEqualObjects(titles, (@[ @"Company", @"UMLandORM", @"University", @"-", @"ActiveFacts" ]));
+	XCTAssertEqualObjects(titles, (@[ @"Company", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
 	XCTAssertEqual([[[menu itemWithTitle:@"ActiveFacts"] submenu] numberOfItems], (NSInteger)29);
 	NSMenuItem *company = [menu itemWithTitle:@"Company"];
 	XCTAssertEqual([company action], @selector(openSample:));

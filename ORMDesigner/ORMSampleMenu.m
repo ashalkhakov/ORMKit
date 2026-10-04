@@ -3,20 +3,43 @@
 
 @implementation ORMSampleMenu
 
-+ (NSArray<NSURL *> *)foldersInBundle:(NSBundle *)bundle
+/* The bundle's resource folder of the name, if it has it. */
++ (NSURL *)folderNamed:(NSString *)name inBundle:(NSBundle *)bundle
 {
-	NSMutableArray *folders = [NSMutableArray array];
-	for (NSString *name in @[ @"Samples", @"ActiveFacts" ]) {
-		NSString *path = [[bundle resourcePath] stringByAppendingPathComponent:name];
-		BOOL directory = NO;
-		if ([[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&directory] && directory) {
-			[folders addObject:[NSURL fileURLWithPath:path isDirectory:YES]];
-		}
+	NSString *path = [[bundle resourcePath] stringByAppendingPathComponent:name];
+	BOOL directory = NO;
+	if (![[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&directory] || !directory) {
+		return nil;
 	}
-	return folders;
+	return [NSURL fileURLWithPath:path isDirectory:YES];
 }
 
-/* The folder's models, by name. */
++ (NSArray<NSURL *> *)sorted:(NSArray<NSURL *> *)models
+{
+	return [models sortedArrayUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
+		return [[a lastPathComponent] caseInsensitiveCompare:[b lastPathComponent]];
+	}];
+}
+
++ (NSArray<NSURL *> *)modelsInBundle:(NSBundle *)bundle
+{
+	NSMutableArray *models = [NSMutableArray array];
+	NSURL *samples = [self folderNamed:@"Samples" inBundle:bundle];
+	if (samples != nil) {
+		[models addObjectsFromArray:[self modelsIn:samples]];
+	}
+	if ([bundle resourcePath] != nil) {
+		[models addObjectsFromArray:[self modelsIn:[NSURL fileURLWithPath:[bundle resourcePath] isDirectory:YES]]];
+	}
+	return [self sorted:models];
+}
+
++ (NSArray<NSURL *> *)foldersInBundle:(NSBundle *)bundle
+{
+	NSURL *activeFacts = [self folderNamed:@"ActiveFacts" inBundle:bundle];
+	return activeFacts != nil ? @[ activeFacts ] : @[];
+}
+
 + (NSArray<NSURL *> *)modelsIn:(NSURL *)folder
 {
 	NSMutableArray *models = [NSMutableArray array];
@@ -25,14 +48,12 @@
 			[models addObject:[folder URLByAppendingPathComponent:name]];
 		}
 	}
-	return [models sortedArrayUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
-		return [[a lastPathComponent] caseInsensitiveCompare:[b lastPathComponent]];
-	}];
+	return [self sorted:models];
 }
 
-+ (void)addModelsIn:(NSURL *)folder to:(NSMenu *)menu
++ (void)addModels:(NSArray<NSURL *> *)models to:(NSMenu *)menu
 {
-	for (NSURL *model in [self modelsIn:folder]) {
+	for (NSURL *model in models) {
 		NSMenuItem *item = [menu addItemWithTitle:[[model lastPathComponent] stringByDeletingPathExtension]
 		                                   action:@selector(openSample:)
 		                            keyEquivalent:@""];
@@ -40,17 +61,14 @@
 	}
 }
 
-+ (void)fillMenu:(NSMenu *)menu fromFolders:(NSArray<NSURL *> *)folders
++ (void)fillMenu:(NSMenu *)menu withModels:(NSArray<NSURL *> *)models folders:(NSArray<NSURL *> *)folders
 {
 	[menu removeAllItems];
+	[self addModels:models to:menu];
 	for (NSURL *folder in folders) {
-		if (folder == [folders firstObject]) {
-			[self addModelsIn:folder to:menu];
-			continue;
-		}
 		NSString *name = [folder lastPathComponent];
 		NSMenu *submenu = [[NSMenu alloc] initWithTitle:name];
-		[self addModelsIn:folder to:submenu];
+		[self addModels:[self modelsIn:folder] to:submenu];
 		if ([submenu numberOfItems] == 0) {
 			continue;
 		}

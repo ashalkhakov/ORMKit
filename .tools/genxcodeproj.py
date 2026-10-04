@@ -84,12 +84,14 @@ def fileref(path):
     ])
 
 
-def folderref(path, relative):
-    """A folder copied into the bundle as it is (an Xcode folder reference),
-    at its path relative to the group's."""
+def outsideref(path, relative):
+    """A file or folder from outside the group's directory, at its path
+    relative to the group's; a folder is copied into the bundle as it is (an
+    Xcode folder reference)."""
+    kind = "folder" if os.path.isdir(os.path.join(ROOT, path)) else FILE_TYPES.get(os.path.splitext(path)[1], "text")
     return add(oid("ref", path), os.path.basename(path), [
         ("isa", "PBXFileReference"),
-        ("lastKnownFileType", "folder"),
+        ("lastKnownFileType", kind),
         ("name", q(os.path.basename(path))),
         ("path", q(relative)),
         ("sourceTree", '"<group>"'),
@@ -124,8 +126,8 @@ def phase(isa, target, name, files, extra=()):
 kit_refs = {f: fileref("ORMKit/" + f) for f in KIT_SOURCES + KIT_PUBLIC + KIT_PRIVATE}
 kit_test_refs = {f: fileref("ORMKitTests/" + f) for f in KIT_TESTS + KIT_TEST_HEADERS}
 tool_refs = {f: fileref("Tools/ormtool/" + f) for f in TOOL_SOURCES}
-# A resource outside ORMDesigner/ is a folder of samples.
-app_refs = {f: folderref(os.path.normpath("ORMDesigner/" + f), f) if f.startswith("../")
+# A resource outside ORMDesigner/ is a sample, or a folder of them.
+app_refs = {f: outsideref(os.path.normpath("ORMDesigner/" + f), f) if f.startswith("../")
             else fileref("ORMDesigner/" + f)
             for f in APP_SOURCES + APP_HEADERS + APP_RESOURCES + ["ORMDesigner-Info.plist"]}
 app_test_refs = {f: fileref("ORMDesignerTests/" + f) for f in APP_TESTS}

@@ -50,7 +50,10 @@ by hand.
 
    [docs/QUERIES.md](../docs/QUERIES.md) has the rest.
 
-Clifford Heath's ActiveFacts models (MIT licensed) are under **File ▸ Open Sample ▸ ActiveFacts**.
+The menu also lists StockMate, a warehouse stock model that NORMA wrote
+(`ORMKitTests/Fixtures/StockMate.orm`), bundled with its author's leave.
+Clifford Heath's ActiveFacts models (MIT licensed) are under **File ▸ Open
+Sample ▸ ActiveFacts**.
 
 ## Not included
 
