@@ -63,7 +63,7 @@
 - (ORMPlanPath *)pathByAddingCast:(NSString *)entityName;
 @end
 
-@class ORMPlanCondition;
+@class ORMPlanCondition, ORMPlanDefinition;
 
 /* A path's value, a constant, or an aggregate. A constant has its text as
  * the query has it, and the Core Data attribute type it is of ("Integer
@@ -71,19 +71,29 @@
 @interface ORMPlanValue : NSObject <NSCopying>
 + (instancetype)valueAtPath:(ORMPlanPath *)path;
 + (instancetype)constant:(NSString *)text type:(NSString *)attributeType;
-/* An aggregate of a bag, as ConQuer-II's are: function ("count", "sum",
- * "average", "max", "min") of the value at valuePath for each way the bag
- * holds (the variables its somes bind, each member meeting its
- * conditions); a count, of the ways. "max of x2.rating over (some
- * employees as x1 has some x1.ratings as x2)". */
-+ (instancetype)aggregate:(NSString *)function of:(ORMPlanPath *)valuePath over:(ORMPlanCondition *)bag;
+/* An aggregate of a bag the plan defines, as ConQuer-II's are: the bag a
+ * set whose rows are its tuples (the whole query, its aggregates left out,
+ * listing the group node and the nodes from it down to the one aggregated;
+ * each way they are bound once), function ("count", "sum", "average",
+ * "max", "min") of the column for the node aggregated, over the tuples
+ * whose column for the group node is what is at groupPath (its identifier,
+ * where the column lists one); a count, of those with the column set.
+ * "sum of Salary in bag1 where Branch is self.branchCode". */
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath;
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
 @property (nonatomic, readonly, copy) NSString *text;
 @property (nonatomic, readonly, copy) NSString *attributeType;
-/* An aggregate's: its function, what it is of, and its bag. */
+/* An aggregate's: its function, its bag, and the columns (their nodes'
+ * ids) it is of and grouped by, and where the group's object is. */
 @property (nonatomic, readonly, copy) NSString *function;
-@property (nonatomic, readonly, strong) ORMPlanPath *aggregatedPath;
-@property (nonatomic, readonly, strong) ORMPlanCondition *bag;
+@property (nonatomic, readonly, strong) ORMPlanDefinition *bag;
+@property (nonatomic, readonly, copy) NSString *column;
+@property (nonatomic, readonly, copy) NSString *groupColumn;
+@property (nonatomic, readonly, strong) ORMPlanPath *groupPath;
 @end
 
 typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {

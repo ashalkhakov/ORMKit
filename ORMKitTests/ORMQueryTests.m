@@ -651,7 +651,10 @@
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
 	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
 	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
-	XCTAssertTrue([[plan text] rangeOfString:@"count over (some employees as x"].location != NSNotFound, @"%@", [plan text]);
+	XCTAssertTrue([[plan text] rangeOfString:@"let bag1 = read Branch where some employees as x"].location != NSNotFound,
+	              @"%@", [plan text]);
+	XCTAssertTrue([[plan text] rangeOfString:@"count of Language in bag1 where Branch is nr > 1"].location != NSNotFound,
+	              @"%@", [plan text]);
 	XCTAssertEqualObjects([[ORMQueryPlan planWithPropertyList:[plan propertyList] error:NULL] text], [plan text]);
 	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
 	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
@@ -695,6 +698,41 @@
 	              [[self query:q] outlineText]);
 }
 
+/* An aggregate for a node above, of the bag of the whole query: the
+ * salaries of only the branch's employees who speak Latin, as a condition
+ * beside the step says. 52's Latin speaker earns 600 000, its employees
+ * 1 100 000 together. */
+- (void)testAnAggregateForANodeAboveKeepsTheConditionsBesideIt
+{
+	NSString *q = [[self queries] addQueryNamed:@"Latin payroll" from:[self typeId:@"Branch"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *employee = [self from:root through:[self role:@"worksFor" at:1] in:q];
+	ORMQueryNode *language = [self from:employee.identifier through:[self role:@"speaks" at:0] in:q];
+	[[self queries] setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL];
+	NSString *earns = nil;
+	ORMQueryNode *salary = [[self from:employee.identifier through:[self role:@"earns" at:0] in:q step:&earns] firstObject];
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setAggregate:ORMQueryTotal ofNode:salary.identifier comparison:@"<" value:@"700000"
+	                                    ofStep:earns reason:&reason], @"%@", reason);
+	XCTAssertTrue([[self queries] setGroupNode:root ofStep:earns reason:&reason], @"%@", reason);
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqual([plan.definitions count], 1u, @"%@", [plan text]);
+	XCTAssertEqualObjects([[ORMQueryPlan planWithPropertyList:[plan propertyList] error:NULL] text], [plan text]);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	XCTAssertEqualObjects([self rowsOfPlan:plan planner:planner inContext:context], (@[ @[ @52 ] ]), @"%@", [plan text]);
+	/* From the service: the bag read whole first, then the branches. */
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	XCTAssertEqualObjects(odata.notes, @[]);
+	XCTAssertEqualObjects([[odata.bags allKeys] firstObject], @"bag1");
+	XCTAssertEqualObjects([self rowsOf:odata transport:[self countedServiceOver:context]], (@[ @[ @52 ] ]),
+	                      @"%@", [odata requestText]);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* Who lives in a city with a branch headed by someone born in another
  * country than they were? City absorbed, the branches joined on its parts
  * depend on each employee by a comparison no equality says: from the
@@ -734,6 +772,50 @@
 	XCTAssertEqualObjects(rows, (@[ @[ @10 ] ]), @"%@", counted.paths);
 	/* Two requests a page, never one an employee. */
 	XCTAssertLessThan(counted.requests, 12u, @"%@", counted.paths);
+}
+
+/* The same under a not: who lives in a city with no branch headed by
+ * someone born in another country than they were? No page join says it:
+ * the branches are read whole once, and the not checked on the answers. */
+- (void)testACorrelatedJoinUnderNotIsCheckedOnTheServicesAnswers
+{
+	NSString *q = [[self queries] addQueryNamed:@"Not abroad" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *born = [self from:root through:[self role:@"bornIn" at:0] in:q];
+	[[self queries] setLabel:@"1" ofNode:born.identifier];
+	ORMQueryNode *city = [self from:root through:[self role:@"livesIn" at:0] in:q];
+	NSString *located = nil;
+	ORMQueryNode *branch = [[self from:city.identifier through:[self role:@"locatedIn" at:1] in:q step:&located] firstObject];
+	[[self queries] setOperator:ORMQueryNot ofStep:located];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
+	ORMQueryNode *headBorn = [self from:head.identifier through:[self role:@"bornIn" at:0] in:q];
+	[[self queries] setLabel:@"2" ofNode:headBorn.identifier];
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setCondition:@"<>" toNode:born.identifier ofNode:headBorn.identifier reason:&reason],
+	              @"%@", reason);
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	[self addCompanyPopulation];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_editor.model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+	NSArray *numbers = [self numbersOf:plan interpreter:interpreter inContext:context];
+	XCTAssertGreaterThan([numbers count], 0u);
+	XCTAssertFalse([numbers containsObject:@10], @"%@", numbers);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
+	XCTAssertEqual([odata.pageJoins count], 0u);
+	XCTAssertEqual([odata.wholeJoins count], 1u, @"%@", [odata requestText]);
+	NSMutableArray *served = [NSMutableArray array];
+	for (NSArray *row in [self rowsOf:odata transport:[self countedServiceOver:context]]) {
+		[served addObject:[row firstObject]];
+	}
+	XCTAssertEqualObjects([served sortedArrayUsingSelector:@selector(compare:)], numbers,
+	                      @"%@\n%@", [plan text], [odata requestText]);
 }
 
 /* Q4 with City absorbed into Employee: no city to be the same one, but its

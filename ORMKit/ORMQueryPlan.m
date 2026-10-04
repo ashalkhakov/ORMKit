@@ -165,13 +165,31 @@ ORMPlanKindNames(void)
 	return value;
 }
 
-+ (instancetype)aggregate:(NSString *)function of:(ORMPlanPath *)valuePath over:(ORMPlanCondition *)bag
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
 {
 	ORMPlanValue *value = [[self alloc] init];
 	value->_function = [function copy];
-	value->_aggregatedPath = valuePath;
+	value->_column = [column copy];
 	value->_bag = bag;
+	value->_groupColumn = [groupColumn copy];
+	value->_groupPath = groupPath;
 	return value;
+}
+
+/* A bag's column's title, by its node. */
+static NSString *
+ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
+{
+	for (ORMPlanColumn *column in bag.plan.columns) {
+		if ([column.nodeId isEqualToString:nodeId ?: @""]) {
+			return column.title;
+		}
+	}
+	return nodeId;
 }
 
 - (id)copyWithZone:(NSZone *)zone
@@ -186,9 +204,10 @@ ORMPlanKindNames(void)
 		return [_path description];
 	}
 	if (_bag != nil) {
-		return [_function isEqualToString:@"count"] ? [NSString stringWithFormat:@"count over (%@)", _bag]
-		                                            : [NSString stringWithFormat:@"%@ of %@ over (%@)", _function,
-		                                                                         _aggregatedPath, _bag];
+		NSString *of = _column != nil ? [NSString stringWithFormat:@"%@ of %@", _function, ORMColumnTitle(_bag, _column)]
+		                              : _function;
+		return [NSString stringWithFormat:@"%@ in %@ where %@ is %@", of, _bag.name, ORMColumnTitle(_bag, _groupColumn),
+		                                  _groupPath];
 	}
 	BOOL quoted = [_attributeType isEqualToString:@"String"] || [_attributeType isEqualToString:@"Date"];
 	return quoted ? [NSString stringWithFormat:@"'%@'", [_text stringByReplacingOccurrencesOfString:@"'" withString:@"''"]]
@@ -404,12 +423,8 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	ORMAddVariable(free, self.otherPath);
 	ORMAddVariable(free, self.left.path);
 	ORMAddVariable(free, self.right.path);
-	for (ORMPlanValue *value in @[ self.left ?: [NSNull null], self.right ?: [NSNull null] ]) {
-		if ([value isKindOfClass:[ORMPlanValue class]] && value.bag != nil) {
-			/* What its bag names but binds not. */
-			[free unionSet:[value.bag freeVariables]];
-		}
-	}
+	ORMAddVariable(free, self.left.groupPath);
+	ORMAddVariable(free, self.right.groupPath);
 	for (NSArray *pair in self.pairs) {
 		ORMAddVariable(free, [pair firstObject]);
 	}
@@ -709,9 +724,10 @@ ORMValueList(ORMPlanValue *value)
 {
 	if (value.bag != nil) {
 		NSMutableDictionary *list = [NSMutableDictionary dictionaryWithObjectsAndKeys:value.function, @"aggregate",
-		                                                 ORMConditionList(value.bag), @"over", nil];
-		if (value.aggregatedPath != nil) {
-			[list setObject:ORMPathList(value.aggregatedPath) forKey:@"of"];
+		                                                 value.bag.name, @"in", value.groupColumn ?: @"", @"where",
+		                                                 ORMPathList(value.groupPath), @"is", nil];
+		if (value.column != nil) {
+			[list setObject:value.column forKey:@"of"];
 		}
 		return list;
 	}
@@ -870,15 +886,22 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no aggregate function.", function]);
 			return nil;
 		}
-		ORMPlanCondition *bag = ORMReadCondition([list objectForKey:@"over"], defined, error);
-		ORMPlanPath *of = nil;
-		if (bag != nil && [list objectForKey:@"of"] != nil) {
-			of = ORMReadPath([list objectForKey:@"of"], error);
-			if (of == nil) {
-				return nil;
-			}
+		id name = [list objectForKey:@"in"];
+		ORMPlanDefinition *bag = [name isKindOfClass:[NSString class]] ? [defined objectForKey:name] : nil;
+		if (bag == nil) {
+			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no bag defined before it is used.", name]);
+			return nil;
 		}
-		return bag != nil ? [ORMPlanValue aggregate:function of:of over:bag] : nil;
+		id of = [list objectForKey:@"of"];
+		id where = [list objectForKey:@"where"];
+		ORMPlanPath *is = ORMReadPath([list objectForKey:@"is"], error);
+		if (is == nil || (of != nil && ![of isKindOfClass:[NSString class]]) || ![where isKindOfClass:[NSString class]]) {
+			if (*error == nil) {
+				*error = ORMPlanError(@"an aggregate names its bag's columns.");
+			}
+			return nil;
+		}
+		return [ORMPlanValue aggregate:function of:of in:bag where:where is:is];
 	}
 	return ORMReadValue(list, error);
 }

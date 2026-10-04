@@ -203,6 +203,9 @@ ORMCompare(id left, NSString *comparison, id right)
 	NSUInteger _offset;
 	NSMutableArray *_buffer;
 	BOOL _fetchedAll;
+	/* Each bag's tuples, once run, by "bag/group column": by what the
+	 * group column has, those for it. */
+	NSMutableDictionary<NSString *, NSMapTable *> *_bags;
 }
 
 - (void)fail:(NSString *)text
@@ -429,9 +432,11 @@ ORMCompare(id left, NSString *comparison, id right)
 	NSString *over = body != nil ? [NSString stringWithFormat:@"SUBQUERY(%@, $%@, %@)", collection, condition.variable,
 	                                                          body.format]
 	                             : collection;
-	if (body == nil && [condition.path.keys count] > 1 && condition.kind != ORMPlanAggregate) {
+	BOOL nested = condition.path.variable != nil && [_subqueryVariables containsObject:condition.path.variable];
+	if (body == nil && ([condition.path.keys count] > 1 || nested) && condition.kind != ORMPlanAggregate) {
 		/* The SQLite store counts no key path through more than one
-		 * relationship ("a.b.@count"); a subquery over it, it does. */
+		 * relationship ("a.b.@count"), nor one from a subquery's variable
+		 * ("$x.b.@count"); a subquery over it, it does. */
 		over = [NSString stringWithFormat:@"SUBQUERY(%@, $%@, TRUEPREDICATE)", collection,
 		                                  condition.variable ?: [NSString stringWithFormat:@"c%lu", (unsigned long)_depth]];
 	}
@@ -591,16 +596,21 @@ ORMCompare(id left, NSString *comparison, id right)
 	if (value.bag == nil) {
 		return [self constant:value];
 	}
-	NSArray *ways = [self bindingsOf:value.bag object:object bindings:bindings];
-	if ([value.function isEqualToString:@"count"]) {
-		return @([ways count]);
+	NSMapTable *groups = [self groupsOf:value];
+	if (groups == nil) {
+		return nil;
 	}
+	id group = [self valueOf:value.groupPath object:object bindings:bindings];
+	NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.column ?: @""];
 	NSMutableArray *values = [NSMutableArray array];
-	for (NSDictionary *way in ways) {
-		id each = [self valueOf:value.aggregatedPath object:object bindings:way];
+	for (NSArray *tuple in group != nil ? [groups objectForKey:group] : nil) {
+		id each = column != NSNotFound ? [tuple objectAtIndex:column] : nil;
 		if (each != nil && each != [NSNull null]) {
 			[values addObject:each];
 		}
+	}
+	if ([value.function isEqualToString:@"count"]) {
+		return @([values count]);
 	}
 	if ([values count] == 0) {
 		return [value.function isEqualToString:@"sum"] ? @0 : nil;
@@ -608,6 +618,49 @@ ORMCompare(id left, NSString *comparison, id right)
 	NSString *function = [@{ @"sum": @"@sum.self", @"average": @"@avg.self", @"max": @"@max.self",
 	                         @"min": @"@min.self" } objectForKey:value.function];
 	return [values valueForKeyPath:function];
+}
+
+/* The aggregate's bag's tuples by its group: run once, each tuple once. */
+- (NSMapTable *)groupsOf:(ORMPlanValue *)value
+{
+	NSString *key = [NSString stringWithFormat:@"%@/%@", value.bag.name, value.groupColumn];
+	NSMapTable *groups = [_bags objectForKey:key];
+	if (groups != nil) {
+		return groups;
+	}
+	NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.groupColumn ?: @""];
+	if (column == NSNotFound) {
+		[self fail:[NSString stringWithFormat:@"%@ lists no %@.", value.bag.name, value.groupColumn]];
+		return nil;
+	}
+	NSError *error = nil;
+	ORMQueryCursor *cursor = [self.interpreter cursorForPlan:value.bag.plan inContext:self.context error:&error];
+	groups = [NSMapTable strongToStrongObjectsMapTable];
+	while (cursor != nil && ![cursor atEnd]) {
+		ORMQueryResult *page = [cursor nextPage:256 error:&error];
+		if (page == nil) {
+			cursor = nil;
+			break;
+		}
+		for (NSArray *tuple in page.rows) {
+			id group = [tuple objectAtIndex:column];
+			NSMutableArray *tuples = [groups objectForKey:group];
+			if (tuples == nil) {
+				tuples = [NSMutableArray array];
+				[groups setObject:tuples forKey:group];
+			}
+			[tuples addObject:tuple];
+		}
+	}
+	if (cursor == nil) {
+		[self fail:[NSString stringWithFormat:@"%@ could not be run: %@", value.bag.name, error.localizedDescription]];
+		return nil;
+	}
+	if (_bags == nil) {
+		_bags = [NSMutableDictionary dictionary];
+	}
+	[_bags setObject:groups forKey:key];
+	return groups;
 }
 
 /* Whether the condition holds of the object read, the variables bound. */

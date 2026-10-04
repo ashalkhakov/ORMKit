@@ -99,6 +99,15 @@
  * joined objects' parts equal to the object read's. Each a request whose
  * filter -cursorWithTransport:serviceRoot: adds the page's values to. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryODataJoin *> *pageJoins;
+/* The correlated joins no page join says (under a not, an or or a
+ * lambda): the joined objects read whole once, filtered by what does not
+ * depend on the object read, and the conditions they are in checked on
+ * the answers. */
+@property (nonatomic, readonly, copy) NSArray<ORMQueryODataJoin *> *wholeJoins;
+/* The bags the plan's aggregates are of, each a request of its own, by
+ * its name: read whole once, before the first page, and the aggregates
+ * worked out of its rows. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMQueryOData *> *bags;
 /* The plan read from the service at the root, through the transport. */
 - (ORMQueryODataCursor *)cursorWithTransport:(id<ODataTransport>)transport serviceRoot:(NSURL *)serviceRoot;
 

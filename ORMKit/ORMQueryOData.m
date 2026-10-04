@@ -130,6 +130,8 @@ ORMODataObjectOf(NSDictionary *json, NSEntityDescription *entity)
  * column, evaluated on the JSON. What the plan asks besides, the request's
  * filter has asked; inside a some, everything is asked here, of what the
  * request expands for it (-neededPaths). */
+static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
+
 @interface ORMODataRows : NSObject
 - (instancetype)initWithPlan:(ORMQueryPlan *)plan read:(NSEntityDescription *)read mapper:(ODataPropertyMapper *)mapper;
 /* The key paths from the object read that the rows look at. */
@@ -140,6 +142,12 @@ ORMODataObjectOf(NSDictionary *json, NSEntityDescription *entity)
 /* The key paths from the object read that the condition looks at, asked
  * whole; those from the variable, when named, instead. */
 - (NSArray<NSArray<NSString *> *> *)pathsOf:(ORMPlanCondition *)condition from:(NSString *)variable;
+/* A bag's rows, as the service answers its request: what its aggregates
+ * are of. */
+- (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name;
+/* A correlated join's objects, read whole: what its condition is checked
+ * against. */
+- (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(NSString *)name entity:(NSEntityDescription *)entity;
 @end
 
 @implementation ORMODataRows
@@ -150,6 +158,106 @@ ORMODataObjectOf(NSDictionary *json, NSEntityDescription *entity)
 	/* The variables the columns list from: only what binds them makes rows
 	 * differ. */
 	NSSet<NSString *> *_listed;
+	/* Each bag's rows, by its name; and by "bag/group column", those of
+	 * each group a value (an identifier) is. */
+	NSMutableDictionary<NSString *, NSArray *> *_bagRows;
+	NSMutableDictionary<NSString *, NSDictionary *> *_bagGroups;
+	/* Each correlated join's objects, by its name. */
+	NSMutableDictionary<NSString *, NSArray<ORMODataObject *> *> *_joined;
+}
+
+- (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(NSString *)name entity:(NSEntityDescription *)entity
+{
+	if (_joined == nil) {
+		_joined = [NSMutableDictionary dictionary];
+	}
+	NSMutableArray *wrapped = [NSMutableArray array];
+	for (NSDictionary *json in objects) {
+		[wrapped addObject:ORMODataObjectOf(json, entity)];
+	}
+	[_joined setObject:wrapped forKey:name];
+}
+
+/* Whether one of the join's objects has the pairs' values and meets its
+ * condition, the object read its plan's outer object. */
+- (BOOL)matches:(ORMPlanCondition *)condition object:(ORMODataObject *)read bindings:(NSDictionary *)bindings
+{
+	NSArray *joined = condition.definition.name != nil ? [_joined objectForKey:condition.definition.name] : nil;
+	if (joined == nil) {
+		/* The filter's. */
+		return YES;
+	}
+	NSMutableArray *ours = [NSMutableArray array];
+	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+		[ours addObject:[[self valuesAt:[pair firstObject] object:read bindings:bindings] firstObject]];
+	}
+	NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+	if (condition.variable != nil) {
+		[inner setObject:read forKey:condition.variable];
+	}
+	for (ORMODataObject *theirs in joined) {
+		BOOL equal = YES;
+		for (NSUInteger i = 0; i < [condition.pairs count] && equal; i++) {
+			id our = [ours objectAtIndex:i];
+			id their = [[self valuesAt:[[condition.pairs objectAtIndex:i] lastObject] object:theirs bindings:@{}] firstObject];
+			equal = [our isKindOfClass:[ORMODataObject class]] ? [self object:our is:their] : ORMJSONCompare(our, @"=", their);
+		}
+		if (equal && (condition.plan.condition == nil || [self holds:condition.plan.condition object:theirs bindings:inner])) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+- (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name
+{
+	if (_bagRows == nil) {
+		_bagRows = [NSMutableDictionary dictionary];
+		_bagGroups = [NSMutableDictionary dictionary];
+	}
+	[_bagRows setObject:rows forKey:name];
+}
+
+/* The aggregate's bag's rows of the group: those whose group column is
+ * the value, or the object (by its key). */
+- (NSArray<NSArray *> *)rowsOf:(ORMPlanValue *)value group:(id)group
+{
+	NSArray *rows = [_bagRows objectForKey:value.bag.name];
+	NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.groupColumn ?: @""];
+	if (rows == nil || column == NSNotFound || group == nil || group == [NSNull null]) {
+		return @[];
+	}
+	if ([group isKindOfClass:[ORMODataObject class]]) {
+		NSMutableArray *found = [NSMutableArray array];
+		for (NSArray *row in rows) {
+			id theirs = [row objectAtIndex:column];
+			if ([theirs isKindOfClass:[NSDictionary class]]
+			    && [self object:ORMODataObjectOf(theirs, ((ORMODataObject *)group).entity) is:group]) {
+				[found addObject:row];
+			}
+		}
+		return found;
+	}
+	NSString *key = [NSString stringWithFormat:@"%@/%@", value.bag.name, value.groupColumn];
+	NSDictionary *groups = [_bagGroups objectForKey:key];
+	if (groups == nil) {
+		NSMutableDictionary *made = [NSMutableDictionary dictionary];
+		for (NSArray *row in rows) {
+			id theirs = [row objectAtIndex:column];
+			if (![theirs conformsToProtocol:@protocol(NSCopying)] || theirs == [NSNull null]) {
+				continue;
+			}
+			NSMutableArray *list = [made objectForKey:theirs];
+			if (list == nil) {
+				list = [NSMutableArray array];
+				[made setObject:list forKey:theirs];
+			}
+			[list addObject:row];
+		}
+		groups = made;
+		[_bagGroups setObject:groups forKey:key];
+	}
+	return [groups objectForKey:group] ?: @[];
 }
 
 - (instancetype)initWithPlan:(ORMQueryPlan *)plan read:(NSEntityDescription *)read mapper:(ODataPropertyMapper *)mapper
@@ -231,10 +339,16 @@ ORMKeysFromRead(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
 	add(condition.otherPath, bound);
 	add(condition.left.path, bound);
 	add(condition.right.path, bound);
-	for (ORMPlanValue *value in @[ condition.left ?: [NSNull null], condition.right ?: [NSNull null] ]) {
-		if ([value isKindOfClass:[ORMPlanValue class]] && value.bag != nil) {
-			[self collect:value.bag bound:bound into:paths top:NO];
-			add(value.aggregatedPath, [self bound:bound by:value.bag]);
+	add(condition.left.groupPath, bound);
+	add(condition.right.groupPath, bound);
+	if (condition.kind == ORMPlanMatches) {
+		/* Our side of the pairs, and what the joined plan reads of the
+		 * object read, its outer object. */
+		for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+			add([pair firstObject], bound);
+		}
+		if (condition.variable != nil) {
+			[paths addObjectsFromArray:[self pathsOf:condition.plan.condition from:condition.variable]];
 		}
 	}
 	if (condition.kind == ORMPlanAmong) {
@@ -261,30 +375,6 @@ ORMKeysFromRead(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
 	}
 }
 
-/* The variables a bag's somes bind, by the keys from the object read of
- * what they range over. */
-- (NSDictionary *)bound:(NSDictionary *)bound by:(ORMPlanCondition *)bag
-{
-	NSMutableDictionary *more = [NSMutableDictionary dictionaryWithDictionary:bound];
-	for (ORMPlanCondition *at = bag; at != nil;) {
-		if ((at.kind == ORMPlanExists || at.kind == ORMPlanMaybe) && at.variable != nil) {
-			NSArray *keys = ORMKeysFromRead(at.path, more);
-			if (keys != nil) {
-				[more setObject:keys forKey:at.variable];
-			}
-			at = at.operand;
-		} else if (at.kind == ORMPlanAnd) {
-			for (ORMPlanCondition *operand in at.operands) {
-				[more addEntriesFromDictionary:[self bound:more by:operand]];
-			}
-			at = nil;
-		} else {
-			at = nil;
-		}
-	}
-	return more;
-}
-
 - (NSArray<NSArray<NSString *> *> *)pathsOf:(ORMPlanCondition *)condition from:(NSString *)variable
 {
 	NSMutableArray *paths = [NSMutableArray array];
@@ -298,7 +388,8 @@ ORMKeysFromRead(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
 		ORMPlanCondition *at = [pending lastObject];
 		[pending removeLastObject];
 		for (ORMPlanPath *path in @[ at.path ?: [NSNull null], at.otherPath ?: [NSNull null], at.left.path ?: [NSNull null],
-		                             at.right.path ?: [NSNull null], at.valuePath ?: [NSNull null] ]) {
+		                             at.right.path ?: [NSNull null], at.valuePath ?: [NSNull null],
+		                             at.left.groupPath ?: [NSNull null], at.right.groupPath ?: [NSNull null] ]) {
 			if ([path isKindOfClass:[ORMPlanPath class]] && [path.variable isEqualToString:variable]) {
 				[paths addObject:path.keys];
 			}
@@ -446,17 +537,20 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 - (id)firstAt:(ORMPlanValue *)value object:(ORMODataObject *)read bindings:(NSDictionary *)bindings
 {
 	if (value.bag != nil) {
-		/* An aggregate of the bag, over the ways it holds. */
-		NSArray *ways = [self bindingsOf:value.bag object:read bindings:bindings top:NO];
-		if ([value.function isEqualToString:@"count"]) {
-			return @([ways count]);
-		}
+		/* An aggregate of the bag's rows of the group. */
+		id group = [[self valuesAt:value.groupPath object:read bindings:bindings] firstObject];
+		NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.column ?: @""];
 		NSMutableArray *values = [NSMutableArray array];
-		for (NSDictionary *way in ways) {
-			id each = [[self valuesAt:value.aggregatedPath object:read bindings:way] firstObject];
+		NSUInteger set = 0;
+		for (NSArray *row in [self rowsOf:value group:group]) {
+			id each = column != NSNotFound ? [row objectAtIndex:column] : [NSNull null];
+			set += each != [NSNull null];
 			if ([each isKindOfClass:[NSNumber class]]) {
 				[values addObject:each];
 			}
+		}
+		if ([value.function isEqualToString:@"count"]) {
+			return @(set);
 		}
 		if ([values count] == 0) {
 			return [value.function isEqualToString:@"sum"] ? @0 : nil;
@@ -546,8 +640,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		return type == nil || [type hasSuffix:[@"." stringByAppendingString:condition.entityName]];
 	}
 	case ORMPlanMatches:
+		return [self matches:condition object:read bindings:bindings];
 	case ORMPlanMaybe:
-		/* The filter's, or asking nothing. */
+		/* Asking nothing. */
 		return YES;
 	}
 	return NO;
@@ -646,6 +741,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 - (NSArray<NSArray *> *)rowsOf:(NSDictionary *)json;
 - (NSEntityDescription *)readEntity;
 - (BOOL)keeps:(NSDictionary *)json;
+- (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name;
+- (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(ORMQueryODataJoin *)join;
 @end
 
 @implementation ORMQueryOData
@@ -672,6 +769,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	 * the object read is written $it. */
 	NSUInteger _depth;
 	NSUInteger _variables;
+	NSMutableDictionary<NSString *, ORMQueryOData *> *_bags;
+	NSMutableArray<ORMQueryODataJoin *> *_wholeJoins;
 }
 
 + (instancetype)requestForQuery:(ORMQuery *)query
@@ -697,6 +796,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	request->_bound = [NSMutableDictionary dictionary];
 	request->_written = [NSMutableDictionary dictionary];
 	request->_checks = [NSMutableArray array];
+	request->_bags = [NSMutableDictionary dictionary];
+	request->_wholeJoins = [NSMutableArray array];
 	[request lower];
 	if (request->_error != nil) {
 		if (error != NULL) {
@@ -734,6 +835,123 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 - (NSArray<ORMQueryODataJoin *> *)pageJoins
 {
 	return [_pageJoins copy];
+}
+
+- (NSArray<ORMQueryODataJoin *> *)wholeJoins
+{
+	return [_wholeJoins copy];
+}
+
+- (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(ORMQueryODataJoin *)join
+{
+	[_rows setObjects:objects ofJoin:join.name entity:join.entity];
+}
+
+/* Whether the join depends on each object read. */
+- (BOOL)correlated:(ORMPlanCondition *)condition
+{
+	return condition.kind == ORMPlanMatches
+	       && (condition.variable != nil || [[condition.plan.condition freeVariables] count] > 0);
+}
+
+/* A request reading whole each correlated join in the condition. */
+- (void)requestWholeJoinsOf:(ORMPlanCondition *)condition
+{
+	if (condition == nil) {
+		return;
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		[self requestWholeJoinsOf:operand];
+	}
+	[self requestWholeJoinsOf:condition.operand];
+	NSString *name = condition.definition.name;
+	if (![self correlated:condition] || name == nil || [[_wholeJoins valueForKey:@"name"] containsObject:name]) {
+		return;
+	}
+	NSEntityDescription *theirEntity = [self entityNamed:condition.plan.entityName];
+	ORMPlanCondition *joinedCondition = condition.plan.condition;
+	NSArray *conjuncts = joinedCondition == nil ? @[]
+		: (joinedCondition.kind == ORMPlanAnd ? joinedCondition.operands : @[ joinedCondition ]);
+	NSMutableArray *rest = [NSMutableArray array];
+	for (ORMPlanCondition *conjunct in conjuncts) {
+		if ([[conjunct freeVariables] count] == 0) {
+			[rest addObject:conjunct];
+		}
+	}
+	ORMPlanCondition *reduced = [rest count] == 0 ? nil : ([rest count] == 1 ? [rest firstObject] : [ORMPlanCondition all:rest]);
+	NSError *error = nil;
+	ORMQueryOData *joined = [ORMQueryOData requestForPlan:[ORMQueryPlan planReading:condition.plan.entityName where:reduced
+	                                                                        columns:@[] sorts:@[] notes:@[]]
+	                                             coreData:_coreData error:&error];
+	if (joined == nil || theirEntity == nil) {
+		[self fail:error];
+		return;
+	}
+	for (NSString *note in joined.notes) {
+		[self note:note];
+	}
+	/* The joined objects with what the pairs and the condition read of
+	 * them. */
+	ORMODataRows *paths = [[ORMODataRows alloc] initWithPlan:nil read:theirEntity mapper:_mapper];
+	NSMutableArray *read = [NSMutableArray arrayWithArray:[paths pathsOf:joinedCondition from:nil]];
+	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+		[read addObject:[pair lastObject].keys];
+	}
+	ORMODataLevel *level = [ORMODataLevel levelOf:theirEntity];
+	[self need:read from:theirEntity into:level];
+	ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
+	if (![self level:level into:options]) {
+		return;
+	}
+	options.filter = joined.filter;
+	ORMQueryODataJoin *join = [[ORMQueryODataJoin alloc] init];
+	join.name = name;
+	join.entityName = condition.plan.entityName;
+	join.collectionPath = joined.collectionPath;
+	join.options = options;
+	join.mapper = _mapper;
+	join.entity = theirEntity;
+	join.outer = condition.variable;
+	join.check = joinedCondition;
+	[_wholeJoins addObject:join];
+}
+
+- (NSDictionary<NSString *, ORMQueryOData *> *)bags
+{
+	return [_bags copy];
+}
+
+- (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name
+{
+	[_rows setRows:rows ofBag:name];
+}
+
+/* A request for each bag an aggregate in the condition is of. */
+- (void)requestBagsOf:(ORMPlanCondition *)condition
+{
+	if (condition == nil) {
+		return;
+	}
+	for (ORMPlanValue *value in @[ condition.left ?: [NSNull null], condition.right ?: [NSNull null] ]) {
+		ORMPlanDefinition *bag = [value isKindOfClass:[ORMPlanValue class]] ? value.bag : nil;
+		if (bag == nil || [_bags objectForKey:bag.name] != nil) {
+			continue;
+		}
+		NSError *error = nil;
+		ORMQueryOData *request = [ORMQueryOData requestForPlan:bag.plan coreData:_coreData error:&error];
+		if (request == nil) {
+			[self fail:error];
+			return;
+		}
+		for (NSString *note in request.notes) {
+			[self note:[NSString stringWithFormat:@"%@: %@", bag.name, note]];
+		}
+		[_bags setObject:request forKey:bag.name];
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		[self requestBagsOf:operand];
+	}
+	[self requestBagsOf:condition.operand];
 }
 
 - (BOOL)isComplete
@@ -1395,7 +1613,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		return YES;
 	}
 	if (condition.kind == ORMPlanMatches) {
-		return NO;
+		return [self correlated:condition];
 	}
 	for (ORMPlanCondition *operand in condition.operands) {
 		if ([self checked:operand]) {
@@ -1453,6 +1671,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	_entityName = _plan.entityName;
 	_collectionPath = [_mapper collectionPathForEntity:_read];
 	_rows = [[ORMODataRows alloc] initWithPlan:_plan read:_read mapper:_mapper];
+	[self requestBagsOf:_plan.condition];
 	if ([[self keyOf:_read] count] == 0) {
 		[self note:[NSString stringWithFormat:@"%@ has no key in OData, so the service does not serve it: map it with "
 		                                      @"ServeOData.", _read.name]];
@@ -1470,6 +1689,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			/* What the filter cannot say: checked on the answers, the
 			 * filter asking what it can of it. */
 			[_checks addObject:conjunct];
+			[self requestWholeJoinsOf:conjunct];
 			ORMPlanCondition *weaker = [self weakened:conjunct];
 			if (weaker != nil) {
 				[kept addObject:weaker];
@@ -1643,6 +1863,13 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		return @"";
 	}
 	NSMutableString *text = [NSMutableString string];
+	for (NSString *name in [[_bags allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		NSString *bag = [[_bags objectForKey:name] requestText];
+		[text appendFormat:@"%@, read whole:\n%@", name, bag];
+	}
+	for (ORMQueryODataJoin *join in _wholeJoins) {
+		[text appendFormat:@"%@, read whole: %@", join.name, ORMRequestLine(join.collectionPath, join.options)];
+	}
 	for (ORMQueryODataJoin *join in _joins) {
 		[text appendFormat:@"%@: %@", join.name, ORMRequestLine(join.collectionPath, join.options)];
 	}
@@ -1894,7 +2121,19 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	};
 	step = ^{
 		if (index == [joins count]) {
-			finish();
+			[self readBags:[[self->_request.bags allKeys] mutableCopy] completion:^(NSError *error) {
+				if (error != nil) {
+					completion(error);
+					return;
+				}
+				[self readWholeJoins:[self->_request.wholeJoins mutableCopy] completion:^(NSError *failed) {
+					if (failed != nil) {
+						completion(failed);
+					} else {
+						finish();
+					}
+				}];
+			}];
 			step = nil;
 			return;
 		}
@@ -1919,6 +2158,68 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		}];
 	};
 	step();
+}
+
+/* Each correlated join's objects, read whole, given the request. */
+- (void)readWholeJoins:(NSMutableArray<ORMQueryODataJoin *> *)joins completion:(void (^)(NSError *error))completion
+{
+	if ([joins count] == 0) {
+		completion(nil);
+		return;
+	}
+	ORMQueryODataJoin *join = [joins lastObject];
+	[joins removeLastObject];
+	NSError *error = nil;
+	NSURL *url = [join URLWithServiceRoot:_root error:&error];
+	if (url == nil) {
+		completion(error);
+		return;
+	}
+	NSMutableArray *objects = [NSMutableArray array];
+	[self all:url into:objects completion:^(NSError *fetched) {
+		if (fetched != nil) {
+			completion(fetched);
+			return;
+		}
+		[self->_request setObjects:objects ofJoin:join];
+		[self readWholeJoins:joins completion:completion];
+	}];
+}
+
+/* Each bag's rows, read whole, given the request's rows to aggregate. */
+- (void)readBags:(NSMutableArray<NSString *> *)names completion:(void (^)(NSError *error))completion
+{
+	if ([names count] == 0) {
+		completion(nil);
+		return;
+	}
+	NSString *name = [names lastObject];
+	[names removeLastObject];
+	ORMQueryODataCursor *cursor = [[_request.bags objectForKey:name] cursorWithTransport:_transport serviceRoot:_root];
+	NSMutableArray *rows = [NSMutableArray array];
+	__block void (^more)(void) = nil;
+	more = ^{
+		[cursor nextPage:256 completion:^(ORMQueryResult *page, NSError *error) {
+			if (page == nil) {
+				more = nil;
+				completion(error);
+				return;
+			}
+			[rows addObjectsFromArray:page.rows];
+			if (![cursor atEnd]) {
+				more();
+				return;
+			}
+			[self->_request setRows:rows ofBag:name];
+			[self readBags:names completion:completion];
+			more = nil;
+		}];
+	};
+	if (cursor == nil) {
+		completion(ORMODataError([NSString stringWithFormat:@"%@ is read from nothing the service serves.", name]));
+		return;
+	}
+	more();
 }
 
 /* The rows of the page that a page join keeps: one request for the joined

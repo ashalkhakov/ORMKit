@@ -284,7 +284,7 @@ Its text (`-[ORMQueryPlan text]`):
 | maybe | `maybe employee.cars as x2 has ...`: binds each member meeting the conditions, or none; asks nothing of the object read |
 | count(X) > n | `number of cars > 1`, or `number of cars as x2 having ... > 1` |
 | total, avg, max, min | `sum of x1.salary.usd over employees as x1 > 1000000`, with `having ...` where the steps below narrow the members |
-| an aggregate for a node further above, or compared with another | an aggregate of a bag, as ConQuer-II defines them: `count over (some employees as x1 has some x1.languages) > 1`; `max of x1.salary.usd over () > average of x2.salary.usd over (some employees as x2)`. The bag is the ways its somes hold, from the node it is for down to the node aggregated |
+| an aggregate for a node further above, or compared with another | an aggregate of a bag, as ConQuer-II defines them (below): `count of Language in bag1 where Branch is nr > 1` |
 | a label met again, in scope | `x1.city is city` |
 | a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read, and meeting the conditions the earlier occurrence had: `x2 is among ownsCars and x2.regnr = 'B'` |
 | a label on an absorbed object type, met again | its parts compared: `x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and ...` |
@@ -293,6 +293,36 @@ Its text (`-[ORMQueryPlan text]`):
 | a step through an absorbed object type to an entity that absorbs it too | `... in join1`, a set the plan defines: `let join1 = read Branch where nr = 52` (below) |
 | the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier |
 | a sorted listed node | `order by nr descending`, through to-ones |
+
+### Aggregates of a bag
+
+An aggregate for a node further above the step (ConQuer-II's for-clause), or
+one compared with another aggregate, is taken over a bag. The plan defines
+the bag as a set. Take "which branches' employees speak more than one
+language between them":
+
+```
+let bag1 = read Branch where some employees as x3 has some x3.languages as x4
+           list self (nr), x3 (nr), x4 (name)
+read Branch where ... count of Language in bag1 where Branch is nr > 1
+```
+
+The bag is the whole query planned again, with three differences:
+- Its aggregates are left out.
+- It lists only the group node and the nodes from it down to the node
+  aggregated.
+- Each way those are bound is one row, once.
+
+The aggregate is taken over the bag's rows whose group column is the group
+here. So every condition of the query narrows the bag, including:
+- conditions on the nodes between the group and the aggregated node;
+- conditions beside the step.
+
+For example, a total of Salary for Branch, under an Employee who also speaks
+Latin, adds up only the Latin speakers' salaries. An employee's salary is
+counted once, however many ways the query reaches it. The interpreter runs a
+bag once per run and groups its rows. OData reads it whole, before the first
+page ([ODATA.md](ODATA.md)).
 
 Reading the subtype matters. A store fetching Academic has none of
 Professor's properties, so `chair.name = 'Informatics'` holds only of a
@@ -474,14 +504,10 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 - **An absorbed object type met again out of scope:** its parts are
   compared only where both occurrences are in scope. Out of scope, the label
   is dropped, with a note.
-- **An aggregate's bag** goes from the node it is for down to the node
-  aggregated, through binaries the mapping keeps as relationships, the
-  aggregated node's condition kept. A step on the way through a fact type
-  with an entity of its own, or an absorbed object type, is noted. The
-  conditions of the nodes between are not kept in the bag, and nothing says
-  so yet.
-- **A correlated join under a `not`, an `or` or a lambda, in OData:** noted,
-  and left out of the request; the interpreter probes it
+- **An aggregate whose group is absorbed** (no object of its own) is noted
+  and left out: its bag's rows have nothing to group by.
+- **A correlated join under a `not`, an `or` or a lambda, in OData:** its
+  joined objects are read whole once, not narrowed to each page's values
   ([ODATA.md](ODATA.md#not-done-yet)).
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path

@@ -101,6 +101,10 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	/* The sets the plan names, in the order they are made: one made inside
 	 * another's planning comes before it. */
 	NSMutableArray<ORMPlanDefinition *> *_definitions;
+	/* Planning a bag: the nodes it lists, its aggregates left out. nil
+	 * planning the query. And the bags made, by "group node/node". */
+	NSSet<NSString *> *_bagNodes;
+	NSMutableDictionary<NSString *, ORMPlanDefinition *> *_bags;
 }
 
 - (instancetype)initWithCoreData:(ORMCDModel *)coreData
@@ -173,6 +177,14 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	_outerNames = [NSMutableArray array];
 	_outers = 0;
 	_definitions = [NSMutableArray array];
+	_bags = [NSMutableDictionary dictionary];
+	return [self planned];
+}
+
+/* The query planned, what is known of it so far set up. */
+- (ORMQueryPlan *)planned
+{
+	ORMQuery *query = _query;
 	ORMQueryNode *root = query.root;
 	ORMCDEntity *entity = root != nil ? [_places entityOf:root.objectType] : nil;
 	if (entity == nil) {
@@ -197,7 +209,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		}
 		at = next;
 	}
-	if (!query.isComplete) {
+	if (!query.isComplete && _bagNodes == nil) {
 		[self note:@"Something the query goes through is no longer in the model, and is left out."];
 	}
 	ORMPlanCondition *condition = [self conditionFor:root entity:entity
@@ -221,6 +233,10 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		[columns addObject:[ORMPlanColumn columnTitled:title node:node.identifier path:place.path
 		                                         trail:[place.trail valueForKey:@"name"]
 		                                    identifier:identifier != [NSNull null] ? [identifier name] : nil]];
+	}
+	if (_bagNodes != nil) {
+		/* The sets it uses are the query's, defined before it. */
+		return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:@[] notes:@[]];
 	}
 	return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:[self sorts] notes:_notes
 	                     definitions:_definitions];
@@ -270,9 +286,20 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	return sorts;
 }
 
+/* Whether a column lists from the variable. */
+- (BOOL)lists:(NSString *)variable
+{
+	for (NSArray *column in _columns) {
+		if ([((ORMPlannerPlace *)[column objectAtIndex:1]).path.variable isEqualToString:variable]) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 - (void)column:(ORMQueryNode *)node place:(ORMPlannerPlace *)place identifier:(ORMCDAttribute *)identifier
 {
-	if (node.isProjected) {
+	if (_bagNodes != nil ? [_bagNodes containsObject:node.identifier] : node.isProjected) {
 		[_columns addObject:@[ node, place, identifier ?: [NSNull null] ]];
 	}
 }
@@ -466,7 +493,8 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
                                columns:(BOOL)columns
 {
 	ORMPlanCondition *condition = [self plainConditionForStep:step entity:entity at:at columns:columns];
-	if (![self tallies:step]) {
+	if (![self tallies:step] || _bagNodes != nil) {
+		/* A bag's: its aggregates left out. */
 		return condition;
 	}
 	/* The aggregate, of the bag from the node it is for, compared with
@@ -479,7 +507,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		right = [self aggregate:[functions objectAtIndex:(NSUInteger)step.comparedAggregate] of:step.aggregateNode
 		                    for:step.comparedGroupNode];
 	} else {
-		ORMCDAttribute *attribute = [left.aggregatedPath.keys count] > 0 ? [self attributeAtEndOf:step.aggregateNode] : nil;
+		ORMCDAttribute *attribute = step.aggregate != ORMQueryCount ? [self attributeAtEndOf:step.aggregateNode] : nil;
 		right = [ORMPlanValue constant:step.aggregateValue ?: @""
 		                          type:step.aggregate == ORMQueryCount ? @"Integer 64" : attribute.attributeType ?: @"Double"];
 	}
@@ -503,65 +531,55 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	return own != nil ? [_places identifierOf:node.objectType on:own] : nil;
 }
 
-/* An aggregate of the node for the group, a node above it: its bag the
- * steps from the group down to the node, a some for each to-many, the
- * node's condition kept. nil, noted, where a step on the way is no binary
- * the mapping keeps as a property. */
+/* An aggregate of the node for the group, a node above it, as ConQuer-II
+ * says one: of a bag, the whole query planned again, its aggregates left
+ * out, listing the group and the nodes from it down to the node; its rows
+ * each way they are bound once. The aggregate's tuples are those whose
+ * group is the object the group node is here. nil, noted, where that is
+ * not to be said. */
 - (ORMPlanValue *)aggregate:(NSString *)function of:(ORMQueryNode *)node for:(ORMQueryNode *)group
 {
-	ORMPlannerPlace *start = [_reached objectForKey:group.identifier];
-	NSMutableArray *chain = [NSMutableArray array];
-	for (ORMQueryNode *at = node; at != nil && at != group; at = at.step.parent) {
-		[chain insertObject:at atIndex:0];
+	NSMutableSet *nodes = [NSMutableSet setWithObject:group.identifier];
+	ORMQueryNode *at = node;
+	for (; at != nil && at != group; at = at.step.parent) {
+		[nodes addObject:at.identifier];
 	}
-	if (start == nil || start.entity == nil || [[chain firstObject] step].parent != group) {
-		[self note:[NSString stringWithFormat:@"%@(%@) for %@: %@ is not reached above it.", function, [node designation],
-		                                      [group designation], [group designation]]];
+	ORMPlannerPlace *place = [_reached objectForKey:group.identifier];
+	if (at == nil || place == nil || ![self inScope:place] || place.parts != nil) {
+		[self note:[NSString stringWithFormat:@"%@(%@) for %@: %@ is not %@.", function, [node designation],
+		                                      [group designation], [group designation],
+		                                      at == nil ? @"above it" : @"one object reached where it is asked"]];
 		return nil;
 	}
-	ORMPlanPath *at = [self pathOf:start];
-	ORMCDEntity *entity = start.entity;
-	NSMutableArray *collections = [NSMutableArray array];
-	ORMPlanPath *value = nil;
-	for (ORMQueryNode *next in chain) {
-		ORMCDProperty *property = [_places propertyOf:entity source:next.role.identifier];
-		if ([property isKindOfClass:[ORMCDAttribute class]] && next == node) {
-			value = [at pathByAddingKey:property.name];
-			break;
-		}
-		if (![property isKindOfClass:[ORMCDRelationship class]]) {
-			[self note:[NSString stringWithFormat:@"%@(%@) for %@ goes through \"%@\", which the mapping keeps as no "
-			                                      @"relationship of %@.",
-			                                      function, [node designation], [group designation],
-			                                      [[next.step.factType primaryReading] expandedText] ?: next.step.factType.name,
-			                                      entity.name]];
-			return nil;
-		}
-		ORMCDRelationship *relationship = (ORMCDRelationship *)property;
-		entity = [self destinationOf:relationship];
-		at = [at pathByAddingKey:relationship.name];
-		if (relationship.toMany) {
-			NSString *variable = [self nextVariable];
-			[collections addObject:@[ at, variable ]];
-			at = [ORMPlanPath pathFrom:variable keys:@[]];
-		}
+	NSString *key = [NSString stringWithFormat:@"%@/%@", group.identifier, node.identifier];
+	ORMPlanDefinition *bag = [_bags objectForKey:key];
+	if (bag == nil) {
+		ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
+		planner->_query = _query;
+		planner->_notes = [NSMutableArray array];
+		planner->_variables = _variables;
+		planner->_scope = [NSMutableArray array];
+		planner->_reached = [NSMutableDictionary dictionary];
+		planner->_columns = [NSMutableArray array];
+		planner->_outerNames = [NSMutableArray array];
+		planner->_outers = _outers;
+		/* What it defines, the query's too, before it. */
+		planner->_definitions = _definitions;
+		planner->_bags = [NSMutableDictionary dictionary];
+		planner->_bagNodes = nodes;
+		ORMQueryPlan *plan = [planner planned];
+		_variables = planner->_variables;
+		_outers = planner->_outers;
+		bag = [self define:@"bag" plan:plan];
+		[_bags setObject:bag forKey:key];
 	}
-	if (value == nil) {
-		ORMCDAttribute *identifier = entity != nil ? [_places identifierOf:node.objectType on:entity] : nil;
-		value = identifier != nil ? [at pathByAddingKey:identifier.name] : at;
+	/* The group as its column has it: by its identifier, where it has one. */
+	ORMPlanPath *groupPath = [self pathOf:place];
+	ORMCDAttribute *identifier = place.entity != nil ? [_places identifierOf:group.objectType on:place.entity] : nil;
+	if (identifier != nil) {
+		groupPath = [groupPath pathByAddingKey:identifier.name];
 	}
-	/* The node's own condition narrows the bag. */
-	ORMPlanCondition *bag = nil;
-	if (node.comparison != nil && node.comparedNode == nil) {
-		ORMCDAttribute *attribute = [self attributeAtEndOf:node];
-		bag = [ORMPlanCondition compare:[ORMPlanValue valueAtPath:value] comparison:node.comparison
-		                           with:[self constant:node.value attribute:attribute]];
-	}
-	for (NSArray *collection in [collections reverseObjectEnumerator]) {
-		bag = [ORMPlanCondition exists:[collection firstObject] variable:[collection lastObject] where:bag];
-	}
-	return [ORMPlanValue aggregate:function of:[function isEqualToString:@"count"] ? nil : value
-	                          over:bag ?: [ORMPlanCondition all:@[]]];
+	return [ORMPlanValue aggregate:function of:node.identifier in:bag where:group.identifier is:groupPath];
 }
 
 - (ORMPlanCondition *)plainConditionForStep:(ORMQueryStep *)step entity:(ORMCDEntity *)entity at:(ORMPlannerPlace *)at
@@ -769,7 +787,8 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
                             from:(ORMQueryNode *)start
                             step:(ORMQueryStep *)step
 {
-	ORMPlanCondition *exists = [ORMPlanCondition exists:collection variable:body != nil ? variable : nil where:body];
+	ORMPlanCondition *exists = [ORMPlanCondition exists:collection variable:body != nil || [self lists:variable] ? variable : nil
+	                                              where:body];
 	if (step == nil || step.countComparison == nil || [self tallies:step]) {
 		return exists;
 	}
