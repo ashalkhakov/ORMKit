@@ -12,10 +12,16 @@ ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
 Tools/ormtool/     check, verbalize, normalize, draw as SVG, and map to and from Core Data from a shell
 ORMDesigner/       the editor (AppKit): its windows and menu bar XIBs, springs and struts
 ORMDesignerTests/  the editor driven through its window, headless
-docs/              this, and COREDATA-MAPPING.md
+docs/              this, and the documents below
 .github/ .tools/ Scripts/   CI, the GNUstep docker image, AppImage packaging
 Prototype/         the first single-window sketch (NU*), kept for reference
 ```
+
+The other documents:
+- [COREDATA-MAPPING.md](COREDATA-MAPPING.md): the mapping to Core Data, both ways;
+- [ODATA.md](ODATA.md): the model served with ODataKit, and queries as requests to it;
+- [QUERIES.md](QUERIES.md): conceptual queries, their plans, and the two backends;
+- [VERBALIZATION.md]([VERBALIZATION.md](VERBALIZATION.md)): the FORML templates.
 
 ## The XML document is the model
 
@@ -86,9 +92,9 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMLogic` | sequences, join paths and derivations as logic: variables, fact atoms, and/or/xor/not |
 | `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something (VERBALIZATION.md); plain text and HTML |
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
-| `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways (COREDATA-MAPPING.md) |
+| `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)) |
 | `ORMCoreDataImporter` | a Core Data model brought into ORM, with a mapping back to it |
-| `ORMQuery`, `ORMQueryEditor` | conceptual queries after ConQuer, as logic (QUERIES.md) |
+| `ORMQuery`, `ORMQueryEditor` | conceptual queries after ConQuer, as logic ([QUERIES.md](QUERIES.md)) |
 | `ORMQueryPlanner`, `ORMQueryPlan` | a query planned against a mapping: public, a property list |
 | `ORMQueryInterpreter`, `ORMQueryOData` | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
 | `ORMCoreDataValidation` | the constraints Core Data cannot enforce, as an Objective-C category on each entity's class |
@@ -136,7 +142,7 @@ Working and tested on both platforms:
   Data, and validation code for what Core Data cannot enforce;
 - the mapping annotated for ODataKit to serve: entity sets, keys
   (surrogates where needed), descriptions, validation terms; conceptual
-  queries as requests to that service (ODATA.md);
+  queries as requests to that service ([ODATA.md](ODATA.md));
 - ORMDesigner: opening NORMA's diagrams, selecting, moving, the tools, the
   fact editor, the inspector, verbalization, PDF/PNG/HTML export, the Core
   Data window, the query builder.

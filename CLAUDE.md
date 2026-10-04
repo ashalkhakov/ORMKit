@@ -2,9 +2,9 @@
 
 Object-Role Modeling (ORM2) for GNUstep and Cocoa: a library (`ORMKit`) that
 reads, edits, verbalizes and maps NORMA's `.orm` files to Core Data, a tool
-(`Tools/ormtool`) and an editor (`ORMDesigner`). `docs/ARCHITECTURE.md` has
-the design and what is not done; `docs/COREDATA-MAPPING.md` the mapping;
-`docs/VERBALIZATION.md` the FORML templates; `docs/QUERIES.md` the conceptual
+(`Tools/ormtool`) and an editor (`ORMDesigner`). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has
+the design and what is not done; [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPING.md) the mapping;
+[docs/VERBALIZATION.md](docs/VERBALIZATION.md) the FORML templates; [docs/QUERIES.md](docs/QUERIES.md) the conceptual
 queries.
 
 ## The XML document is the model
@@ -33,7 +33,7 @@ xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests -destination 'platf
 The Xcode project is generated from the GNUmakefiles' source lists; CI
 fails when the committed one is stale. Never edit `project.pbxproj` by hand.
 
-ORMKit depends on ODataKit (`../ODataKit`, docs/ODATA.md): the workspace
+ORMKit depends on ODataKit (`../ODataKit`, [docs/ODATA.md](docs/ODATA.md)): the workspace
 builds its framework, and GNUstep links the installed one (`odatakit.make`).
 CI pins it (`ODATAKIT_REF`) and FreeCoreData under it (`FREECOREDATA_REF`);
 move the pins and the image together.

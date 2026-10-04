@@ -147,7 +147,7 @@ subset, a read-only cache. Each mapping has
 - options: whether identifiers are materialized as attributes, whether
   subtypes are separate entities or flattened into their supertype, whether
   many-to-many value facts get an entity or a transformable attribute,
-  whether the model is annotated for ODataKit to serve (ODATA.md; on unless
+  whether the model is annotated for ODataKit to serve ([ODATA.md](ODATA.md); on unless
   `ServeOData="false"`);
 - overrides: per element, a name, or how an object type maps (entity,
   absorbed, ignored);
@@ -307,7 +307,7 @@ in the baseline, and the import lists it in its notes, along with entities that
 have nothing to identify them by.
 
 A model ODataKit serves brings its keys, surrogates and descriptions back
-too (ODATA.md).
+too ([ODATA.md](ODATA.md)).
 
 The whole import is one undoable step, on a diagram named after the model (or
 on a new model's only diagram, while that is empty), arranged automatically.

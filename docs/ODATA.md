@@ -1,7 +1,7 @@
 # Serving the model: OData through ODataKit
 
 An ORM model describes the domain an application keeps. Mapped to Core Data
-(COREDATA-MAPPING.md) it is a store. [ODataKit](../../ODataKit) serves any
+([COREDATA-MAPPING.md](COREDATA-MAPPING.md)) it is a store. [ODataKit](../../ODataKit) serves any
 Core Data store as an OData 4.01 service: `$metadata` written from the model,
 queries, inserts, updates, `$batch`. A mapping's Core Data model is ready for
 it, so one ORM model gives the backend and the database together.
@@ -62,7 +62,7 @@ macOS:
 
 ## Queries as requests
 
-`ORMQueryOData` says a query's plan (QUERIES.md) as the request an
+`ORMQueryOData` says a query's plan ([QUERIES.md](QUERIES.md)) as the request an
 application, a report or another service sends to the service. It is the
 backend for code that calls the API. Code that implements it, and holds the
 store, runs the same plan with `ORMQueryInterpreter`. Every
@@ -98,7 +98,7 @@ Core Data ↔ OData rule is ODataKit's, and none is copied here:
 | the ticked object types | `$select` (each level's key, and what is listed), `$expand` for what is reached |
 | the order | `$orderby=Nr desc` |
 
-The paper's queries (QUERIES.md):
+The paper's queries ([QUERIES.md](QUERIES.md)):
 
 ```
 Q1  Employees?$filter=City/Branches/any(x1:x1/Nr eq 52)&$select=Nr
@@ -166,6 +166,18 @@ query builder is the client's). The tests also link `ODataService`.
 - **CI:** pins both, as `ODATAKIT_REF` and `FREECOREDATA_REF`.
 
 ## Not done yet
+
+- **Rows from the service** are the columns' values as the entities come.
+  A column through a to-many lists every member expanded, not only those a
+  `some` binds. Making them a result set takes the members' conditions as
+  `$expand($filter=...)`, or the interpreter's bindings over the JSON.
+- **Joins the cursor does not ask for page by page** are noted and left out
+  of the request:
+  - a join correlated other than by equality with the object read;
+  - a correlated join under a `not`, an `or` or a lambda.
+
+  Both would take requests per page that carry the page's objects into
+  the joined filter. The interpreter runs both against a store.
 
 - `$expand` of what a to-many step reaches lists every related object, not
   only those meeting the step's conditions. `$expand=X($filter=...)` would

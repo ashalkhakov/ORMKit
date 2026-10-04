@@ -17,7 +17,7 @@ own terms:
 | Who asks | Backend | What it makes |
 | --- | --- | --- |
 | an application that holds the store, such as one implementing a service with ODataKit | `ORMQueryInterpreter` | fetches against Core Data, as many as the plan takes, and what is kept of what they return |
-| an application, report or service that calls the API | `ORMQueryOData` (ODATA.md) | requests to the service ODataKit makes of the model |
+| an application, report or service that calls the API | `ORMQueryOData` ([ODATA.md](ODATA.md)) | requests to the service ODataKit makes of the model |
 
 A plan is public data: it is written as a property list and read back. So it
 can be made where the model is edited and run where the store is.
@@ -118,7 +118,7 @@ rules (`-[ORMVerbalizer sentencesForQuery:]`):
 ## Plans
 
 `ORMQueryPlanner` makes the plan. Each step follows the property the mapping
-traced to the step's fact type (see COREDATA-MAPPING.md, "Traces"). Every
+traced to the step's fact type (see [COREDATA-MAPPING.md, "Traces"](COREDATA-MAPPING.md#traces)). Every
 ORM-level decision is made here, once, for both backends: scopes, correlation,
 subtypes, aggregate paths, and joins. Its text (`-[ORMQueryPlan text]`):
 

@@ -4,7 +4,7 @@
 in *Information Modeling and Relational Databases* and *Object-Role
 Modeling Fundamentals*, not as NORMA's verbalization browser does. What a
 sentence says follows the formal meaning Franconi and Halpin give ORM
-(*ORM Abstract Syntax and Semantics*, see ARCHITECTURE.md). Where Halpin's
+(*ORM Abstract Syntax and Semantics*, see [ARCHITECTURE.md](ARCHITECTURE.md)). Where Halpin's
 exact wording could not be checked it is marked **check** below.
 
 ## Sentences are statements about something
