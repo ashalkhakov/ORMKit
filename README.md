@@ -98,7 +98,8 @@ else into a new model, with what ORM cannot say on standard error.
 a category on each entity's class, called from its `validateForInsert:` and
 `validateForUpdate:`. `query` prints a conceptual query ([docs/QUERIES.md](docs/QUERIES.md)) as
 ConQuer's outline, in FORML, as a request to the OData service ODataKit makes
-of the mapping, and as its plan with the fetches that run it.
+of the mapping, as its plan with the fetches that run it, and as the rows it
+finds in the model's sample population.
 
 [Samples/](Samples/README.md) has models to start from: the schemas of
 Halpin's papers on conceptual queries and on UML and ORM, with the papers'

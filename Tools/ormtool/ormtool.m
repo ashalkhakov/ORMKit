@@ -25,8 +25,9 @@
  *   ormtool query model.orm [query name] [mapping name]
  *                                            the model's queries (or the named one): ConQuer's
  *                                            outline, the FORML, the OData request to the service
- *                                            ODataKit makes of the mapping, the plan, and how the
- *                                            interpreter runs it against a Core Data store
+ *                                            ODataKit makes of the mapping, the plan, how the
+ *                                            interpreter runs it against a Core Data store, and
+ *                                            the rows it finds in the sample population
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -105,6 +106,40 @@ ORMImport(NSArray<NSString *> *args)
 	}
 	fwrite([data bytes], 1, [data length], stdout);
 	return 0;
+}
+
+/* The rows the plan finds in the model's sample population, as a table;
+ * nil when it has none. */
+static NSString *
+ORMRowsText(ORMModel *model, ORMQueryPlanner *planner, ORMQueryPlan *plan)
+{
+	BOOL populated = NO;
+	for (ORMObjectType *type in model.objectTypes) {
+		populated = populated || [[type instances] count] > 0;
+	}
+	if (!populated || plan.entityName == nil) {
+		return nil;
+	}
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMQueryResult *result = context != nil
+		? [[[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel] executePlan:plan inContext:context
+		                                                                              error:&error]
+		: nil;
+	if (result == nil) {
+		return [NSString stringWithFormat:@"\nno rows: %@\n", [error localizedDescription]];
+	}
+	NSMutableArray *lines = [NSMutableArray arrayWithObject:[result.columnTitles componentsJoinedByString:@" | "]];
+	for (NSArray *row in result.rows) {
+		NSMutableArray *cells = [NSMutableArray array];
+		for (id value in row) {
+			[cells addObject:value == [NSNull null] ? @"-" : [value description]];
+		}
+		[lines addObject:[cells componentsJoinedByString:@" | "]];
+	}
+	return [NSString stringWithFormat:@"\nsample population: %lu %@\n%@\n", (unsigned long)[result.rows count],
+	                                  [result.rows count] == 1 ? @"row" : @"rows", [lines componentsJoinedByString:@"\n"]];
 }
 
 int
@@ -248,7 +283,7 @@ main(int argc, const char *argv[])
 					initWithModel:[planner.coreData managedObjectModel]];
 				NSString *program = plan.entityName != nil ? [interpreter programForPlan:plan error:NULL] : nil;
 				ORMPrint([NSString stringWithFormat:@"\n%@\n\n%@\n", [plan text], program ?: @""]);
-				ORMPrint(@"\n");
+				ORMPrint([ORMRowsText(model, planner, plan) ?: @"" stringByAppendingString:@"\n"]);
 			}
 			if (!found) {
 				fprintf(stderr, "ormtool: %s\n", [args count] > 2 ? "no query of that name" : "the model has no queries");

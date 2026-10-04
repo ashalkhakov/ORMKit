@@ -506,11 +506,12 @@ check(BOOL ok, const char *what)
 		[degrees setObject:degree forKey:[NSString stringWithFormat:@"%@ %@", row[0], row[1]]];
 	}
 	NSMutableDictionary *academics = [NSMutableDictionary dictionary];
-	for (NSArray *row in @[ @[ @"715", @"P" ], @[ @"720", @"P" ], @[ @"430", @"SL" ], @[ @"503", @"L" ],
-	                        @[ @"651", @"AL" ] ]) {
+	for (NSArray *row in @[ @[ @"715", @"P", @"Ana Lima" ], @[ @"720", @"P", @"Ben Cho" ], @[ @"430", @"SL", @"Cara Diaz" ],
+	                        @[ @"503", @"L", @"Dev Rao" ], @[ @"651", @"AL", @"Eli Moss" ] ]) {
 		NSString *academic = [self one:@"Academic" value:[row firstObject] in:p];
 		[academics setObject:academic forKey:[row firstObject]];
-		[self fact:@"rank" of:@[ academic, [self one:@"Rank" value:[row lastObject] in:p] ] in:p];
+		[self fact:@"rank" of:@[ academic, [self one:@"Rank" value:row[1] in:p] ] in:p];
+		[self fact:@"academicName" of:@[ academic, [p value:row[2] of:[self typeId:@"AcademicName"]] ] in:p];
 	}
 	for (NSArray *row in @[ @[ @"715", @"Databases" ], @[ @"720", @"Informatics" ] ]) {
 		NSString *professor = [p instanceOf:[self typeId:@"Professor"]
@@ -577,16 +578,35 @@ check(BOOL ok, const char *what)
 - (void)company
 {
 	[self buildCompany];
-	[self q1];
-	[self q2];
+	/* Who, beside which number: each employee a query lists, named. */
+	for (NSString *q in @[ [self q1], [self q2], [self q4], [self q5] ]) {
+		[self name:[self root:q].identifier through:@"hasName" in:q];
+	}
 	[self q3];
-	[self q4];
-	[self q5];
 	[self payroll];
 	NSString *polyglots = [[self queries] addQueryNamed:@"Polyglots" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *speaks = nil;
 	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
 	[[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL];
+	[self name:[self root:polyglots].identifier through:@"hasName" in:polyglots];
+	/* Q4's: and whom they supervise. */
+	for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+		if ([query.name isEqualToString:@"Q4"]) {
+			for (ORMQueryNode *node in [query nodes]) {
+				if ([node.label isEqualToString:@"2"] && [node.objectType.name isEqualToString:@"Employee"]) {
+					[[self queries] setProjected:YES ofNode:node.identifier];
+					[self name:node.identifier through:@"hasName" in:query.identifier];
+				}
+			}
+		}
+	}
+}
+
+/* The node's name listed beside it, through the fact type naming it. */
+- (void)name:(NSString *)nodeId through:(NSString *)fact in:(NSString *)queryId
+{
+	ORMQueryNode *name = [self from:nodeId through:[self role:fact at:0] in:queryId];
+	[[self queries] setProjected:YES ofNode:name.identifier];
 }
 
 #pragma mark University
@@ -604,6 +624,9 @@ check(BOOL ok, const char *what)
 	NSString *rank = [self entity:@"Rank" mode:@"code" numeric:NO];
 	NSString *chair = [self entity:@"Chair" mode:@"name" numeric:NO];
 	NSString *professor = [self entity:@"Professor" mode:nil numeric:NO];
+	/* Not in the paper: a name, for a reader to see who a row is. */
+	NSString *academicName = [self text:@"AcademicName"];
+	[self fact:@"academicName" players:@[ academic, academicName ] reading:@"{0} has {1}" inverse:nil uniqueness:@"1!"];
 	[self fact:@"degreeCode" players:@[ degree, code ] reading:@"{0} has {1}" inverse:nil uniqueness:@"1!"];
 	[self fact:@"degreeUniversity" players:@[ degree, university ] reading:@"{0} is from {1}" inverse:@"{0} awarded {1}"
 	    uniqueness:@"1!"];
@@ -629,6 +652,7 @@ check(BOOL ok, const char *what)
 	[[self queries] setProjected:YES ofNode:awardedDegree.identifier];
 	ORMQueryNode *rated = [self from:awardedDegree.identifier through:[self role:@"rating" at:0] in:q1];
 	[[self queries] setCondition:@">" value:@"5" ofNode:rated.identifier reason:NULL];
+	[self name:[self root:q1].identifier through:@"academicName" in:q1];
 
 	/* Q2: professors holding the informatics chair, with no degree from UQ. */
 	NSString *q2 = [[self queries] addQueryNamed:@"Q2" from:academic reason:NULL];
@@ -640,6 +664,7 @@ check(BOOL ok, const char *what)
 	[[self queries] setOperator:ORMQueryNot ofStep:notAwarded];
 	ORMQueryNode *from = [self from:anyDegree.identifier through:[self role:@"degreeUniversity" at:0] in:q2];
 	[[self queries] setCondition:@"=" value:@"UQ" ofNode:from.identifier reason:NULL];
+	[self name:[self root:q2].identifier through:@"academicName" in:q2];
 
 	/* Q3: each academic, and maybe their degrees rated above 5. */
 	NSString *q3 = [[self queries] addQueryNamed:@"Q3" from:academic reason:NULL];
@@ -649,6 +674,7 @@ check(BOOL ok, const char *what)
 	[[self queries] setProjected:YES ofNode:maybeDegree.identifier];
 	ORMQueryNode *maybeRated = [self from:maybeDegree.identifier through:[self role:@"rating" at:0] in:q3];
 	[[self queries] setCondition:@">" value:@"5" ofNode:maybeRated.identifier reason:NULL];
+	[self name:[self root:q3].identifier through:@"academicName" in:q3];
 }
 
 #pragma mark UML and ORM
@@ -748,6 +774,7 @@ check(BOOL ok, const char *what)
 	ORMQueryNode *needed = [self from:forActivity.identifier through:[self role:@"requires" at:0] in:q];
 	[[self queries] setLabel:@"1" ofNode:needed.identifier];
 	[[self queries] setProjected:YES ofNode:needed.identifier];
+	[self name:needed.identifier through:@"facilityName" in:q];
 	NSString *notProvides = nil;
 	ORMQueryNode *provided = [[self from:[self root:q].identifier through:[self role:@"provides" at:0] in:q step:&notProvides]
 		firstObject];

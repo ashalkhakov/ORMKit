@@ -15,7 +15,8 @@ by hand.
   - Polyglots: a count.
 - `University.orm`, after Bloesch and Halpin, "Conceptual Queries using
   ConQuer-II" (ER '97), figure 2: academics, professors and chairs, and
-  degrees awarded by universities. Queries Q1 to Q3 are the paper's. Q3's
+  degrees awarded by universities. It adds "Academic has AcademicName",
+  which the paper does not have. Queries Q1 to Q3 are the paper's. Q3's
   `maybe` with a condition is not yet planned as the paper means it
   ([docs/QUERIES.md](../docs/QUERIES.md)).
 - `UMLandORM.orm`, after Halpin and Bloesch, "Data modeling in UML and ORM:
@@ -37,7 +38,9 @@ by hand.
 
 Each sample has a sample population to run its queries on, kept in the file
 as NORMA keeps one ([docs/POPULATIONS.md](../docs/POPULATIONS.md)). Each
-keeps its model's constraints.
+keeps its model's constraints. The queries list a name beside each employee
+or academic, and a facility's name beside its code, where the papers list
+only the identifiers. That makes a row easy to check against the data.
 
 - **Company:** seven employees in four cities of three countries, four
   branches (two of them US branches), three cars, two languages. The papers
@@ -49,7 +52,7 @@ keeps its model's constraints.
   | Q1 | employees 1 and 3 |
   | Q2 | employees 1, 3 and 4 |
   | Q3 | US branch 102 |
-  | Q4 | employee 2 |
+  | Q4 | employee 2 (Bea), who supervises employee 10 (Fay) |
   | Q5 | employees 1 and 4 |
   | Payroll | branches 52 and 7 |
   | Polyglots | employee 1 |
@@ -58,9 +61,9 @@ keeps its model's constraints.
   employees' cities.
 - **University:** five academics, two of them professors, with degrees from
   UQ, MIT and ANU. Also ours:
-  - Q1 finds academics 430, 715 and 720;
-  - Q2 finds 720, who holds the Informatics chair and has no degree from
-    UQ;
+  - Q1 finds academics 430 (Cara Diaz), 715 (Ana Lima) and 720 (Ben Cho);
+  - Q2 finds 720 (Ben Cho), who holds the Informatics chair and has no
+    degree from UQ;
   - Q3 lists all five.
 - **UMLandORM:**
   - **Figures 4 and 7:** the paper's own populations. Rooms 10, 20 and 33,
@@ -71,7 +74,8 @@ keeps its model's constraints.
     1, written by Terry and Anthony.
 
 To try a query on the population, open the Queries window's **Results**
-tab. **Make Up a Population** replaces the population with one generated
+tab, or run `ormtool query Samples/Company.orm Q4`, which prints every stage
+from the outline to the rows. **Make Up a Population** replaces the population with one generated
 to meet the constraints, and undoing brings the sample's back.
 
 ## Trying one

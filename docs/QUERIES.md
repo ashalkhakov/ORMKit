@@ -9,18 +9,152 @@ stays valid when the mapping changes (an object type absorbed, a subtype
 flattened, a fact type made many-to-many); only the requests made from it
 change.
 
-A query is planned against a mapping (`ORMQueryPlanner`): what to read, and
-what must hold of it, in the mapped model's entities and properties, said for
-no store in particular (`ORMQueryPlan`). Two backends say the plan in their
-own terms:
+## From a query to rows
 
-| Who asks | Backend | What it makes |
-| --- | --- | --- |
-| an application that holds the store, such as one implementing a service with ODataKit | `ORMQueryInterpreter` | fetches against Core Data, as many as the plan takes, and what is kept of what they return |
-| an application, report or service that calls the API | `ORMQueryOData` ([ODATA.md](ODATA.md)) | requests to the service ODataKit makes of the model |
+A query goes through three stages. The middle one, the plan, is where all
+the ORM-to-Core-Data thinking happens, once, for both backends.
 
-A plan is public data: it is written as a property list and read back. So it
-can be made where the model is edited and run where the store is.
+```
+conceptual query  --ORMQueryPlanner-->  plan  --ORMQueryInterpreter-->  Core Data fetches  --> rows
+(ORM terms)         (+ a mapping)       (entities,                        (and checks on
+                                         properties)  --ORMQueryOData-->   what they return)
+                                                                          OData requests
+```
+
+1. **The query**, in the model's terms: start at an object type, follow
+   fact types, tick what to list, add conditions. It never mentions
+   entities, attributes or key paths. The same query is also logic, which is
+   how FORML reads it out.
+2. **The plan** (`ORMQueryPlanner` → `ORMQueryPlan`): the same query said in
+   the mapped Core Data model's entities and relationships, for no store in
+   particular. This is where the mapping is consulted: which property each
+   fact type became, whether City is an entity or absorbed into Employee,
+   whether a subtype has its own entity. It decides scopes, correlation and
+   joins.
+3. **A backend** says the plan in its store's terms:
+
+   | Who asks | Backend | What it makes |
+   | --- | --- | --- |
+   | an application that holds the store, such as one implementing a service with ODataKit | `ORMQueryInterpreter` | Core Data fetches, as many as the plan takes, and checks on what they return |
+   | an application, report or service that calls the API | `ORMQueryOData` ([ODATA.md](ODATA.md)) | requests to the service ODataKit makes of the model |
+
+A plan is public data: it is written as a property list and read back. So
+it can be made where the model is edited and run where the store is.
+
+`ormtool query model.orm Q4` prints every stage. Here is the paper's Q4 on
+[Samples/Company.orm](../Samples/Company.orm): who supervises an employee
+who lives in the same city but was born in a different country? Names
+added.
+
+**1. The query**, as ConQuer's outline. Labels (`City1`) say "the same
+city":
+
+```
+✓Employee1
+  + lives in City1
+  + was born in Country1
+  + supervises ✓Employee2
+    + lives in City1
+    + was born in Country2 <> Country1
+    + has ✓EmployeeName
+  + has ✓EmployeeName
+```
+
+**The same query in FORML**, read out of its logic:
+
+> List each Employee1, Employee2, EmployeeName1 and EmployeeName2 where
+> Employee1 lives in some City and was born in some Country1 and supervises
+> Employee2 that lives in that City and ... Country2 is not Country1.
+
+**2. The plan.** Each step became the property the mapping made of its fact
+type. "Supervises" is to-many, so it became `some employees as x1`, with x1
+standing for each supervised employee. The second "City1" became a
+comparison with the first: `x1.city is city`.
+
+```
+read Employee
+where city is set and country is set
+  and some employees as x1 has (x1.city is city and not (x1.country is country)
+                                and x1.employeeName is set)
+  and employeeName is set
+list self (nr), x1 (nr), x1.employeeName, employeeName
+```
+
+**3a. Core Data.** The interpreter says the plan as a fetch request. Here it
+is one fetch; a plan can take several:
+
+```
+fetch Employee where (city != nil) AND (country != nil)
+  AND (SUBQUERY(employees, $x1, ($x1.city == city) AND (NOT ($x1.country == country))
+                                AND ($x1.employeeName != nil)).@count > 0)
+  AND (employeeName != nil)
+```
+
+**3b. OData.** The same plan as a request to the service:
+
+```
+GET Employees?$filter=City ne null and Country ne null
+  and Employees/any(x1:x1/City/Id eq $it/City/Id and not (x1/Country/Name eq $it/Country/Name)
+                    and x1/EmployeeName ne null) and EmployeeName ne null
+  &$select=Nr,EmployeeName&$expand=Employees($select=Nr,EmployeeName)
+```
+
+**Rows**, from the sample's population, one per way the conditions are met:
+
+| Employee1 | Employee2 | EmployeeName of Employee2 | EmployeeName of Employee1 |
+| --- | --- | --- | --- |
+| 2 | 10 | Fay | Bea |
+
+Bea (2) lives in Sydney, was born in Australia, and supervises Fay (10), who
+also lives in Sydney but was born in the UK.
+
+The rest of this document covers each stage: the outline's notation
+([Outline](#outline), [Correlation](#correlation)), the logic
+([FORML](#forml)), the plan ([Plans](#plans)), the interpreter
+([The interpreter](#the-interpreter-running-a-plan-against-core-data)), and
+joins that no relationship makes
+([Joins through absorbed object types](#joins-through-absorbed-object-types)).
+
+## The plan, as Query-by-Example
+
+A plan is close to Query-by-Example (QbE): it names entities and their
+properties, binds example variables, and lists what is marked for output.
+Q4's plan as QbE skeletons, with `P.` marking what is printed and `_c`, `_k`
+the example elements that join the rows:
+
+```
+Employee | nr      | city | country | employeeName | supervisor
+         | P._e1   | _c   | _k1     | P._n1        |
+         | P._e2   | _c   | _k2     | P._n2        | _e1
+
+condition: _k2 <> _k1
+```
+
+| QbE | The plan |
+| --- | --- |
+| a skeleton row for the entity read, with `P.` | `read Employee` ... `list` |
+| a row joined by an example element | `some employees as x1 has ...` |
+| an example element used twice | `x1.city is city` |
+| a constant in a cell | `x1.nr = 52` |
+| a `¬` row | `not (...)` |
+| `CNT.`, `SUM.` in a condition box | `number of ... > n`, `sum of ... > n` |
+
+The plan keeps something QbE flattens away: the **tree**. Every plan has one
+entity it reads, and each condition sits in a scope:
+- under `some ... as x1`, x1 is each member;
+- under `not`, nothing inside is bound outside it;
+- under `number of`, members are counted per object read.
+
+Both backends are trees of the same shape. A Core Data fetch is one entity
+and a predicate whose `SUBQUERY(...)` nest; an OData request is one entity
+set and a `$filter` whose `any(x1: ...)` lambdas nest. From QbE's flat rows
+those scopes would have to be worked out again: which row is the root,
+which joins are to-many, how far a `¬` reaches. That is exactly where
+correlation (Q4, Q5) gets subtle. The ConQuer outline already has them, so
+the plan carries them through.
+
+In QbE terms, the plan is QbE with its scopes kept: one skeleton row per
+`read` and per `some`, nested as the outline nests them.
 
 ## Outline
 

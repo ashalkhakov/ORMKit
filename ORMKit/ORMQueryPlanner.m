@@ -182,12 +182,23 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	}
 	ORMPlanCondition *condition = [self conditionFor:root entity:entity
 	                                              at:[ORMPlannerPlace variable:nil entity:_read trail:@[]] columns:YES];
+	/* Each column titled by its node, with its label ("Employee2"); two
+	 * still the same say whose they are ("EmployeeName of Employee2"). */
+	NSCountedSet *titles = [[NSCountedSet alloc] init];
+	for (NSArray *column in _columns) {
+		[titles addObject:[[column firstObject] designation]];
+	}
 	NSMutableArray *columns = [NSMutableArray array];
 	for (NSArray *column in _columns) {
 		ORMQueryNode *node = [column firstObject];
 		ORMPlannerPlace *place = [column objectAtIndex:1];
 		id identifier = [column lastObject];
-		[columns addObject:[ORMPlanColumn columnTitled:node.objectType.name node:node.identifier path:place.path
+		NSString *title = [node designation];
+		ORMQueryNode *above = node.step.parent;
+		if ([titles countForObject:title] > 1 && above != nil) {
+			title = [NSString stringWithFormat:@"%@ of %@", title, [above designation]];
+		}
+		[columns addObject:[ORMPlanColumn columnTitled:title node:node.identifier path:place.path
 		                                         trail:[place.trail valueForKey:@"name"]
 		                                    identifier:identifier != [NSNull null] ? [identifier name] : nil]];
 	}
