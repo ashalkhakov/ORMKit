@@ -515,7 +515,8 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
   a to-many, and an OData join whose pairs come from a lambda's variable
   ([ODATA.md](ODATA.md#not-done-yet)).
 - **Paging is by offset** (`fetchOffset`, `$skip`), not by key, and the
-  rows given so far are kept so that none is given twice.
+  rows given so far are kept so that none is given twice. Both are to be
+  cursor capabilities ([CURSORS.md](CURSORS.md)).
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point
