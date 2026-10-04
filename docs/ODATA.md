@@ -147,13 +147,26 @@ GET Employees?$filter=CityCityname ne null and (CityCityname eq 'Brisbane' and .
 ```
 
 `-filterJoining:` makes the second request's filter from the rows the first
-returns. A part that is an entity is compared by its key. A join correlated
-other than by equality is noted, and left out.
+returns. A part that is an entity is compared by its key.
 
-`testTheServiceAnswersTheQueries` (macOS) serves the mapped model with
-`ODataService` over SQLite and checks the rows that Q1 to Q5, the payroll query
-and a count return. The Query window has an OData tab, and `ormtool query`
-prints the request.
+A join correlated other than by equality, such as "a branch headed by someone
+born in another country than the employee", is still two requests a page. The
+joined objects among the page's values are read whole enough for the
+comparison, and each object of the page is kept where one of them meets it,
+the comparison checked on the answers with `o1` bound to that object.
+
+The rows the cursor gives are a result set, as the interpreter's are: a tuple
+for each way an object meets the conditions that bind what the columns list.
+It evaluates the plan's `some` and `maybe` conditions on the JSON the service
+answers, and the request expands what they look at. A column under
+`some languages as x1 has x1.name = 'Latin'` lists Latin, not every language
+of a Latin speaker.
+
+`testTheServiceAnswersTheQueries` serves the mapped model with `ODataService`
+over SQLite and checks the rows that Q1 to Q5, the payroll query and a count
+return; `testTheServiceRowsAreTheStoresRows` checks every row against the
+interpreter's. Both run on macOS and GNUstep. The Query window has an OData
+tab, and `ormtool query` prints the request.
 
 ## Building with ODataKit
 
@@ -167,20 +180,9 @@ query builder is the client's). The tests also link `ODataService`.
 
 ## Not done yet
 
-- **Rows from the service** are the columns' values as the entities come.
-  A column through a to-many lists every member expanded, not only those a
-  `some` binds. Making them a result set takes the members' conditions as
-  `$expand($filter=...)`, or the interpreter's bindings over the JSON.
-- **Joins the cursor does not ask for page by page** are noted and left out
-  of the request:
-  - a join correlated other than by equality with the object read;
-  - a correlated join under a `not`, an `or` or a lambda.
-
-  Both would take requests per page that carry the page's objects into
-  the joined filter. The interpreter runs both against a store.
-
-- `$expand` of what a to-many step reaches lists every related object, not
-  only those meeting the step's conditions. `$expand=X($filter=...)` would
-  say it, where the conditions do not refer to `$it`.
-- The service test runs on macOS only. On GNUstep it needs FreeCoreData's
-  `momc` to compile the model.
+- **A correlated join under a `not`, an `or` or a lambda** is noted and
+  left out of the request. The interpreter runs it against a store.
+- `$expand` of what a to-many step reaches lists every related object, and
+  the cursor keeps those meeting the step's conditions. With many related
+  objects, `$expand=X($filter=...)` would read fewer, where the conditions do
+  not refer to `$it`.

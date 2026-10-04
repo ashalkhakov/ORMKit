@@ -600,6 +600,47 @@
 	                                        @"ANY $x2.isOwnedByEmployees == SELF).@count > 1))");
 }
 
+/* Who lives in a city with a branch headed by someone born in another
+ * country than they were? City absorbed, the branches joined on its parts
+ * depend on each employee by a comparison no equality says: from the
+ * service, the page's branches checked on the answers, not a request for
+ * each employee. */
+- (void)testACorrelatedJoinIsCheckedOnTheServicesAnswers
+{
+	NSString *q = [[self queries] addQueryNamed:@"Abroad" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *born = [self from:root through:[self role:@"bornIn" at:0] in:q];
+	[[self queries] setLabel:@"1" ofNode:born.identifier];
+	ORMQueryNode *city = [self from:root through:[self role:@"livesIn" at:0] in:q];
+	ORMQueryNode *branch = [self from:city.identifier through:[self role:@"locatedIn" at:1] in:q];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
+	ORMQueryNode *headBorn = [self from:head.identifier through:[self role:@"bornIn" at:0] in:q];
+	[[self queries] setLabel:@"2" ofNode:headBorn.identifier];
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setCondition:@"<>" toNode:born.identifier ofNode:headBorn.identifier reason:&reason],
+	              @"%@", reason);
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqualObjects([[plan.definitions firstObject] parameters], @[ @"o1" ], @"%@", [plan text]);
+	[self addCompanyPopulation];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_editor.model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @10 ]));
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
+	XCTAssertEqual([odata.pageJoins count], 1u);
+	ORMTestCountingTransport *counted = [self countedServiceOver:context];
+	NSArray *rows = [self rowsOf:odata transport:counted];
+	XCTAssertEqualObjects(rows, (@[ @[ @10 ] ]), @"%@", counted.paths);
+	/* Two requests a page, never one an employee. */
+	XCTAssertLessThan(counted.requests, 12u, @"%@", counted.paths);
+}
+
 /* Q4 with City absorbed into Employee: no city to be the same one, but its
  * parts, compared one by one. */
 - (void)testQ4ComparesAnAbsorbedCityPartByPart
@@ -1428,6 +1469,68 @@
 
 /* The requests, sent to ODataKit's service over the same store: the same
  * rows. */
+/* Every row a cursor reads from the service, page by page. */
+- (NSArray<NSArray *> *)rowsOf:(ORMQueryOData *)odata transport:(id<ODataTransport>)transport
+{
+	ORMQueryODataCursor *cursor = [odata cursorWithTransport:transport serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	NSMutableArray *rows = [NSMutableArray array];
+	for (NSUInteger guard = 0; guard < 20 && ![cursor atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		__block ORMQueryResult *page = nil;
+		__block NSError *error = nil;
+		[cursor nextPage:3 completion:^(ORMQueryResult *result, NSError *failed) {
+			page = result;
+			error = failed;
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
+		XCTAssertNotNil(page, @"%@", error);
+		if (page == nil || [page.objects count] == 0) {
+			break;
+		}
+		[rows addObjectsFromArray:page.rows];
+	}
+	return rows;
+}
+
+/* The rows from the service are a result set, as the store's are: the same
+ * tuples, a some's members only those meeting its conditions, a maybe's
+ * each or none. */
+- (void)testTheServiceRowsAreTheStoresRows
+{
+	NSMutableDictionary *queries = [NSMutableDictionary dictionaryWithDictionary:[self paperQueries]];
+	NSString *latin = [[self queries] addQueryNamed:@"Latin" from:[self typeId:@"Employee"] reason:NULL];
+	ORMQueryNode *language = [self from:[self root:latin].identifier through:[self role:@"speaks" at:0] in:latin];
+	[[self queries] setProjected:YES ofNode:language.identifier];
+	XCTAssertTrue([[self queries] setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL]);
+	[queries setObject:latin forKey:@"Latin"];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	ORMTestCountingTransport *counted = [self countedServiceOver:context];
+	for (NSString *name in queries) {
+		ORMQueryPlan *plan = [planner planForQuery:[self query:[queries objectForKey:name]]];
+		__block ORMQueryResult *stored = nil;
+		[context performBlockAndWait:^{
+			stored = [interpreter executePlan:plan inContext:context error:NULL];
+		}];
+		ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+		NSArray *served = [self rowsOf:odata transport:counted];
+		XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:stored.rows], @"%@\n%@", name,
+		                      [odata requestText]);
+		XCTAssertEqual([served count], [stored.rows count], @"%@", name);
+	}
+	ORMQueryPlan *plan = [planner planForQuery:[self query:latin]];
+	__block ORMQueryResult *latinRows = nil;
+	[context performBlockAndWait:^{
+		latinRows = [interpreter executePlan:plan inContext:context error:NULL];
+	}];
+	XCTAssertEqualObjects(latinRows.rows, (@[ @[ @1, @"Latin" ] ]));
+}
+
 - (void)testTheServiceAnswersTheQueries
 {
 	NSDictionary *queries = [self paperQueries];

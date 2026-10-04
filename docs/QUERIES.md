@@ -477,12 +477,9 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
   - narrowed by the conditions under the step, in OData. ODataKit's service
     aggregates no filtered collection, so this case is noted there; the
     interpreter evaluates it on the objects it fetches.
-- **Rows from the service:** the OData cursor's rows are the columns'
-  values as the entities come, each value of an expanded to-many, not only
-  the members a `some` binds. The interpreter's are a result set.
-- **Correlated joins in OData:** they need a request for each object, which
-  is not made. Noted, and the join left out of the request; the interpreter
-  probes them.
+- **A correlated join under a `not`, an `or` or a lambda, in OData:** noted,
+  and left out of the request; the interpreter probes it
+  ([ODATA.md](ODATA.md#not-done-yet)).
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point
