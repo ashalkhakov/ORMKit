@@ -877,6 +877,122 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* The paper's company as the model's sample population: what -companyIn:
+ * makes in Core Data, made as NORMA would keep it. */
+- (void)addCompanyPopulation
+{
+	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
+	/* An instance by its reference mode's value. */
+	NSString *(^one)(NSString *, NSString *) = ^NSString *(NSString *typeName, NSString *text) {
+		ORMObjectType *type = [self->_editor.model objectTypeNamed:typeName];
+		ORMRole *role = [[type.preferredIdentifier allRoles] firstObject];
+		return [population instanceOf:type.identifier
+		                 identifiedBy:@{ role.identifier: [population value:text of:role.player.identifier] }];
+	};
+	void (^fact)(NSString *, NSArray *) = ^(NSString *name, NSArray *players) {
+		NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+		for (NSUInteger i = 0; i < [players count]; i++) {
+			[byRole setObject:[players objectAtIndex:i] forKey:[self role:name at:i]];
+		}
+		ORMRole *role = [self->_editor.model elementWithId:[self role:name at:0]];
+		[population factOf:role.factType.identifier players:byRole];
+	};
+	NSString *australia = one(@"Country", @"Australia"), *usa = one(@"Country", @"USA"), *uk = one(@"Country", @"UK");
+	NSString *(^state)(NSString *, NSString *) = ^NSString *(NSString *country, NSString *code) {
+		return [population instanceOf:[self typeId:@"State"]
+		                 identifiedBy:@{ [self role:@"stateCountry" at:1]: country,
+		                                 [self role:@"stateCode" at:1]: [population value:code of:[self typeId:@"Statecode"]] }];
+	};
+	NSString *(^city)(NSString *, NSString *) = ^NSString *(NSString *name, NSString *inState) {
+		return [population instanceOf:[self typeId:@"City"]
+		                 identifiedBy:@{ [self role:@"cityName" at:1]: [population value:name of:[self typeId:@"Cityname"]],
+		                                 [self role:@"cityState" at:1]: inState }];
+	};
+	NSString *brisbane = city(@"Brisbane", state(australia, @"QLD")), *sydney = city(@"Sydney", state(australia, @"NSW"));
+	NSString *perth = city(@"Perth", state(australia, @"WA")), *seattle = city(@"Seattle", state(usa, @"WA"));
+	NSMutableDictionary *employees = [NSMutableDictionary dictionary];
+	for (NSArray *row in @[ @[ @1, brisbane, australia, @"600000" ], @[ @2, sydney, australia, @"500000" ],
+	                        @[ @3, brisbane, australia, @"500000" ], @[ @4, seattle, usa, @"50000" ],
+	                        @[ @5, seattle, usa, @"50000" ], @[ @10, sydney, uk, @"600000" ],
+	                        @[ @21, perth, uk, @"50000" ] ]) {
+		NSString *e = one(@"Employee", [[row firstObject] stringValue]);
+		[employees setObject:e forKey:[row firstObject]];
+		fact(@"hasName", @[ e, [population value:[NSString stringWithFormat:@"E%@", [row firstObject]]
+		                                   of:[self typeId:@"EmployeeName"]] ]);
+		fact(@"livesIn", @[ e, [row objectAtIndex:1] ]);
+		fact(@"bornIn", @[ e, [row objectAtIndex:2] ]);
+		fact(@"earns", @[ e, one(@"Salary", [row lastObject]) ]);
+	}
+	NSString *(^employee)(int) = ^NSString *(int nr) {
+		return [employees objectForKey:@(nr)];
+	};
+	fact(@"reportsTo", @[ employee(10), employee(2) ]);
+	fact(@"reportsTo", @[ employee(21), employee(1) ]);
+	NSString *b52 = one(@"Branch", @"52"), *b7 = one(@"Branch", @"7");
+	NSString *us1 = [population instanceOf:[self typeId:@"USbranch"] supertypeInstance:one(@"Branch", @"101")];
+	NSString *us2 = [population instanceOf:[self typeId:@"USbranch"] supertypeInstance:one(@"Branch", @"102")];
+	for (NSArray *row in @[ @[ b52, brisbane, @1 ], @[ b7, sydney, @2 ], @[ us1, seattle, @4 ], @[ us2, seattle, @5 ] ]) {
+		fact(@"locatedIn", @[ [row firstObject], [row objectAtIndex:1] ]);
+		fact(@"heads", @[ employee([[row lastObject] intValue]), [row firstObject] ]);
+	}
+	for (NSArray *row in @[ @[ @1, b52 ], @[ @3, b52 ], @[ @2, b7 ], @[ @10, b7 ], @[ @21, b7 ], @[ @4, us1 ], @[ @5, us2 ] ]) {
+		fact(@"worksFor", @[ employee([[row firstObject] intValue]), [row lastObject] ]);
+	}
+	NSString *ute = one(@"CarModel", @"Ute");
+	NSString *a = one(@"Car", @"A"), *b = one(@"Car", @"B"), *c = one(@"Car", @"C");
+	for (NSString *car in @[ a, b, c ]) {
+		fact(@"carModel", @[ car, ute ]);
+	}
+	for (NSArray *row in @[ @[ @1, c ], @[ @3, a ], @[ @3, b ], @[ @4, a ] ]) {
+		fact(@"drives", @[ employee([[row firstObject] intValue]), [row lastObject] ]);
+	}
+	for (NSArray *row in @[ @[ @1, b ], @[ @3, a ], @[ @3, b ], @[ @4, a ] ]) {
+		fact(@"owns", @[ employee([[row firstObject] intValue]), [row lastObject] ]);
+	}
+	NSString *english = one(@"Language", @"English"), *latin = one(@"Language", @"Latin");
+	fact(@"speaks", @[ employee(1), english ]);
+	fact(@"speaks", @[ employee(1), latin ]);
+	fact(@"speaks", @[ employee(2), english ]);
+	for (NSArray *row in @[ @[ us1, @"1", @"1995" ], @[ us2, @"1", @"2001" ], @[ us2, @"2", @"1996" ] ]) {
+		fact(@"achieved", @[ [row firstObject], one(@"Rank", [row objectAtIndex:1]), one(@"Year", [row lastObject]) ]);
+	}
+	NSString *reason = nil;
+	XCTAssertTrue([_editor.populationEditor addPopulation:population reason:&reason], @"%@", reason);
+}
+
+/* The company as a sample population, put in a store of the mapping by
+ * ORMPopulationStore: the same rows as the store made by hand. */
+- (void)testASamplePopulationAnswersTheQueries
+{
+	NSDictionary *queries = [self paperQueries];
+	[self addCompanyPopulation];
+	ORMPopulationChecker *checker = [[ORMPopulationChecker alloc] initWithModel:_editor.model];
+	XCTAssertEqualObjects([[checker violations] valueForKey:@"text"], @[]);
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_editor.model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	XCTAssertEqualObjects(store.notes, @[]);
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+	NSDictionary *answers = [self paperAnswers];
+	for (NSString *name in answers) {
+		ORMQueryPlan *plan = [planner planForQuery:[self query:[queries objectForKey:name]]];
+		__block ORMQueryResult *result = nil;
+		__block NSError *runError = nil;
+		[context performBlockAndWait:^{
+			result = [interpreter executePlan:plan inContext:context error:&runError];
+		}];
+		XCTAssertNotNil(result, @"%@: %@", name, runError);
+		NSArray *numbers = [result.objects valueForKey:@"nr"];
+		if ([plan.sorts count] == 0) {
+			numbers = [numbers sortedArrayUsingSelector:@selector(compare:)];
+		}
+		XCTAssertEqualObjects(numbers, [answers objectForKey:name], @"%@\n%@", name,
+		                      [interpreter programForPlan:plan error:NULL]);
+	}
+}
+
 /* A total of the employees who speak Latin: the store aggregates no
  * subquery, so the interpreter asks the objects it fetches. Unfiltered, both
  * branches would pass; filtered, only 52's Latin speaker earns enough. */

@@ -28,6 +28,10 @@ ORMKit_HEADER_FILES = \
   ORMConstraintEditor.h \
   ORMDiagramEditor.h \
   ORMElementEditor.h \
+  ORMPopulationEditor.h \
+  ORMPopulationStore.h \
+  ORMPopulationChecker.h \
+  ORMPopulationGenerator.h \
   ORMPath.h \
   ORMLogic.h \
   ORMVerbalizer.h \
@@ -63,6 +67,10 @@ ORMKit_OBJC_FILES = \
   ORMConstraintEditor.m \
   ORMDiagramEditor.m \
   ORMElementEditor.m \
+  ORMPopulationEditor.m \
+  ORMPopulationStore.m \
+  ORMPopulationChecker.m \
+  ORMPopulationGenerator.m \
   ORMPath.m \
   ORMLogic.m \
   ORMVerbalizer.m \

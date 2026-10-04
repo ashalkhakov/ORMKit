@@ -21,7 +21,8 @@ ORMKitTests_OBJC_FILES = \
   ORMODataTests.m \
   ORMCoreDataImportTests.m \
   ORMCoreDataValidationTests.m \
-  ORMQueryTests.m
+  ORMQueryTests.m \
+  ORMPopulationTests.m
 ORMKitTests_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
 include ../odatakit.make
 ORMKitTests_INCLUDE_DIRS = -I../ORMKit $(ODATAKIT_INCLUDE_DIRS)

@@ -1,7 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMDiagram.h"
 
-@class ORMObjectTypeEditor, ORMFactTypeEditor, ORMConstraintEditor, ORMDiagramEditor, ORMElementEditor;
+@class ORMObjectTypeEditor, ORMFactTypeEditor, ORMConstraintEditor, ORMDiagramEditor, ORMElementEditor,
+	ORMPopulationEditor;
 
 /* Every change to an ORM model goes through an editor: the editing
  * session over one document.
@@ -68,6 +69,7 @@ BOOL ORMIsAutomaticPlacement(NSPoint point);
 @property (nonatomic, readonly, strong) ORMConstraintEditor *constraintEditor;
 @property (nonatomic, readonly, strong) ORMDiagramEditor *diagramEditor;
 @property (nonatomic, readonly, strong) ORMElementEditor *elementEditor;
+@property (nonatomic, readonly, strong) ORMPopulationEditor *populationEditor;
 
 @end
 
@@ -77,3 +79,4 @@ BOOL ORMIsAutomaticPlacement(NSPoint point);
 #import "ORMConstraintEditor.h"
 #import "ORMDiagramEditor.h"
 #import "ORMElementEditor.h"
+#import "ORMPopulationEditor.h"

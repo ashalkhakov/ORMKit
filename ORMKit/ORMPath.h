@@ -116,9 +116,21 @@ typedef NS_ENUM(NSInteger, ORMPathSourceKind) {
 @property (nonatomic, readonly) BOOL isSubtypeRule;
 @end
 
+@class ORMFactInstance;
+
 /* An instance of the sample population. */
 @interface ORMInstance : ORMElement
 @property (nonatomic, readonly, weak) ORMObjectType *objectType;
+/* A value type instance's value, as the file has it; nil for an entity's. */
+@property (nonatomic, readonly, copy) NSString *value;
+/* An entity instance's identifying instances, by the role of its preferred
+ * identifier each plays (the role's id): its reference mode's value, or the
+ * parts of a composite identifier. */
+- (NSDictionary<NSString *, ORMInstance *> *)identifyingInstancesByRole;
+/* A subtype instance's supertype instance, which it is; nil for others. */
+- (ORMInstance *)supertypeInstance;
+/* An objectifying type's instance's fact, which it is; nil for others. */
+- (ORMFactInstance *)objectifiedInstance;
 /* A value type instance's value; an entity instance's identifying values,
  * joined: what a sample shows. */
 - (NSString *)displayText;

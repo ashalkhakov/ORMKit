@@ -11,6 +11,11 @@
  * ORMCDModel    a Core Data model's source, as Xcode keeps it
  * ORMCoreDataMapping, ORMCoreDataMapper
  *               ORM to Core Data, and back (docs/COREDATA-MAPPING.md)
+ * ORMPopulationEditor, ORMPopulationChecker, ORMPopulationGenerator,
+ * ORMPopulationStore
+ *               sample populations: written as NORMA writes them, checked
+ *               against the constraints, made up to meet them, and put in a
+ *               Core Data store for queries to run against
  * ORMReadingText, ORMValueConstraintParser, ORMFactSentence
  *               the small languages a modeller types: readings, value lists,
  *               and NORMA's Fact Editor sentences */
@@ -39,6 +44,7 @@
 #import "ORMConstraintEditor.h"
 #import "ORMDiagramEditor.h"
 #import "ORMElementEditor.h"
+#import "ORMPopulationEditor.h"
 #import "ORMSentenceEditor.h"
 #import "ORMCoreDataValidation.h"
 #import "ORMODataAnnotator.h"
@@ -47,4 +53,7 @@
 #import "ORMQueryPlan.h"
 #import "ORMQueryPlanner.h"
 #import "ORMQueryInterpreter.h"
+#import "ORMPopulationStore.h"
+#import "ORMPopulationChecker.h"
+#import "ORMPopulationGenerator.h"
 #import "ORMQueryOData.h"

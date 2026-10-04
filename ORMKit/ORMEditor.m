@@ -37,6 +37,7 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	ORMConstraintEditor *_constraintEditor;
 	ORMDiagramEditor *_diagramEditor;
 	ORMElementEditor *_elementEditor;
+	ORMPopulationEditor *_populationEditor;
 	/* A step of a group changed the document: the projection is read again
 	 * when it is next asked for, not after every step. */
 	BOOL _stale;
@@ -126,6 +127,14 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 		_elementEditor = [[ORMElementEditor alloc] initWithEditor:self];
 	}
 	return _elementEditor;
+}
+
+- (ORMPopulationEditor *)populationEditor
+{
+	if (_populationEditor == nil) {
+		_populationEditor = [[ORMPopulationEditor alloc] initWithEditor:self];
+	}
+	return _populationEditor;
 }
 
 #pragma mark Its file

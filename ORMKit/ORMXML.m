@@ -231,16 +231,28 @@ ORMRank(NSString *local)
 	return rank != nil ? [rank integerValue] : NSIntegerMax;
 }
 
+/* The rank among the parent's children: a fact type's Instances come last,
+ * after its DerivationRule, where an object type's come before what is a
+ * fact type's. */
+static NSInteger
+ORMRankIn(NSXMLElement *parent, NSString *local)
+{
+	if ([local isEqualToString:@"Instances"] && [[parent localName] hasSuffix:@"Fact"]) {
+		return ORMRank(@"DerivationRule") + 1;
+	}
+	return ORMRank(local);
+}
+
 void
 ORMInsertChild(NSXMLElement *parent, NSXMLElement *child)
 {
-	NSInteger rank = ORMRank([child localName]);
+	NSInteger rank = ORMRankIn(parent, [child localName]);
 	NSArray *children = [parent children];
 	NSUInteger index = [children count];
 	if (rank != NSIntegerMax) {
 		for (NSUInteger i = 0; i < [children count]; i++) {
 			NSXMLNode *sibling = [children objectAtIndex:i];
-			if ([sibling kind] == NSXMLElementKind && ORMRank([sibling localName]) > rank) {
+			if ([sibling kind] == NSXMLElementKind && ORMRankIn(parent, [sibling localName]) > rank) {
 				index = i;
 				break;
 			}
