@@ -5,6 +5,7 @@
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
+#import "ORMSampleMenu.h"
 #import "ORMWindowController.h"
 
 /* The designer driven as a modeller would: a NORMA file opened, elements
@@ -90,6 +91,38 @@
 		XCTAssertTrue(seen > 0, @"%@: none of %lu shapes in %@", diagram.name, (unsigned long)[diagram.shapes count],
 		              NSStringFromRect(visible));
 	}
+}
+
+/* File > Open Sample: the samples, then ActiveFacts's in a submenu; one
+ * opens as an untitled copy named as the sample, its queries ready. */
+- (void)testASampleOpensAsAnUntitledCopy
+{
+	NSString *root = [[[[self fixturePath:@"ActiveFacts"] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
+	NSArray *folders = @[ [NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples"]],
+	                      [NSURL fileURLWithPath:[self fixturePath:@"ActiveFacts"]] ];
+	NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Open Sample"];
+	[ORMSampleMenu fillMenu:menu fromFolders:folders];
+	NSMutableArray *titles = [NSMutableArray array];
+	for (NSMenuItem *item in [menu itemArray]) {
+		[titles addObject:[item isSeparatorItem] ? @"-" : [item title]];
+	}
+	XCTAssertEqualObjects(titles, (@[ @"Company", @"UMLandORM", @"University", @"-", @"ActiveFacts" ]));
+	XCTAssertEqual([[[menu itemWithTitle:@"ActiveFacts"] submenu] numberOfItems], (NSInteger)29);
+	NSMenuItem *company = [menu itemWithTitle:@"Company"];
+	XCTAssertEqual([company action], @selector(openSample:));
+
+	NSUInteger before = [[[NSDocumentController sharedDocumentController] documents] count];
+	[[[ORMAppDelegate alloc] init] openSample:company];
+	ORMDocument *document = [[[NSDocumentController sharedDocumentController] documents] lastObject];
+	XCTAssertEqual([[[NSDocumentController sharedDocumentController] documents] count], before + 1);
+	XCTAssertNil([document fileURL]);
+	XCTAssertEqualObjects([document displayName], @"Company");
+	XCTAssertFalse([document isDocumentEdited]);
+	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)7);
+	ORMWindowController *controller = [[document windowControllers] firstObject];
+	XCTAssertEqualObjects([[controller.canvas diagram] name], @"Company");
+	[document close];
 }
 
 - (void)testSelectingShowsTheInspectorAndVerbalization

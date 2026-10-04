@@ -16,7 +16,8 @@ ORMDesigner_OBJC_FILES = \
   ORMInspectorView.m \
   ORMModelBrowser.m \
   ORMCoreDataController.m \
-  ORMQueryController.m
+  ORMQueryController.m \
+  ORMSampleMenu.m
 # ORMKit is built in the tree beside this one and not installed.
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 ORMDesigner_OBJC_LIBS += -lORMKit $(ODATAKIT_LIBS) -ldispatch
@@ -32,7 +33,11 @@ ORMDesigner_RESOURCE_FILES = \
   MainMenu.xib \
   ORMQueryWindow.xib \
   ORMCoreDataWindow.xib \
-  ORMDocumentWindow.xib
+  ORMDocumentWindow.xib \
+  ../Samples \
+  ../ORMKitTests/Fixtures/ActiveFacts
+# The samples (File > Open Sample) are copied in as folders: Resources/Samples
+# and Resources/ActiveFacts, the latter with its license.
 # The app delegate loads the menu bar itself (-[ORMAppDelegate loadMainMenu]),
 # to set what a XIB cannot hold.
 ORMDesigner_MAIN_MODEL_FILE =

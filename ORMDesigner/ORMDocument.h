@@ -15,6 +15,11 @@ extern NSString * const ORMDocumentType;
 @interface ORMDocument : NSDocument
 @property (nonatomic, readonly, strong) ORMEditor *editor;
 
+/* The model at the URL as an untitled document, named as the file is: what
+ * Save writes is a new file, the sample left as it is. nil, and why, when
+ * it is no model. */
++ (instancetype)sampleWithContentsOfURL:(NSURL *)url error:(NSError **)error;
+
 /* File > Save a Copy for NORMA: the file without ORMKit's own elements. */
 - (IBAction)saveCopyForNorma:(id)sender;
 @end

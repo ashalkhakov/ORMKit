@@ -7,6 +7,10 @@
 NSString * const ORMDocumentType = @"org.ormkit.orm";
 
 @implementation ORMDocument
+{
+	/* A sample's name, while it is untitled. */
+	NSString *_sampleName;
+}
 
 /* A model is saved when the modeller says so: NORMA may have the same file
  * open, and in-place autosave would write under it. */
@@ -22,6 +26,23 @@ NSString * const ORMDocumentType = @"org.ormkit.orm";
 		                                  undoManager:[self undoManager]];
 	}
 	return self;
+}
+
++ (instancetype)sampleWithContentsOfURL:(NSURL *)url error:(NSError **)error
+{
+	NSData *data = [NSData dataWithContentsOfURL:url options:0 error:error];
+	ORMDocument *document = data != nil ? [[self alloc] init] : nil;
+	if (document == nil || ![document readFromData:data ofType:ORMDocumentType error:error]) {
+		return nil;
+	}
+	[document setFileType:ORMDocumentType];
+	document->_sampleName = [[url lastPathComponent] stringByDeletingPathExtension];
+	return document;
+}
+
+- (NSString *)displayName
+{
+	return [self fileURL] == nil && _sampleName != nil ? _sampleName : [super displayName];
 }
 
 - (void)makeWindowControllers

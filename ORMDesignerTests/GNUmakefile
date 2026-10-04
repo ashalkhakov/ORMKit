@@ -18,7 +18,8 @@ ORMDesignerTests_OBJC_FILES = \
   ../ORMDesigner/ORMInspectorView.m \
   ../ORMDesigner/ORMModelBrowser.m \
   ../ORMDesigner/ORMCoreDataController.m \
-  ../ORMDesigner/ORMQueryController.m
+  ../ORMDesigner/ORMQueryController.m \
+  ../ORMDesigner/ORMSampleMenu.m
 ORMDesignerTests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../ORMDesigner/ORMDesignerCompat.h
 include ../odatakit.make
 ORMDesignerTests_INCLUDE_DIRS = -I../ORMKit -I../ORMDesigner $(ODATAKIT_INCLUDE_DIRS)

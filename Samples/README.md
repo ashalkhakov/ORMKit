@@ -33,6 +33,27 @@ by hand.
     and 4 forbids.
   - Coauthored papers.
 
+## Trying one
+
+1. In ORMDesigner, choose **File ▸ Open Sample ▸ Company**. It opens as an
+   untitled copy, so the sample itself stays unchanged.
+2. Choose **Query ▸ Queries…** and pick Q2. The outline is ConQuer's. The
+   tabs show the query in FORML, as an OData request, and as the plan with
+   the Core Data fetches that run it.
+3. To build a query of your own, select Employee on the diagram and choose
+   **Query ▸ New Query from Selection**. Then:
+   - Double-click "lives in City" in the list of fact types to add that
+     step.
+   - Pick City in the outline and add "is in State".
+   - Tick what to list, set a condition, or change a step to `not`,
+     `maybe` or a count.
+
+   [docs/QUERIES.md](../docs/QUERIES.md) has the rest.
+
+Clifford Heath's ActiveFacts models (MIT licensed) are under **File ▸ Open Sample ▸ ActiveFacts**.
+
+## Not included
+
 Figures 4 and 7's join-subset constraints are not drawn, because ORMKit
 cannot yet author constraint join paths. Each is written instead as a
 definition on the object type it constrains.

@@ -1,21 +1,27 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMAppDelegate.h"
 #import "ORMCanvasView.h"
+#import "ORMDocument.h"
+#import "ORMSampleMenu.h"
 
 @interface ORMAppDelegate ()
 @property (nonatomic, strong) IBOutlet NSMenu *mainMenu;
+@property (nonatomic, strong) IBOutlet NSMenu *sampleMenu;
 @end
 
 @implementation ORMAppDelegate
 
 /* MainMenu.xib, from the bundle the class is in: the application's, or a
- * test bundle's. GNUstep wants the Window menu named. */
+ * test bundle's, with the samples that bundle has. GNUstep wants the
+ * Window menu named. */
 - (NSMenu *)loadMainMenu
 {
-	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"MainMenu" bundle:[NSBundle bundleForClass:[ORMAppDelegate class]]];
+	NSBundle *bundle = [NSBundle bundleForClass:[ORMAppDelegate class]];
+	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"MainMenu" bundle:bundle];
 	if (![nib instantiateWithOwner:self topLevelObjects:NULL]) {
 		return nil;
 	}
+	[ORMSampleMenu fillMenu:self.sampleMenu fromFolders:[ORMSampleMenu foldersInBundle:bundle]];
 	NSMutableArray *pending = [NSMutableArray arrayWithObject:self.mainMenu];
 	while ([pending count] > 0) {
 		NSMenu *menu = [pending lastObject];
@@ -40,6 +46,19 @@
 {
 	(void)notification;
 	[NSApp setMainMenu:[self loadMainMenu]];
+}
+
+- (IBAction)openSample:(id)sender
+{
+	NSError *error = nil;
+	ORMDocument *document = [ORMDocument sampleWithContentsOfURL:[sender representedObject] error:&error];
+	if (document == nil) {
+		[NSApp presentError:error];
+		return;
+	}
+	[[NSDocumentController sharedDocumentController] addDocument:document];
+	[document makeWindowControllers];
+	[document showWindows];
 }
 
 /* A blank model when the app starts with nothing to open, as a
