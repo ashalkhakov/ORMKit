@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryInterpreter.h"
+#import "ORMCursor.h"
 #import <CoreData/CoreData.h>
 
 @interface ORMQueryResult ()
@@ -172,7 +173,7 @@ ORMCompare(id left, NSString *comparison, id right)
 /* A plan being run: its fetch, what is checked of what the fetch returns,
  * and how far it has been read. Bound to the objects a correlated join's
  * plan names of the plan it is in. */
-@interface ORMPlanRun : NSObject
+@interface ORMPlanRun : NSObject <ORMBatchEvaluator>
 @property (nonatomic, weak) ORMQueryInterpreter *interpreter;
 @property (nonatomic, strong) ORMQueryPlan *plan;
 @property (nonatomic, strong) NSManagedObjectContext *context;
@@ -187,7 +188,14 @@ ORMCompare(id left, NSString *comparison, id right)
 @property (nonatomic, strong) ORMPredicatePart *checkPart;
 @property (nonatomic, strong) NSMutableArray<NSString *> *joinLines;
 @property (nonatomic, strong) NSError *error;
+/* The answers of the batch being evaluated (ORMCursor.h). */
+@property (nonatomic, copy) NSDictionary<NSString *, id> *answers;
 - (BOOL)prepare;
+/* The cursors reading it: its fetch, the bags read for each batch, and
+ * its checks (docs/CURSORS.md). */
+- (id<ORMCursor>)cursor;
+/* Up to count more objects, read through its cursor at once; the answers
+ * of the last batch read kept. */
 - (NSArray *)next:(NSUInteger)count;
 @property (nonatomic, readonly) BOOL atEnd;
 - (NSString *)programText;
@@ -196,21 +204,21 @@ ORMCompare(id left, NSString *comparison, id right)
 - (NSArray<NSArray *> *)rowsOf:(id)object;
 @end
 
+/* The plan's fetch, a batch at a time, in its order. */
+@interface ORMStoreScan : NSObject <ORMCursor>
+@property (nonatomic, weak) ORMPlanRun *run;
+@end
+
 @implementation ORMPlanRun
 {
 	NSMutableSet<NSString *> *_subqueryVariables;
 	NSUInteger _depth;
 	NSUInteger _joins;
-	NSUInteger _offset;
-	NSMutableArray *_buffer;
-	BOOL _fetchedAll;
-	/* Each bag's tuples, by "bag/group column": by what the group column
-	 * has, those for it. Of the slice's groups, or all of them. */
+	/* Each bag's tuples by group, by "bag/group column", read whole where
+	 * no batch answers them. */
 	NSMutableDictionary<NSString *, NSMapTable *> *_bags;
 	NSArray<ORMPlanValue *> *_bagValues;
-	/* With bags run for a slice, each object's rows made as it is checked,
-	 * while the bags are its slice's: given by -rowsOf:. */
-	NSMapTable *_rowsMade;
+	id<ORMCursor> _cursor;
 }
 
 /* The aggregates of bags in the condition, each bag and group once. */
@@ -255,23 +263,56 @@ ORMCompare(id left, NSString *comparison, id right)
 	return group != nil && group.path.variable == nil && value.groupPath.variable == nil;
 }
 
-/* The bags for the slice's groups, run before its objects are checked. */
-- (void)scopeBags:(NSArray *)objects
+static NSString *
+ORMBagKey(ORMPlanValue *value)
 {
-	for (ORMPlanValue *value in _bagValues) {
-		if (![self scopes:value] || self.error != nil) {
-			continue;
-		}
-		NSMutableOrderedSet *groups = [NSMutableOrderedSet orderedSet];
-		for (id object in objects) {
-			id group = [self valueOf:value.groupPath object:object bindings:self.bindings];
-			if (group != nil && group != [NSNull null]) {
-				[groups addObject:group];
-			}
-		}
-		NSString *key = [NSString stringWithFormat:@"%@/%@", value.bag.name, value.groupColumn];
-		[self groupsOf:value among:[groups array] key:key];
+	return [NSString stringWithFormat:@"%@/%@", value.bag.name, value.groupColumn];
+}
+
+- (id<ORMCursor>)cursor
+{
+	if (_cursor != nil || [self describing]) {
+		return _cursor;
 	}
+	ORMStoreScan *scan = [[ORMStoreScan alloc] init];
+	scan.run = self;
+	id<ORMCursor> cursor = scan;
+	__weak ORMPlanRun *weakSelf = self;
+	for (ORMPlanValue *value in _bagValues) {
+		/* For each batch, its groups' tuples; or all, once. */
+		NSArray * (^scope)(ORMBatch *) = nil;
+		if ([self scopes:value]) {
+			scope = ^NSArray *(ORMBatch *batch) {
+				ORMPlanRun *run = weakSelf;
+				NSMutableOrderedSet *groups = [NSMutableOrderedSet orderedSet];
+				for (id object in batch.objects) {
+					id group = [run valueOf:value.groupPath object:object bindings:run.bindings];
+					if (group != nil && group != [NSNull null]) {
+						[groups addObject:group];
+					}
+				}
+				return [groups array];
+			};
+		}
+		cursor = [[ORMBindJoinCursor alloc] initWithInput:cursor name:ORMBagKey(value) scope:scope
+		                                             read:^(NSArray *among, void (^done)(id, NSError *)) {
+			                                             ORMPlanRun *run = weakSelf;
+			                                             NSMapTable *groups = [run groupsOf:value among:among];
+			                                             done(groups, run.error);
+		                                             }];
+	}
+	_cursor = [[ORMFilterCursor alloc] initWithInput:cursor evaluator:self];
+	return _cursor;
+}
+
+- (BOOL)keeps:(id)object
+{
+	for (ORMPlanCondition *check in self.checks) {
+		if (![self holds:check object:object bindings:self.bindings] || self.error != nil) {
+			return NO;
+		}
+	}
+	return YES;
 }
 
 - (void)fail:(NSString *)text
@@ -686,18 +727,27 @@ ORMCompare(id left, NSString *comparison, id right)
 	return [values valueForKeyPath:function];
 }
 
-/* The aggregate's bag's tuples by its group: those of the slice's groups,
- * or, where the slice does not say them, all of them, run once. */
+/* The aggregate's bag's tuples by its group: the batch's answer; where
+ * none is given, all of them, run once. */
 - (NSMapTable *)groupsOf:(ORMPlanValue *)value
 {
-	NSString *key = [NSString stringWithFormat:@"%@/%@", value.bag.name, value.groupColumn];
-	NSMapTable *groups = [_bags objectForKey:key];
-	return groups != nil ? groups : [self groupsOf:value among:nil key:key];
+	NSString *key = ORMBagKey(value);
+	NSMapTable *groups = [self.answers objectForKey:key] ?: [_bags objectForKey:key];
+	if (groups == nil) {
+		groups = [self groupsOf:value among:nil];
+		if (groups != nil) {
+			if (_bags == nil) {
+				_bags = [NSMutableDictionary dictionary];
+			}
+			[_bags setObject:groups forKey:key];
+		}
+	}
+	return groups;
 }
 
-/* The bag run, for the groups among those given (all, for nil), its
- * tuples kept by group under the key. */
-- (NSMapTable *)groupsOf:(ORMPlanValue *)value among:(NSArray *)among key:(NSString *)key
+/* The bag run, for the groups among those given (all, for nil): its
+ * tuples by group, each once. */
+- (NSMapTable *)groupsOf:(ORMPlanValue *)value among:(NSArray *)among
 {
 	ORMPlanColumn *group = [self groupColumnOf:value];
 	NSUInteger column = [value.bag.plan.columns indexOfObject:group];
@@ -707,7 +757,6 @@ ORMCompare(id left, NSString *comparison, id right)
 	}
 	NSMapTable *groups = [NSMapTable strongToStrongObjectsMapTable];
 	if (among != nil && [among count] == 0) {
-		[_bags setObject:groups forKey:key];
 		return groups;
 	}
 	NSError *error = nil;
@@ -742,10 +791,6 @@ ORMCompare(id left, NSString *comparison, id right)
 		[self fail:[NSString stringWithFormat:@"%@ could not be run: %@", value.bag.name, error.localizedDescription]];
 		return nil;
 	}
-	if (_bags == nil) {
-		_bags = [NSMutableDictionary dictionary];
-	}
-	[_bags setObject:groups forKey:key];
 	return groups;
 }
 
@@ -950,16 +995,6 @@ ORMCompare(id left, NSString *comparison, id right)
 
 - (NSArray<NSArray *> *)rowsOf:(id)object
 {
-	NSArray *made = [_rowsMade objectForKey:object];
-	if (made != nil) {
-		[_rowsMade removeObjectForKey:object];
-		return made;
-	}
-	return [self rowsMadeOf:object];
-}
-
-- (NSArray<NSArray *> *)rowsMadeOf:(id)object
-{
 	NSArray *ways = self.plan.condition != nil ? [self bindingsOf:self.plan.condition object:object bindings:self.bindings]
 	                                           : @[ self.bindings ];
 	if ([ways count] == 0) {
@@ -990,7 +1025,6 @@ ORMCompare(id left, NSString *comparison, id right)
 - (BOOL)prepare
 {
 	_subqueryVariables = [NSMutableSet set];
-	_buffer = [NSMutableArray array];
 	self.joinLines = [NSMutableArray array];
 	self.read = [self entityNamed:self.plan.entityName];
 	if (self.read == nil) {
@@ -1050,60 +1084,21 @@ ORMCompare(id left, NSString *comparison, id right)
 
 - (BOOL)atEnd
 {
-	return _fetchedAll && [_buffer count] == 0;
+	return self.cursor == nil || self.cursor.atEnd;
 }
 
-/* Up to count more objects the plan reads: fetched a slice at a time, in
- * its order, each checked as it comes. */
 - (NSArray *)next:(NSUInteger)count
 {
 	NSMutableArray *found = [NSMutableArray array];
-	NSUInteger slice = MAX(count, (NSUInteger)32);
-	while ([found count] < count && self.error == nil) {
-		if ([_buffer count] == 0) {
-			if (_fetchedAll) {
-				break;
-			}
-			NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:self.plan.entityName];
-			fetch.predicate = self.storePredicate;
-			NSMutableArray *sorts = [NSMutableArray array];
-			for (ORMPlanSort *sort in self.plan.sorts) {
-				[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:[sort.path.keys componentsJoinedByString:@"."]
-				                                               ascending:sort.ascending]];
-			}
-			fetch.sortDescriptors = sorts;
-			fetch.fetchOffset = _offset;
-			fetch.fetchLimit = slice;
-			NSError *error = nil;
-			NSArray *objects = [self.context executeFetchRequest:fetch error:&error];
-			if (objects == nil) {
-				self.error = error ?: ORMInterpreterError(@"A fetch failed.");
-				break;
-			}
-			_offset += [objects count];
-			_fetchedAll = [objects count] < slice;
-			[_buffer addObjectsFromArray:objects];
-			[self scopeBags:objects];
-			continue;
+	while ([found count] < count && self.error == nil && ![self atEnd]) {
+		NSError *error = nil;
+		ORMBatch *batch = ORMNextNow(self.cursor, count - [found count], &error);
+		if (batch == nil) {
+			[self fail:error.localizedDescription ?: @"A fetch failed."];
+			break;
 		}
-		id object = [_buffer firstObject];
-		[_buffer removeObjectAtIndex:0];
-		BOOL holds = YES;
-		for (ORMPlanCondition *check in self.checks) {
-			if (![self holds:check object:object bindings:self.bindings]) {
-				holds = NO;
-				break;
-			}
-		}
-		if (holds && self.error == nil) {
-			[found addObject:object];
-			if ([_bags count] > 0) {
-				if (_rowsMade == nil) {
-					_rowsMade = [NSMapTable strongToStrongObjectsMapTable];
-				}
-				[_rowsMade setObject:[self rowsMadeOf:object] forKey:object];
-			}
-		}
+		[found addObjectsFromArray:batch.objects];
+		self.answers = batch.answers;
 	}
 	return found;
 }
@@ -1126,12 +1121,52 @@ ORMCompare(id left, NSString *comparison, id right)
 
 @end
 
+@implementation ORMStoreScan
+{
+	NSUInteger _offset;
+	BOOL _atEnd;
+}
+
+- (BOOL)atEnd
+{
+	return _atEnd;
+}
+
+- (void)next:(NSUInteger)count completion:(void (^)(ORMBatch *batch, NSError *error))completion
+{
+	ORMPlanRun *run = self.run;
+	if (_atEnd || count == 0) {
+		completion([ORMBatch batchWithObjects:@[] answers:@{}], nil);
+		return;
+	}
+	NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:run.plan.entityName];
+	fetch.predicate = run.storePredicate;
+	NSMutableArray *sorts = [NSMutableArray array];
+	for (ORMPlanSort *sort in run.plan.sorts) {
+		[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:[sort.path.keys componentsJoinedByString:@"."]
+		                                               ascending:sort.ascending]];
+	}
+	fetch.sortDescriptors = sorts;
+	fetch.fetchOffset = _offset;
+	fetch.fetchLimit = count;
+	NSError *error = nil;
+	NSArray *objects = [run.context executeFetchRequest:fetch error:&error];
+	if (objects == nil) {
+		completion(nil, error ?: ORMInterpreterError(@"A fetch failed."));
+		return;
+	}
+	_offset += [objects count];
+	_atEnd = [objects count] < count;
+	completion([ORMBatch batchWithObjects:objects answers:@{}], nil);
+}
+
+@end
+
 #pragma mark The cursor
 
 @interface ORMQueryCursor ()
 @property (nonatomic, strong) ORMPlanRun *run;
-/* The rows given so far: none is given twice. */
-@property (nonatomic, strong) NSMutableSet<NSArray *> *given;
+@property (nonatomic, strong) ORMPageReader *reader;
 @end
 
 @implementation ORMQueryCursor
@@ -1143,30 +1178,28 @@ ORMCompare(id left, NSString *comparison, id right)
 
 - (ORMQueryResult *)nextPage:(NSUInteger)size error:(NSError **)error
 {
-	NSArray *objects = [self.run next:size];
-	if (self.run.error != nil) {
+	if (self.reader == nil) {
+		self.reader = [[ORMPageReader alloc] initWithInput:[self.run cursor] evaluator:self.run
+		                                      columnTitles:[self.run.plan.columns valueForKey:@"title"]];
+	}
+	__block ORMQueryResult *page = nil;
+	__block NSError *failed = nil;
+	__block BOOL answered = NO;
+	[self.reader nextPage:size completion:^(ORMQueryResult *result, NSError *why) {
+		page = result;
+		failed = why;
+		answered = YES;
+	}];
+	if (!answered) {
+		failed = ORMInterpreterError(@"The store answered later than it was asked.");
+	}
+	if (page == nil || self.run.error != nil) {
 		if (error != NULL) {
-			*error = self.run.error;
+			*error = self.run.error ?: failed;
 		}
 		return nil;
 	}
-	NSMutableArray *rows = [NSMutableArray array];
-	if (self.given == nil) {
-		self.given = [NSMutableSet set];
-	}
-	for (id object in objects) {
-		for (NSArray *row in [self.run rowsOf:object]) {
-			if (![self.given containsObject:row]) {
-				[self.given addObject:row];
-				[rows addObject:row];
-			}
-		}
-	}
-	ORMQueryResult *result = [[ORMQueryResult alloc] init];
-	result.objects = objects;
-	result.columnTitles = [self.run.plan.columns valueForKey:@"title"];
-	result.rows = rows;
-	return result;
+	return page;
 }
 
 @end

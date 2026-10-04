@@ -7,8 +7,8 @@ backends share the tree. Core Data (`ORMQueryInterpreter`) and OData
 condition on its own objects. [QUERIES.md](QUERIES.md) has the plans,
 [ODATA.md](ODATA.md) the requests.
 
-This is a design, and is being built. "Today" below is what the code does
-before it.
+Steps 1 and 2 below are built (`ORMCursor.h`). "Today" in the tables is
+what the code did before them; [Steps](#steps) says what is still to come.
 
 ## Why
 
@@ -173,15 +173,25 @@ run underneath does.
 
 ## Steps
 
-1. **The operators and the batch,** with the interpreter running on them:
-   Scan, Filter, BindJoin (bags, probes), Rows, Distinct as today, Page.
-   The interpreter's tests pass unchanged.
-2. **OData on the same operators:** Prefetch (joins first), BindJoin (bags,
-   page joins, narrowed joins), SemiJoin. The OData tests pass unchanged,
-   and the two cursors' copies of the batch logic are gone.
+1. **Done: the operators and the batch,** with the interpreter running on
+   them. `ORMBatch`, `ORMFilterCursor`, `ORMBindJoinCursor` and
+   `ORMPageReader` are shared. The interpreter's leaf is `ORMStoreScan`;
+   its bags are BindJoins, and its checks a Filter. Rows and no-tuple-twice
+   are the Page reader's, as before.
+2. **Done: OData on the same operators.** The leaf is `ORMODataScan`, page
+   joins are `ORMODataSemiJoin`, and bags and correlated joins are
+   BindJoins, scoped or whole. The two cursors' copies of the batch logic
+   are gone.
+   - Two things are not operators yet. Prefetch is still inside each leaf:
+     the joins made first are in the OData scan's preparation and in the
+     interpreter's predicate.
+   - The interpreter still probes a correlated join object by object,
+     during the Filter, rather than once per batch as a BindJoin.
 3. **Resumable Scans** (keyset), where the entity is keyed and the order
    total.
 4. **Distinct without keeping every row,** where the columns allow it.
+5. **The interpreter's probes as BindJoins,** and Prefetch as an operator
+   of its own.
 
 ## Reading
 

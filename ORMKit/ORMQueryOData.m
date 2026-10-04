@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryOData.h"
 #import "ORMQueryPlanner.h"
+#import "ORMCursor.h"
 #import "ORMCDModel+CoreData.h"
 #import <CoreData/CoreData.h>
 #import <ODataKit/ODataApply.h>
@@ -109,6 +110,8 @@ ORMODataError(NSString *text)
 /* What the request's filter is narrowed by besides: a page's groups, for
  * a bag. */
 @property (nonatomic, strong) ODataExpression *extraFilter;
+- (void)scan:(NSUInteger)count offset:(NSUInteger)offset completion:(void (^)(NSArray *values, NSError *error))completion;
+- (void)keep:(NSArray *)rows join:(ORMQueryODataJoin *)join completion:(void (^)(NSArray *kept, NSError *error))completion;
 @end
 
 #pragma mark Rows from the service
@@ -149,14 +152,11 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 /* The key paths from the object read that the condition looks at, asked
  * whole; those from the variable, when named, instead. */
 - (NSArray<NSArray<NSString *> *> *)pathsOf:(ORMPlanCondition *)condition from:(NSString *)variable;
-/* A bag's rows, as the service answers its request: what its aggregates
- * are of. */
-- (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name;
 /* The values at the path from an object the service answers. */
 - (NSArray *)valuesAt:(ORMPlanPath *)path object:(ORMODataObject *)read bindings:(NSDictionary *)bindings;
-/* A correlated join's objects, read whole: what its condition is checked
- * against. */
-- (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(NSString *)name entity:(NSEntityDescription *)entity;
+/* The answers of the batch evaluated (ORMCursor.h), by name: a bag's rows,
+ * a correlated join's objects (ORMODataObjects). */
+@property (nonatomic, copy) NSDictionary<NSString *, id> *answers;
 @end
 
 @implementation ORMODataRows
@@ -167,31 +167,16 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 	/* The variables the columns list from: only what binds them makes rows
 	 * differ. */
 	NSSet<NSString *> *_listed;
-	/* Each bag's rows, by its name; and by "bag/group column", those of
-	 * each group a value (an identifier) is. */
-	NSMutableDictionary<NSString *, NSArray *> *_bagRows;
-	NSMutableDictionary<NSString *, NSDictionary *> *_bagGroups;
-	/* Each correlated join's objects, by its name. */
-	NSMutableDictionary<NSString *, NSArray<ORMODataObject *> *> *_joined;
-}
-
-- (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(NSString *)name entity:(NSEntityDescription *)entity
-{
-	if (_joined == nil) {
-		_joined = [NSMutableDictionary dictionary];
-	}
-	NSMutableArray *wrapped = [NSMutableArray array];
-	for (NSDictionary *json in objects) {
-		[wrapped addObject:ORMODataObjectOf(json, entity)];
-	}
-	[_joined setObject:wrapped forKey:name];
+	/* A bag's rows by group, where a group is a value (an identifier), by
+	 * the rows answered. */
+	NSMapTable<NSArray *, NSDictionary *> *_bagGroups;
 }
 
 /* Whether one of the join's objects has the pairs' values and meets its
  * condition, the object read its plan's outer object. */
 - (BOOL)matches:(ORMPlanCondition *)condition object:(ORMODataObject *)read bindings:(NSDictionary *)bindings
 {
-	NSArray *joined = condition.definition.name != nil ? [_joined objectForKey:condition.definition.name] : nil;
+	NSArray *joined = condition.definition.name != nil ? [self.answers objectForKey:condition.definition.name] : nil;
 	if (joined == nil) {
 		/* The filter's. */
 		return YES;
@@ -218,25 +203,11 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 	return NO;
 }
 
-- (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name
-{
-	if (_bagRows == nil) {
-		_bagRows = [NSMutableDictionary dictionary];
-		_bagGroups = [NSMutableDictionary dictionary];
-	}
-	[_bagRows setObject:rows forKey:name];
-	for (NSString *key in [_bagGroups allKeys]) {
-		if ([key hasPrefix:[name stringByAppendingString:@"/"]]) {
-			[_bagGroups removeObjectForKey:key];
-		}
-	}
-}
-
 /* The aggregate's bag's rows of the group: those whose group column is
  * the value, or the object (by its key). */
 - (NSArray<NSArray *> *)rowsOf:(ORMPlanValue *)value group:(id)group
 {
-	NSArray *rows = [_bagRows objectForKey:value.bag.name];
+	NSArray *rows = [self.answers objectForKey:value.bag.name];
 	NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.groupColumn ?: @""];
 	if (rows == nil || column == NSNotFound || group == nil || group == [NSNull null]) {
 		return @[];
@@ -252,8 +223,10 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 		}
 		return found;
 	}
-	NSString *key = [NSString stringWithFormat:@"%@/%@", value.bag.name, value.groupColumn];
-	NSDictionary *groups = [_bagGroups objectForKey:key];
+	if (_bagGroups == nil) {
+		_bagGroups = [NSMapTable weakToStrongObjectsMapTable];
+	}
+	NSDictionary *groups = [_bagGroups objectForKey:rows];
 	if (groups == nil) {
 		NSMutableDictionary *made = [NSMutableDictionary dictionary];
 		for (NSArray *row in rows) {
@@ -269,7 +242,7 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 			[list addObject:row];
 		}
 		groups = made;
-		[_bagGroups setObject:groups forKey:key];
+		[_bagGroups setObject:groups forKey:rows];
 	}
 	return [groups objectForKey:group] ?: @[];
 }
@@ -749,15 +722,15 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 
 @end
 
-@interface ORMQueryOData ()
+/* The request evaluates on the service's answers, a batch at a time. */
+@interface ORMQueryOData () <ORMBatchEvaluator>
 - (NSArray<NSArray<NSString *> *> *)columnWire;
 - (ODataPropertyMapper *)mapper;
 - (NSArray<NSArray *> *)rowsOf:(NSDictionary *)json;
 - (NSEntityDescription *)readEntity;
 - (BOOL)keeps:(NSDictionary *)json;
-- (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name;
-- (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(ORMQueryODataJoin *)join;
-- (NSArray<NSString *> *)wholeBags;
+/* Whether the bag is read for each page's groups. */
+- (BOOL)scopesBag:(NSString *)name;
 - (ODataExpression *)join:(ORMQueryODataJoin *)join filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
 - (ODataExpression *)bag:(NSString *)name filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
 @end
@@ -863,9 +836,14 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	return [_wholeJoins copy];
 }
 
-- (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(ORMQueryODataJoin *)join
+- (NSDictionary<NSString *, id> *)answers
 {
-	[_rows setObjects:objects ofJoin:join.name entity:join.entity];
+	return _rows.answers;
+}
+
+- (void)setAnswers:(NSDictionary<NSString *, id> *)answers
+{
+	_rows.answers = answers;
 }
 
 /* Whether the join depends on each object read. */
@@ -1009,11 +987,6 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	return [_bags copy];
 }
 
-- (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name
-{
-	[_rows setRows:rows ofBag:name];
-}
-
 /* The wire path of the bag's group column, where a page's groups say
  * which of its rows the page needs: the group reached through to-ones
  * from the object read, here and in the bag, by its identifier. */
@@ -1035,15 +1008,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	return [[request columnWire] objectAtIndex:index];
 }
 
-- (NSArray<NSString *> *)wholeBags
+- (BOOL)scopesBag:(NSString *)name
 {
-	NSMutableArray *names = [NSMutableArray array];
-	for (NSString *name in _bags) {
-		if ([_bagScopes objectForKey:name] == nil) {
-			[names addObject:name];
-		}
-	}
-	return names;
+	return [_bagScopes objectForKey:name] != nil;
 }
 
 /* What narrows the bag to the page's groups: its group column one of
@@ -2187,6 +2154,18 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	return [values count] > 0 ? values : @[ [NSNull null] ];
 }
 
+/* The request's objects, a page at a time: the cursors' leaf. */
+@interface ORMODataScan : NSObject <ORMCursor>
+@property (nonatomic, weak) ORMQueryODataCursor *cursor;
+@end
+
+/* The input's objects a page join keeps (docs/CURSORS.md: SemiJoin). */
+@interface ORMODataSemiJoin : NSObject <ORMCursor>
+@property (nonatomic, strong) id<ORMCursor> input;
+@property (nonatomic, strong) ORMQueryODataJoin *join;
+@property (nonatomic, weak) ORMQueryODataCursor *cursor;
+@end
+
 @implementation ORMQueryODataCursor
 {
 	ORMQueryOData *_request;
@@ -2195,11 +2174,8 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	ODataPropertyMapper *_mapper;
 	/* The request's options, its joins' rows put in, once fetched. */
 	ODataQueryOptions *_options;
-	NSUInteger _offset;
-	BOOL _atEnd;
-	NSMutableSet<NSArray *> *_given;
-	/* The rows of the page being filled. */
-	NSMutableArray<NSArray *> *_pageRows;
+	/* Pages of what the cursors read (docs/CURSORS.md). */
+	ORMPageReader *_reader;
 }
 
 - (instancetype)initWithRequest:(ORMQueryOData *)request transport:(id<ODataTransport>)transport serviceRoot:(NSURL *)root
@@ -2209,14 +2185,13 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		_transport = transport;
 		_root = root;
 		_mapper = [request mapper];
-		_given = [NSMutableSet set];
 	}
 	return self;
 }
 
 - (BOOL)atEnd
 {
-	return _atEnd;
+	return _reader != nil && _reader.atEnd;
 }
 
 /* A GET of the URL: its value, and its next link. */
@@ -2304,25 +2279,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	};
 	step = ^{
 		if (index == [joins count]) {
-			[self readBags:[[self->_request wholeBags] mutableCopy] page:nil completion:^(NSError *error) {
-				if (error != nil) {
-					completion(error);
-					return;
-				}
-				NSMutableArray *whole = [NSMutableArray array];
-				for (ORMQueryODataJoin *join in self->_request.wholeJoins) {
-					if (join.pageScope == nil) {
-						[whole addObject:join];
-					}
-				}
-				[self readWholeJoins:whole page:nil completion:^(NSError *failed) {
-					if (failed != nil) {
-						completion(failed);
-					} else {
-						finish();
-					}
-				}];
-			}];
+			finish();
 			step = nil;
 			return;
 		}
@@ -2349,79 +2306,86 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	step();
 }
 
-/* Each correlated join's objects, read whole, given the request. */
-- (void)readWholeJoins:(NSMutableArray<ORMQueryODataJoin *> *)joins
-                  page:(NSArray<NSDictionary *> *)page
-            completion:(void (^)(NSError *error))completion
+/* A page of the request's objects, after the offset. */
+- (void)scan:(NSUInteger)count offset:(NSUInteger)offset completion:(void (^)(NSArray *values, NSError *error))completion
 {
-	if ([joins count] == 0) {
-		completion(nil);
-		return;
-	}
-	ORMQueryODataJoin *join = [joins lastObject];
-	[joins removeLastObject];
+	[self prepare:^(NSError *unprepared) {
+		if (unprepared != nil) {
+			completion(nil, unprepared);
+			return;
+		}
+		ODataMutableQueryOptions *options = [self->_options mutableCopy];
+		options.top = @(count);
+		options.skip = @(offset);
+		NSError *error = nil;
+		NSURL *url = [self URLFor:self->_request.collectionPath options:options error:&error];
+		if (url == nil) {
+			completion(nil, error);
+			return;
+		}
+		[self get:url completion:^(NSArray *values, NSURL *next, NSError *fetched) {
+			completion(values, fetched);
+		}];
+	}];
+}
+
+/* A correlated join's objects: those with the page's values, or (no page)
+ * all of them. */
+- (void)readJoin:(ORMQueryODataJoin *)join
+            page:(NSArray<NSDictionary *> *)page
+      completion:(void (^)(NSArray *objects, NSError *error))completion
+{
 	NSError *error = nil;
 	ODataMutableQueryOptions *options = [join.options mutableCopy];
 	if (page != nil) {
-		/* Only those with the page's values. */
 		ODataExpression *narrowed = [_request join:join filterFor:page error:&error];
 		if (narrowed == nil) {
-			if (error != nil) {
-				completion(error);
-				return;
-			}
-			[_request setObjects:@[] ofJoin:join];
-			[self readWholeJoins:joins page:page completion:completion];
+			/* None of the page's values: none of them. */
+			completion(error == nil ? @[] : nil, error);
 			return;
 		}
 		options.filter = options.filter != nil ? [ODataExpression binary:@"and" left:options.filter right:narrowed error:&error]
 		                                       : narrowed;
 		if (options.filter == nil) {
-			completion(error);
+			completion(nil, error);
 			return;
 		}
 	}
 	NSURL *url = [self URLFor:join.collectionPath options:options error:&error];
 	if (url == nil) {
-		completion(error);
+		completion(nil, error);
 		return;
 	}
-	NSMutableArray *objects = [NSMutableArray array];
-	[self all:url into:objects completion:^(NSError *fetched) {
+	NSMutableArray *found = [NSMutableArray array];
+	[self all:url into:found completion:^(NSError *fetched) {
 		if (fetched != nil) {
-			completion(fetched);
+			completion(nil, fetched);
 			return;
 		}
-		[self->_request setObjects:objects ofJoin:join];
-		[self readWholeJoins:joins page:page completion:completion];
+		NSMutableArray *objects = [NSMutableArray array];
+		for (NSDictionary *json in found) {
+			[objects addObject:ORMODataObjectOf(json, join.entity)];
+		}
+		completion(objects, nil);
 	}];
 }
 
-/* Each bag's rows, read whole or, for a page, its groups', given the
- * request's rows to aggregate. */
-- (void)readBags:(NSMutableArray<NSString *> *)names
-            page:(NSArray<NSDictionary *> *)page
-      completion:(void (^)(NSError *error))completion
+/* A bag's rows: those of the page's groups, or (no page) all of them. */
+- (void)readBag:(NSString *)name
+           page:(NSArray<NSDictionary *> *)page
+     completion:(void (^)(NSArray *rows, NSError *error))completion
 {
-	if ([names count] == 0) {
-		completion(nil);
+	ORMQueryODataCursor *cursor = [[_request.bags objectForKey:name] cursorWithTransport:_transport serviceRoot:_root];
+	if (cursor == nil) {
+		completion(nil, ORMODataError([NSString stringWithFormat:@"%@ is read from nothing the service serves.", name]));
 		return;
 	}
-	NSString *name = [names lastObject];
-	[names removeLastObject];
-	ORMQueryODataCursor *cursor = [[_request.bags objectForKey:name] cursorWithTransport:_transport serviceRoot:_root];
 	if (page != nil) {
-		/* Only the page's groups' rows. */
 		NSError *error = nil;
 		cursor.extraFilter = [_request bag:name filterFor:page error:&error];
 		if (cursor.extraFilter == nil) {
-			if (error != nil) {
-				completion(error);
-				return;
-			}
 			/* No group: none of its rows. */
-			[_request setRows:@[] ofBag:name];
-			[self readBags:names page:page completion:completion];
+			completion(error == nil ? @[] : nil, error);
 			return;
 		}
 	}
@@ -2431,7 +2395,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		[cursor nextPage:256 completion:^(ORMQueryResult *read, NSError *error) {
 			if (read == nil) {
 				more = nil;
-				completion(error);
+				completion(nil, error);
 				return;
 			}
 			[rows addObjectsFromArray:read.rows];
@@ -2439,15 +2403,10 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 				more();
 				return;
 			}
-			[self->_request setRows:rows ofBag:name];
-			[self readBags:names page:page completion:completion];
+			completion(rows, nil);
 			more = nil;
 		}];
 	};
-	if (cursor == nil) {
-		completion(ORMODataError([NSString stringWithFormat:@"%@ is read from nothing the service serves.", name]));
-		return;
-	}
 	more();
 }
 
@@ -2577,108 +2536,100 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	}];
 }
 
-/* The rows the page joins keep of these, one join after another. */
-- (void)keep:(NSArray *)rows from:(NSUInteger)index completion:(void (^)(NSArray *kept, NSError *error))completion
+/* The cursors reading the request: its objects a page at a time, the
+ * page joins' semijoins, each bag and correlated join read for each batch
+ * (or once, whole), and its checks (docs/CURSORS.md). */
+- (id<ORMCursor>)cursor
 {
-	NSArray *joins = _request.pageJoins;
-	if (index == [joins count] || [rows count] == 0) {
-		NSMutableArray *kept = [NSMutableArray array];
-		for (NSDictionary *row in rows) {
-			if ([_request keeps:row]) {
-				[kept addObject:row];
-			}
-		}
-		completion(kept, nil);
-		return;
+	__weak ORMQueryODataCursor *weakSelf = self;
+	ORMODataScan *scan = [[ORMODataScan alloc] init];
+	scan.cursor = self;
+	id<ORMCursor> cursor = scan;
+	for (ORMQueryODataJoin *join in _request.pageJoins) {
+		ORMODataSemiJoin *semi = [[ORMODataSemiJoin alloc] init];
+		semi.input = cursor;
+		semi.join = join;
+		semi.cursor = self;
+		cursor = semi;
 	}
-	[self keep:rows join:[joins objectAtIndex:index] completion:^(NSArray *kept, NSError *error) {
-		if (kept == nil) {
-			completion(nil, error);
-			return;
-		}
-		[self keep:kept from:index + 1 completion:completion];
-	}];
-}
-
-- (void)fill:(NSMutableArray *)page size:(NSUInteger)size completion:(void (^)(ORMQueryResult *page, NSError *error))completion
-{
-	if ([page count] >= size || _atEnd) {
-		NSArray *rows = _pageRows ?: @[];
-		_pageRows = nil;
-		completion([ORMQueryResult resultWithObjects:page columnTitles:[_request.plan.columns valueForKey:@"title"] rows:rows],
-		           nil);
-		return;
+	NSArray * (^objects)(ORMBatch *) = ^NSArray *(ORMBatch *batch) {
+		return batch.objects;
+	};
+	for (NSString *name in [[_request.bags allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		cursor = [[ORMBindJoinCursor alloc] initWithInput:cursor name:name
+		                                            scope:[_request scopesBag:name] ? objects : nil
+		                                             read:^(NSArray *page, void (^done)(id, NSError *)) {
+			                                             [weakSelf readBag:name page:page completion:done];
+		                                             }];
 	}
-	NSUInteger wanted = size - [page count];
-	ODataMutableQueryOptions *options = [_options mutableCopy];
-	options.top = @(wanted);
-	options.skip = @(_offset);
-	NSError *error = nil;
-	NSURL *url = [self URLFor:_request.collectionPath options:options error:&error];
-	if (url == nil) {
-		completion(nil, error);
-		return;
+	for (ORMQueryODataJoin *join in _request.wholeJoins) {
+		cursor = [[ORMBindJoinCursor alloc] initWithInput:cursor name:join.name
+		                                            scope:join.pageScope != nil ? objects : nil
+		                                             read:^(NSArray *page, void (^done)(id, NSError *)) {
+			                                             [weakSelf readJoin:join page:page completion:done];
+		                                             }];
 	}
-	[self get:url completion:^(NSArray *values, NSURL *next, NSError *fetched) {
-		if (values == nil) {
-			completion(nil, fetched);
-			return;
-		}
-		self->_offset += [values count];
-		if ([values count] < wanted) {
-			self->_atEnd = YES;
-		}
-		NSMutableArray *scoped = [NSMutableArray arrayWithArray:[self->_request.bags allKeys]];
-		[scoped removeObjectsInArray:[self->_request wholeBags]];
-		NSMutableArray *narrowed = [NSMutableArray array];
-		for (ORMQueryODataJoin *join in self->_request.wholeJoins) {
-			if (join.pageScope != nil) {
-				[narrowed addObject:join];
-			}
-		}
-		[self readBags:scoped page:values completion:^(NSError *unread) {
-			if (unread != nil) {
-				completion(nil, unread);
-				return;
-			}
-			[self readWholeJoins:narrowed page:values completion:^(NSError *unjoined) {
-				if (unjoined != nil) {
-					completion(nil, unjoined);
-					return;
-				}
-				[self keep:values from:0 completion:^(NSArray *kept, NSError *failed) {
-					if (kept == nil) {
-						completion(nil, failed);
-						return;
-					}
-					[page addObjectsFromArray:kept];
-					/* Their rows now, while the bags' rows are theirs. */
-					if (self->_pageRows == nil) {
-						self->_pageRows = [NSMutableArray array];
-					}
-					for (NSDictionary *object in kept) {
-						for (NSArray *tuple in [self->_request rowsOf:object]) {
-							if (![self->_given containsObject:tuple]) {
-								[self->_given addObject:tuple];
-								[self->_pageRows addObject:tuple];
-							}
-						}
-					}
-					[self fill:page size:size completion:completion];
-				}];
-			}];
-		}];
-	}];
+	return [[ORMFilterCursor alloc] initWithInput:cursor evaluator:_request];
 }
 
 - (void)nextPage:(NSUInteger)size completion:(void (^)(ORMQueryResult *page, NSError *error))completion
 {
-	[self prepare:^(NSError *error) {
-		if (error != nil) {
+	if (_reader == nil) {
+		_reader = [[ORMPageReader alloc] initWithInput:[self cursor] evaluator:_request
+		                                  columnTitles:[_request.plan.columns valueForKey:@"title"]];
+	}
+	[_reader nextPage:size completion:completion];
+}
+
+@end
+
+@implementation ORMODataScan
+{
+	NSUInteger _offset;
+	BOOL _atEnd;
+}
+
+- (BOOL)atEnd
+{
+	return _atEnd;
+}
+
+- (void)next:(NSUInteger)count completion:(void (^)(ORMBatch *batch, NSError *error))completion
+{
+	if (_atEnd || count == 0) {
+		completion([ORMBatch batchWithObjects:@[] answers:@{}], nil);
+		return;
+	}
+	[self.cursor scan:count offset:_offset completion:^(NSArray *values, NSError *error) {
+		if (values == nil) {
 			completion(nil, error);
 			return;
 		}
-		[self fill:[NSMutableArray array] size:MAX(size, (NSUInteger)1) completion:completion];
+		self->_offset += [values count];
+		self->_atEnd = [values count] < count;
+		completion([ORMBatch batchWithObjects:values answers:@{}], nil);
+	}];
+}
+
+@end
+
+@implementation ORMODataSemiJoin
+
+- (BOOL)atEnd
+{
+	return self.input.atEnd;
+}
+
+- (void)next:(NSUInteger)count completion:(void (^)(ORMBatch *batch, NSError *error))completion
+{
+	[self.input next:count completion:^(ORMBatch *batch, NSError *error) {
+		if (batch == nil || [batch.objects count] == 0) {
+			completion(batch, error);
+			return;
+		}
+		[self.cursor keep:batch.objects join:self.join completion:^(NSArray *kept, NSError *failed) {
+			completion(kept != nil ? [batch batchWithObjects:kept] : nil, failed);
+		}];
 	}];
 }
 

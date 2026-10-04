@@ -51,7 +51,8 @@ ORMKit_HEADER_FILES = \
   ORMQueryPlan.h \
   ORMQueryPlanner.h \
   ORMQueryInterpreter.h \
-  ORMQueryOData.h
+  ORMQueryOData.h \
+  ORMCursor.h
 ORMKit_OBJC_FILES = \
   ORMXML.m \
   ORMModel.m \
@@ -91,6 +92,7 @@ ORMKit_OBJC_FILES = \
   ORMQueryPlan.m \
   ORMQueryPlanner.m \
   ORMQueryInterpreter.m \
+  ORMCursor.m \
   ORMQueryOData.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the
