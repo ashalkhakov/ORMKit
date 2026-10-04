@@ -309,6 +309,11 @@ in a tab. Changes undo with the model.
   earlier occurrence had conditions of its own takes any object its path
   reaches, not only those meeting them. Noted. Where no inverse leads back,
   the interpreter evaluates `IN` on the objects fetched.
+- **Conditions under a `maybe`:** ConQuer-II's Q3 (in
+  [Samples/University.orm](../Samples/University.orm)) lists each degree
+  rated above 5 where there is one. The planner lists each degree and drops
+  the condition: the columns under a `maybe` should take only the members
+  meeting it.
 - **Aggregates beyond a step's own group:**
   - grouped by something other than the node above (ConQuer-II's for-clauses,
     `max(Rating) for Employee > avg(Rating) for Department`);

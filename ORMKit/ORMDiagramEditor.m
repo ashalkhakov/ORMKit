@@ -61,15 +61,37 @@ static const double ORMSpacing = 0.5 * 72.0;
 	return [diagram isKindOfClass:[ORMDiagram class]] ? diagram : nil;
 }
 
+/* Where the object type is drawn on the diagram: its own shape, or the
+ * fact type it objectifies, whose outline its roles are drawn to. */
+static ORMShape *
+ORMPlayerShape(ORMObjectType *type, ORMDiagram *diagram)
+{
+	ORMShape *shape = [diagram shapeForSubject:type.identifier];
+	if (shape == nil && type.nestedFactType != nil) {
+		shape = [diagram shapeForSubject:type.nestedFactType.identifier];
+	}
+	return shape;
+}
+
 /* The shapes on the diagram the element is linked to: a fact type's
- * players, an object type's fact types, a constraint's fact types. */
+ * players, an object type's fact types, a constraint's fact types. An
+ * objectified fact type is linked as its objectifying type is too. */
 - (NSArray<ORMShape *> *)linkedShapesOf:(id)element on:(ORMDiagram *)diagram
 {
 	NSMutableArray *linked = [NSMutableArray array];
 	NSMutableArray *subjects = [NSMutableArray array];
 	if ([element isKindOfClass:[ORMFactType class]]) {
 		for (ORMRole *role in [(ORMFactType *)element visibleRoles]) {
-			[subjects addObject:role.player.identifier ?: @""];
+			ORMShape *player = role.player != nil ? ORMPlayerShape(role.player, diagram) : nil;
+			if (player != nil) {
+				[linked addObject:player];
+			}
+		}
+		ORMObjectType *objectifying = [(ORMFactType *)element objectifyingType];
+		if (objectifying != nil && [diagram shapeForSubject:objectifying.identifier] == nil) {
+			for (ORMRole *role in [objectifying playedRoles]) {
+				[subjects addObject:role.factType.identifier ?: @""];
+			}
 		}
 	} else if ([element isKindOfClass:[ORMObjectType class]]) {
 		for (ORMRole *role in [(ORMObjectType *)element playedRoles]) {
@@ -250,7 +272,7 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
 	[_editor group:@"Add Fact Type" with:^{
 		for (ORMRole *role in [fact visibleRoles]) {
-			if (role.player != nil && [[self diagramWithId:diagramId] shapeForSubject:role.player.identifier] == nil) {
+			if (role.player != nil && ORMPlayerShape(role.player, [self diagramWithId:diagramId]) == nil) {
 				[self placeElement:role.player.identifier onDiagram:diagramId at:ORMAutomaticPlacement];
 			}
 		}
@@ -517,6 +539,11 @@ typedef struct {
 			nodes[i].dy -= ddy / distance * force;
 			nodes[j].dx += ddx / distance * force;
 			nodes[j].dy += ddy / distance * force;
+		}
+		/* A weak pull to the middle, so what nothing links stays near. */
+		for (NSUInteger i = 0; i < count; i++) {
+			nodes[i].dx -= nodes[i].x * 0.03;
+			nodes[i].dy -= nodes[i].y * 0.03;
 		}
 		for (NSUInteger i = 0; i < count; i++) {
 			double length = MAX(hypot(nodes[i].dx, nodes[i].dy), 0.0001);

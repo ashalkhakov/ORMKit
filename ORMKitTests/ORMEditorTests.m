@@ -232,6 +232,24 @@
 	}
 }
 
+/* A role an objectified fact type plays is drawn to its outline: no shape
+ * of its own, and arranging keeps the two together. */
+- (void)testAnObjectifiedFactTypeIsWhereItsRolesAreDrawn
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *visit = [self fact:@[ person, country ] reading:@"{0} visited {1}" in:editor];
+	NSString *visitType = [editor.factTypeEditor objectifyFactType:visit named:@"Visit" reason:NULL];
+	NSString *period = [self entity:@"Period" mode:@"days" in:editor];
+	[self fact:@[ visitType, period ] reading:@"{0} took {1}" in:editor];
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	XCTAssertNil([diagram shapeForSubject:visitType]);
+	[editor.diagramEditor arrangeDiagram:diagram.identifier];
+	NSRect extent = [[editor.model.diagrams firstObject] extent];
+	XCTAssertTrue(NSWidth(extent) < 8 * 72 && NSHeight(extent) < 8 * 72, @"%@", NSStringFromRect(extent));
+}
+
 - (void)testDeletingCascades
 {
 	ORMEditor *editor = [self newEditor];

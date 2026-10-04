@@ -100,6 +100,10 @@ a category on each entity's class, called from its `validateForInsert:` and
 ConQuer's outline, in FORML, as a request to the OData service ODataKit makes
 of the mapping, and as its plan with the fetches that run it.
 
+[Samples/](Samples/README.md) has models to start from: the schemas of
+Halpin's papers on conceptual queries and on UML and ORM, with the papers'
+queries.
+
 ## License
 
 LGPL 2.1 (`LICENSE`). The test fixtures in `ORMKitTests/Fixtures/ActiveFacts`
@@ -107,4 +111,5 @@ are Clifford Heath's ActiveFacts examples, under the MIT license
 (`ORMKitTests/Fixtures/ActiveFacts/LICENSE.txt`); those in
 `ORMKitTests/Fixtures/NORMA` are NORMA's sample and test models, under the
 Common Public License 1.0 (`ORMKitTests/Fixtures/NORMA/LICENSE.txt`). Neither
-is part of the library.
+is part of the library. The models in `Samples/` are ORMKit's own, of
+schemas Halpin's papers publish.
