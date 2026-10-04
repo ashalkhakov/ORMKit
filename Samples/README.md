@@ -57,8 +57,10 @@ only the identifiers. That makes a row easy to check against the data.
   | Payroll | branches 52 and 7 |
   | Polyglots | employee 1 |
 
-  Its Core Data mapping keeps City an entity, so Q4 can compare two
-  employees' cities.
+  Its Core Data mapping keeps City an entity of its own. Under the default
+  mapping City is absorbed into Employee and Branch as its name, state and
+  country, and Q4 compares two employees' cities part by part instead; it
+  finds the same employee.
 - **University:** five academics, two of them professors, with degrees from
   UQ, MIT and ANU. Also ours:
   - Q1 finds academics 430 (Cara Diaz), 715 (Ana Lima) and 720 (Ben Cho);

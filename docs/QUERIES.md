@@ -282,7 +282,8 @@ Its text (`-[ORMQueryPlan text]`):
 | count(X) > n | `number of cars > 1`, or `number of cars as x2 having ... > 1` |
 | total, avg, max, min | `sum of x1.salary.usd over employees as x1 > 1000000`, with `having ...` where the steps below narrow the members |
 | a label met again, in scope | `x1.city is city` |
-| a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read |
+| a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read, and meeting the conditions the earlier occurrence had: `x2 is among ownsCars and x2.regnr = 'B'` |
+| a label on an absorbed object type, met again | its parts compared: `x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and ...` |
 | a node compared with another | `not (x1.country is country)` |
 | a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname` |
 | a step through an absorbed object type to an entity that absorbs it too | `... in join1`, a set the plan defines: `let join1 = read Branch where nr = 52` (below) |
@@ -462,15 +463,9 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 
 ## Not done yet
 
-- **Correlating an absorbed object type:** an object type absorbed into the
-  entities that use it (City, under the default mapping) has no one value to
-  compare, so a label on it is dropped, with a note. Company's Q4 needs City
-  as an entity, which the sample's mapping makes it; comparing all of an
-  absorbed type's parts would lift this.
-- **Correlation with conditions:** a label met again out of scope whose
-  earlier occurrence had conditions of its own takes any object its path
-  reaches, not only those meeting them. Noted. Where no inverse leads back,
-  the interpreter evaluates `IN` on the objects fetched.
+- **An absorbed object type met again out of scope:** its parts are
+  compared only where both occurrences are in scope. Out of scope, the label
+  is dropped, with a note.
 - **Conditions under a `maybe`:** ConQuer-II's Q3 (in
   [Samples/University.orm](../Samples/University.orm)) lists each degree
   rated above 5 where there is one. The planner lists each degree and drops

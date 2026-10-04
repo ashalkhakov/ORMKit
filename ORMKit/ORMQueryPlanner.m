@@ -12,6 +12,10 @@
 @property (nonatomic, strong) ORMCDEntity *entity;
 /* The plan it was reached in: 0 the query's, 1 a join's in it, ... */
 @property (nonatomic) NSUInteger level;
+/* An object type absorbed into the entity: no object of its own, but its
+ * parts, @[ the trace below the base ("/role"), the part's place ], in
+ * the order the entity has them. nil for others. */
+@property (nonatomic, copy) NSArray<NSArray *> *parts;
 @end
 
 @implementation ORMPlannerPlace
@@ -56,10 +60,19 @@
 
 @end
 
+/* All of them, an "all" among them merged in. */
 static ORMPlanCondition *
 ORMAllOf(NSArray<ORMPlanCondition *> *parts)
 {
-	return [parts count] == 0 ? nil : ([parts count] == 1 ? [parts firstObject] : [ORMPlanCondition all:parts]);
+	NSMutableArray *flat = [NSMutableArray array];
+	for (ORMPlanCondition *part in parts) {
+		if (part.kind == ORMPlanAnd) {
+			[flat addObjectsFromArray:part.operands];
+		} else {
+			[flat addObject:part];
+		}
+	}
+	return [flat count] == 0 ? nil : ([flat count] == 1 ? [flat firstObject] : [ORMPlanCondition all:flat]);
 }
 
 static ORMPlanCondition *
@@ -125,6 +138,9 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 - (void)reach:(ORMQueryNode *)node place:(ORMPlannerPlace *)place
 {
 	place.level = _level;
+	for (NSArray *part in place.parts) {
+		((ORMPlannerPlace *)[part lastObject]).level = _level;
+	}
 	[_reached setObject:place forKey:node.identifier];
 }
 
@@ -285,6 +301,9 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		return nil;
 	}
 	BOOL equality = [comparison isEqualToString:@"="] || [comparison isEqualToString:@"<>"];
+	if (place.parts != nil || reference.parts != nil) {
+		return [self relateParts:place comparison:comparison to:reference node:other];
+	}
 	ORMPlanCondition *related = nil;
 	if ([self inScope:reference]) {
 		if (place.entity == nil) {
@@ -298,11 +317,6 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		}
 		related = [ORMPlanCondition same:place.path as:[self pathOf:reference]];
 	} else {
-		if (other.comparison != nil || [other.steps count] > 0) {
-			[self note:[NSString stringWithFormat:@"%@ is taken as any %@ the path reaches, not only those meeting its "
-			                                      @"conditions.",
-			                                      [other designation], other.objectType.name]];
-		}
 		if (!equality) {
 			[self note:[NSString stringWithFormat:@"%@ %@ %@ compares with many: only = and <> can.", place.path,
 			                                      comparison, [other designation]]];
@@ -313,8 +327,70 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		ORMPlanPath *base = reference.level < _level
 			? [ORMPlanPath pathFrom:[_outerNames objectAtIndex:reference.level] keys:@[]] : nil;
 		related = [ORMPlanCondition among:place.path trail:[reference.trail valueForKey:@"name"] from:base];
+		/* Among those meeting the earlier occurrence's conditions: they are
+		 * of this very object, so they are asked of it here. */
+		if (other.comparison != nil || [other.steps count] > 0) {
+			ORMPlanCondition *again = place.entity != nil ? [self again:other at:place] : nil;
+			if (again != nil) {
+				related = [ORMPlanCondition all:@[ related, again ]];
+			} else {
+				[self note:[NSString stringWithFormat:@"%@ is taken as any %@ the path reaches, not only those meeting "
+				                                      @"its conditions.",
+				                                      [other designation], other.objectType.name]];
+			}
+		}
 	}
 	return [comparison isEqualToString:@"<>"] ? [ORMPlanCondition not:related] : related;
+}
+
+/* Two occurrences of an absorbed object type: the same where each of their
+ * parts is, a value equal, an object the same one. */
+- (ORMPlanCondition *)relateParts:(ORMPlannerPlace *)place
+                       comparison:(NSString *)comparison
+                               to:(ORMPlannerPlace *)reference
+                             node:(ORMQueryNode *)other
+{
+	BOOL equality = [comparison isEqualToString:@"="] || [comparison isEqualToString:@"<>"];
+	NSMutableArray *ours = [NSMutableArray array], *theirs = [NSMutableArray array];
+	for (NSArray *part in place.parts) {
+		[ours addObject:[part firstObject]];
+	}
+	for (NSArray *part in reference.parts) {
+		[theirs addObject:[part firstObject]];
+	}
+	if (!equality || place.parts == nil || reference.parts == nil || ![ours isEqualToArray:theirs]) {
+		[self note:[NSString stringWithFormat:@"%@ is absorbed: it is compared with %@ only by = or <>, part by part, "
+		                                      @"where both are absorbed alike.",
+		                                      other.objectType.name, [other designation]]];
+		return nil;
+	}
+	if (![self inScope:reference]) {
+		[self note:[NSString stringWithFormat:@"%@ is absorbed, and %@ is out of scope where it is met again: its parts "
+		                                      @"are not compared.",
+		                                      other.objectType.name, [other designation]]];
+		return nil;
+	}
+	NSMutableArray *equal = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [place.parts count]; i++) {
+		ORMPlannerPlace *mine = [[place.parts objectAtIndex:i] lastObject];
+		ORMPlannerPlace *its = [[reference.parts objectAtIndex:i] lastObject];
+		ORMPlanPath *there = [self pathOf:its];
+		[equal addObject:mine.entity != nil ? [ORMPlanCondition same:mine.path as:there]
+		                                    : [ORMPlanCondition compare:[ORMPlanValue valueAtPath:mine.path] comparison:@"="
+		                                                           with:[ORMPlanValue valueAtPath:there]]];
+	}
+	ORMPlanCondition *related = ORMAllOf(equal);
+	return [comparison isEqualToString:@"<>"] ? [ORMPlanCondition not:related] : related;
+}
+
+/* What the node and its steps require, asked of the object at the place:
+ * the node met again there. What it reaches is reached where it was. */
+- (ORMPlanCondition *)again:(ORMQueryNode *)node at:(ORMPlannerPlace *)place
+{
+	NSMutableDictionary *reached = [_reached mutableCopy];
+	ORMPlanCondition *condition = [self conditionFor:node entity:place.entity at:place columns:NO];
+	_reached = reached;
+	return condition;
 }
 
 /* Being the same as an earlier node of its label, and the comparison with
@@ -664,14 +740,29 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 {
 	NSArray *parts = [_places absorbedParts:base on:entity];
 	ORMCDProperty *firstPart = [[parts firstObject] lastObject];
-	if (node.comparison != nil || node.label != nil) {
-		[self note:[NSString stringWithFormat:@"%@ is absorbed: it has no one value to compare or correlate.",
-		                                      node.objectType.name]];
+	if (node.comparison != nil && node.comparedNode == nil) {
+		[self note:[NSString stringWithFormat:@"%@ is absorbed: it has no one value to compare with %@.",
+		                                      node.objectType.name, node.value ?: @""]];
 	}
 	if (columns && node.isProjected) {
 		[self column:node place:[at adding:firstPart entity:nil] identifier:nil];
 	}
-	NSMutableArray *conditions = [NSMutableArray array];
+	/* Where it is, as its parts are: what another occurrence is compared
+	 * with, part by part. */
+	NSMutableArray *partPlaces = [NSMutableArray array];
+	for (NSArray *part in [parts sortedArrayUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) {
+		     return [[(ORMCDProperty *)[a lastObject] name] compare:[(ORMCDProperty *)[b lastObject] name]];
+	     }]) {
+		ORMCDProperty *property = [part lastObject];
+		ORMCDEntity *reached = [property isKindOfClass:[ORMCDRelationship class]]
+			? [self destinationOf:(ORMCDRelationship *)property] : nil;
+		[partPlaces addObject:@[ [part firstObject], [at adding:property entity:reached] ]];
+	}
+	ORMPlannerPlace *place = [ORMPlannerPlace variable:at.path.variable entity:nil trail:at.trail];
+	place.path = at.path;
+	place.parts = partPlaces;
+	NSMutableArray *conditions = [NSMutableArray arrayWithArray:[self correlationsOf:node place:place]];
+	[self reach:node place:place];
 	for (ORMQueryStep *step in node.steps) {
 		ORMQueryNode *next = [step.nodes firstObject];
 		if ([step.nodes count] != 1 || step.operatorKind == ORMQueryMaybe) {

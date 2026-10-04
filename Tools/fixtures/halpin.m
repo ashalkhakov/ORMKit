@@ -477,8 +477,9 @@ check(BOOL ok, const char *what)
 	[self add:p];
 }
 
-/* A Core Data mapping keeping City an entity of its own, so a query can
- * compare cities (Q4): absorbed, a city has no one value to compare. */
+/* A Core Data mapping keeping City an entity of its own, where the default
+ * absorbs it into Employee and Branch: a city a relationship rather than
+ * three attributes, and Q4's comparison of cities one comparison. */
 - (void)companyMapping
 {
 	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:_editor];

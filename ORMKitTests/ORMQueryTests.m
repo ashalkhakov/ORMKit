@@ -598,6 +598,61 @@
 	                                        @"ANY $x2.isOwnedByEmployees == SELF).@count > 1))");
 }
 
+/* Q4 with City absorbed into Employee: no city to be the same one, but its
+ * parts, compared one by one. */
+- (void)testQ4ComparesAnAbsorbedCityPartByPart
+{
+	NSString *q = [self q4];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqualObjects([plan text], @"read Employee\n"
+	                                   @"where cityCityname is set and country is set and some employees as x1 has "
+	                                   @"(x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and "
+	                                   @"x1.cityStateStatecode = cityStateStatecode and not (x1.country is country))\n"
+	                                   @"list self (nr)");
+	/* The paper's company, its cities absorbed: Bea's employee Fay lives in
+	 * Sydney too, born elsewhere; Ann's Gus in Perth, not Brisbane. */
+	[self addCompanyPopulation];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_editor.model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @2 ]));
+}
+
+/* Who owns car B and drives it? Car1 is met again out of the scope it was
+ * met in, and its condition there is of the same car: asked again where
+ * it is met, so owning A and driving it is not enough. */
+- (void)testCorrelationKeepsTheEarlierConditions
+{
+	NSString *q = [[self queries] addQueryNamed:@"Drives B" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *owned = [self from:root through:[self role:@"owns" at:0] in:q];
+	[[self queries] setLabel:@"1" ofNode:owned.identifier];
+	XCTAssertTrue([[self queries] setCondition:@"=" value:@"B" ofNode:owned.identifier reason:NULL]);
+	ORMQueryNode *driven = [self from:root through:[self role:@"drives" at:0] in:q];
+	[[self queries] setLabel:@"1" ofNode:driven.identifier];
+	ORMQueryPlan *plan = [self plan:q];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqualObjects([plan text], @"read Employee\n"
+	                                   @"where some ownsCars as x1 has x1.regnr = 'B' and some cars as x2 has "
+	                                   @"(x2 is among ownsCars and x2.regnr = 'B')\n"
+	                                   @"list self (nr)");
+	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=OwnsCars/any(x1:x1/Regnr eq 'B') and Cars/any(x2:"
+	                                                   @"x2/IsOwnedByEmployees/any(y1:y1/Nr eq $it/Nr) and x2/Regnr eq 'B')"
+	                                                   @"&$select=Nr");
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	XCTAssertEqualObjects([self numbersOf:[planner planForQuery:[self query:q]] interpreter:interpreter inContext:context],
+	                      (@[ @3 ]));
+}
+
 /* ConQuer-II's: "what are the branches and total salary costs of branches
  * with a total salary cost of more than $1 000 000?", the richest first. */
 - (NSString *)payroll
