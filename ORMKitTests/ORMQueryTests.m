@@ -10,6 +10,8 @@
 @property (nonatomic, strong) id<ODataTransport> service;
 @property (atomic) NSUInteger requests;
 @property (atomic, strong) NSMutableArray<NSString *> *paths;
+/* Each request's query, decoded. */
+@property (atomic, strong) NSMutableArray<NSString *> *queries;
 @end
 
 @implementation ORMTestCountingTransport
@@ -17,6 +19,7 @@
 {
 	self.requests++;
 	[self.paths addObject:[[exchange.request.URL path] lastPathComponent] ?: @""];
+	[self.queries addObject:[[exchange.request.URL query] stringByRemovingPercentEncoding] ?: @""];
 	[self.service startExchange:exchange];
 }
 @end
@@ -661,6 +664,15 @@
 	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
 	/* 52's speak English and Latin; 7's, English only. */
 	XCTAssertEqualObjects([self rowsOfPlan:plan planner:planner inContext:context], (@[ @[ @52 ] ]));
+	/* From the service a branch a page: the bag read for each page's. */
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	ORMTestCountingTransport *counted = [self countedServiceOver:context];
+	XCTAssertEqualObjects([self pagesOf:odata transport:counted size:1], (@[ @[ @52 ] ]), @"%@", counted.paths);
+	NSUInteger narrowed = 0;
+	for (NSString *query in counted.queries) {
+		narrowed += [query rangeOfString:@" and Nr eq "].location != NSNotFound;
+	}
+	XCTAssertGreaterThan(narrowed, 0u, @"%@", counted.queries);
 }
 
 /* ConQuer-II's aggregate compared with an aggregate: the branches, and
@@ -724,10 +736,17 @@
 	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
 	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
 	XCTAssertEqualObjects([self rowsOfPlan:plan planner:planner inContext:context], (@[ @[ @52 ] ]), @"%@", [plan text]);
-	/* From the service: the bag read whole first, then the branches. */
+	/* The bag run for each slice's branches, not for every branch. */
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	NSString *program = [interpreter programForPlan:plan error:NULL];
+	XCTAssertTrue([program rangeOfString:@"bag1: run for each slice, where nr is among the slice's nr"].location != NSNotFound,
+	              @"%@", program);
+	/* From the service: the bag read for each page's branches. */
 	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
 	XCTAssertEqualObjects(odata.notes, @[]);
 	XCTAssertEqualObjects([[odata.bags allKeys] firstObject], @"bag1");
+	XCTAssertTrue([[odata requestText] rangeOfString:@"bag1, for each page, where Nr is one of the page's nr"].location
+	                  != NSNotFound, @"%@", [odata requestText]);
 	XCTAssertEqualObjects([self rowsOf:odata transport:[self countedServiceOver:context]], (@[ @[ @52 ] ]),
 	                      @"%@", [odata requestText]);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
@@ -776,7 +795,8 @@
 
 /* The same under a not: who lives in a city with no branch headed by
  * someone born in another country than they were? No page join says it:
- * the branches are read whole once, and the not checked on the answers. */
+ * for each page, the branches in its employees' cities are read, and the
+ * not checked on the answers. */
 - (void)testACorrelatedJoinUnderNotIsCheckedOnTheServicesAnswers
 {
 	NSString *q = [[self queries] addQueryNamed:@"Not abroad" from:[self typeId:@"Employee"] reason:NULL];
@@ -810,6 +830,19 @@
 	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
 	XCTAssertEqual([odata.pageJoins count], 0u);
 	XCTAssertEqual([odata.wholeJoins count], 1u, @"%@", [odata requestText]);
+	XCTAssertTrue([[odata requestText] rangeOfString:@"join1, for each page, where CityCityname, CityStateStatecode, "
+	                                                 @"CityStateCountry/Name are one of the page's"].location != NSNotFound,
+	              @"%@", [odata requestText]);
+	/* Two employees a page: the branches read for each page's cities. */
+	ORMTestCountingTransport *paged = [self countedServiceOver:context];
+	NSArray *pages = [self pagesOf:odata transport:paged size:2];
+	XCTAssertEqualObjects([[pages valueForKeyPath:@"@unionOfArrays.self"] sortedArrayUsingSelector:@selector(compare:)],
+	                      numbers, @"%@", paged.queries);
+	NSUInteger narrowed = 0;
+	for (NSString *query in paged.queries) {
+		narrowed += [query rangeOfString:@"CityCityname eq "].location != NSNotFound;
+	}
+	XCTAssertGreaterThan(narrowed, 1u, @"%@", paged.queries);
 	NSMutableArray *served = [NSMutableArray array];
 	for (NSArray *row in [self rowsOf:odata transport:[self countedServiceOver:context]]) {
 		[served addObject:[row firstObject]];
@@ -1359,6 +1392,7 @@
 {
 	ORMTestCountingTransport *counted = [[ORMTestCountingTransport alloc] init];
 	counted.paths = [NSMutableArray array];
+	counted.queries = [NSMutableArray array];
 	counted.service = [[ODataService alloc] initWithPersistentStoreCoordinator:context.persistentStoreCoordinator
 	                                                               serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
 	return counted;

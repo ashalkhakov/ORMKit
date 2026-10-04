@@ -137,22 +137,27 @@ equality, such as "who heads a branch in the city they live in", takes the
 same form: the equality is one more pair (`Employee/Nr`). A test checks that
 such a page is two requests.
 
-A correlated join no page join says is read whole once, before the first
-page (`wholeJoins`). This covers a join under a `not`, an `or` or a lambda,
-and pairs from a lambda's variable. The joined objects are filtered by their
-own conditions that do not depend on the object read. The condition holding
-the join is checked on each answer, with the object read bound. The filter
-asks what it can of that condition. "Who lives in a city with no branch
-headed by someone born in another country than they were":
+A correlated join no page join says is listed in `wholeJoins`. This covers
+a join under a `not`, an `or` or a lambda. The joined objects are filtered by
+their own conditions that do not depend on the object read. The condition
+holding the join is checked on each answer, with the object read bound, and
+the filter asks what it can of that condition.
+
+Where the pairs' values are the object read's, the joined objects are read
+for each page, narrowed to the page's values. A part that is an entity is
+compared by its key. "Who lives in a city with no branch headed by someone
+born in another country than they were":
 
 ```
-join1, read whole: GET Branches?$select=Nr,CityCityname,CityStateStatecode&$expand=Employee($select=Nr;$expand=Country($select=Name)),CityStateCountry($select=Name)
+join1, for each page, where CityCityname, CityStateStatecode, CityStateCountry/Name are one of the page's:
+  GET Branches?$select=Nr,CityCityname,CityStateStatecode&$expand=Employee($select=Nr;$expand=Country($select=Name)),CityStateCountry($select=Name)
 GET Employees?$filter=Country ne null&$select=Nr,CityCityname,CityStateStatecode&$expand=CityStateCountry($select=Name),Country($select=Name)
 ```
 
-Reading the joined objects whole costs one request, and their number. A
-page's own values could narrow them, as a page join's do; that is not done
-yet.
+Each page then costs one more request, for only the branches in its
+employees' cities. Where a pair's value comes from a lambda's variable, the
+page does not name the values, and the joined objects are read whole once,
+before the first page.
 
 Elsewhere, an object type absorbed into others (City, when it is not an
 entity) is joined on its parts' values by a request made first. The service
@@ -184,10 +189,14 @@ of the members meeting conditions (ODataKit's service aggregates no filtered
 collection), and an aggregate of a bag (a for-clause, or one compared with
 another). The filter asks what it can of such a condition (a `some` without
 the parts it cannot say), and the cursor keeps the objects that meet it
-whole, the request expanding what it looks at. A bag is a request of its
-own (`bags`). Before the first page, the cursor reads every page of it. Each
-aggregate is then worked out from the rows of the bag that have the group's
-identifier.
+whole, the request expanding what it looks at.
+
+A bag is a request of its own (`bags`). Where the group is reached from the
+object read through to-ones, the bag is read for each page, narrowed to that
+page's groups: `bag1, for each page, where Nr is one of the page's nr`. Else
+it is read whole before the first page. Each aggregate is worked out from
+the bag's rows with the group's identifier. A page's rows are made as its
+objects arrive, while the bags' rows are theirs.
 
 `testTheServiceAnswersTheQueries` serves the mapped model with `ODataService`
 over SQLite and checks the rows that Q1 to Q5, the payroll query and a count
@@ -207,8 +216,8 @@ query builder is the client's). The tests also link `ODataService`.
 
 ## Not done yet
 
-- **A correlated join read whole** is not narrowed to the page's values
-  (above).
+- **A correlated join or a bag whose values a page does not name** (from a
+  lambda's variable; a group below a to-many) is read whole once.
 - `$expand` of what a to-many step reaches lists every related object, and
   the cursor keeps those meeting the step's conditions. With many related
   objects, `$expand=X($filter=...)` would read fewer, where the conditions do

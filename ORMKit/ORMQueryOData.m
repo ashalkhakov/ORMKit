@@ -53,6 +53,10 @@ ORMODataError(NSString *text)
 @property (nonatomic, strong) ODataQueryOptions *rowOptions;
 /* The key paths of the object read the check looks at. */
 @property (nonatomic, copy) NSArray<NSArray<NSString *> *> *outerKeys;
+/* A join read whole, narrowed to each page's values: for each value,
+ * @[ our path, the key of the entity it reaches or NSNull, their wire
+ * path ]. nil where the page does not say them. */
+@property (nonatomic, copy) NSArray<NSArray *> *pageScope;
 @end
 
 @implementation ORMQueryODataJoin
@@ -102,6 +106,9 @@ ORMODataError(NSString *text)
 
 @interface ORMQueryODataCursor ()
 - (instancetype)initWithRequest:(ORMQueryOData *)request transport:(id<ODataTransport>)transport serviceRoot:(NSURL *)root;
+/* What the request's filter is narrowed by besides: a page's groups, for
+ * a bag. */
+@property (nonatomic, strong) ODataExpression *extraFilter;
 @end
 
 #pragma mark Rows from the service
@@ -145,6 +152,8 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 /* A bag's rows, as the service answers its request: what its aggregates
  * are of. */
 - (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name;
+/* The values at the path from an object the service answers. */
+- (NSArray *)valuesAt:(ORMPlanPath *)path object:(ORMODataObject *)read bindings:(NSDictionary *)bindings;
 /* A correlated join's objects, read whole: what its condition is checked
  * against. */
 - (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(NSString *)name entity:(NSEntityDescription *)entity;
@@ -216,6 +225,11 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 		_bagGroups = [NSMutableDictionary dictionary];
 	}
 	[_bagRows setObject:rows forKey:name];
+	for (NSString *key in [_bagGroups allKeys]) {
+		if ([key hasPrefix:[name stringByAppendingString:@"/"]]) {
+			[_bagGroups removeObjectForKey:key];
+		}
+	}
 }
 
 /* The aggregate's bag's rows of the group: those whose group column is
@@ -743,6 +757,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 - (BOOL)keeps:(NSDictionary *)json;
 - (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name;
 - (void)setObjects:(NSArray<NSDictionary *> *)objects ofJoin:(ORMQueryODataJoin *)join;
+- (NSArray<NSString *> *)wholeBags;
+- (ODataExpression *)join:(ORMQueryODataJoin *)join filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
+- (ODataExpression *)bag:(NSString *)name filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
 @end
 
 @implementation ORMQueryOData
@@ -770,6 +787,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSUInteger _depth;
 	NSUInteger _variables;
 	NSMutableDictionary<NSString *, ORMQueryOData *> *_bags;
+	/* A bag read for each page's groups: @[ the group's path here, its
+	 * wire path in the bag ], by its name. */
+	NSMutableDictionary<NSString *, NSArray *> *_bagScopes;
 	NSMutableArray<ORMQueryODataJoin *> *_wholeJoins;
 }
 
@@ -797,6 +817,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	request->_written = [NSMutableDictionary dictionary];
 	request->_checks = [NSMutableArray array];
 	request->_bags = [NSMutableDictionary dictionary];
+	request->_bagScopes = [NSMutableDictionary dictionary];
 	request->_wholeJoins = [NSMutableArray array];
 	[request lower];
 	if (request->_error != nil) {
@@ -913,7 +934,74 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	join.entity = theirEntity;
 	join.outer = condition.variable;
 	join.check = joinedCondition;
+	/* Narrowed to each page's values, where they are the object read's:
+	 * a part that is an entity, by its key. */
+	NSMutableArray *scope = [NSMutableArray array];
+	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+		NSEntityDescription *end = nil;
+		NSArray *theirs = [self wirePathFor:[pair lastObject].keys from:theirEntity entity:&end];
+		if ([pair firstObject].variable != nil || theirs == nil) {
+			scope = nil;
+			break;
+		}
+		if (end == nil) {
+			[scope addObject:@[ [pair firstObject], [NSNull null], theirs ]];
+			continue;
+		}
+		for (NSString *key in [self keyOf:end]) {
+			[scope addObject:@[ [pair firstObject], key, [theirs arrayByAddingObject:key] ]];
+		}
+	}
+	join.pageScope = [scope count] > 0 ? scope : nil;
 	[_wholeJoins addObject:join];
+}
+
+/* What narrows the join's objects to the page's values: theirs one of
+ * the page's tuples. nil for a join read whole, or a page with none (no
+ * error). */
+- (ODataExpression *)join:(ORMQueryODataJoin *)join filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error
+{
+	NSMutableOrderedSet *tuples = [NSMutableOrderedSet orderedSet];
+	for (NSDictionary *json in page) {
+		ORMODataObject *read = ORMODataObjectOf(json, _read);
+		NSMutableArray *tuple = [NSMutableArray array];
+		for (NSArray *part in join.pageScope) {
+			id value = [[_rows valuesAt:[part firstObject] object:read bindings:@{}] firstObject];
+			if ([part objectAtIndex:1] != [NSNull null]) {
+				value = [value isKindOfClass:[ORMODataObject class]]
+					? [((ORMODataObject *)value).json objectForKey:[part objectAtIndex:1]] : nil;
+			}
+			if (value == nil || value == [NSNull null]) {
+				/* Equal to none. */
+				tuple = nil;
+				break;
+			}
+			[tuple addObject:value];
+		}
+		if (tuple != nil) {
+			[tuples addObject:tuple];
+		}
+	}
+	ODataExpression *any = nil;
+	for (NSArray *tuple in tuples) {
+		ODataExpression *all = nil;
+		for (NSUInteger i = 0; i < [tuple count]; i++) {
+			ODataExpression *path = [ODataExpression memberPath:[[join.pageScope objectAtIndex:i] lastObject] of:nil error:error];
+			ODataExpression *equal = path != nil ? [ODataExpression binary:@"eq" left:path
+			                                                         right:[ODataExpression literalWithValue:[tuple objectAtIndex:i]]
+			                                                         error:error]
+			                                     : nil;
+			all = equal == nil ? nil : (all != nil ? [ODataExpression binary:@"and" left:all right:equal error:error] : equal);
+			if (all == nil) {
+				return nil;
+			}
+		}
+		any = any != nil ? [ODataExpression binary:@"or" left:any right:all error:error] : all;
+		if (any == nil) {
+			return nil;
+		}
+	}
+	return any;
 }
 
 - (NSDictionary<NSString *, ORMQueryOData *> *)bags
@@ -924,6 +1012,71 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 - (void)setRows:(NSArray<NSArray *> *)rows ofBag:(NSString *)name
 {
 	[_rows setRows:rows ofBag:name];
+}
+
+/* The wire path of the bag's group column, where a page's groups say
+ * which of its rows the page needs: the group reached through to-ones
+ * from the object read, here and in the bag, by its identifier. */
+- (NSArray<NSString *> *)wireOfGroup:(ORMPlanValue *)value in:(ORMQueryOData *)request
+{
+	NSUInteger index = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.groupColumn ?: @""];
+	ORMPlanColumn *column = index != NSNotFound ? [value.bag.plan.columns objectAtIndex:index] : nil;
+	if (column == nil || column.path.variable != nil || column.identifierKey == nil || value.groupPath.variable != nil) {
+		return nil;
+	}
+	NSEntityDescription *at = [self entityNamed:value.bag.plan.entityName];
+	for (NSString *key in column.trail) {
+		NSPropertyDescription *property = [[at propertiesByName] objectForKey:key];
+		if (![property isKindOfClass:[NSRelationshipDescription class]] || [(NSRelationshipDescription *)property isToMany]) {
+			return nil;
+		}
+		at = ((NSRelationshipDescription *)property).destinationEntity;
+	}
+	return [[request columnWire] objectAtIndex:index];
+}
+
+- (NSArray<NSString *> *)wholeBags
+{
+	NSMutableArray *names = [NSMutableArray array];
+	for (NSString *name in _bags) {
+		if ([_bagScopes objectForKey:name] == nil) {
+			[names addObject:name];
+		}
+	}
+	return names;
+}
+
+/* What narrows the bag to the page's groups: its group column one of
+ * theirs. nil for a bag read whole, or a page with no group (no error). */
+- (ODataExpression *)bag:(NSString *)name filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error
+{
+	NSArray *scope = [_bagScopes objectForKey:name];
+	if (scope == nil) {
+		return nil;
+	}
+	NSMutableOrderedSet *groups = [NSMutableOrderedSet orderedSet];
+	for (NSDictionary *json in page) {
+		for (id group in [_rows valuesAt:[scope firstObject] object:ORMODataObjectOf(json, _read) bindings:@{}]) {
+			if (group != [NSNull null]) {
+				[groups addObject:group];
+			}
+		}
+	}
+	ODataExpression *any = nil;
+	for (id group in groups) {
+		ODataExpression *path = [ODataExpression memberPath:[scope lastObject] of:nil error:error];
+		ODataExpression *equal = path != nil ? [ODataExpression binary:@"eq" left:path
+		                                                         right:[ODataExpression literalWithValue:group] error:error]
+		                                     : nil;
+		if (equal == nil) {
+			return nil;
+		}
+		any = any != nil ? [ODataExpression binary:@"or" left:any right:equal error:error] : equal;
+		if (any == nil) {
+			return nil;
+		}
+	}
+	return any;
 }
 
 /* A request for each bag an aggregate in the condition is of. */
@@ -947,6 +1100,10 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			[self note:[NSString stringWithFormat:@"%@: %@", bag.name, note]];
 		}
 		[_bags setObject:request forKey:bag.name];
+		NSArray *wire = [self wireOfGroup:value in:request];
+		if (wire != nil) {
+			[_bagScopes setObject:@[ value.groupPath, wire ] forKey:bag.name];
+		}
 	}
 	for (ORMPlanCondition *operand in condition.operands) {
 		[self requestBagsOf:operand];
@@ -1865,10 +2022,25 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	NSMutableString *text = [NSMutableString string];
 	for (NSString *name in [[_bags allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
 		NSString *bag = [[_bags objectForKey:name] requestText];
-		[text appendFormat:@"%@, read whole:\n%@", name, bag];
+		NSArray *scope = [_bagScopes objectForKey:name];
+		if (scope != nil) {
+			[text appendFormat:@"%@, for each page, where %@ is one of the page's %@:\n%@", name,
+			                   [[scope lastObject] componentsJoinedByString:@"/"], [scope firstObject], bag];
+		} else {
+			[text appendFormat:@"%@, read whole:\n%@", name, bag];
+		}
 	}
 	for (ORMQueryODataJoin *join in _wholeJoins) {
-		[text appendFormat:@"%@, read whole: %@", join.name, ORMRequestLine(join.collectionPath, join.options)];
+		if (join.pageScope != nil) {
+			NSMutableArray *parts = [NSMutableArray array];
+			for (NSArray *part in join.pageScope) {
+				[parts addObject:[[part lastObject] componentsJoinedByString:@"/"]];
+			}
+			[text appendFormat:@"%@, for each page, where %@ are one of the page's: %@", join.name,
+			                   [parts componentsJoinedByString:@", "], ORMRequestLine(join.collectionPath, join.options)];
+		} else {
+			[text appendFormat:@"%@, read whole: %@", join.name, ORMRequestLine(join.collectionPath, join.options)];
+		}
 	}
 	for (ORMQueryODataJoin *join in _joins) {
 		[text appendFormat:@"%@: %@", join.name, ORMRequestLine(join.collectionPath, join.options)];
@@ -2026,6 +2198,8 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	NSUInteger _offset;
 	BOOL _atEnd;
 	NSMutableSet<NSArray *> *_given;
+	/* The rows of the page being filled. */
+	NSMutableArray<NSArray *> *_pageRows;
 }
 
 - (instancetype)initWithRequest:(ORMQueryOData *)request transport:(id<ODataTransport>)transport serviceRoot:(NSURL *)root
@@ -2116,17 +2290,32 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 				return;
 			}
 		}
+		if (strongSelf.extraFilter != nil) {
+			options.filter = options.filter != nil
+				? [ODataExpression binary:@"and" left:options.filter right:strongSelf.extraFilter error:&error]
+				: strongSelf.extraFilter;
+			if (options.filter == nil) {
+				completion(error);
+				return;
+			}
+		}
 		strongSelf->_options = options;
 		completion(nil);
 	};
 	step = ^{
 		if (index == [joins count]) {
-			[self readBags:[[self->_request.bags allKeys] mutableCopy] completion:^(NSError *error) {
+			[self readBags:[[self->_request wholeBags] mutableCopy] page:nil completion:^(NSError *error) {
 				if (error != nil) {
 					completion(error);
 					return;
 				}
-				[self readWholeJoins:[self->_request.wholeJoins mutableCopy] completion:^(NSError *failed) {
+				NSMutableArray *whole = [NSMutableArray array];
+				for (ORMQueryODataJoin *join in self->_request.wholeJoins) {
+					if (join.pageScope == nil) {
+						[whole addObject:join];
+					}
+				}
+				[self readWholeJoins:whole page:nil completion:^(NSError *failed) {
 					if (failed != nil) {
 						completion(failed);
 					} else {
@@ -2161,7 +2350,9 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 }
 
 /* Each correlated join's objects, read whole, given the request. */
-- (void)readWholeJoins:(NSMutableArray<ORMQueryODataJoin *> *)joins completion:(void (^)(NSError *error))completion
+- (void)readWholeJoins:(NSMutableArray<ORMQueryODataJoin *> *)joins
+                  page:(NSArray<NSDictionary *> *)page
+            completion:(void (^)(NSError *error))completion
 {
 	if ([joins count] == 0) {
 		completion(nil);
@@ -2170,7 +2361,27 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	ORMQueryODataJoin *join = [joins lastObject];
 	[joins removeLastObject];
 	NSError *error = nil;
-	NSURL *url = [join URLWithServiceRoot:_root error:&error];
+	ODataMutableQueryOptions *options = [join.options mutableCopy];
+	if (page != nil) {
+		/* Only those with the page's values. */
+		ODataExpression *narrowed = [_request join:join filterFor:page error:&error];
+		if (narrowed == nil) {
+			if (error != nil) {
+				completion(error);
+				return;
+			}
+			[_request setObjects:@[] ofJoin:join];
+			[self readWholeJoins:joins page:page completion:completion];
+			return;
+		}
+		options.filter = options.filter != nil ? [ODataExpression binary:@"and" left:options.filter right:narrowed error:&error]
+		                                       : narrowed;
+		if (options.filter == nil) {
+			completion(error);
+			return;
+		}
+	}
+	NSURL *url = [self URLFor:join.collectionPath options:options error:&error];
 	if (url == nil) {
 		completion(error);
 		return;
@@ -2182,12 +2393,15 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 			return;
 		}
 		[self->_request setObjects:objects ofJoin:join];
-		[self readWholeJoins:joins completion:completion];
+		[self readWholeJoins:joins page:page completion:completion];
 	}];
 }
 
-/* Each bag's rows, read whole, given the request's rows to aggregate. */
-- (void)readBags:(NSMutableArray<NSString *> *)names completion:(void (^)(NSError *error))completion
+/* Each bag's rows, read whole or, for a page, its groups', given the
+ * request's rows to aggregate. */
+- (void)readBags:(NSMutableArray<NSString *> *)names
+            page:(NSArray<NSDictionary *> *)page
+      completion:(void (^)(NSError *error))completion
 {
 	if ([names count] == 0) {
 		completion(nil);
@@ -2196,22 +2410,37 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	NSString *name = [names lastObject];
 	[names removeLastObject];
 	ORMQueryODataCursor *cursor = [[_request.bags objectForKey:name] cursorWithTransport:_transport serviceRoot:_root];
+	if (page != nil) {
+		/* Only the page's groups' rows. */
+		NSError *error = nil;
+		cursor.extraFilter = [_request bag:name filterFor:page error:&error];
+		if (cursor.extraFilter == nil) {
+			if (error != nil) {
+				completion(error);
+				return;
+			}
+			/* No group: none of its rows. */
+			[_request setRows:@[] ofBag:name];
+			[self readBags:names page:page completion:completion];
+			return;
+		}
+	}
 	NSMutableArray *rows = [NSMutableArray array];
 	__block void (^more)(void) = nil;
 	more = ^{
-		[cursor nextPage:256 completion:^(ORMQueryResult *page, NSError *error) {
-			if (page == nil) {
+		[cursor nextPage:256 completion:^(ORMQueryResult *read, NSError *error) {
+			if (read == nil) {
 				more = nil;
 				completion(error);
 				return;
 			}
-			[rows addObjectsFromArray:page.rows];
+			[rows addObjectsFromArray:read.rows];
 			if (![cursor atEnd]) {
 				more();
 				return;
 			}
 			[self->_request setRows:rows ofBag:name];
-			[self readBags:names completion:completion];
+			[self readBags:names page:page completion:completion];
 			more = nil;
 		}];
 	};
@@ -2374,15 +2603,8 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 - (void)fill:(NSMutableArray *)page size:(NSUInteger)size completion:(void (^)(ORMQueryResult *page, NSError *error))completion
 {
 	if ([page count] >= size || _atEnd) {
-		NSMutableArray *rows = [NSMutableArray array];
-		for (NSDictionary *object in page) {
-			for (NSArray *tuple in [_request rowsOf:object]) {
-				if (![_given containsObject:tuple]) {
-					[_given addObject:tuple];
-					[rows addObject:tuple];
-				}
-			}
-		}
+		NSArray *rows = _pageRows ?: @[];
+		_pageRows = nil;
 		completion([ORMQueryResult resultWithObjects:page columnTitles:[_request.plan.columns valueForKey:@"title"] rows:rows],
 		           nil);
 		return;
@@ -2406,13 +2628,45 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		if ([values count] < wanted) {
 			self->_atEnd = YES;
 		}
-		[self keep:values from:0 completion:^(NSArray *kept, NSError *failed) {
-			if (kept == nil) {
-				completion(nil, failed);
+		NSMutableArray *scoped = [NSMutableArray arrayWithArray:[self->_request.bags allKeys]];
+		[scoped removeObjectsInArray:[self->_request wholeBags]];
+		NSMutableArray *narrowed = [NSMutableArray array];
+		for (ORMQueryODataJoin *join in self->_request.wholeJoins) {
+			if (join.pageScope != nil) {
+				[narrowed addObject:join];
+			}
+		}
+		[self readBags:scoped page:values completion:^(NSError *unread) {
+			if (unread != nil) {
+				completion(nil, unread);
 				return;
 			}
-			[page addObjectsFromArray:kept];
-			[self fill:page size:size completion:completion];
+			[self readWholeJoins:narrowed page:values completion:^(NSError *unjoined) {
+				if (unjoined != nil) {
+					completion(nil, unjoined);
+					return;
+				}
+				[self keep:values from:0 completion:^(NSArray *kept, NSError *failed) {
+					if (kept == nil) {
+						completion(nil, failed);
+						return;
+					}
+					[page addObjectsFromArray:kept];
+					/* Their rows now, while the bags' rows are theirs. */
+					if (self->_pageRows == nil) {
+						self->_pageRows = [NSMutableArray array];
+					}
+					for (NSDictionary *object in kept) {
+						for (NSArray *tuple in [self->_request rowsOf:object]) {
+							if (![self->_given containsObject:tuple]) {
+								[self->_given addObject:tuple];
+								[self->_pageRows addObject:tuple];
+							}
+						}
+					}
+					[self fill:page size:size completion:completion];
+				}];
+			}];
 		}];
 	}];
 }

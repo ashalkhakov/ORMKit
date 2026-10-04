@@ -320,9 +320,14 @@ here. So every condition of the query narrows the bag, including:
 
 For example, a total of Salary for Branch, under an Employee who also speaks
 Latin, adds up only the Latin speakers' salaries. An employee's salary is
-counted once, however many ways the query reaches it. The interpreter runs a
-bag once per run and groups its rows. OData reads it whole, before the first
-page ([ODATA.md](ODATA.md)).
+counted once, however many ways the query reaches it.
+
+A bag is not read whole where that can be helped. When the group is reached
+from the object read through to-ones, the interpreter runs the bag for each
+slice it fetches, only for that slice's groups
+(`bag1: run for each slice, where nr is among the slice's nr`). OData reads
+it for each page in the same way ([ODATA.md](ODATA.md)). Otherwise, as for a
+group under a `some`, the bag runs once, whole.
 
 Reading the subtype matters. A store fetching Academic has none of
 Professor's properties, so `chair.name = 'Informatics'` holds only of a
@@ -506,9 +511,11 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
   is dropped, with a note.
 - **An aggregate whose group is absorbed** (no object of its own) is noted
   and left out: its bag's rows have nothing to group by.
-- **A correlated join under a `not`, an `or` or a lambda, in OData:** its
-  joined objects are read whole once, not narrowed to each page's values
+- **What a page does not name is read whole:** a bag whose group is below
+  a to-many, and an OData join whose pairs come from a lambda's variable
   ([ODATA.md](ODATA.md#not-done-yet)).
+- **Paging is by offset** (`fetchOffset`, `$skip`), not by key, and the
+  rows given so far are kept so that none is given twice.
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point

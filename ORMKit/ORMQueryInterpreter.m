@@ -177,7 +177,8 @@ ORMCompare(id left, NSString *comparison, id right)
 @property (nonatomic, strong) ORMQueryPlan *plan;
 @property (nonatomic, strong) NSManagedObjectContext *context;
 @property (nonatomic, copy) NSDictionary<NSString *, id> *bindings;
-/* @[ their path, a value ]: what a probe asks of the objects read. */
+/* @[ their path, a value ]: what a probe asks of the objects read; with
+ * an array of values, one of them. */
 @property (nonatomic, copy) NSArray<NSArray *> *equalities;
 @property (nonatomic, strong) NSEntityDescription *read;
 @property (nonatomic, strong) NSPredicate *storePredicate;
@@ -203,9 +204,74 @@ ORMCompare(id left, NSString *comparison, id right)
 	NSUInteger _offset;
 	NSMutableArray *_buffer;
 	BOOL _fetchedAll;
-	/* Each bag's tuples, once run, by "bag/group column": by what the
-	 * group column has, those for it. */
+	/* Each bag's tuples, by "bag/group column": by what the group column
+	 * has, those for it. Of the slice's groups, or all of them. */
 	NSMutableDictionary<NSString *, NSMapTable *> *_bags;
+	NSArray<ORMPlanValue *> *_bagValues;
+	/* With bags run for a slice, each object's rows made as it is checked,
+	 * while the bags are its slice's: given by -rowsOf:. */
+	NSMapTable *_rowsMade;
+}
+
+/* The aggregates of bags in the condition, each bag and group once. */
+- (void)collectBags:(ORMPlanCondition *)condition into:(NSMutableArray *)bags
+{
+	if (condition == nil) {
+		return;
+	}
+	for (ORMPlanValue *value in @[ condition.left ?: [NSNull null], condition.right ?: [NSNull null] ]) {
+		if (![value isKindOfClass:[ORMPlanValue class]] || value.bag == nil) {
+			continue;
+		}
+		BOOL known = NO;
+		for (ORMPlanValue *each in bags) {
+			known = known || (each.bag == value.bag && [each.groupColumn isEqualToString:value.groupColumn]);
+		}
+		if (!known) {
+			[bags addObject:value];
+		}
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		[self collectBags:operand into:bags];
+	}
+	[self collectBags:condition.operand into:bags];
+}
+
+- (ORMPlanColumn *)groupColumnOf:(ORMPlanValue *)value
+{
+	for (ORMPlanColumn *column in value.bag.plan.columns) {
+		if ([column.nodeId isEqualToString:value.groupColumn ?: @""]) {
+			return column;
+		}
+	}
+	return nil;
+}
+
+/* Whether the bag can be run for a slice's groups: the group is reached
+ * from the object read, here and in the bag. */
+- (BOOL)scopes:(ORMPlanValue *)value
+{
+	ORMPlanColumn *group = [self groupColumnOf:value];
+	return group != nil && group.path.variable == nil && value.groupPath.variable == nil;
+}
+
+/* The bags for the slice's groups, run before its objects are checked. */
+- (void)scopeBags:(NSArray *)objects
+{
+	for (ORMPlanValue *value in _bagValues) {
+		if (![self scopes:value] || self.error != nil) {
+			continue;
+		}
+		NSMutableOrderedSet *groups = [NSMutableOrderedSet orderedSet];
+		for (id object in objects) {
+			id group = [self valueOf:value.groupPath object:object bindings:self.bindings];
+			if (group != nil && group != [NSNull null]) {
+				[groups addObject:group];
+			}
+		}
+		NSString *key = [NSString stringWithFormat:@"%@/%@", value.bag.name, value.groupColumn];
+		[self groupsOf:value among:[groups array] key:key];
+	}
 }
 
 - (void)fail:(NSString *)text
@@ -620,39 +686,59 @@ ORMCompare(id left, NSString *comparison, id right)
 	return [values valueForKeyPath:function];
 }
 
-/* The aggregate's bag's tuples by its group: run once, each tuple once. */
+/* The aggregate's bag's tuples by its group: those of the slice's groups,
+ * or, where the slice does not say them, all of them, run once. */
 - (NSMapTable *)groupsOf:(ORMPlanValue *)value
 {
 	NSString *key = [NSString stringWithFormat:@"%@/%@", value.bag.name, value.groupColumn];
 	NSMapTable *groups = [_bags objectForKey:key];
-	if (groups != nil) {
-		return groups;
-	}
-	NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.groupColumn ?: @""];
-	if (column == NSNotFound) {
+	return groups != nil ? groups : [self groupsOf:value among:nil key:key];
+}
+
+/* The bag run, for the groups among those given (all, for nil), its
+ * tuples kept by group under the key. */
+- (NSMapTable *)groupsOf:(ORMPlanValue *)value among:(NSArray *)among key:(NSString *)key
+{
+	ORMPlanColumn *group = [self groupColumnOf:value];
+	NSUInteger column = [value.bag.plan.columns indexOfObject:group];
+	if (group == nil || column == NSNotFound) {
 		[self fail:[NSString stringWithFormat:@"%@ lists no %@.", value.bag.name, value.groupColumn]];
 		return nil;
 	}
+	NSMapTable *groups = [NSMapTable strongToStrongObjectsMapTable];
+	if (among != nil && [among count] == 0) {
+		[_bags setObject:groups forKey:key];
+		return groups;
+	}
 	NSError *error = nil;
-	ORMQueryCursor *cursor = [self.interpreter cursorForPlan:value.bag.plan inContext:self.context error:&error];
-	groups = [NSMapTable strongToStrongObjectsMapTable];
-	while (cursor != nil && ![cursor atEnd]) {
-		ORMQueryResult *page = [cursor nextPage:256 error:&error];
-		if (page == nil) {
-			cursor = nil;
+	ORMPlanRun *run = [self.interpreter runOf:value.bag.plan bindings:@{}
+	                                    equal:among != nil ? @[ @[ [group valuePath], among ] ] : @[]
+	                                inContext:self.context error:&error];
+	NSMutableSet *given = [NSMutableSet set];
+	while (run != nil && !run.atEnd) {
+		NSArray *objects = [run next:256];
+		if (run.error != nil) {
+			error = run.error;
+			run = nil;
 			break;
 		}
-		for (NSArray *tuple in page.rows) {
-			id group = [tuple objectAtIndex:column];
-			NSMutableArray *tuples = [groups objectForKey:group];
-			if (tuples == nil) {
-				tuples = [NSMutableArray array];
-				[groups setObject:tuples forKey:group];
+		for (id object in objects) {
+			for (NSArray *tuple in [run rowsOf:object]) {
+				if ([given containsObject:tuple]) {
+					continue;
+				}
+				[given addObject:tuple];
+				id each = [tuple objectAtIndex:column];
+				NSMutableArray *tuples = [groups objectForKey:each];
+				if (tuples == nil) {
+					tuples = [NSMutableArray array];
+					[groups setObject:tuples forKey:each];
+				}
+				[tuples addObject:tuple];
 			}
-			[tuples addObject:tuple];
 		}
 	}
-	if (cursor == nil) {
+	if (run == nil) {
 		[self fail:[NSString stringWithFormat:@"%@ could not be run: %@", value.bag.name, error.localizedDescription]];
 		return nil;
 	}
@@ -864,6 +950,16 @@ ORMCompare(id left, NSString *comparison, id right)
 
 - (NSArray<NSArray *> *)rowsOf:(id)object
 {
+	NSArray *made = [_rowsMade objectForKey:object];
+	if (made != nil) {
+		[_rowsMade removeObjectForKey:object];
+		return made;
+	}
+	return [self rowsMadeOf:object];
+}
+
+- (NSArray<NSArray *> *)rowsMadeOf:(id)object
+{
 	NSArray *ways = self.plan.condition != nil ? [self bindingsOf:self.plan.condition object:object bindings:self.bindings]
 	                                           : @[ self.bindings ];
 	if ([ways count] == 0) {
@@ -920,10 +1016,25 @@ ORMCompare(id left, NSString *comparison, id right)
 	/* What a probe asks of the objects read. */
 	for (NSArray *equality in self.equalities) {
 		NSString *theirs = [[[equality firstObject] keys] componentsJoinedByString:@"."];
-		[inStore addObject:[ORMPredicatePart format:[NSString stringWithFormat:@"%@ == %%@", theirs]
+		BOOL among = [[equality lastObject] isKindOfClass:[NSArray class]];
+		[inStore addObject:[ORMPredicatePart format:[NSString stringWithFormat:among ? @"%@ IN %%@" : @"%@ == %%@", theirs]
 		                                  arguments:@[ [equality lastObject] ] inStore:YES]];
 	}
 	self.checks = checked;
+	/* The bags the checks aggregate, each run for a slice's groups where
+	 * the slice's objects say which they are; else once, whole. */
+	NSMutableArray *bags = [NSMutableArray array];
+	for (ORMPlanCondition *check in checked) {
+		[self collectBags:check into:bags];
+	}
+	_bagValues = bags;
+	for (ORMPlanValue *value in bags) {
+		ORMPlanColumn *group = [self groupColumnOf:value];
+		[self.joinLines addObject:[self scopes:value]
+		                              ? [NSString stringWithFormat:@"%@: run for each slice, where %@ is among the slice's %@",
+		                                                           value.bag.name, [group valuePath], value.groupPath]
+		                              : [NSString stringWithFormat:@"%@: run once, whole", value.bag.name]];
+	}
 	self.checkPart = [checkedParts count] > 0 ? ORMJoined(checkedParts, @"AND") : nil;
 	self.storePart = [inStore count] > 0 ? ORMJoined(inStore, @"AND") : nil;
 	if (self.storePart != nil && ![self describing]) {
@@ -972,6 +1083,7 @@ ORMCompare(id left, NSString *comparison, id right)
 			_offset += [objects count];
 			_fetchedAll = [objects count] < slice;
 			[_buffer addObjectsFromArray:objects];
+			[self scopeBags:objects];
 			continue;
 		}
 		id object = [_buffer firstObject];
@@ -985,6 +1097,12 @@ ORMCompare(id left, NSString *comparison, id right)
 		}
 		if (holds && self.error == nil) {
 			[found addObject:object];
+			if ([_bags count] > 0) {
+				if (_rowsMade == nil) {
+					_rowsMade = [NSMapTable strongToStrongObjectsMapTable];
+				}
+				[_rowsMade setObject:[self rowsMadeOf:object] forKey:object];
+			}
 		}
 	}
 	return found;
