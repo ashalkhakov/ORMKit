@@ -10,6 +10,8 @@
 @property (nonatomic, copy) NSArray<ORMCDProperty *> *trail;
 /* An object of the entity; nil for a value. */
 @property (nonatomic, strong) ORMCDEntity *entity;
+/* The plan it was reached in: 0 the query's, 1 a join's in it, ... */
+@property (nonatomic) NSUInteger level;
 @end
 
 @implementation ORMPlannerPlace
@@ -78,6 +80,11 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	NSMutableArray<NSString *> *_scope;
 	NSMutableDictionary<NSString *, ORMPlannerPlace *> *_reached;
 	NSMutableArray<NSArray *> *_columns;
+	/* How deep in joins the planning is, and what each enclosing plan's
+	 * object read is called inside the ones in it: o1, o2. */
+	NSUInteger _level;
+	NSMutableArray<NSString *> *_outerNames;
+	NSUInteger _outers;
 }
 
 - (instancetype)initWithCoreData:(ORMCDModel *)coreData
@@ -112,6 +119,22 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	return place.path.variable == nil || [_scope containsObject:place.path.variable];
 }
 
+- (void)reach:(ORMQueryNode *)node place:(ORMPlannerPlace *)place
+{
+	place.level = _level;
+	[_reached setObject:place forKey:node.identifier];
+}
+
+/* A place reached before, as a path from here: one an enclosing plan read
+ * is from its object, which is a variable here. */
+- (ORMPlanPath *)pathOf:(ORMPlannerPlace *)place
+{
+	if (place.level < _level && place.path.variable == nil) {
+		return [ORMPlanPath pathFrom:[_outerNames objectAtIndex:place.level] steps:place.path.steps];
+	}
+	return place.path;
+}
+
 - (ORMCDEntity *)destinationOf:(ORMCDRelationship *)relationship
 {
 	return [_coreData entityNamed:relationship.destination];
@@ -127,6 +150,9 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	_scope = [NSMutableArray array];
 	_reached = [NSMutableDictionary dictionary];
 	_columns = [NSMutableArray array];
+	_level = 0;
+	_outerNames = [NSMutableArray array];
+	_outers = 0;
 	ORMQueryNode *root = query.root;
 	ORMCDEntity *entity = root != nil ? [_places entityOf:root.objectType] : nil;
 	if (entity == nil) {
@@ -226,19 +252,24 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		                                      [other designation]]];
 		return nil;
 	}
+	if (reference.level > _level) {
+		[self note:[NSString stringWithFormat:@"%@ is compared with %@, which is reached in a join below it.", place.path,
+		                                      [other designation]]];
+		return nil;
+	}
 	BOOL equality = [comparison isEqualToString:@"="] || [comparison isEqualToString:@"<>"];
 	ORMPlanCondition *related = nil;
 	if ([self inScope:reference]) {
 		if (place.entity == nil) {
 			return [ORMPlanCondition compare:[ORMPlanValue valueAtPath:place.path] comparison:comparison
-			                            with:[ORMPlanValue valueAtPath:reference.path]];
+			                            with:[ORMPlanValue valueAtPath:[self pathOf:reference]]];
 		}
 		if (!equality) {
 			[self note:[NSString stringWithFormat:@"%@ %@ %@ compares objects: only = and <> can.", place.path, comparison,
 			                                      [other designation]]];
 			return nil;
 		}
-		related = [ORMPlanCondition same:place.path as:reference.path];
+		related = [ORMPlanCondition same:place.path as:[self pathOf:reference]];
 	} else {
 		if (other.comparison != nil || [other.steps count] > 0) {
 			[self note:[NSString stringWithFormat:@"%@ is taken as any %@ the path reaches, not only those meeting its "
@@ -250,7 +281,11 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 			                                      comparison, [other designation]]];
 			return nil;
 		}
-		related = [ORMPlanCondition among:place.path trail:[reference.trail valueForKey:@"name"]];
+		/* The trail is from the object read where the node was reached:
+		 * an enclosing plan's, here a variable. */
+		ORMPlanPath *base = reference.level < _level
+			? [ORMPlanPath pathFrom:[_outerNames objectAtIndex:reference.level] keys:@[]] : nil;
+		related = [ORMPlanCondition among:place.path trail:[reference.trail valueForKey:@"name"] from:base];
 	}
 	return [comparison isEqualToString:@"<>"] ? [ORMPlanCondition not:related] : related;
 }
@@ -288,7 +323,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		[self column:node place:at identifier:identifier];
 	}
 	NSArray *correlations = [self correlationsOf:node place:at];
-	[_reached setObject:at forKey:node.identifier];
+	[self reach:node place:at];
 	[parts addObjectsFromArray:correlations];
 	if (node.comparison != nil && node.comparedNode == nil) {
 		if (identifier != nil) {
@@ -370,7 +405,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 			[self note:[NSString stringWithFormat:@"%@ is one attribute: it is not counted.", node.objectType.name]];
 		}
 		NSMutableArray *parts = [NSMutableArray arrayWithArray:[self correlationsOf:node place:value]];
-		[_reached setObject:value forKey:node.identifier];
+		[self reach:node place:value];
 		if (node.comparison != nil && node.comparedNode == nil) {
 			[parts addObject:[ORMPlanCondition compare:[ORMPlanValue valueAtPath:value.path] comparison:node.comparison
 			                                      with:[self constant:node.value attribute:attribute]]];
@@ -658,20 +693,22 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		return nil;
 	}
 	/* What the joined objects must be, planned from them: a plan of its
-	 * own, which reads from no variable of this one. */
-	NSMutableDictionary *reached = _reached;
-	NSMutableArray *scope = _scope;
+	 * own, in which what this one reached is still there, its object read
+	 * a variable (o1), and its variables in scope: a correlated join. */
 	ORMCDEntity *read = _read;
-	_reached = [NSMutableDictionary dictionary];
-	_scope = [NSMutableArray array];
+	_outers++;
+	NSString *outer = [NSString stringWithFormat:@"o%lu", (unsigned long)_outers];
+	[_outerNames addObject:outer];
+	_level++;
 	_read = joined;
 	ORMPlanCondition *condition = [self conditionFor:node entity:joined
 	                                              at:[ORMPlannerPlace variable:nil entity:joined trail:@[]] columns:NO];
 	_read = read;
-	_scope = scope;
-	_reached = reached;
+	_level--;
+	[_outerNames removeLastObject];
 	ORMQueryPlan *plan = [ORMQueryPlan planReading:joined.name where:condition columns:@[] sorts:@[] notes:@[]];
-	return [ORMPlanCondition matches:plan pairs:pairs];
+	BOOL correlated = [[condition freeVariables] containsObject:outer];
+	return [ORMPlanCondition matches:plan pairs:pairs outer:correlated ? outer : nil];
 }
 
 @end

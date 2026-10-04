@@ -11,9 +11,29 @@
 @implementation ORMQueryResult
 @end
 
+static NSError *
+ORMInterpreterError(NSString *text)
+{
+	return [NSError errorWithDomain:ORMQueryPlanErrorDomain code:3 userInfo:@{ NSLocalizedDescriptionKey: text }];
+}
+
+static NSDictionary<NSString *, NSNumber *> *
+ORMComparisonTypes(void)
+{
+	return @{ @"=": @(NSEqualToPredicateOperatorType), @"<>": @(NSNotEqualToPredicateOperatorType),
+	          @"<": @(NSLessThanPredicateOperatorType), @"<=": @(NSLessThanOrEqualToPredicateOperatorType),
+	          @">": @(NSGreaterThanPredicateOperatorType), @">=": @(NSGreaterThanOrEqualToPredicateOperatorType) };
+}
+
+static NSDictionary<NSString *, NSString *> *
+ORMPredicateOperators(void)
+{
+	return @{ @"=": @"==", @"<>": @"!=", @"<": @"<", @"<=": @"<=", @">": @">", @">=": @">=" };
+}
+
 /* A predicate being made: its format, with %@ for each value, the values,
- * and whether the store can evaluate it (else it is evaluated on the
- * objects fetched). */
+ * and whether the store can evaluate it (else each object it returns is
+ * checked). */
 @interface ORMPredicatePart : NSObject
 @property (nonatomic, copy) NSString *format;
 @property (nonatomic, copy) NSArray *arguments;
@@ -33,16 +53,22 @@
 
 @end
 
-static NSError *
-ORMInterpreterError(NSString *text)
+static ORMPredicatePart *
+ORMJoined(NSArray<ORMPredicatePart *> *parts, NSString *connective)
 {
-	return [NSError errorWithDomain:ORMQueryPlanErrorDomain code:3 userInfo:@{ NSLocalizedDescriptionKey: text }];
-}
-
-static NSDictionary<NSString *, NSString *> *
-ORMPredicateOperators(void)
-{
-	return @{ @"=": @"==", @"<>": @"!=", @"<": @"<", @"<=": @"<=", @">": @">", @">=": @">=" };
+	if ([parts count] == 1) {
+		return [parts firstObject];
+	}
+	NSMutableArray *formats = [NSMutableArray array];
+	NSMutableArray *arguments = [NSMutableArray array];
+	BOOL inStore = YES;
+	for (ORMPredicatePart *part in parts) {
+		[formats addObject:[NSString stringWithFormat:@"(%@)", part.format]];
+		[arguments addObjectsFromArray:part.arguments];
+		inStore = inStore && part.inStore;
+	}
+	return [ORMPredicatePart format:[formats componentsJoinedByString:[NSString stringWithFormat:@" %@ ", connective]]
+	                      arguments:arguments inStore:inStore];
 }
 
 /* A format with its values written in, to read: strings quoted. */
@@ -74,27 +100,86 @@ ORMDisplay(ORMPredicatePart *part)
 	return text;
 }
 
-@implementation ORMQueryInterpreter
+/* The objects a value holds: a collection's members, or the one object. */
+static NSArray *
+ORMMembers(id value)
 {
-	/* Where the lowering is: the entity read, and each variable bound. */
-	NSEntityDescription *_read;
-	NSMutableDictionary<NSString *, NSEntityDescription *> *_bound;
-	/* How deep in subqueries: an IN through a to-many there is no SQL. */
-	NSUInteger _depth;
-	/* The context the plan runs in; nil when it is only described. */
-	NSManagedObjectContext *_context;
-	NSError *_error;
-	/* The joins' programs, as described. */
-	NSMutableArray<NSString *> *_joinLines;
-	NSUInteger _joins;
+	if (value == nil || value == [NSNull null]) {
+		return @[];
+	}
+	if ([value isKindOfClass:[NSSet class]]) {
+		return [value allObjects];
+	}
+	if ([value isKindOfClass:[NSOrderedSet class]]) {
+		return [value array];
+	}
+	if ([value isKindOfClass:[NSArray class]]) {
+		return value;
+	}
+	return @[ value ];
 }
 
-- (instancetype)initWithModel:(NSManagedObjectModel *)model
+static BOOL
+ORMCompare(id left, NSString *comparison, id right)
 {
-	if ((self = [super init])) {
-		_model = model;
+	NSNumber *type = [ORMComparisonTypes() objectForKey:comparison ?: @""];
+	if (type == nil) {
+		return NO;
 	}
-	return self;
+	NSPredicate *compare = [NSComparisonPredicate
+		predicateWithLeftExpression:[NSExpression expressionForConstantValue:left == [NSNull null] ? nil : left]
+		            rightExpression:[NSExpression expressionForConstantValue:right == [NSNull null] ? nil : right]
+		                   modifier:NSDirectPredicateModifier
+		                       type:(NSPredicateOperatorType)[type unsignedIntegerValue]
+		                    options:0];
+	@try {
+		return [compare evaluateWithObject:nil];
+	} @catch (NSException *exception) {
+		return NO;
+	}
+}
+
+@class ORMPlanRun;
+
+@interface ORMQueryInterpreter ()
+- (ORMPlanRun *)runOf:(ORMQueryPlan *)plan
+             bindings:(NSDictionary<NSString *, id> *)bindings
+                equal:(NSArray<NSArray *> *)equalities
+            inContext:(NSManagedObjectContext *)context
+                error:(NSError **)error;
+@end
+
+/* A plan being run: its fetch, what is checked of what the fetch returns,
+ * and how far it has been read. Bound to the objects a correlated join's
+ * plan names of the plan it is in. */
+@interface ORMPlanRun : NSObject
+@property (nonatomic, weak) ORMQueryInterpreter *interpreter;
+@property (nonatomic, strong) ORMQueryPlan *plan;
+@property (nonatomic, strong) NSManagedObjectContext *context;
+@property (nonatomic, copy) NSDictionary<NSString *, id> *bindings;
+/* @[ their path, a value ]: what a probe asks of the objects read. */
+@property (nonatomic, copy) NSArray<NSArray *> *equalities;
+@property (nonatomic, strong) NSEntityDescription *read;
+@property (nonatomic, strong) NSPredicate *storePredicate;
+@property (nonatomic, strong) ORMPredicatePart *storePart;
+@property (nonatomic, copy) NSArray<ORMPlanCondition *> *checks;
+@property (nonatomic, strong) ORMPredicatePart *checkPart;
+@property (nonatomic, strong) NSMutableArray<NSString *> *joinLines;
+@property (nonatomic, strong) NSError *error;
+- (BOOL)prepare;
+- (NSArray *)next:(NSUInteger)count;
+@property (nonatomic, readonly) BOOL atEnd;
+- (NSString *)programText;
+@end
+
+@implementation ORMPlanRun
+{
+	NSMutableSet<NSString *> *_subqueryVariables;
+	NSUInteger _depth;
+	NSUInteger _joins;
+	NSUInteger _offset;
+	NSMutableArray *_buffer;
+	BOOL _fetchedAll;
 }
 
 - (void)fail:(NSString *)text
@@ -106,45 +191,19 @@ ORMDisplay(ORMPredicatePart *part)
 
 - (NSEntityDescription *)entityNamed:(NSString *)name
 {
-	NSEntityDescription *entity = name != nil ? [[_model entitiesByName] objectForKey:name] : nil;
+	NSEntityDescription *entity = name != nil ? [[self.interpreter.model entitiesByName] objectForKey:name] : nil;
 	if (entity == nil) {
 		[self fail:[NSString stringWithFormat:@"The plan reads %@, which the model has no entity of.", name]];
 	}
 	return entity;
 }
 
-#pragma mark Paths and values
-
-/* The key path, with its variable: "$x1.city.name", "SELF". */
-- (NSString *)keyPath:(ORMPlanPath *)path
+- (BOOL)describing
 {
-	NSMutableArray *parts = [NSMutableArray array];
-	if (path.variable != nil) {
-		[parts addObject:[@"$" stringByAppendingString:path.variable]];
-	}
-	[parts addObjectsFromArray:path.keys];
-	return [parts count] > 0 ? [parts componentsJoinedByString:@"."] : @"SELF";
+	return self.context == nil;
 }
 
-/* The entity the path reaches; nil for a value, or a path the model lacks. */
-- (NSEntityDescription *)entityAt:(ORMPlanPath *)path
-{
-	NSEntityDescription *at = path.variable != nil ? [_bound objectForKey:path.variable] : _read;
-	for (ORMPlanStep *step in path.steps) {
-		if (step.entityName != nil) {
-			at = [self entityNamed:step.entityName];
-			continue;
-		}
-		NSPropertyDescription *property = [[at propertiesByName] objectForKey:step.key];
-		if (property == nil) {
-			[self fail:[NSString stringWithFormat:@"%@ has no property %@.", at.name ?: @"A value", step.key]];
-			return nil;
-		}
-		at = [property isKindOfClass:[NSRelationshipDescription class]] ? ((NSRelationshipDescription *)property).destinationEntity
-		                                                                : nil;
-	}
-	return at;
-}
+#pragma mark Values
 
 /* A constant as the attribute's type holds it. */
 - (id)constant:(ORMPlanValue *)value
@@ -188,24 +247,46 @@ ORMDisplay(ORMPredicatePart *part)
 	return text;
 }
 
-#pragma mark Lowering
-
-static ORMPredicatePart *
-ORMJoined(NSArray<ORMPredicatePart *> *parts, NSString *connective)
+/* The value at the path, from the object read or a variable bound. */
+- (id)valueOf:(ORMPlanPath *)path object:(id)object bindings:(NSDictionary *)bindings
 {
-	if ([parts count] == 1) {
-		return [parts firstObject];
+	id base = path.variable != nil ? [bindings objectForKey:path.variable] : object;
+	NSArray *keys = path.keys;
+	if (base == nil || [keys count] == 0) {
+		return base;
 	}
-	NSMutableArray *formats = [NSMutableArray array];
-	NSMutableArray *arguments = [NSMutableArray array];
-	BOOL inStore = YES;
-	for (ORMPredicatePart *part in parts) {
-		[formats addObject:[NSString stringWithFormat:@"(%@)", part.format]];
-		[arguments addObjectsFromArray:part.arguments];
-		inStore = inStore && part.inStore;
+	return [base valueForKeyPath:[keys componentsJoinedByString:@"."]];
+}
+
+#pragma mark Saying it to the store
+
+/* The path in a predicate: a key path from the object fetched or a
+ * subquery's variable; a variable bound outside the fetch, a value. */
+- (NSString *)operand:(ORMPlanPath *)path arguments:(NSMutableArray *)arguments bound:(BOOL *)bound
+{
+	NSArray *keys = path.keys;
+	if (bound != NULL) {
+		*bound = NO;
 	}
-	return [ORMPredicatePart format:[formats componentsJoinedByString:[NSString stringWithFormat:@" %@ ", connective]]
-	                      arguments:arguments inStore:inStore];
+	if (path.variable != nil && [_subqueryVariables containsObject:path.variable]) {
+		return [[@[ [@"$" stringByAppendingString:path.variable] ] arrayByAddingObjectsFromArray:keys]
+			componentsJoinedByString:@"."];
+	}
+	if (path.variable != nil) {
+		if (bound != NULL) {
+			*bound = YES;
+		}
+		if ([self describing]) {
+			return [[@[ path.variable ] arrayByAddingObjectsFromArray:keys] componentsJoinedByString:@"."];
+		}
+		if ([self.bindings objectForKey:path.variable] == nil) {
+			[self fail:[NSString stringWithFormat:@"%@ is bound to nothing.", path.variable]];
+			return @"nil";
+		}
+		[arguments addObject:[self valueOf:path object:nil bindings:self.bindings] ?: [NSNull null]];
+		return @"%@";
+	}
+	return [keys count] > 0 ? [keys componentsJoinedByString:@"."] : @"SELF";
 }
 
 - (ORMPredicatePart *)lower:(ORMPlanCondition *)condition
@@ -215,81 +296,40 @@ ORMJoined(NSArray<ORMPredicatePart *> *parts, NSString *connective)
 	case ORMPlanOr: {
 		NSMutableArray *parts = [NSMutableArray array];
 		for (ORMPlanCondition *operand in condition.operands) {
-			ORMPredicatePart *part = [self lower:operand];
-			if (part == nil) {
-				return nil;
-			}
-			[parts addObject:part];
+			[parts addObject:[self lower:operand]];
 		}
 		return ORMJoined(parts, condition.kind == ORMPlanAnd ? @"AND" : @"OR");
 	}
 	case ORMPlanNot: {
 		ORMPredicatePart *operand = [self lower:condition.operand];
-		return operand != nil ? [ORMPredicatePart format:[NSString stringWithFormat:@"NOT (%@)", operand.format]
-		                                       arguments:operand.arguments inStore:operand.inStore]
-		                      : nil;
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"NOT (%@)", operand.format] arguments:operand.arguments
+		                        inStore:operand.inStore];
 	}
 	case ORMPlanCompare: {
-		NSString *op = [ORMPredicateOperators() objectForKey:condition.comparison];
 		NSMutableArray *arguments = [NSMutableArray array];
 		NSString *(^side)(ORMPlanValue *) = ^NSString *(ORMPlanValue *value) {
 			if (value.path != nil) {
-				[self entityAt:value.path];
-				return [self keyPath:value.path];
+				return [self operand:value.path arguments:arguments bound:NULL];
 			}
 			[arguments addObject:[self constant:value]];
 			return @"%@";
 		};
 		NSString *left = side(condition.left);
 		NSString *right = side(condition.right);
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ %@ %@", left, op, right] arguments:arguments
-		                        inStore:YES];
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ %@ %@", left,
+		                                                           [ORMPredicateOperators() objectForKey:condition.comparison],
+		                                                           right]
+		                      arguments:arguments inStore:YES];
 	}
-	case ORMPlanNotNull:
-		[self entityAt:condition.path];
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ != nil", [self keyPath:condition.path]] arguments:nil
-		                        inStore:YES];
+	case ORMPlanNotNull: {
+		NSMutableArray *arguments = [NSMutableArray array];
+		NSString *path = [self operand:condition.path arguments:arguments bound:NULL];
+		return [ORMPredicatePart format:[path stringByAppendingString:@" != nil"] arguments:arguments inStore:YES];
+	}
 	case ORMPlanExists:
-	case ORMPlanCount: {
-		NSString *collection = [self keyPath:condition.path];
-		NSEntityDescription *member = [self entityAt:condition.path];
-		NSString *comparison = condition.kind == ORMPlanExists ? @"> %@" : [NSString stringWithFormat:@"%@ %%@",
-		                                                                       [ORMPredicateOperators() objectForKey:condition.comparison]];
-		NSNumber *number = condition.kind == ORMPlanExists ? @0 : @(condition.number);
-		if (condition.operand == nil) {
-			return [ORMPredicatePart format:[NSString stringWithFormat:@"%@.@count %@", collection, comparison]
-			                      arguments:@[ number ] inStore:YES];
-		}
-		ORMPredicatePart *body = [self within:condition.variable over:member lower:condition.operand];
-		if (body == nil) {
-			return nil;
-		}
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"SUBQUERY(%@, $%@, %@).@count %@", collection,
-		                                                           condition.variable, body.format, comparison]
-		                      arguments:[body.arguments arrayByAddingObject:number] inStore:body.inStore];
-	}
-	case ORMPlanAggregate: {
-		NSString *collection = [self keyPath:condition.path];
-		NSEntityDescription *member = [self entityAt:condition.path];
-		NSString *function = [@{ @"sum": @"@sum", @"average": @"@avg", @"max": @"@max", @"min": @"@min" }
-			objectForKey:condition.function];
-		NSString *value = [condition.valuePath.keys componentsJoinedByString:@"."];
-		NSString *op = [ORMPredicateOperators() objectForKey:condition.comparison];
-		id constant = [self constant:condition.constant];
-		if (condition.operand == nil) {
-			return [ORMPredicatePart format:[NSString stringWithFormat:@"%@.%@.%@ %@ %%@", collection, function, value, op]
-			                      arguments:@[ constant ] inStore:YES];
-		}
-		/* Of the members meeting conditions: Core Data's store aggregates no
-		 * subquery, so the objects fetched are asked. */
-		ORMPredicatePart *body = [self within:condition.variable over:member lower:condition.operand];
-		if (body == nil) {
-			return nil;
-		}
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"SUBQUERY(%@, $%@, %@).%@.%@ %@ %%@", collection,
-		                                                           condition.variable, body.format, function, value, op]
-		                      arguments:[body.arguments arrayByAddingObject:constant] inStore:NO];
-	}
+	case ORMPlanCount:
+	case ORMPlanAggregate:
+		return [self collection:condition];
 	case ORMPlanIsOf: {
 		NSEntityDescription *target = [self entityNamed:condition.entityName];
 		NSMutableArray *names = [NSMutableArray array];
@@ -300,50 +340,105 @@ ORMJoined(NSArray<ORMPredicatePart *> *parts, NSString *connective)
 			[names addObject:at.name];
 			[pending addObjectsFromArray:at.subentities ?: @[]];
 		}
-		[self entityAt:condition.path];
-		NSString *path = [self keyPath:condition.path];
+		NSMutableArray *arguments = [NSMutableArray array];
+		BOOL bound = NO;
+		NSString *path = [self operand:condition.path arguments:arguments bound:&bound];
+		if (bound) {
+			/* An object bound outside: asked here and now. */
+			if ([self describing]) {
+				return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ is a %@", path, condition.entityName]
+				                      arguments:nil inStore:NO];
+			}
+			NSManagedObject *object = [arguments lastObject];
+			BOOL is = [object isKindOfClass:[NSManagedObject class]] && [names containsObject:object.entity.name];
+			return [ORMPredicatePart format:is ? @"TRUEPREDICATE" : @"FALSEPREDICATE" arguments:nil inStore:YES];
+		}
 		NSString *entity = [path isEqualToString:@"SELF"] ? @"entity.name" : [path stringByAppendingString:@".entity.name"];
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %%@", entity] arguments:@[ names ] inStore:YES];
+		[arguments addObject:names];
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %%@", entity] arguments:arguments inStore:YES];
 	}
-	case ORMPlanSame:
-		[self entityAt:condition.path];
-		[self entityAt:condition.otherPath];
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ == %@", [self keyPath:condition.path],
-		                                                           [self keyPath:condition.otherPath]]
-		                      arguments:nil inStore:YES];
+	case ORMPlanSame: {
+		NSMutableArray *arguments = [NSMutableArray array];
+		NSString *left = [self operand:condition.path arguments:arguments bound:NULL];
+		NSString *right = [self operand:condition.otherPath arguments:arguments bound:NULL];
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ == %@", left, right] arguments:arguments inStore:YES];
+	}
 	case ORMPlanAmong:
 		return [self among:condition];
 	case ORMPlanMatches:
 		return [self matches:condition];
 	}
-	return nil;
+	return [ORMPredicatePart format:@"FALSEPREDICATE" arguments:nil inStore:YES];
 }
 
-/* The condition on the members of a collection, the variable bound. */
-- (ORMPredicatePart *)within:(NSString *)variable over:(NSEntityDescription *)member lower:(ORMPlanCondition *)condition
+/* Some, a count or an aggregate of a collection's members. A collection
+ * bound outside the fetch is no subquery the SQLite store reads, and an
+ * aggregate of some members none it computes: those are checked on the
+ * objects fetched. */
+- (ORMPredicatePart *)collection:(ORMPlanCondition *)condition
 {
-	if (member == nil) {
-		[self fail:[NSString stringWithFormat:@"%@ ranges over no entity.", variable]];
-		return nil;
+	NSMutableArray *arguments = [NSMutableArray array];
+	BOOL bound = NO;
+	NSString *collection = [self operand:condition.path arguments:arguments bound:&bound];
+	if (bound && ![self describing]) {
+		/* A constant collection: its text is only to read. */
+		[arguments removeAllObjects];
+		collection = [[@[ condition.path.variable ] arrayByAddingObjectsFromArray:condition.path.keys]
+			componentsJoinedByString:@"."];
 	}
-	[_bound setObject:member forKey:variable];
-	_depth++;
-	ORMPredicatePart *body = [self lower:condition];
-	_depth--;
-	[_bound removeObjectForKey:variable];
-	return body;
+	ORMPredicatePart *body = nil;
+	if (condition.operand != nil) {
+		[_subqueryVariables addObject:condition.variable];
+		_depth++;
+		body = [self lower:condition.operand];
+		_depth--;
+		[_subqueryVariables removeObject:condition.variable];
+		[arguments addObjectsFromArray:body.arguments];
+	}
+	NSString *over = body != nil ? [NSString stringWithFormat:@"SUBQUERY(%@, $%@, %@)", collection, condition.variable,
+	                                                          body.format]
+	                             : collection;
+	BOOL inStore = !bound && (body == nil || body.inStore);
+	if (condition.kind == ORMPlanAggregate) {
+		NSString *function = [@{ @"sum": @"@sum", @"average": @"@avg", @"max": @"@max", @"min": @"@min" }
+			objectForKey:condition.function];
+		[arguments addObject:[self constant:condition.constant]];
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@.%@.%@ %@ %%@", over, function,
+		                                                           [condition.valuePath.keys componentsJoinedByString:@"."],
+		                                                           [ORMPredicateOperators() objectForKey:condition.comparison]]
+		                      arguments:arguments inStore:inStore && body == nil];
+	}
+	NSString *comparison = condition.kind == ORMPlanExists ? @">" : [ORMPredicateOperators() objectForKey:condition.comparison];
+	[arguments addObject:condition.kind == ORMPlanExists ? @0 : @(condition.number)];
+	return [ORMPredicatePart format:[NSString stringWithFormat:@"%@.@count %@ %%@", over, comparison] arguments:arguments
+	                        inStore:inStore];
 }
 
-/* Among what the trail reaches from the object read: from the object back
- * along the inverses to it, which the SQLite store says in SQL; else IN the
- * trail, which it does not inside a subquery, so evaluated on the objects. */
+/* Among what the trail reaches from the object read, or from an object
+ * bound: from the object back along the inverses to it, which the SQLite
+ * store says in SQL; else IN the trail, which it does not inside a
+ * subquery. */
 - (ORMPredicatePart *)among:(ORMPlanCondition *)condition
 {
-	[self entityAt:condition.path];
-	NSString *path = [self keyPath:condition.path];
+	NSMutableArray *arguments = [NSMutableArray array];
+	BOOL bound = NO;
+	NSString *path = [self operand:condition.path arguments:arguments bound:&bound];
+	NSEntityDescription *at = self.read;
+	if (condition.otherPath.variable != nil) {
+		at = nil;
+	}
 	NSMutableArray *inverses = [NSMutableArray array];
-	NSEntityDescription *at = _read;
-	BOOL back = YES;
+	NSString *target = @"SELF";
+	if (condition.otherPath != nil) {
+		target = [self operand:condition.otherPath arguments:arguments bound:NULL];
+	}
+	BOOL back = !bound;
+	/* The inverses, from where the trail starts: the entity read, or
+	 * whatever the bound object's entity is. */
+	if (at == nil && ![self describing]) {
+		id base = [self.bindings objectForKey:condition.otherPath.variable];
+		at = [base isKindOfClass:[NSManagedObject class]] ? ((NSManagedObject *)base).entity : nil;
+	}
 	for (NSString *key in condition.trail) {
 		NSRelationshipDescription *relationship = [[at relationshipsByName] objectForKey:key];
 		if (relationship.inverseRelationship == nil) {
@@ -354,35 +449,51 @@ ORMJoined(NSArray<ORMPredicatePart *> *parts, NSString *connective)
 		at = relationship.destinationEntity;
 	}
 	if (back && [inverses count] > 0) {
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"ANY %@.%@ == SELF", path,
-		                                                           [inverses componentsJoinedByString:@"."]]
-		                      arguments:nil inStore:YES];
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"ANY %@.%@ == %@", path,
+		                                                           [inverses componentsJoinedByString:@"."], target]
+		                      arguments:arguments inStore:YES];
 	}
 	NSString *trail = [condition.trail count] > 0 ? [condition.trail componentsJoinedByString:@"."] : @"SELF";
-	return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %@", path, trail] arguments:nil inStore:_depth == 0];
+	return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %@", path, trail] arguments:arguments
+	                        inStore:!bound && condition.otherPath == nil && _depth == 0];
 }
 
-/* A join: the plan run first, and its objects' values the parts must equal,
- * one object's or another's. Described, its place says so. */
+/* A join: said in the predicate where its plan is the store's entirely,
+ * reads from nothing of this one, and finds few enough objects; else each
+ * object is probed. */
 - (ORMPredicatePart *)matches:(ORMPlanCondition *)condition
 {
 	_joins++;
 	NSString *name = [NSString stringWithFormat:@"join%lu", (unsigned long)_joins];
-	NSMutableArray *ours = [NSMutableArray array];
-	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
-		[self entityAt:[pair firstObject]];
-		[ours addObject:[self keyPath:[pair firstObject]]];
+	NSMutableSet *free = [NSMutableSet setWithSet:[condition.plan.condition freeVariables] ?: [NSSet set]];
+	if (condition.variable != nil) {
+		[free removeObject:condition.variable];
 	}
-	ORMQueryInterpreter *inner = [[ORMQueryInterpreter alloc] initWithModel:_model];
-	if (_context == nil) {
-		NSError *error = nil;
-		NSString *program = [inner programForPlan:condition.plan error:&error];
-		if (program == nil) {
-			[self fail:[error localizedDescription]];
-			return nil;
-		}
-		[_joinLines addObject:[NSString stringWithFormat:@"%@: %@", name,
-		                                                 [program stringByReplacingOccurrencesOfString:@"\n" withString:@"\n  "]]];
+	BOOL correlated = condition.variable != nil || [free count] > 0;
+	NSMutableArray *ours = [NSMutableArray array];
+	NSMutableArray *ourArguments = [NSMutableArray array];
+	BOOL oursBound = NO;
+	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+		BOOL bound = NO;
+		NSMutableArray *arguments = [NSMutableArray array];
+		[ours addObject:[self operand:[pair firstObject] arguments:arguments bound:&bound]];
+		[ourArguments addObject:arguments];
+		oursBound = oursBound || bound;
+	}
+	ORMPlanRun *joined = nil;
+	if (!correlated) {
+		joined = [self.interpreter runOf:condition.plan bindings:@{} equal:@[] inContext:self.context error:NULL];
+	}
+	if ([self describing]) {
+		ORMPlanRun *described = joined ?: [self.interpreter runOf:condition.plan
+		                                                 bindings:@{} equal:@[] inContext:nil error:NULL];
+		NSString *program = [described programText] ?: @"";
+		[self.joinLines addObject:[NSString stringWithFormat:@"%@%@: %@", name,
+		                                                     correlated ? [NSString stringWithFormat:@", for each (%@ is this)",
+		                                                                                             condition.variable ?: @"it"]
+		                                                                : @"",
+		                                                     [program stringByReplacingOccurrencesOfString:@"\n"
+		                                                                                        withString:@"\n  "]]];
 		NSMutableArray *parts = [NSMutableArray array];
 		for (NSUInteger i = 0; i < [ours count]; i++) {
 			[parts addObject:[NSString stringWithFormat:@"%@ == %@.%@", [ours objectAtIndex:i], name,
@@ -390,123 +501,381 @@ ORMJoined(NSArray<ORMPredicatePart *> *parts, NSString *connective)
 		}
 		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ for one of %@", [parts componentsJoinedByString:@" AND "],
 		                                                           name]
-		                      arguments:nil inStore:YES];
+		                      arguments:nil inStore:!correlated && !oursBound && [joined.checks count] == 0];
 	}
-	NSError *error = nil;
-	ORMQueryResult *joined = [inner executePlan:condition.plan inContext:_context error:&error];
-	if (joined == nil) {
-		[self fail:[error localizedDescription]];
-		return nil;
-	}
-	NSMutableArray *alternatives = [NSMutableArray array];
-	for (id object in joined.objects) {
-		NSMutableArray *parts = [NSMutableArray array];
-		NSMutableArray *arguments = [NSMutableArray array];
-		for (NSUInteger i = 0; i < [ours count]; i++) {
-			NSString *theirs = [[[[condition.pairs objectAtIndex:i] lastObject] keys] componentsJoinedByString:@"."];
-			[parts addObject:[NSString stringWithFormat:@"%@ == %%@", [ours objectAtIndex:i]]];
-			[arguments addObject:[object valueForKeyPath:theirs] ?: [NSNull null]];
+	/* Fetched once: an uncorrelated plan the store says, of few objects. */
+	if (joined != nil && [joined.checks count] == 0 && !oursBound) {
+		NSFetchRequest *count = [NSFetchRequest fetchRequestWithEntityName:condition.plan.entityName];
+		count.predicate = joined.storePredicate;
+		NSError *error = nil;
+		NSUInteger found = [self.context countForFetchRequest:count error:&error];
+		if (found != NSNotFound && found <= self.interpreter.joinPrefetchLimit) {
+			NSArray *objects = [joined next:found + 1];
+			if (joined.error != nil) {
+				self.error = joined.error;
+				return nil;
+			}
+			NSMutableArray *alternatives = [NSMutableArray array];
+			for (id object in objects) {
+				NSMutableArray *parts = [NSMutableArray array];
+				NSMutableArray *arguments = [NSMutableArray array];
+				for (NSUInteger i = 0; i < [ours count]; i++) {
+					NSString *theirs = [[[[condition.pairs objectAtIndex:i] lastObject] keys] componentsJoinedByString:@"."];
+					[parts addObject:[NSString stringWithFormat:@"%@ == %%@", [ours objectAtIndex:i]]];
+					[arguments addObject:[object valueForKeyPath:theirs] ?: [NSNull null]];
+				}
+				[alternatives addObject:[ORMPredicatePart format:[parts componentsJoinedByString:@" AND "]
+				                                       arguments:arguments inStore:YES]];
+			}
+			return [alternatives count] > 0 ? ORMJoined(alternatives, @"OR")
+			                                : [ORMPredicatePart format:@"FALSEPREDICATE" arguments:nil inStore:YES];
 		}
-		[alternatives addObject:[ORMPredicatePart format:[parts componentsJoinedByString:@" AND "] arguments:arguments
-		                                         inStore:YES]];
 	}
-	return [alternatives count] > 0 ? ORMJoined(alternatives, @"OR")
-	                                : [ORMPredicatePart format:@"FALSEPREDICATE" arguments:nil inStore:YES];
+	/* Probed, object by object (ORMPlanRun -holds:). */
+	return [ORMPredicatePart format:[NSString stringWithFormat:@"probe %@", name] arguments:nil inStore:NO];
 }
 
-/* The condition as what the store evaluates and what is evaluated on the
- * objects it gives: each of its conjuncts one or the other. */
-- (NSArray<ORMPredicatePart *> *)split:(ORMPlanCondition *)condition
-{
-	if (condition == nil) {
-		return @[];
-	}
-	NSArray *conjuncts = condition.kind == ORMPlanAnd ? condition.operands : @[ condition ];
-	NSMutableArray *inStore = [NSMutableArray array];
-	NSMutableArray *onObjects = [NSMutableArray array];
-	for (ORMPlanCondition *conjunct in conjuncts) {
-		ORMPredicatePart *part = [self lower:conjunct];
-		if (part == nil) {
-			return nil;
-		}
-		[part.inStore ? inStore : onObjects addObject:part];
-	}
-	return @[ [inStore count] > 0 ? ORMJoined(inStore, @"AND") : [NSNull null],
-	          [onObjects count] > 0 ? ORMJoined(onObjects, @"AND") : [NSNull null] ];
-}
+#pragma mark Checking the objects fetched
 
-- (void)begin:(ORMQueryPlan *)plan context:(NSManagedObjectContext *)context
+/* Whether the condition holds of the object read, the variables bound. */
+- (BOOL)holds:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings
 {
-	_error = nil;
-	_context = context;
-	_bound = [NSMutableDictionary dictionary];
-	_joinLines = [NSMutableArray array];
-	_depth = 0;
-	_joins = 0;
-	_read = [self entityNamed:plan.entityName];
-}
-
-static NSPredicate *
-ORMPredicate(id part, NSError **error)
-{
-	if (part == [NSNull null]) {
-		return nil;
-	}
-	@try {
-		return [NSPredicate predicateWithFormat:((ORMPredicatePart *)part).format
-		                          argumentArray:((ORMPredicatePart *)part).arguments];
-	} @catch (NSException *exception) {
-		if (error != NULL) {
-			*error = ORMInterpreterError([NSString stringWithFormat:@"The predicate %@ is none: %@",
-			                                                        ((ORMPredicatePart *)part).format, exception.reason]);
+	switch (condition.kind) {
+	case ORMPlanAnd:
+		for (ORMPlanCondition *operand in condition.operands) {
+			if (![self holds:operand object:object bindings:bindings]) {
+				return NO;
+			}
 		}
-		return nil;
+		return YES;
+	case ORMPlanOr:
+		for (ORMPlanCondition *operand in condition.operands) {
+			if ([self holds:operand object:object bindings:bindings]) {
+				return YES;
+			}
+		}
+		return NO;
+	case ORMPlanNot:
+		return ![self holds:condition.operand object:object bindings:bindings];
+	case ORMPlanCompare: {
+		id left = condition.left.path != nil ? [self valueOf:condition.left.path object:object bindings:bindings]
+		                                     : [self constant:condition.left];
+		id right = condition.right.path != nil ? [self valueOf:condition.right.path object:object bindings:bindings]
+		                                       : [self constant:condition.right];
+		return ORMCompare(left, condition.comparison, right);
 	}
+	case ORMPlanNotNull: {
+		id value = [self valueOf:condition.path object:object bindings:bindings];
+		return value != nil && value != [NSNull null];
+	}
+	case ORMPlanExists:
+	case ORMPlanCount:
+	case ORMPlanAggregate: {
+		NSMutableArray *members = [NSMutableArray array];
+		for (id member in ORMMembers([self valueOf:condition.path object:object bindings:bindings])) {
+			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+			if (condition.variable != nil) {
+				[inner setObject:member forKey:condition.variable];
+			}
+			if (condition.operand == nil || [self holds:condition.operand object:object bindings:inner]) {
+				if (condition.kind == ORMPlanExists) {
+					return YES;
+				}
+				[members addObject:condition.kind == ORMPlanAggregate
+				                       ? ([self valueOf:condition.valuePath object:object bindings:inner] ?: [NSNull null])
+				                       : member];
+			}
+		}
+		if (condition.kind == ORMPlanExists) {
+			return NO;
+		}
+		if (condition.kind == ORMPlanCount) {
+			return ORMCompare(@([members count]), condition.comparison, @(condition.number));
+		}
+		NSString *function = [@{ @"sum": @"@sum.self", @"average": @"@avg.self", @"max": @"@max.self",
+		                         @"min": @"@min.self" } objectForKey:condition.function];
+		[members removeObject:[NSNull null]];
+		id aggregate = [members count] > 0 || [condition.function isEqualToString:@"sum"]
+			? [members valueForKeyPath:function] : nil;
+		return ORMCompare(aggregate, condition.comparison, [self constant:condition.constant]);
+	}
+	case ORMPlanIsOf: {
+		id value = [self valueOf:condition.path object:object bindings:bindings];
+		NSEntityDescription *entity = [value isKindOfClass:[NSManagedObject class]] ? ((NSManagedObject *)value).entity : nil;
+		for (; entity != nil; entity = entity.superentity) {
+			if ([entity.name isEqualToString:condition.entityName]) {
+				return YES;
+			}
+		}
+		return NO;
+	}
+	case ORMPlanSame: {
+		id left = [self valueOf:condition.path object:object bindings:bindings];
+		id right = [self valueOf:condition.otherPath object:object bindings:bindings];
+		return left != nil && [left isEqual:right];
+	}
+	case ORMPlanAmong: {
+		id base = condition.otherPath != nil ? [self valueOf:condition.otherPath object:object bindings:bindings] : object;
+		NSArray *reached = base != nil ? @[ base ] : @[];
+		for (NSString *key in condition.trail) {
+			NSMutableArray *next = [NSMutableArray array];
+			for (id at in reached) {
+				[next addObjectsFromArray:ORMMembers([at valueForKey:key])];
+			}
+			reached = next;
+		}
+		id value = [self valueOf:condition.path object:object bindings:bindings];
+		return value != nil && [reached containsObject:value];
+	}
+	case ORMPlanMatches: {
+		/* A probe: the joined plan, its parts equal to this object's, the
+		 * objects it names bound; one object found is enough. */
+		NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+		if (condition.variable != nil && object != nil) {
+			[inner setObject:object forKey:condition.variable];
+		}
+		NSMutableArray *equalities = [NSMutableArray array];
+		for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+			[equalities addObject:@[ [pair lastObject],
+			                         [self valueOf:[pair firstObject] object:object bindings:bindings] ?: [NSNull null] ]];
+		}
+		NSError *error = nil;
+		ORMPlanRun *probe = [self.interpreter runOf:condition.plan bindings:inner equal:equalities inContext:self.context
+		                                      error:&error];
+		NSArray *found = probe != nil ? [probe next:1] : nil;
+		if (probe == nil || probe.error != nil) {
+			self.error = probe.error ?: error;
+			return NO;
+		}
+		return [found count] > 0;
+	}
+	}
+	return NO;
 }
 
 #pragma mark Running
 
-- (ORMQueryResult *)executePlan:(ORMQueryPlan *)plan inContext:(NSManagedObjectContext *)context error:(NSError **)error
+- (BOOL)prepare
 {
-	[self begin:plan context:context];
-	NSArray *split = _read != nil ? [self split:plan.condition] : nil;
-	if (_error != nil || split == nil) {
+	_subqueryVariables = [NSMutableSet set];
+	_buffer = [NSMutableArray array];
+	self.joinLines = [NSMutableArray array];
+	self.read = [self entityNamed:self.plan.entityName];
+	if (self.read == nil) {
+		return NO;
+	}
+	NSMutableArray *inStore = [NSMutableArray array];
+	NSMutableArray *checked = [NSMutableArray array];
+	NSMutableArray *checkedParts = [NSMutableArray array];
+	ORMPlanCondition *condition = self.plan.condition;
+	NSArray *conjuncts = condition == nil ? @[] : (condition.kind == ORMPlanAnd ? condition.operands : @[ condition ]);
+	for (ORMPlanCondition *conjunct in conjuncts) {
+		ORMPredicatePart *part = [self lower:conjunct];
+		if (self.error != nil || part == nil) {
+			return NO;
+		}
+		if (part.inStore) {
+			[inStore addObject:part];
+		} else {
+			[checked addObject:conjunct];
+			[checkedParts addObject:part];
+		}
+	}
+	/* What a probe asks of the objects read. */
+	for (NSArray *equality in self.equalities) {
+		NSString *theirs = [[[equality firstObject] keys] componentsJoinedByString:@"."];
+		[inStore addObject:[ORMPredicatePart format:[NSString stringWithFormat:@"%@ == %%@", theirs]
+		                                  arguments:@[ [equality lastObject] ] inStore:YES]];
+	}
+	self.checks = checked;
+	self.checkPart = [checkedParts count] > 0 ? ORMJoined(checkedParts, @"AND") : nil;
+	self.storePart = [inStore count] > 0 ? ORMJoined(inStore, @"AND") : nil;
+	if (self.storePart != nil && ![self describing]) {
+		@try {
+			self.storePredicate = [NSPredicate predicateWithFormat:self.storePart.format argumentArray:self.storePart.arguments];
+		} @catch (NSException *exception) {
+			[self fail:[NSString stringWithFormat:@"The predicate %@ is none: %@", self.storePart.format, exception.reason]];
+			return NO;
+		}
+	}
+	return YES;
+}
+
+- (BOOL)atEnd
+{
+	return _fetchedAll && [_buffer count] == 0;
+}
+
+/* Up to count more objects the plan reads: fetched a slice at a time, in
+ * its order, each checked as it comes. */
+- (NSArray *)next:(NSUInteger)count
+{
+	NSMutableArray *found = [NSMutableArray array];
+	NSUInteger slice = MAX(count, (NSUInteger)32);
+	while ([found count] < count && self.error == nil) {
+		if ([_buffer count] == 0) {
+			if (_fetchedAll) {
+				break;
+			}
+			NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:self.plan.entityName];
+			fetch.predicate = self.storePredicate;
+			NSMutableArray *sorts = [NSMutableArray array];
+			for (ORMPlanSort *sort in self.plan.sorts) {
+				[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:[sort.path.keys componentsJoinedByString:@"."]
+				                                               ascending:sort.ascending]];
+			}
+			fetch.sortDescriptors = sorts;
+			fetch.fetchOffset = _offset;
+			fetch.fetchLimit = slice;
+			NSError *error = nil;
+			NSArray *objects = [self.context executeFetchRequest:fetch error:&error];
+			if (objects == nil) {
+				self.error = error ?: ORMInterpreterError(@"A fetch failed.");
+				break;
+			}
+			_offset += [objects count];
+			_fetchedAll = [objects count] < slice;
+			[_buffer addObjectsFromArray:objects];
+			continue;
+		}
+		id object = [_buffer firstObject];
+		[_buffer removeObjectAtIndex:0];
+		BOOL holds = YES;
+		for (ORMPlanCondition *check in self.checks) {
+			if (![self holds:check object:object bindings:self.bindings]) {
+				holds = NO;
+				break;
+			}
+		}
+		if (holds && self.error == nil) {
+			[found addObject:object];
+		}
+	}
+	return found;
+}
+
+- (NSString *)programText
+{
+	NSMutableArray *lines = [NSMutableArray arrayWithArray:self.joinLines];
+	[lines addObject:self.storePart != nil ? [NSString stringWithFormat:@"fetch %@ where %@", self.plan.entityName,
+	                                                                    ORMDisplay(self.storePart)]
+	                                       : [@"fetch every " stringByAppendingString:self.plan.entityName]];
+	if (self.checkPart != nil) {
+		[lines addObject:[@"keep those where " stringByAppendingString:ORMDisplay(self.checkPart)]];
+	}
+	if ([self.plan.sorts count] > 0) {
+		[lines addObject:[@"sorted by " stringByAppendingString:[[self.plan.sorts valueForKey:@"description"]
+		                                                            componentsJoinedByString:@", "]]];
+	}
+	return [lines componentsJoinedByString:@"\n"];
+}
+
+@end
+
+#pragma mark The cursor
+
+@interface ORMQueryCursor ()
+@property (nonatomic, strong) ORMPlanRun *run;
+@end
+
+@implementation ORMQueryCursor
+
+- (BOOL)atEnd
+{
+	return self.run.atEnd;
+}
+
+- (ORMQueryResult *)nextPage:(NSUInteger)size error:(NSError **)error
+{
+	NSArray *objects = [self.run next:size];
+	if (self.run.error != nil) {
 		if (error != NULL) {
-			*error = _error ?: ORMInterpreterError(@"The plan could not be run.");
+			*error = self.run.error;
 		}
 		return nil;
-	}
-	id inStore = [split count] > 0 ? [split firstObject] : [NSNull null];
-	id onObjects = [split count] > 1 ? [split lastObject] : [NSNull null];
-	NSPredicate *storePredicate = ORMPredicate(inStore, error);
-	NSPredicate *objectPredicate = ORMPredicate(onObjects, error);
-	if ((inStore != [NSNull null] && storePredicate == nil) || (onObjects != [NSNull null] && objectPredicate == nil)) {
-		return nil;
-	}
-	NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:plan.entityName];
-	fetch.predicate = storePredicate;
-	NSMutableArray *sorts = [NSMutableArray array];
-	for (ORMPlanSort *sort in plan.sorts) {
-		[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:[sort.path.keys componentsJoinedByString:@"."]
-		                                               ascending:sort.ascending]];
-	}
-	fetch.sortDescriptors = sorts;
-	NSArray *objects = [context executeFetchRequest:fetch error:error];
-	if (objects == nil) {
-		return nil;
-	}
-	if (objectPredicate != nil) {
-		objects = [objects filteredArrayUsingPredicate:objectPredicate];
 	}
 	NSMutableArray *rows = [NSMutableArray array];
 	for (id object in objects) {
 		NSMutableArray *row = [NSMutableArray array];
-		for (ORMPlanColumn *column in plan.columns) {
+		for (ORMPlanColumn *column in self.run.plan.columns) {
 			NSArray *keys = [column valuePath].keys;
 			id value = [keys count] > 0 ? [object valueForKeyPath:[keys componentsJoinedByString:@"."]] : object;
 			[row addObject:value ?: [NSNull null]];
 		}
 		[rows addObject:row];
+	}
+	ORMQueryResult *result = [[ORMQueryResult alloc] init];
+	result.objects = objects;
+	result.columnTitles = [self.run.plan.columns valueForKey:@"title"];
+	result.rows = rows;
+	return result;
+}
+
+@end
+
+#pragma mark The interpreter
+
+@implementation ORMQueryInterpreter
+
+- (instancetype)initWithModel:(NSManagedObjectModel *)model
+{
+	if ((self = [super init])) {
+		_model = model;
+		_joinPrefetchLimit = 1000;
+	}
+	return self;
+}
+
+- (ORMPlanRun *)runOf:(ORMQueryPlan *)plan
+             bindings:(NSDictionary<NSString *, id> *)bindings
+                equal:(NSArray<NSArray *> *)equalities
+            inContext:(NSManagedObjectContext *)context
+                error:(NSError **)error
+{
+	ORMPlanRun *run = [[ORMPlanRun alloc] init];
+	run.interpreter = self;
+	run.plan = plan;
+	run.context = context;
+	run.bindings = bindings ?: @{};
+	run.equalities = equalities ?: @[];
+	if (![run prepare]) {
+		if (error != NULL) {
+			*error = run.error ?: ORMInterpreterError(@"The plan could not be run.");
+		}
+		return nil;
+	}
+	return run;
+}
+
+- (ORMQueryCursor *)cursorForPlan:(ORMQueryPlan *)plan inContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context error:error];
+	if (run == nil) {
+		return nil;
+	}
+	ORMQueryCursor *cursor = [[ORMQueryCursor alloc] init];
+	cursor.run = run;
+	return cursor;
+}
+
+- (ORMQueryResult *)executePlan:(ORMQueryPlan *)plan inContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+	ORMQueryCursor *cursor = [self cursorForPlan:plan inContext:context error:error];
+	if (cursor == nil) {
+		return nil;
+	}
+	NSMutableArray *objects = [NSMutableArray array];
+	NSMutableArray *rows = [NSMutableArray array];
+	while (![cursor atEnd]) {
+		ORMQueryResult *page = [cursor nextPage:256 error:error];
+		if (page == nil) {
+			return nil;
+		}
+		if ([page.objects count] == 0) {
+			break;
+		}
+		[objects addObjectsFromArray:page.objects];
+		[rows addObjectsFromArray:page.rows];
 	}
 	ORMQueryResult *result = [[ORMQueryResult alloc] init];
 	result.objects = objects;
@@ -517,28 +886,8 @@ ORMPredicate(id part, NSError **error)
 
 - (NSString *)programForPlan:(ORMQueryPlan *)plan error:(NSError **)error
 {
-	[self begin:plan context:nil];
-	NSArray *split = _read != nil ? [self split:plan.condition] : nil;
-	if (_error != nil || split == nil) {
-		if (error != NULL) {
-			*error = _error ?: ORMInterpreterError(@"The plan could not be described.");
-		}
-		return nil;
-	}
-	NSMutableArray *lines = [NSMutableArray arrayWithArray:_joinLines];
-	id inStore = [split count] > 0 ? [split firstObject] : [NSNull null];
-	id onObjects = [split count] > 1 ? [split lastObject] : [NSNull null];
-	[lines addObject:inStore != [NSNull null] ? [NSString stringWithFormat:@"fetch %@ where %@", plan.entityName,
-	                                                                       ORMDisplay(inStore)]
-	                                          : [@"fetch every " stringByAppendingString:plan.entityName]];
-	if (onObjects != [NSNull null]) {
-		[lines addObject:[@"keep those where " stringByAppendingString:ORMDisplay(onObjects)]];
-	}
-	if ([plan.sorts count] > 0) {
-		[lines addObject:[@"sorted by " stringByAppendingString:[[plan.sorts valueForKey:@"description"]
-		                                                            componentsJoinedByString:@", "]]];
-	}
-	return [lines componentsJoinedByString:@"\n"];
+	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:nil error:error];
+	return run != nil ? [run programText] : nil;
 }
 
 @end

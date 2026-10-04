@@ -79,12 +79,15 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 	/* The objects at path and otherPath are one. */
 	ORMPlanSame,
 	/* The object at path is among those the trail of keys reaches from the
-	 * object read: a node met before, out of the scope it was met in. */
+	 * object read (otherPath, where it is another: an enclosing plan's, o1):
+	 * a node met before, out of the scope it was met in. */
 	ORMPlanAmong,
 	/* The values at the pairs' paths, ours and theirs, equal those of some
 	 * object plan reads: a join on values no relationship makes (an object
-	 * type absorbed into the entities that use it). plan reads from no
-	 * variable here, so it is run once, first. */
+	 * type absorbed into the entities that use it). In plan, variable (o1),
+	 * where it is set, is the object this plan reads; plan may also name the
+	 * variables bound where the match is. A plan that names neither is
+	 * uncorrelated: one set of objects for every object of this one. */
 	ORMPlanMatches,
 };
 
@@ -107,8 +110,15 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 + (instancetype)isOf:(ORMPlanPath *)path entity:(NSString *)entityName;
 + (instancetype)same:(ORMPlanPath *)path as:(ORMPlanPath *)otherPath;
 + (instancetype)among:(ORMPlanPath *)path trail:(NSArray<NSString *> *)keys;
+/* The trail from another object than the one read: an enclosing plan's. */
++ (instancetype)among:(ORMPlanPath *)path trail:(NSArray<NSString *> *)keys from:(ORMPlanPath *)base;
 /* Each pair: @[ our path, their path, from the object plan reads ]. */
 + (instancetype)matches:(ORMQueryPlan *)plan pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs;
+/* The same, plan naming the object this one reads as outer. */
++ (instancetype)matches:(ORMQueryPlan *)plan pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs outer:(NSString *)variable;
+/* The variables the condition names that it does not bind itself: those
+ * bound around it, or an enclosing plan's object. */
+- (NSSet<NSString *> *)freeVariables;
 
 @property (nonatomic, readonly) ORMPlanConditionKind kind;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanCondition *> *operands;

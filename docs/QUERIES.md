@@ -147,15 +147,33 @@ Professor. When every result must be a professor, Professor is what is read.
 
 ## The interpreter: running a plan against Core Data
 
-Some plans cannot be one fetch request, so `ORMQueryInterpreter` runs them
-(`-executePlan:inContext:error:`). It returns the objects, and a row for each
-with a value per column.
-- **Joins:** each `match` is fetched first, wherever it is, even inside a
-  `not`, an `or` or a subquery. Its objects' values go into the predicate in
-  its place.
-- **What the SQLite store can say** becomes the fetch's predicate.
-- **What it cannot say** is evaluated on the objects it returns, an aggregate
-  of the members meeting conditions for instance.
+Some plans cannot be one fetch request, so `ORMQueryInterpreter` runs them.
+It reads incrementally: `-cursorForPlan:inContext:error:` gives a cursor whose
+`-nextPage:error:` returns the next objects, each with a row (a value per
+column). A query whose objects are many, or slow to check, is read only as far
+as the caller asks. `-executePlan:inContext:error:` reads every page.
+- **What the SQLite store can say** becomes the fetch's predicate. The fetch
+  is read in slices (`fetchOffset`, `fetchLimit`), in the plan's order.
+- **What it cannot say** is checked on each slice as it comes:
+  - an aggregate of the members meeting conditions;
+  - a subquery over objects bound outside the fetch.
+
+  The interpreter evaluates the plan's own conditions there, by key-value
+  coding.
+- **Joins:** a `match` is said in the predicate when three things hold:
+  - its plan is the store's to say entirely;
+  - it reads from nothing of this plan;
+  - it finds few objects (`joinPrefetchLimit`, 1000).
+
+  Then they are fetched once, and their values put in its place, wherever the
+  `match` is, inside a `not`, an `or` or a subquery too. Otherwise each object
+  is probed: the joined plan is run with that object's values, and stops at
+  the first object found. A join over a large table never loads the table.
+- **Correlated joins:** a joined plan may name what the plan it is in reached:
+  - its object read, as a variable (`o1`) the match binds;
+  - the variables bound where the match is.
+
+  Such a join is probed for each object, with those bound.
 
 Values go into predicates as arguments, never as text. `-programForPlan:error:`
 says what it will do:
@@ -191,7 +209,16 @@ connects the two entities, so the plan holds a plan of the joined entity:
 ```
 
 The interpreter fetches branch 52 first, then the employees whose parts equal
-one of its objects'. ODataKit's service has no `$root`, so the OData backend
+one of its objects'. Where the joined plan meets a node of this one again, as
+in "who heads a branch in the city they live in", the join depends on each
+employee:
+
+```
+read Employee
+where cityCityname = cityCityname, ... match [o1 is this; read Branch; where employee is o1]
+```
+
+The interpreter probes each employee, with `o1` bound to it. ODataKit's service has no `$root`, so the OData backend
 also makes the join a request of its own. The query is the same however City
 is mapped. As an entity it is a relationship and one fetch; absorbed, it is
 two. This is ConQuer's semantic stability.
@@ -284,8 +311,9 @@ in a tab. Changes undo with the model.
   through a to-many holding every related object. ConQuer's relation, a row
   per binding of the ticked nodes that meets the conditions, would be the
   next step.
-- **Correlated joins:** a plan in a `match` reads from no variable of the
-  plan that holds it, so it is run once.
+- **Correlated joins in OData:** they need a request for each object, which
+  is not made. Noted, and the join left out of the request; the interpreter
+  probes them.
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point

@@ -29,8 +29,8 @@
  *                                         filter by -filterJoining:error:
  *   columns, order                        $select and $expand, $orderby
  *
- * What OData cannot say (an aggregate of the members meeting conditions) is
- * noted. A name ODataKit's builders refuse (one that is no identifier, a
+ * What OData cannot say (an aggregate of the members meeting conditions; a
+ * join whose objects depend on each object read) is noted. A name ODataKit's builders refuse (one that is no identifier, a
  * model's OData.property, say) is an error: no request is made. */
 
 @interface ORMQueryODataJoin : NSObject

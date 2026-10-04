@@ -317,10 +317,64 @@ ORMPlanKindNames(void)
 
 + (instancetype)matches:(ORMQueryPlan *)plan pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs
 {
+	return [self matches:plan pairs:pairs outer:nil];
+}
+
++ (instancetype)matches:(ORMQueryPlan *)plan pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs outer:(NSString *)variable
+{
 	ORMPlanCondition *condition = [self ofKind:ORMPlanMatches];
 	condition.plan = plan;
 	condition.pairs = pairs;
+	condition.variable = variable;
 	return condition;
+}
+
++ (instancetype)among:(ORMPlanPath *)path trail:(NSArray<NSString *> *)keys from:(ORMPlanPath *)base
+{
+	ORMPlanCondition *condition = [self among:path trail:keys];
+	condition.otherPath = base;
+	return condition;
+}
+
+static void
+ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
+{
+	if (path.variable != nil) {
+		[set addObject:path.variable];
+	}
+}
+
+- (NSSet<NSString *> *)freeVariables
+{
+	NSMutableSet *free = [NSMutableSet set];
+	for (ORMPlanCondition *operand in self.operands) {
+		[free unionSet:[operand freeVariables]];
+	}
+	ORMAddVariable(free, self.path);
+	ORMAddVariable(free, self.otherPath);
+	ORMAddVariable(free, self.left.path);
+	ORMAddVariable(free, self.right.path);
+	for (NSArray *pair in self.pairs) {
+		ORMAddVariable(free, [pair firstObject]);
+	}
+	if (self.kind == ORMPlanMatches) {
+		/* The plan's own: what it names of this one, but its outer name. */
+		NSMutableSet *inner = [NSMutableSet setWithSet:[self.plan.condition freeVariables] ?: [NSSet set]];
+		if (self.variable != nil) {
+			[inner removeObject:self.variable];
+		}
+		[free unionSet:inner];
+		return free;
+	}
+	if (self.operand != nil) {
+		NSMutableSet *inner = [NSMutableSet setWithSet:[self.operand freeVariables]];
+		ORMAddVariable(inner, self.valuePath);
+		if (self.kind != ORMPlanNot && self.variable != nil) {
+			[inner removeObject:self.variable];
+		}
+		[free unionSet:inner];
+	}
+	return free;
 }
 
 - (id)copyWithZone:(NSZone *)zone
@@ -375,15 +429,22 @@ ORMPlanKindNames(void)
 		return [NSString stringWithFormat:@"%@ is a %@", self.path, self.entityName];
 	case ORMPlanSame:
 		return [NSString stringWithFormat:@"%@ is %@", self.path, self.otherPath];
-	case ORMPlanAmong:
+	case ORMPlanAmong: {
+		NSMutableArray *trail = [NSMutableArray array];
+		if (self.otherPath != nil) {
+			[trail addObject:[self.otherPath description]];
+		}
+		[trail addObjectsFromArray:self.trail ?: @[]];
 		return [NSString stringWithFormat:@"%@ is among %@", self.path,
-		                                  [self.trail count] > 0 ? [self.trail componentsJoinedByString:@"."] : @"self"];
+		                                  [trail count] > 0 ? [trail componentsJoinedByString:@"."] : @"self"];
+	}
 	case ORMPlanMatches: {
 		NSMutableArray *pairs = [NSMutableArray array];
 		for (NSArray *pair in self.pairs) {
 			[pairs addObject:[NSString stringWithFormat:@"%@ = %@", [pair firstObject], [pair lastObject]]];
 		}
-		return [NSString stringWithFormat:@"%@ match [%@]", [pairs componentsJoinedByString:@", "],
+		return [NSString stringWithFormat:@"%@ match [%@%@]", [pairs componentsJoinedByString:@", "],
+		                                  self.variable != nil ? [NSString stringWithFormat:@"%@ is this; ", self.variable] : @"",
 		                                  [[[self.plan text] componentsSeparatedByString:@"\n"] componentsJoinedByString:@"; "]];
 	}
 	}

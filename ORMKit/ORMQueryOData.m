@@ -583,6 +583,15 @@ ORMODataError(NSString *text)
  * an alias -filterJoining: puts the rows it answers in. */
 - (ODataExpression *)matches:(ORMPlanCondition *)condition
 {
+	NSMutableSet *free = [NSMutableSet setWithSet:[condition.plan.condition freeVariables] ?: [NSSet set]];
+	if (condition.variable != nil || [free count] > 0) {
+		/* Correlated: the joined objects depend on each object this one
+		 * reads, which a request made first cannot know. */
+		[self note:[NSString stringWithFormat:@"The join with %@ depends on each %@ read, which takes a request for each: "
+		                                      @"not made, and the join left out.",
+		                                      condition.plan.entityName, _read.name]];
+		return [ODataExpression literalWithValue:@YES];
+	}
 	NSError *error = nil;
 	ORMQueryOData *joined = [ORMQueryOData requestForPlan:condition.plan coreData:_coreData error:&error];
 	if (joined == nil) {

@@ -2,7 +2,6 @@
 #import "ORMTestSupport.h"
 #import <ODataKit/ODataExpression.h>
 #import <CoreData/CoreData.h>
-#if defined(__APPLE__)
 #import <ODataKit/ODataTransport.h>
 #import <ODataService/ODataService.h>
 
@@ -31,7 +30,6 @@
 	return dispatch_semaphore_wait(_done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))) == 0;
 }
 @end
-#endif
 
 /* Conceptual queries (ORMQuery.h): planned (ORMQueryPlanner.h), run against
  * a store (ORMQueryInterpreter.h) and sent to a service (ORMQueryOData.h),
@@ -908,8 +906,64 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* A store of the default mapping, City absorbed into employees and
+ * branches: Ann and Cal live in Brisbane, where branch 52 is and Ann heads
+ * it; Bea lives there too, but heads branch 7, in Sydney. */
+- (NSManagedObjectContext *)absorbedCompanyIn:(NSString *)directory model:(NSManagedObjectModel *)model
+{
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	NSError *error = nil;
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+	                                                    URL:[NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"A.sqlite"]]
+	                                                options:nil error:&error], @"%@", error);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	context.persistentStoreCoordinator = coordinator;
+	[context performBlockAndWait:^{
+		NSManagedObject *(^make)(NSString *, NSDictionary *) = ^NSManagedObject *(NSString *entity, NSDictionary *values) {
+			NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
+			[object setValuesForKeysWithDictionary:values];
+			return object;
+		};
+		NSManagedObject *australia = make(@"Country", @{ @"name": @"Australia" });
+		NSManagedObject *pay = make(@"Salary", @{ @"usd": @50000 });
+		NSDictionary *brisbane = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD", @"cityStateCountry": australia };
+		NSDictionary *sydney = @{ @"cityCityname": @"Sydney", @"cityStateStatecode": @"NSW", @"cityStateCountry": australia };
+		NSManagedObject *(^employee)(int, NSDictionary *) = ^NSManagedObject *(int nr, NSDictionary *city) {
+			NSMutableDictionary *values = [NSMutableDictionary dictionaryWithDictionary:city];
+			[values addEntriesFromDictionary:@{ @"nr": @(nr), @"employeeName": @"E", @"country": australia, @"salary": pay }];
+			return make(@"Employee", values);
+		};
+		NSManagedObject *e1 = employee(1, brisbane), *e2 = employee(2, brisbane), *e3 = employee(3, brisbane);
+		NSManagedObject *e4 = employee(4, sydney);
+		NSMutableDictionary *b52 = [NSMutableDictionary dictionaryWithDictionary:brisbane];
+		[b52 addEntriesFromDictionary:@{ @"nr": @52, @"employee": e1 }];
+		NSMutableDictionary *b7 = [NSMutableDictionary dictionaryWithDictionary:sydney];
+		[b7 addEntriesFromDictionary:@{ @"nr": @7, @"employee": e2 }];
+		NSManagedObject *branch52 = make(@"Branch", b52), *branch7 = make(@"Branch", b7);
+		for (NSArray *works in @[ @[ e1, branch52 ], @[ e3, branch52 ], @[ e2, branch7 ], @[ e4, branch7 ] ]) {
+			[[works firstObject] setValue:[works lastObject] forKey:@"branch"];
+		}
+		NSError *saveError = nil;
+		XCTAssertTrue([context save:&saveError], @"%@", [saveError userInfo]);
+	}];
+	return context;
+}
+
+- (NSArray *)numbersOf:(ORMQueryPlan *)plan interpreter:(ORMQueryInterpreter *)interpreter
+             inContext:(NSManagedObjectContext *)context
+{
+	__block ORMQueryResult *result = nil;
+	__block NSError *error = nil;
+	[context performBlockAndWait:^{
+		result = [interpreter executePlan:plan inContext:context error:&error];
+	}];
+	XCTAssertNotNil(result, @"%@", error);
+	return [[result.objects valueForKey:@"nr"] sortedArrayUsingSelector:@selector(compare:)];
+}
+
 /* Q1 with City absorbed: branch 52 fetched first, and the employees whose
- * city parts are its. */
+ * city parts are its; with too many branches to fetch, each employee
+ * probed instead. */
 - (void)testAJoinIsAFetchMadeFirst
 {
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
@@ -926,46 +980,109 @@
 
 	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
 	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
-	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
-	NSError *error = nil;
-	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
-	                                                    URL:[NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"A.sqlite"]]
-	                                                options:nil error:&error], @"%@", error);
-	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
-	context.persistentStoreCoordinator = coordinator;
-	__block ORMQueryResult *result = nil;
-	[context performBlockAndWait:^{
-		NSManagedObject *(^make)(NSString *, NSDictionary *) = ^NSManagedObject *(NSString *entity, NSDictionary *values) {
-			NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
-			[object setValuesForKeysWithDictionary:values];
-			return object;
-		};
-		NSManagedObject *australia = make(@"Country", @{ @"name": @"Australia" });
-		NSManagedObject *pay = make(@"Salary", @{ @"usd": @50000 });
-		NSDictionary *brisbane = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD", @"cityStateCountry": australia };
-		NSDictionary *sydney = @{ @"cityCityname": @"Sydney", @"cityStateStatecode": @"NSW", @"cityStateCountry": australia };
-		NSManagedObject *(^employee)(int, NSDictionary *) = ^NSManagedObject *(int nr, NSDictionary *city) {
-			NSMutableDictionary *values = [NSMutableDictionary dictionaryWithDictionary:city];
-			[values addEntriesFromDictionary:@{ @"nr": @(nr), @"employeeName": @"E", @"country": australia, @"salary": pay }];
-			return make(@"Employee", values);
-		};
-		NSManagedObject *e1 = employee(1, brisbane), *e2 = employee(2, sydney), *e3 = employee(3, brisbane);
-		NSMutableDictionary *b52 = [NSMutableDictionary dictionaryWithDictionary:brisbane];
-		[b52 addEntriesFromDictionary:@{ @"nr": @52, @"employee": e1 }];
-		NSMutableDictionary *b7 = [NSMutableDictionary dictionaryWithDictionary:sydney];
-		[b7 addEntriesFromDictionary:@{ @"nr": @7, @"employee": e2 }];
-		NSManagedObject *branch52 = make(@"Branch", b52), *branch7 = make(@"Branch", b7);
-		for (NSArray *works in @[ @[ e1, branch52 ], @[ e3, branch52 ], @[ e2, branch7 ] ]) {
-			[[works firstObject] setValue:[works lastObject] forKey:@"branch"];
+	NSManagedObjectContext *context = [self absorbedCompanyIn:directory model:model];
+	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @1, @2, @3 ]));
+	interpreter.joinPrefetchLimit = 0;
+	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @1, @2, @3 ]));
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* Who heads a branch in the city they live in? Employee1 is met again in
+ * the join, so the branches depend on each employee: o1 in the joined
+ * plan, and each employee probed. */
+- (void)testACorrelatedJoinProbesEachObject
+{
+	NSString *q = [[self queries] addQueryNamed:@"Heads at home" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	[[self queries] setLabel:@"1" ofNode:root];
+	ORMQueryNode *city = [self from:root through:[self role:@"livesIn" at:0] in:q];
+	ORMQueryNode *branch = [self from:city.identifier through:[self role:@"locatedIn" at:1] in:q];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
+	[[self queries] setLabel:@"1" ofNode:head.identifier];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqualObjects([plan text], @"read Employee\n"
+	                                   @"where cityCityname = cityCityname, cityStateStatecode = cityStateStatecode, "
+	                                   @"cityStateCountry = cityStateCountry match [o1 is this; read Branch; where "
+	                                   @"employee is o1]\n"
+	                                   @"list self (nr)");
+	XCTAssertEqualObjects([[ORMQueryPlan planWithPropertyList:[plan propertyList] error:NULL] text], [plan text]);
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	NSString *program = [interpreter programForPlan:plan error:NULL];
+	XCTAssertTrue([program hasPrefix:@"join1, for each (o1 is this): fetch Branch where employee == o1"], @"%@", program);
+	XCTAssertTrue([program rangeOfString:@"keep those where"].location != NSNotFound, @"%@", program);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self absorbedCompanyIn:directory model:model];
+	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @1 ]));
+	/* OData cannot ask it in one request made first: noted, not wrong. */
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	XCTAssertTrue([[odata.notes lastObject] rangeOfString:@"request for each"].location != NSNotFound, @"%@", odata.notes);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* A cursor reads a page at a time, in the plan's order, as far as asked:
+ * also where what it fetches is checked on the objects. */
+- (void)testACursorReadsPages
+{
+	NSDictionary *queries = [self paperQueries];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	NSArray *(^pages)(NSString *, NSUInteger) = ^NSArray *(NSString *name, NSUInteger size) {
+		ORMQueryPlan *plan = [planner planForQuery:[self query:[queries objectForKey:name]]];
+		NSMutableArray *read = [NSMutableArray array];
+		[context performBlockAndWait:^{
+			NSError *error = nil;
+			ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:context error:&error];
+			XCTAssertNotNil(cursor, @"%@", error);
+			for (NSUInteger guard = 0; guard < 10; guard++) {
+				ORMQueryResult *page = [cursor nextPage:size error:&error];
+				XCTAssertNotNil(page, @"%@", error);
+				XCTAssertLessThanOrEqual([page.objects count], size);
+				if ([page.objects count] == 0) {
+					XCTAssertTrue([cursor atEnd]);
+					break;
+				}
+				[read addObject:[page.objects valueForKey:@"nr"]];
+			}
+		}];
+		return read;
+	};
+	/* In its order, the larger number first, one at a time. */
+	XCTAssertEqualObjects(pages(@"Payroll", 1), (@[ @[ @52 ], @[ @7 ] ]));
+	NSArray *drivers = pages(@"Q2", 2);
+	XCTAssertEqual([drivers count], 2u);
+	XCTAssertEqualObjects([[drivers valueForKeyPath:@"@unionOfArrays.self"] sortedArrayUsingSelector:@selector(compare:)],
+	                      (@[ @1, @3, @4 ]));
+	/* Checked on the objects (Q5's correlation out of scope is the store's;
+	 * a total of some members is not): still a page at a time. */
+	NSString *q = [self payroll];
+	ORMQueryStep *employs = [[self query:q].root.steps firstObject];
+	ORMQueryNode *language = [self from:[[employs.nodes firstObject] identifier] through:[self role:@"speaks" at:0] in:q];
+	[[self queries] setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL];
+	for (ORMQueryStep *step in [[employs.nodes firstObject] steps]) {
+		if ([[[step.nodes firstObject] objectType].name isEqualToString:@"Salary"]) {
+			[[self queries] setAggregate:ORMQueryTotal ofNode:[[step.nodes firstObject] identifier] comparison:@">"
+			                       value:@"550000" ofStep:employs.identifier reason:NULL];
 		}
-		NSError *saveError = nil;
-		XCTAssertTrue([context save:&saveError], @"%@", [saveError userInfo]);
-		NSError *runError = nil;
-		result = [interpreter executePlan:plan inContext:context error:&runError];
-		XCTAssertNotNil(result, @"%@", runError);
+	}
+	ORMQueryPlan *latin = [planner planForQuery:[self query:q]];
+	XCTAssertTrue([[latin text] rangeOfString:@"having"].location != NSNotFound, @"%@", [latin text]);
+	__block NSArray *first = nil;
+	__block BOOL ended = NO;
+	[context performBlockAndWait:^{
+		ORMQueryCursor *cursor = [interpreter cursorForPlan:latin inContext:context error:NULL];
+		first = [[cursor nextPage:1 error:NULL].objects valueForKey:@"nr"];
+		ended = [[cursor nextPage:1 error:NULL].objects count] == 0 && [cursor atEnd];
 	}];
-	XCTAssertEqualObjects([[result.objects valueForKey:@"nr"] sortedArrayUsingSelector:@selector(compare:)], (@[ @1, @3 ]));
-	XCTAssertEqualObjects(result.columnTitles, (@[ @"Employee" ]));
+	XCTAssertEqualObjects(first, (@[ @52 ]));
+	XCTAssertTrue(ended);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
@@ -1000,7 +1117,6 @@
 	XCTAssertNil([ORMQueryPlan planWithPropertyList:badPath error:&error]);
 }
 
-#if defined(__APPLE__)
 /* The requests, sent to ODataKit's service over the same store: the same
  * rows. */
 - (void)testTheServiceAnswersTheQueries
@@ -1040,7 +1156,7 @@
 	}
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
-#endif
+
 
 @end
 

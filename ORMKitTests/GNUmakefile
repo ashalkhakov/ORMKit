@@ -26,7 +26,7 @@ ORMKitTests_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
 include ../odatakit.make
 ORMKitTests_INCLUDE_DIRS = -I../ORMKit $(ODATAKIT_INCLUDE_DIRS)
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
-ORMKitTests_BUNDLE_LIBS += -lORMKit $(ODATAKIT_LIBS) -lXCTest -ldispatch
+ORMKitTests_BUNDLE_LIBS += -lORMKit $(ODATAKIT_SERVICE_LIBS) $(ODATAKIT_LIBS) -lXCTest -ldispatch
 ORMKitTests_NEEDS_GUI = no
 
 # AddressSanitizer. The bundle is dlopened by an xctest binary that is not
