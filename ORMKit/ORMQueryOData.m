@@ -7,6 +7,7 @@
 #import <ODataKit/ODataExpression.h>
 #import <ODataKit/ODataPropertyMapper.h>
 #import <ODataIncrementalStore/ODataQueryBuilder.h>
+#import <ODataKit/ODataTransport.h>
 
 static NSDictionary<NSString *, NSString *> *
 ORMODataOperators(void)
@@ -38,6 +39,10 @@ ORMODataError(NSString *text)
  * join is inside a lambda). */
 @property (nonatomic, copy) NSArray<ODataExpression *> *ours;
 @property (nonatomic, strong) ODataPropertyMapper *mapper;
+/* A page join's: the joined plan's filter, and our parts' key paths (the
+ * model's names), which the request selects. */
+@property (nonatomic, strong) ODataExpression *joinedFilter;
+@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *ourKeys;
 @end
 
 @implementation ORMQueryODataJoin
@@ -85,6 +90,15 @@ ORMODataError(NSString *text)
 
 @end
 
+@interface ORMQueryODataCursor ()
+- (instancetype)initWithRequest:(ORMQueryOData *)request transport:(id<ODataTransport>)transport serviceRoot:(NSURL *)root;
+@end
+
+@interface ORMQueryOData ()
+- (NSArray<NSArray<NSString *> *> *)columnWire;
+- (ODataPropertyMapper *)mapper;
+@end
+
 @implementation ORMQueryOData
 {
 	ORMCDModel *_coreData;
@@ -93,6 +107,9 @@ ORMODataError(NSString *text)
 	NSEntityDescription *_read;
 	NSMutableArray<NSString *> *_notes;
 	NSMutableArray<ORMQueryODataJoin *> *_joins;
+	NSMutableArray<ORMQueryODataJoin *> *_pageJoins;
+	/* Each column's wire path, its identifier's at the end. */
+	NSMutableArray<NSArray<NSString *> *> *_columnWire;
 	/* The first error a builder gave: the request is not made. */
 	NSError *_error;
 	/* Each variable bound where the lowering is, to what it ranges over,
@@ -123,6 +140,8 @@ ORMODataError(NSString *text)
 	request->_mapper = [[ODataPropertyMapper alloc] init];
 	request->_notes = [NSMutableArray arrayWithArray:plan.notes ?: @[]];
 	request->_joins = [NSMutableArray array];
+	request->_pageJoins = [NSMutableArray array];
+	request->_columnWire = [NSMutableArray array];
 	request->_bound = [NSMutableDictionary dictionary];
 	request->_written = [NSMutableDictionary dictionary];
 	[request lower];
@@ -157,6 +176,11 @@ ORMODataError(NSString *text)
 - (NSArray<ORMQueryODataJoin *> *)joins
 {
 	return [_joins copy];
+}
+
+- (NSArray<ORMQueryODataJoin *> *)pageJoins
+{
+	return [_pageJoins copy];
 }
 
 - (BOOL)isComplete
@@ -667,6 +691,98 @@ ORMODataError(NSString *text)
 	return alias;
 }
 
+#pragma mark Joins page by page
+
+/* A join among the plan's conditions as a request for each page: its plan
+ * without what it says of the object read, which must be its parts'
+ * equality with the joined objects' (more pairs); NO for another. */
+- (BOOL)pageJoin:(ORMPlanCondition *)condition
+{
+	NSString *outer = condition.variable;
+	NSMutableArray *ours = [NSMutableArray array];
+	NSMutableArray *theirs = [NSMutableArray array];
+	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+		if ([pair firstObject].variable != nil || [pair lastObject].variable != nil) {
+			return NO;
+		}
+		[ours addObject:[pair firstObject].keys];
+		[theirs addObject:[pair lastObject].keys];
+	}
+	ORMPlanCondition *joinedCondition = condition.plan.condition;
+	NSArray *conjuncts = joinedCondition == nil ? @[]
+		: (joinedCondition.kind == ORMPlanAnd ? joinedCondition.operands : @[ joinedCondition ]);
+	NSMutableArray *rest = [NSMutableArray array];
+	for (ORMPlanCondition *conjunct in conjuncts) {
+		NSSet *free = [conjunct freeVariables];
+		if ([free count] == 0) {
+			[rest addObject:conjunct];
+			continue;
+		}
+		BOOL equality = conjunct.kind == ORMPlanSame
+			|| (conjunct.kind == ORMPlanCompare && [conjunct.comparison isEqualToString:@"="] && conjunct.left.path != nil
+			    && conjunct.right.path != nil);
+		if (outer == nil || ![free isEqualToSet:[NSSet setWithObject:outer]] || !equality) {
+			return NO;
+		}
+		ORMPlanPath *a = conjunct.kind == ORMPlanSame ? conjunct.path : conjunct.left.path;
+		ORMPlanPath *b = conjunct.kind == ORMPlanSame ? conjunct.otherPath : conjunct.right.path;
+		ORMPlanPath *outside = [a.variable isEqualToString:outer] ? a : b;
+		ORMPlanPath *inside = outside == a ? b : a;
+		if (inside.variable != nil || ![outside.variable isEqualToString:outer]) {
+			return NO;
+		}
+		[ours addObject:outside.keys];
+		[theirs addObject:inside.keys];
+	}
+	ORMPlanCondition *reduced = [rest count] == 0 ? nil : ([rest count] == 1 ? [rest firstObject] : [ORMPlanCondition all:rest]);
+	NSError *error = nil;
+	ORMQueryOData *joined = [ORMQueryOData requestForPlan:[ORMQueryPlan planReading:condition.plan.entityName where:reduced
+	                                                                        columns:@[] sorts:@[] notes:@[]]
+	                                             coreData:_coreData error:&error];
+	if (joined == nil) {
+		[self fail:error];
+		return NO;
+	}
+	for (NSString *note in joined.notes) {
+		[self note:note];
+	}
+	/* The parts as wire paths, an entity's by its key. */
+	NSEntityDescription *theirEntity = [self entityNamed:condition.plan.entityName];
+	NSMutableArray *ourKeys = [NSMutableArray array];
+	NSMutableArray *pairs = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [ours count]; i++) {
+		NSEntityDescription *ourEnd = nil, *theirEnd = nil;
+		NSArray *ourWire = [self wirePathFor:[ours objectAtIndex:i] from:_read entity:&ourEnd];
+		NSArray *theirWire = [self wirePathFor:[theirs objectAtIndex:i] from:theirEntity entity:&theirEnd];
+		if (ourWire == nil || theirWire == nil) {
+			return NO;
+		}
+		if (ourEnd == nil) {
+			[ourKeys addObject:[ours objectAtIndex:i]];
+			[pairs addObject:@[ ourWire, theirWire ]];
+			continue;
+		}
+		NSArray *key = [[_mapper keyAttributesForEntity:ourEnd]
+			sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ]];
+		for (NSAttributeDescription *attribute in key) {
+			NSString *wire = [_mapper propertyForAttribute:attribute];
+			[ourKeys addObject:[[ours objectAtIndex:i] arrayByAddingObject:attribute.name]];
+			[pairs addObject:@[ [ourWire arrayByAddingObject:wire], [theirWire arrayByAddingObject:wire] ]];
+		}
+	}
+	ORMQueryODataJoin *join = [[ORMQueryODataJoin alloc] init];
+	join.name = [NSString stringWithFormat:@"page%lu", (unsigned long)[_pageJoins count] + 1];
+	join.entityName = condition.plan.entityName;
+	join.collectionPath = joined.collectionPath;
+	join.options = joined.options;
+	join.joinedFilter = joined.filter;
+	join.pairs = pairs;
+	join.ourKeys = ourKeys;
+	join.mapper = _mapper;
+	[_pageJoins addObject:join];
+	return YES;
+}
+
 #pragma mark The request
 
 - (void)lower
@@ -684,7 +800,22 @@ ORMODataError(NSString *text)
 		[self note:[NSString stringWithFormat:@"%@ has no key in OData, so the service does not serve it: map it with "
 		                                      @"ServeOData.", _read.name]];
 	}
-	_filter = _plan.condition != nil ? [self lower:_plan.condition] : nil;
+	/* The joins among the plan's conditions, asked for page by page; the
+	 * rest in the filter. */
+	ORMPlanCondition *condition = _plan.condition;
+	NSArray *conjuncts = condition == nil ? @[] : (condition.kind == ORMPlanAnd ? condition.operands : @[ condition ]);
+	NSMutableArray *kept = [NSMutableArray array];
+	for (ORMPlanCondition *conjunct in conjuncts) {
+		if (conjunct.kind == ORMPlanMatches && [self pageJoin:conjunct]) {
+			continue;
+		}
+		if (_error != nil) {
+			return;
+		}
+		[kept addObject:conjunct];
+	}
+	ORMPlanCondition *rest = [kept count] == 0 ? nil : ([kept count] == 1 ? [kept firstObject] : [ORMPlanCondition all:kept]);
+	_filter = rest != nil ? [self lower:rest] : nil;
 	if (_error != nil) {
 		return;
 	}
@@ -704,7 +835,7 @@ ORMODataError(NSString *text)
 	for (ORMPlanColumn *column in _plan.columns) {
 		ORMODataLevel *level = top;
 		NSEntityDescription *at = _read;
-		NSArray *keys = column.path.keys;
+		NSArray *keys = column.trail;
 		for (NSUInteger i = 0; i < [keys count]; i++) {
 			NSPropertyDescription *property = [[at propertiesByName] objectForKey:[keys objectAtIndex:i]];
 			if (property == nil) {
@@ -719,13 +850,32 @@ ORMODataError(NSString *text)
 				at = nil;
 			}
 		}
+		NSMutableArray *wire = [NSMutableArray arrayWithArray:[self wirePathFor:keys from:_read entity:NULL] ?: @[]];
 		if (at != nil) {
 			NSPropertyDescription *identifier = column.identifierKey != nil
 				? [[at propertiesByName] objectForKey:column.identifierKey] : nil;
 			if (identifier != nil) {
 				[level.select addObject:[self wireOf:identifier]];
+				[wire addObject:[self wireOf:identifier]];
 			} else {
 				level.all = YES;
+			}
+		}
+		[_columnWire addObject:wire];
+	}
+	/* What the page joins compare. */
+	for (ORMQueryODataJoin *join in _pageJoins) {
+		for (NSArray<NSString *> *keys in join.ourKeys) {
+			ORMODataLevel *level = top;
+			NSEntityDescription *at = _read;
+			for (NSUInteger i = 0; i < [keys count]; i++) {
+				NSPropertyDescription *property = [[at propertiesByName] objectForKey:[keys objectAtIndex:i]];
+				if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+					at = ((NSRelationshipDescription *)property).destinationEntity;
+					level = [level expanding:[self wireOf:property] entity:at];
+				} else if (property != nil && ![level.select containsObject:[self wireOf:property]]) {
+					[level.select addObject:[self wireOf:property]];
+				}
 			}
 		}
 	}
@@ -821,6 +971,15 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		[text appendString:@"then, each @join its rows' parts:\n"];
 	}
 	[text appendString:ORMRequestLine(_collectionPath, _options)];
+	for (ORMQueryODataJoin *join in _pageJoins) {
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSArray *pair in join.pairs) {
+			[pairs addObject:[NSString stringWithFormat:@"%@ = %@", [[pair firstObject] componentsJoinedByString:@"/"],
+			                                            [[pair lastObject] componentsJoinedByString:@"/"]]];
+		}
+		[text appendFormat:@"and for each page, %@: %@  grouped by %@, of the page's values\n", join.name,
+		                   ORMRequestLine(join.collectionPath, join.options), [pairs componentsJoinedByString:@", "]];
+	}
 	return text;
 }
 
@@ -867,6 +1026,22 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	return [_filter expressionReplacing:values];
 }
 
+- (NSArray<NSArray<NSString *> *> *)columnWire
+{
+	return [_columnWire copy];
+}
+
+- (ODataPropertyMapper *)mapper
+{
+	return _mapper;
+}
+
+- (ORMQueryODataCursor *)cursorWithTransport:(id<ODataTransport>)transport serviceRoot:(NSURL *)serviceRoot
+{
+	return _collectionPath != nil ? [[ORMQueryODataCursor alloc] initWithRequest:self transport:transport serviceRoot:serviceRoot]
+	                              : nil;
+}
+
 - (NSURL *)URLJoining:(NSDictionary<NSString *, NSArray<NSDictionary *> *> *)joined
           serviceRoot:(NSURL *)serviceRoot
                 error:(NSError **)error
@@ -879,6 +1054,343 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	options.filter = filter;
 	ODataQueryBuilder *builder = [[ODataQueryBuilder alloc] initWithMapper:_mapper serviceRoot:serviceRoot];
 	return [builder URLForPath:_collectionPath options:options error:error];
+}
+
+@end
+
+#pragma mark The cursor
+
+/* An exchange's end, as a block. */
+@interface ORMODataCall : NSObject
+@property (nonatomic, copy) void (^done)(ODataExchange *exchange);
+@end
+
+@implementation ORMODataCall
+
+- (void)exchangeDidFinish:(ODataExchange *)exchange
+{
+	void (^done)(ODataExchange *) = self.done;
+	self.done = nil;
+	if (done != nil) {
+		done(exchange);
+	}
+}
+
+@end
+
+/* The values at a wire path of an entity as JSON: each one, through
+ * arrays (an expanded to-many). */
+static NSArray *
+ORMJSONValues(id json, NSArray<NSString *> *path)
+{
+	NSArray *values = @[ json ?: [NSNull null] ];
+	for (NSString *name in path) {
+		NSMutableArray *next = [NSMutableArray array];
+		for (id value in values) {
+			id member = [value isKindOfClass:[NSDictionary class]] ? [value objectForKey:name] : nil;
+			if ([member isKindOfClass:[NSArray class]]) {
+				[next addObjectsFromArray:member];
+			} else {
+				[next addObject:member ?: [NSNull null]];
+			}
+		}
+		values = next;
+	}
+	return [values count] > 0 ? values : @[ [NSNull null] ];
+}
+
+@implementation ORMQueryODataCursor
+{
+	ORMQueryOData *_request;
+	id<ODataTransport> _transport;
+	NSURL *_root;
+	ODataPropertyMapper *_mapper;
+	/* The request's options, its joins' rows put in, once fetched. */
+	ODataQueryOptions *_options;
+	NSUInteger _offset;
+	BOOL _atEnd;
+	NSMutableSet<NSArray *> *_given;
+}
+
+- (instancetype)initWithRequest:(ORMQueryOData *)request transport:(id<ODataTransport>)transport serviceRoot:(NSURL *)root
+{
+	if ((self = [super init])) {
+		_request = request;
+		_transport = transport;
+		_root = root;
+		_mapper = [request mapper];
+		_given = [NSMutableSet set];
+	}
+	return self;
+}
+
+- (BOOL)atEnd
+{
+	return _atEnd;
+}
+
+/* A GET of the URL: its value, and its next link. */
+- (void)get:(NSURL *)url completion:(void (^)(NSArray *values, NSURL *next, NSError *error))completion
+{
+	ORMODataCall *call = [[ORMODataCall alloc] init];
+	call.done = ^(ODataExchange *exchange) {
+		NSInteger status = [exchange.URLResponse isKindOfClass:[NSHTTPURLResponse class]]
+			? ((NSHTTPURLResponse *)exchange.URLResponse).statusCode : 0;
+		id json = exchange.data != nil ? [NSJSONSerialization JSONObjectWithData:exchange.data options:0 error:NULL] : nil;
+		if (exchange.error != nil || status != 200 || ![json isKindOfClass:[NSDictionary class]]) {
+			NSString *body = exchange.data != nil ? [[NSString alloc] initWithData:exchange.data encoding:NSUTF8StringEncoding] : @"";
+			completion(nil, nil, exchange.error ?: [NSError errorWithDomain:ORMQueryPlanErrorDomain code:4
+			                                                        userInfo:@{ NSLocalizedDescriptionKey:
+			                                                                        [NSString stringWithFormat:@"%@ answered %ld: %@",
+			                                                                                                   url, (long)status, body] }]);
+			return;
+		}
+		NSString *next = [json objectForKey:@"@odata.nextLink"];
+		completion([json objectForKey:@"value"] ?: @[], [next isKindOfClass:[NSString class]] ? [NSURL URLWithString:next] : nil,
+		           nil);
+	};
+	ODataExchange *exchange = [[ODataExchange alloc] initWithRequest:[NSURLRequest requestWithURL:url] target:call
+	                                                          action:@selector(exchangeDidFinish:)];
+	[_transport startExchange:exchange];
+}
+
+- (NSURL *)URLFor:(NSString *)path options:(ODataQueryOptions *)options error:(NSError **)error
+{
+	ODataQueryBuilder *builder = [[ODataQueryBuilder alloc] initWithMapper:_mapper serviceRoot:_root];
+	return [builder URLForPath:path options:options error:error];
+}
+
+/* Every row of a URL, its next links followed. */
+- (void)all:(NSURL *)url into:(NSMutableArray *)rows completion:(void (^)(NSError *error))completion
+{
+	[self get:url completion:^(NSArray *values, NSURL *next, NSError *error) {
+		if (error != nil) {
+			completion(error);
+			return;
+		}
+		[rows addObjectsFromArray:values];
+		if (next != nil) {
+			[self all:next into:rows completion:completion];
+		} else {
+			completion(nil);
+		}
+	}];
+}
+
+/* The request's joins made first, once: their rows put in its filter. */
+- (void)prepare:(void (^)(NSError *error))completion
+{
+	if (_options != nil) {
+		completion(nil);
+		return;
+	}
+	NSArray *joins = _request.joins;
+	NSMutableDictionary *joined = [NSMutableDictionary dictionary];
+	__block NSUInteger index = 0;
+	__block void (^step)(void) = nil;
+	__weak ORMQueryODataCursor *weakSelf = self;
+	void (^finish)(void) = ^{
+		ORMQueryODataCursor *strongSelf = weakSelf;
+		NSError *error = nil;
+		ODataMutableQueryOptions *options = [strongSelf->_request.options mutableCopy];
+		if ([joins count] > 0) {
+			options.filter = [strongSelf->_request filterJoining:joined error:&error];
+			if (options.filter == nil) {
+				completion(error);
+				return;
+			}
+		}
+		strongSelf->_options = options;
+		completion(nil);
+	};
+	step = ^{
+		if (index == [joins count]) {
+			finish();
+			step = nil;
+			return;
+		}
+		ORMQueryODataJoin *join = [joins objectAtIndex:index];
+		NSError *error = nil;
+		NSURL *url = [join URLWithServiceRoot:self->_root error:&error];
+		if (url == nil) {
+			step = nil;
+			completion(error);
+			return;
+		}
+		NSMutableArray *rows = [NSMutableArray array];
+		[self all:url into:rows completion:^(NSError *fetched) {
+			if (fetched != nil) {
+				step = nil;
+				completion(fetched);
+				return;
+			}
+			[joined setObject:rows forKey:join.name];
+			index++;
+			step();
+		}];
+	};
+	step();
+}
+
+/* The rows of the page that a page join keeps: one request for the joined
+ * objects' parts, grouped, among the page's values. */
+- (void)keep:(NSArray *)rows join:(ORMQueryODataJoin *)join completion:(void (^)(NSArray *kept, NSError *error))completion
+{
+	NSMutableOrderedSet *tuples = [NSMutableOrderedSet orderedSet];
+	for (NSDictionary *row in rows) {
+		NSMutableArray *tuple = [NSMutableArray array];
+		for (NSArray *pair in join.pairs) {
+			[tuple addObject:[ORMJSONValues(row, [pair firstObject]) firstObject]];
+		}
+		[tuples addObject:tuple];
+	}
+	if ([tuples count] == 0) {
+		completion(@[], nil);
+		return;
+	}
+	NSError *error = nil;
+	ODataExpression *any = nil;
+	for (NSArray *tuple in tuples) {
+		ODataExpression *all = nil;
+		for (NSUInteger i = 0; i < [join.pairs count] && error == nil; i++) {
+			ODataExpression *path = [ODataExpression memberPath:[[join.pairs objectAtIndex:i] lastObject] of:nil error:&error];
+			ODataExpression *equal = path != nil ? [ODataExpression binary:@"eq" left:path
+			                                                         right:[ODataExpression literalWithValue:[tuple objectAtIndex:i]]
+			                                                         error:&error]
+			                                     : nil;
+			all = all != nil && equal != nil ? [ODataExpression binary:@"and" left:all right:equal error:&error] : equal;
+		}
+		any = any != nil && all != nil ? [ODataExpression binary:@"or" left:any right:all error:&error] : all;
+	}
+	ODataExpression *filter = join.joinedFilter != nil && any != nil
+		? [ODataExpression binary:@"and" left:join.joinedFilter right:any error:&error] : any;
+	NSMutableArray *paths = [NSMutableArray array];
+	for (NSArray *pair in join.pairs) {
+		[paths addObject:[pair lastObject]];
+	}
+	ODataApplyTransformation *keep = filter != nil ? [ODataApplyTransformation filterWithExpression:filter] : nil;
+	ODataApplyTransformation *group = keep != nil ? [ODataApplyTransformation groupByPaths:paths aggregates:@[] error:&error] : nil;
+	if (group == nil) {
+		completion(nil, error);
+		return;
+	}
+	ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
+	options.apply = @[ keep, group ];
+	NSURL *url = [self URLFor:join.collectionPath options:options error:&error];
+	if (url == nil) {
+		completion(nil, error);
+		return;
+	}
+	NSMutableArray *found = [NSMutableArray array];
+	[self all:url into:found completion:^(NSError *fetched) {
+		if (fetched != nil) {
+			completion(nil, fetched);
+			return;
+		}
+		NSMutableSet *theirs = [NSMutableSet set];
+		for (NSDictionary *row in found) {
+			NSMutableArray *tuple = [NSMutableArray array];
+			for (NSArray *pair in join.pairs) {
+				[tuple addObject:[ORMJSONValues(row, [pair lastObject]) firstObject]];
+			}
+			[theirs addObject:tuple];
+		}
+		NSMutableArray *kept = [NSMutableArray array];
+		for (NSDictionary *row in rows) {
+			NSMutableArray *tuple = [NSMutableArray array];
+			for (NSArray *pair in join.pairs) {
+				[tuple addObject:[ORMJSONValues(row, [pair firstObject]) firstObject]];
+			}
+			if ([theirs containsObject:tuple]) {
+				[kept addObject:row];
+			}
+		}
+		completion(kept, nil);
+	}];
+}
+
+/* The rows the page joins keep of these, one join after another. */
+- (void)keep:(NSArray *)rows from:(NSUInteger)index completion:(void (^)(NSArray *kept, NSError *error))completion
+{
+	NSArray *joins = _request.pageJoins;
+	if (index == [joins count] || [rows count] == 0) {
+		completion(rows, nil);
+		return;
+	}
+	[self keep:rows join:[joins objectAtIndex:index] completion:^(NSArray *kept, NSError *error) {
+		if (kept == nil) {
+			completion(nil, error);
+			return;
+		}
+		[self keep:kept from:index + 1 completion:completion];
+	}];
+}
+
+- (void)fill:(NSMutableArray *)page size:(NSUInteger)size completion:(void (^)(ORMQueryResult *page, NSError *error))completion
+{
+	if ([page count] >= size || _atEnd) {
+		NSMutableArray *rows = [NSMutableArray array];
+		for (NSDictionary *object in page) {
+			NSArray *tuples = @[ @[] ];
+			for (NSArray *wire in [_request columnWire]) {
+				NSMutableArray *next = [NSMutableArray array];
+				for (NSArray *tuple in tuples) {
+					for (id value in ORMJSONValues(object, wire)) {
+						[next addObject:[tuple arrayByAddingObject:value]];
+					}
+				}
+				tuples = next;
+			}
+			for (NSArray *tuple in tuples) {
+				if (![_given containsObject:tuple]) {
+					[_given addObject:tuple];
+					[rows addObject:tuple];
+				}
+			}
+		}
+		completion([ORMQueryResult resultWithObjects:page columnTitles:[_request.plan.columns valueForKey:@"title"] rows:rows],
+		           nil);
+		return;
+	}
+	NSUInteger wanted = size - [page count];
+	ODataMutableQueryOptions *options = [_options mutableCopy];
+	options.top = @(wanted);
+	options.skip = @(_offset);
+	NSError *error = nil;
+	NSURL *url = [self URLFor:_request.collectionPath options:options error:&error];
+	if (url == nil) {
+		completion(nil, error);
+		return;
+	}
+	[self get:url completion:^(NSArray *values, NSURL *next, NSError *fetched) {
+		if (values == nil) {
+			completion(nil, fetched);
+			return;
+		}
+		self->_offset += [values count];
+		if ([values count] < wanted) {
+			self->_atEnd = YES;
+		}
+		[self keep:values from:0 completion:^(NSArray *kept, NSError *failed) {
+			if (kept == nil) {
+				completion(nil, failed);
+				return;
+			}
+			[page addObjectsFromArray:kept];
+			[self fill:page size:size completion:completion];
+		}];
+	}];
+}
+
+- (void)nextPage:(NSUInteger)size completion:(void (^)(ORMQueryResult *page, NSError *error))completion
+{
+	[self prepare:^(NSError *error) {
+		if (error != nil) {
+			completion(nil, error);
+			return;
+		}
+		[self fill:[NSMutableArray array] size:MAX(size, (NSUInteger)1) completion:completion];
+	}];
 }
 
 @end

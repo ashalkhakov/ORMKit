@@ -113,9 +113,33 @@ Q5  Employees?$filter=OwnsCars/any() and not (Cars/$count($filter=$this/IsOwnedB
 Pay Branches?$filter=Employees/aggregate(Salary/Usd with sum) gt 1000000&$orderby=Nr desc&$select=Nr
 ```
 
-An object type absorbed into others (City, when it is not an entity) is
-joined on its parts' values. The service has no `$root`, so the join is a
-request made first:
+### Reading from the service
+
+`-cursorWithTransport:serviceRoot:` reads the plan from the service a page at
+a time. It works through an ODataKit transport: the network, or a service in
+process. A page is `$top`/`$skip` of the request, so a query is read only as
+far as the caller asks.
+
+A join among the plan's conditions (not under a `not`, an `or` or a lambda)
+is asked for page by page (`pageJoins`). For each page, one more request asks
+which of that page's parts the joined objects have, grouped so each comes
+once:
+
+```
+GET Employees?$select=Nr,CityCityname,CityStateStatecode&$expand=CityStateCountry($select=Name)&$top=20&$skip=0
+GET Branches?$apply=filter(Nr eq 52 and ((CityCityname eq 'Brisbane' and ...) or ...))
+                    /groupby((CityCityname,CityStateStatecode,CityStateCountry/Name))
+```
+
+A page is never a request per object: one, and one per join, whatever its
+size. A correlated join whose joined objects relate to the object read by
+equality, such as "who heads a branch in the city they live in", takes the
+same form: the equality is one more pair (`Employee/Nr`). A test checks that
+such a page is two requests.
+
+Elsewhere, an object type absorbed into others (City, when it is not an
+entity) is joined on its parts' values by a request made first. The service
+has no `$root`, so that request runs before the main one:
 
 ```
 join1: GET Branches?$filter=Nr eq 52&$select=CityCityname,CityStateStatecode&$expand=CityStateCountry($select=Name)
@@ -123,7 +147,8 @@ GET Employees?$filter=CityCityname ne null and (CityCityname eq 'Brisbane' and .
 ```
 
 `-filterJoining:` makes the second request's filter from the rows the first
-returns. A part that is an entity is compared by its key.
+returns. A part that is an entity is compared by its key. A join correlated
+other than by equality is noted, and left out.
 
 `testTheServiceAnswersTheQueries` (macOS) serves the mapped model with
 `ODataService` over SQLite and checks the rows that Q1 to Q5, the payroll query

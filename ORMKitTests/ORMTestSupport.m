@@ -115,7 +115,25 @@
  * or when it accepts it. */
 - (NSString *)momcRejects:(ORMCDModel *)model
 {
+	/* Apple's through xcrun; elsewhere FreeCoreData's, wherever PATH has it. */
+	NSString *launch = nil;
+	NSArray *arguments = nil;
 #if defined(__APPLE__)
+	launch = @"/usr/bin/xcrun";
+	arguments = @[ @"momc" ];
+#else
+	for (NSString *directory in [[[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"] componentsSeparatedByString:@":"]) {
+		NSString *candidate = [directory stringByAppendingPathComponent:@"momc"];
+		if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
+			launch = candidate;
+			arguments = @[];
+			break;
+		}
+	}
+#endif
+	if (launch == nil) {
+		return nil;
+	}
 	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
 	NSString *package = [directory stringByAppendingPathComponent:@"Test.xcdatamodeld"];
 	NSError *error = nil;
@@ -123,8 +141,8 @@
 		return [error localizedDescription];
 	}
 	NSTask *task = [[NSTask alloc] init];
-	task.launchPath = @"/usr/bin/xcrun";
-	task.arguments = @[ @"momc", package, [directory stringByAppendingPathComponent:@"Test.momd"] ];
+	task.launchPath = launch;
+	task.arguments = [arguments arrayByAddingObjectsFromArray:@[ package, [directory stringByAppendingPathComponent:@"Test.momd"] ]];
 	NSPipe *pipe = [NSPipe pipe];
 	task.standardError = pipe;
 	task.standardOutput = pipe;
@@ -134,10 +152,6 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 	NSString *text = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
 	return [task terminationStatus] == 0 ? nil : text;
-#else
-	(void)model;
-	return nil;
-#endif
 }
 
 @end

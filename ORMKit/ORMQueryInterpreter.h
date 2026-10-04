@@ -3,13 +3,16 @@
 
 @class NSManagedObjectContext, NSManagedObjectModel;
 
-/* What a plan read, or a page of it: the objects, and for each its row, a
- * value per column (NSNull for none; a set where a column is reached
- * through a to-many). */
+/* What a plan read, or a page of it: the objects, and the rows they make,
+ * a result set: a tuple for each way an object meets the plan's conditions
+ * (each member a some binds, each alternative of an or), a value per
+ * column, each value of a column a maybe reaches (or NSNull, none), and no
+ * tuple twice, across pages too. */
 @interface ORMQueryResult : NSObject
 @property (nonatomic, readonly, copy) NSArray *objects;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *columnTitles;
 @property (nonatomic, readonly, copy) NSArray<NSArray *> *rows;
++ (instancetype)resultWithObjects:(NSArray *)objects columnTitles:(NSArray<NSString *> *)titles rows:(NSArray<NSArray *> *)rows;
 @end
 
 /* A plan being read, a page at a time: each page fetches what it needs and

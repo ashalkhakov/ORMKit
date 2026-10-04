@@ -457,15 +457,25 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 
 @implementation ORMPlanColumn
 
-+ (instancetype)columnTitled:(NSString *)title node:(NSString *)nodeId path:(ORMPlanPath *)path
++ (instancetype)columnTitled:(NSString *)title
+                        node:(NSString *)nodeId
+                        path:(ORMPlanPath *)path
+                       trail:(NSArray<NSString *> *)trail
                   identifier:(NSString *)identifierKey
 {
 	ORMPlanColumn *column = [[self alloc] init];
 	column->_title = [title copy];
 	column->_nodeId = [nodeId copy];
 	column->_path = path;
+	column->_trail = [trail copy] ?: path.keys;
 	column->_identifierKey = [identifierKey copy];
 	return column;
+}
+
++ (instancetype)columnTitled:(NSString *)title node:(NSString *)nodeId path:(ORMPlanPath *)path
+                  identifier:(NSString *)identifierKey
+{
+	return [self columnTitled:title node:nodeId path:path trail:path.keys identifier:identifierKey];
 }
 
 - (id)copyWithZone:(NSZone *)zone
@@ -658,7 +668,8 @@ ORMConditionList(ORMPlanCondition *condition)
 	NSMutableArray *columns = [NSMutableArray array];
 	for (ORMPlanColumn *column in _columns) {
 		NSMutableDictionary *item = [NSMutableDictionary dictionaryWithObjectsAndKeys:column.title ?: @"", @"title",
-		                                                 column.nodeId ?: @"", @"node", ORMPathList(column.path), @"path", nil];
+		                                                 column.nodeId ?: @"", @"node", ORMPathList(column.path), @"path",
+		                                                 column.trail, @"trail", nil];
 		if (column.identifierKey != nil) {
 			[item setObject:column.identifierKey forKey:@"identifier"];
 		}
@@ -869,7 +880,15 @@ ORMReadCondition(id list, NSError **error)
 			}
 			return nil;
 		}
+		id trail = [item objectForKey:@"trail"];
+		for (id key in [trail isKindOfClass:[NSArray class]] ? trail : @[]) {
+			if (!ORMPlanIsName(key)) {
+				*reason = ORMPlanError([NSString stringWithFormat:@"%@ is no property's name.", key]);
+				return nil;
+			}
+		}
 		[columns addObject:[ORMPlanColumn columnTitled:[item objectForKey:@"title"] node:[item objectForKey:@"node"] path:path
+		                                         trail:[trail isKindOfClass:[NSArray class]] ? trail : nil
 		                                    identifier:identifier]];
 	}
 	NSMutableArray *sorts = [NSMutableArray array];

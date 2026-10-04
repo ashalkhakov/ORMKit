@@ -9,6 +9,16 @@
 @end
 
 @implementation ORMQueryResult
+
++ (instancetype)resultWithObjects:(NSArray *)objects columnTitles:(NSArray<NSString *> *)titles rows:(NSArray<NSArray *> *)rows
+{
+	ORMQueryResult *result = [[self alloc] init];
+	result.objects = objects;
+	result.columnTitles = titles;
+	result.rows = rows;
+	return result;
+}
+
 @end
 
 static NSError *
@@ -170,6 +180,9 @@ ORMCompare(id left, NSString *comparison, id right)
 - (NSArray *)next:(NSUInteger)count;
 @property (nonatomic, readonly) BOOL atEnd;
 - (NSString *)programText;
+/* The rows of an object the plan reads: a tuple for each way its
+ * conditions are met, a value per column. */
+- (NSArray<NSArray *> *)rowsOf:(id)object;
 @end
 
 @implementation ORMPlanRun
@@ -653,6 +666,102 @@ ORMCompare(id left, NSString *comparison, id right)
 	return NO;
 }
 
+#pragma mark Rows
+
+/* The ways the condition holds of the object: the variables it binds (each
+ * member that meets a some's conditions, each alternative of an or), added
+ * to those bound; none when it does not hold. */
+- (NSArray<NSDictionary *> *)bindingsOf:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings
+{
+	switch (condition.kind) {
+	case ORMPlanAnd: {
+		NSArray *ways = @[ bindings ];
+		for (ORMPlanCondition *operand in condition.operands) {
+			NSMutableArray *next = [NSMutableArray array];
+			for (NSDictionary *way in ways) {
+				[next addObjectsFromArray:[self bindingsOf:operand object:object bindings:way]];
+			}
+			if ([next count] == 0) {
+				return @[];
+			}
+			ways = next;
+		}
+		return ways;
+	}
+	case ORMPlanOr: {
+		NSMutableArray *ways = [NSMutableArray array];
+		for (ORMPlanCondition *operand in condition.operands) {
+			[ways addObjectsFromArray:[self bindingsOf:operand object:object bindings:bindings]];
+		}
+		return ways;
+	}
+	case ORMPlanExists: {
+		NSMutableArray *ways = [NSMutableArray array];
+		for (id member in ORMMembers([self valueOf:condition.path object:object bindings:bindings])) {
+			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+			if (condition.variable != nil) {
+				[inner setObject:member forKey:condition.variable];
+			}
+			if (condition.operand == nil) {
+				[ways addObject:inner];
+			} else {
+				[ways addObjectsFromArray:[self bindingsOf:condition.operand object:object bindings:inner]];
+			}
+		}
+		return ways;
+	}
+	default:
+		return [self holds:condition object:object bindings:bindings] ? @[ bindings ] : @[];
+	}
+}
+
+/* The values at the path: from its variable, bound or not (none, if not),
+ * or the object read; each member where it goes through a to-many, or
+ * none where it reaches nothing. */
+- (NSArray *)valuesAt:(ORMPlanPath *)path object:(id)object bindings:(NSDictionary *)bindings
+{
+	id base = path.variable != nil ? [bindings objectForKey:path.variable] : object;
+	if (base == nil) {
+		return @[ [NSNull null] ];
+	}
+	NSArray *values = @[ base ];
+	for (NSString *key in path.keys) {
+		NSMutableArray *next = [NSMutableArray array];
+		for (id value in values) {
+			[next addObjectsFromArray:ORMMembers([value valueForKey:key])];
+		}
+		values = next;
+	}
+	return [values count] > 0 ? values : @[ [NSNull null] ];
+}
+
+- (NSArray<NSArray *> *)rowsOf:(id)object
+{
+	NSArray *ways = self.plan.condition != nil ? [self bindingsOf:self.plan.condition object:object bindings:self.bindings]
+	                                           : @[ self.bindings ];
+	if ([ways count] == 0) {
+		/* What the store said holds and the objects do not (a nil it
+		 * reads otherwise): the object's own row, unbound. */
+		ways = @[ self.bindings ];
+	}
+	NSMutableArray *rows = [NSMutableArray array];
+	for (NSDictionary *way in ways) {
+		NSArray *tuples = @[ @[] ];
+		for (ORMPlanColumn *column in self.plan.columns) {
+			NSArray *values = [self valuesAt:[column valuePath] object:object bindings:way];
+			NSMutableArray *next = [NSMutableArray array];
+			for (NSArray *tuple in tuples) {
+				for (id value in values) {
+					[next addObject:[tuple arrayByAddingObject:value]];
+				}
+			}
+			tuples = next;
+		}
+		[rows addObjectsFromArray:tuples];
+	}
+	return rows;
+}
+
 #pragma mark Running
 
 - (BOOL)prepare
@@ -776,6 +885,8 @@ ORMCompare(id left, NSString *comparison, id right)
 
 @interface ORMQueryCursor ()
 @property (nonatomic, strong) ORMPlanRun *run;
+/* The rows given so far: none is given twice. */
+@property (nonatomic, strong) NSMutableSet<NSArray *> *given;
 @end
 
 @implementation ORMQueryCursor
@@ -795,14 +906,16 @@ ORMCompare(id left, NSString *comparison, id right)
 		return nil;
 	}
 	NSMutableArray *rows = [NSMutableArray array];
+	if (self.given == nil) {
+		self.given = [NSMutableSet set];
+	}
 	for (id object in objects) {
-		NSMutableArray *row = [NSMutableArray array];
-		for (ORMPlanColumn *column in self.run.plan.columns) {
-			NSArray *keys = [column valuePath].keys;
-			id value = [keys count] > 0 ? [object valueForKeyPath:[keys componentsJoinedByString:@"."]] : object;
-			[row addObject:value ?: [NSNull null]];
+		for (NSArray *row in [self.run rowsOf:object]) {
+			if (![self.given containsObject:row]) {
+				[self.given addObject:row];
+				[rows addObject:row];
+			}
 		}
-		[rows addObject:row];
 	}
 	ORMQueryResult *result = [[ORMQueryResult alloc] init];
 	result.objects = objects;

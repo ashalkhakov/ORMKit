@@ -187,7 +187,8 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		ORMQueryNode *node = [column firstObject];
 		ORMPlannerPlace *place = [column objectAtIndex:1];
 		id identifier = [column lastObject];
-		[columns addObject:[ORMPlanColumn columnTitled:node.objectType.name node:node.identifier path:[place pathFromRead]
+		[columns addObject:[ORMPlanColumn columnTitled:node.objectType.name node:node.identifier path:place.path
+		                                         trail:[place.trail valueForKey:@"name"]
 		                                    identifier:identifier != [NSNull null] ? [identifier name] : nil]];
 	}
 	return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:[self sorts] notes:_notes];
@@ -422,6 +423,11 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		/* Through nothing, no condition holds: the condition says it is set. */
 		return [self conditionFor:node entity:destination at:reached columns:columns] ?: [ORMPlanCondition notNull:reached.path];
 	}
+	if (step != nil && step.operatorKind == ORMQueryMaybe) {
+		/* Maybe: nothing required, nothing bound; what it lists is each
+		 * object the path reaches, or none (an outer join). */
+		return [self conditionFor:node entity:destination at:reached columns:columns];
+	}
 	NSString *variable = [self nextVariable];
 	[_scope addObject:variable];
 	ORMPlanCondition *body = [self conditionFor:node entity:destination
@@ -456,7 +462,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		return nil;
 	}
 	ORMPlannerPlace *reached = [at adding:relationship entity:factEntity];
-	NSString *variable = relationship.toMany ? [self nextVariable] : nil;
+	NSString *variable = relationship.toMany && step.operatorKind != ORMQueryMaybe ? [self nextVariable] : nil;
 	ORMPlannerPlace *inner = variable != nil ? [ORMPlannerPlace variable:variable entity:factEntity trail:reached.trail]
 	                                         : reached;
 	if (variable != nil) {

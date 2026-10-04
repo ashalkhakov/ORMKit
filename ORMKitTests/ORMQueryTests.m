@@ -5,6 +5,22 @@
 #import <ODataKit/ODataTransport.h>
 #import <ODataService/ODataService.h>
 
+/* A transport that counts the requests it carries to the service. */
+@interface ORMTestCountingTransport : NSObject <ODataTransport>
+@property (nonatomic, strong) id<ODataTransport> service;
+@property (atomic) NSUInteger requests;
+@property (atomic, strong) NSMutableArray<NSString *> *paths;
+@end
+
+@implementation ORMTestCountingTransport
+- (void)startExchange:(ODataExchange *)exchange
+{
+	self.requests++;
+	[self.paths addObject:[[exchange.request.URL path] lastPathComponent] ?: @""];
+	[self.service startExchange:exchange];
+}
+@end
+
 /* An exchange with the service, waited for. */
 @interface ORMTestExchangeWaiter : NSObject
 @end
@@ -369,25 +385,21 @@
  * whose city parts are its. The query is the same; the request is two. */
 - (void)testQ1JoinsThroughAnAbsorbedCity
 {
-	/* Two requests to the service. */
+	/* From the service: the employees a page at a time, selecting their city
+	 * parts, and for each page the branches' parts among them, grouped. */
 	ORMQueryOData *odata = [ORMQueryOData requestForQuery:[self query:[self q1]] model:_editor.model mapping:nil error:NULL];
 	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
-	XCTAssertEqualObjects([odata queryText], @"$filter=@join1&$select=Nr");
-	ORMQueryODataJoin *branches = [odata.joins firstObject];
-	NSURL *joinURL = [branches URLWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"] error:NULL];
-	XCTAssertEqualObjects([joinURL path], @"/odata/Branches");
-	XCTAssertEqualObjects([[joinURL query] stringByRemovingPercentEncoding],
-	                      @"$filter=Nr eq 52&$select=CityCityname,CityStateStatecode&$expand=CityStateCountry($select=Name)");
+	XCTAssertEqual([odata.joins count], 0u);
+	XCTAssertEqualObjects([odata queryText], @"$select=Nr,CityCityname,CityStateStatecode&$expand=CityStateCountry($select=Name)");
+	ORMQueryODataJoin *branches = [odata.pageJoins firstObject];
+	XCTAssertEqualObjects(branches.collectionPath, @"Branches");
 	/* A part that is an entity is compared by its key. */
 	NSArray *wirePairs = @[ @[ @[ @"CityCityname" ], @[ @"CityCityname" ] ],
 	                        @[ @[ @"CityStateStatecode" ], @[ @"CityStateStatecode" ] ],
 	                        @[ @[ @"CityStateCountry", @"Name" ], @[ @"CityStateCountry", @"Name" ] ] ];
 	XCTAssertEqualObjects(branches.pairs, wirePairs);
-	NSDictionary *row = @{ @"CityCityname": @"Brisbane", @"CityStateStatecode": @"QLD",
-	                       @"CityStateCountry": @{ @"Name": @"Australia" } };
-	XCTAssertEqualObjects([[odata filterJoining:@{ branches.name: @[ row ] } error:NULL] description],
-	                      @"CityCityname eq 'Brisbane' and CityStateStatecode eq 'QLD' and CityStateCountry/Name eq 'Australia'");
-	XCTAssertEqualObjects([[odata filterJoining:@{ branches.name: @[] } error:NULL] description], @"false");
+	XCTAssertTrue([[odata requestText] rangeOfString:@"for each page, page1: GET Branches?$filter=Nr eq 52"].location
+	              != NSNotFound, @"%@", [odata requestText]);
 }
 
 /* A join inside a not: the joined objects are fetched first wherever the
@@ -949,6 +961,40 @@
 	return context;
 }
 
+/* ODataKit's service over the store, its requests counted. */
+- (ORMTestCountingTransport *)countedServiceOver:(NSManagedObjectContext *)context
+{
+	ORMTestCountingTransport *counted = [[ORMTestCountingTransport alloc] init];
+	counted.paths = [NSMutableArray array];
+	counted.service = [[ODataService alloc] initWithPersistentStoreCoordinator:context.persistentStoreCoordinator
+	                                                               serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	return counted;
+}
+
+/* The numbers of what a request reads, page by page, through the transport. */
+- (NSArray *)pagesOf:(ORMQueryOData *)odata transport:(id<ODataTransport>)transport size:(NSUInteger)size
+{
+	ORMQueryODataCursor *cursor = [odata cursorWithTransport:transport serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	NSMutableArray *pages = [NSMutableArray array];
+	for (NSUInteger guard = 0; guard < 10 && ![cursor atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		__block ORMQueryResult *page = nil;
+		__block NSError *error = nil;
+		[cursor nextPage:size completion:^(ORMQueryResult *result, NSError *failed) {
+			page = result;
+			error = failed;
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
+		XCTAssertNotNil(page, @"%@", error);
+		if ([page.objects count] == 0) {
+			break;
+		}
+		[pages addObject:[[page.objects valueForKey:@"Nr"] sortedArrayUsingSelector:@selector(compare:)]];
+	}
+	return pages;
+}
+
 - (NSArray *)numbersOf:(ORMQueryPlan *)plan interpreter:(ORMQueryInterpreter *)interpreter
              inContext:(NSManagedObjectContext *)context
 {
@@ -984,6 +1030,15 @@
 	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @1, @2, @3 ]));
 	interpreter.joinPrefetchLimit = 0;
 	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @1, @2, @3 ]));
+	/* From the service: the branches' parts asked for page by page. */
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	XCTAssertEqual([odata.pageJoins count], 1u);
+	ORMTestCountingTransport *counted = [self countedServiceOver:context];
+	NSArray *pages = [self pagesOf:odata transport:counted size:2];
+	XCTAssertEqualObjects([pages valueForKeyPath:@"@unionOfArrays.self"], (@[ @1, @2, @3 ]), @"%@", pages);
+	/* A page of two is two requests: the employees, and the branches'
+	 * parts among theirs. */
+	XCTAssertLessThanOrEqual(counted.requests, 2u * [pages count] + 2u, @"%@", counted.paths);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
@@ -1017,9 +1072,79 @@
 	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
 	NSManagedObjectContext *context = [self absorbedCompanyIn:directory model:model];
 	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @1 ]));
-	/* OData cannot ask it in one request made first: noted, not wrong. */
+	/* From the service: a request for a page of employees, and one for the
+	 * branches among their parts, the head one of them; never one each. */
 	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
-	XCTAssertTrue([[odata.notes lastObject] rangeOfString:@"request for each"].location != NSNotFound, @"%@", odata.notes);
+	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
+	XCTAssertEqual([odata.joins count], 0u);
+	XCTAssertEqual([odata.pageJoins count], 1u);
+	NSMutableArray *headPairs = [NSMutableArray array];
+	for (NSArray *pair in [odata.pageJoins firstObject].pairs) {
+		[headPairs addObject:[pair lastObject]];
+	}
+	XCTAssertTrue([headPairs containsObject:(@[ @"Employee", @"Nr" ])], @"%@", headPairs);
+	ORMTestCountingTransport *counted = [self countedServiceOver:context];
+	NSArray *pages = [self pagesOf:odata transport:counted size:10];
+	XCTAssertEqualObjects(pages, (@[ @[ @1 ] ]));
+	XCTAssertEqual(counted.requests, 2u, @"%@", counted.paths);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* What the interpreter returns is a result set: a tuple per way the
+ * conditions are met, the members a step binds and only those, each value
+ * a maybe reaches or none, and no tuple twice. */
+- (void)testRowsAreAResultSet
+{
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	NSArray *(^rows)(NSString *) = ^NSArray *(NSString *queryId) {
+		ORMQueryPlan *plan = [planner planForQuery:[self query:queryId]];
+		__block ORMQueryResult *result = nil;
+		__block NSError *error = nil;
+		[context performBlockAndWait:^{
+			result = [interpreter executePlan:plan inContext:context error:&error];
+		}];
+		XCTAssertNotNil(result, @"%@", error);
+		return [result.rows sortedArrayUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) {
+			return [[a description] compare:[b description]];
+		}];
+	};
+	NSNull *none = [NSNull null];
+
+	/* Each employee, their branch, and maybe each car they drive. */
+	NSString *drivers = [[self queries] addQueryNamed:@"Drivers" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:drivers].identifier;
+	ORMQueryNode *branch = [self from:root through:[self role:@"worksFor" at:0] in:drivers];
+	[[self queries] setProjected:YES ofNode:branch.identifier];
+	NSString *maybe = nil;
+	ORMQueryNode *car = [[self from:root through:[self role:@"drives" at:0] in:drivers step:&maybe] firstObject];
+	[[self queries] setOperator:ORMQueryMaybe ofStep:maybe];
+	[[self queries] setProjected:YES ofNode:car.identifier];
+	NSArray *expected = @[ @[ @1, @52, @"C" ], @[ @10, @7, none ], @[ @2, @7, none ], @[ @21, @7, none ],
+	                       @[ @3, @52, @"A" ], @[ @3, @52, @"B" ], @[ @4, @101, @"A" ], @[ @5, @102, none ] ];
+	XCTAssertEqualObjects(rows(drivers), [expected sortedArrayUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) {
+		return [[a description] compare:[b description]];
+	}]);
+
+	/* Who speaks Latin, and the language: Latin, not every language they
+	 * speak. */
+	NSString *latin = [[self queries] addQueryNamed:@"Latinists" from:[self typeId:@"Employee"] reason:NULL];
+	ORMQueryNode *language = [self from:[self root:latin].identifier through:[self role:@"speaks" at:0] in:latin];
+	[[self queries] setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL];
+	[[self queries] setProjected:YES ofNode:language.identifier];
+	XCTAssertEqualObjects(rows(latin), (@[ @[ @1, @"Latin" ] ]));
+
+	/* The branches employees work for, the employees not listed: each
+	 * branch once. */
+	NSString *branches = [[self queries] addQueryNamed:@"Branches" from:[self typeId:@"Employee"] reason:NULL];
+	[[self queries] setProjected:NO ofNode:[self root:branches].identifier];
+	ORMQueryNode *employer = [self from:[self root:branches].identifier through:[self role:@"worksFor" at:0] in:branches];
+	[[self queries] setProjected:YES ofNode:employer.identifier];
+	XCTAssertEqualObjects(rows(branches), (@[ @[ @101 ], @[ @102 ], @[ @52 ], @[ @7 ] ]));
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
@@ -1056,6 +1181,10 @@
 	};
 	/* In its order, the larger number first, one at a time. */
 	XCTAssertEqualObjects(pages(@"Payroll", 1), (@[ @[ @52 ], @[ @7 ] ]));
+	/* The same from the service. */
+	ORMQueryOData *payroll = [ORMQueryOData requestForPlan:[planner planForQuery:[self query:[queries objectForKey:@"Payroll"]]]
+	                                              coreData:planner.coreData error:NULL];
+	XCTAssertEqualObjects([self pagesOf:payroll transport:[self countedServiceOver:context] size:1], (@[ @[ @52 ], @[ @7 ] ]));
 	NSArray *drivers = pages(@"Q2", 2);
 	XCTAssertEqual([drivers count], 2u);
 	XCTAssertEqualObjects([[drivers valueForKeyPath:@"@unionOfArrays.self"] sortedArrayUsingSelector:@selector(compare:)],

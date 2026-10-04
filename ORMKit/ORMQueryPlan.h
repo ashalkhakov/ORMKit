@@ -140,14 +140,25 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 @property (nonatomic, readonly, copy) NSArray<NSArray<ORMPlanPath *> *> *pairs;
 @end
 
-/* A ticked node: its title, the query node, and where it is from the
- * object read; an entity's by its identifier's key, where it has one. */
+/* A ticked node: its title, the query node, and where it is: from the
+ * variable its node is bound to where a condition binds it (x1, a member
+ * meeting the conditions), else from the object read, through what a row
+ * takes each of (a maybe's to-many: none, one, or each); and the same as a
+ * trail of keys from the object read. An entity's by its identifier's key,
+ * where it has one. */
 @interface ORMPlanColumn : NSObject <NSCopying>
++ (instancetype)columnTitled:(NSString *)title
+                        node:(NSString *)nodeId
+                        path:(ORMPlanPath *)path
+                       trail:(NSArray<NSString *> *)trail
+                  identifier:(NSString *)identifierKey;
+/* A column from the object read: its trail is its path's keys. */
 + (instancetype)columnTitled:(NSString *)title node:(NSString *)nodeId path:(ORMPlanPath *)path
                   identifier:(NSString *)identifierKey;
 @property (nonatomic, readonly, copy) NSString *title;
 @property (nonatomic, readonly, copy) NSString *nodeId;
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *trail;
 @property (nonatomic, readonly, copy) NSString *identifierKey;
 /* The path to the column's value: the path, and the identifier's key. */
 - (ORMPlanPath *)valuePath;

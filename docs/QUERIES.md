@@ -149,8 +149,17 @@ Professor. When every result must be a professor, Professor is what is read.
 
 Some plans cannot be one fetch request, so `ORMQueryInterpreter` runs them.
 It reads incrementally: `-cursorForPlan:inContext:error:` gives a cursor whose
-`-nextPage:error:` returns the next objects, each with a row (a value per
-column). A query whose objects are many, or slow to check, is read only as far
+`-nextPage:error:` returns the next objects and the rows they make.
+
+The rows are a result set: a sequence of tuples, a value per ticked node, and
+no tuple twice, across pages too.
+- **A tuple per way the conditions are met.** A node reached through a `some`
+  lists the members that meet its conditions, and only those. "Who speaks
+  Latin, and the language" lists Latin, not every language they speak.
+- **Each alternative of an `or`.** A node one alternative binds is empty in
+  the tuples of another.
+- **Each value of a `maybe`.** A maybe step binds nothing, so its node lists
+  every object its path reaches, or none: an outer join. A query whose objects are many, or slow to check, is read only as far
 as the caller asks. `-executePlan:inContext:error:` reads every page.
 - **What the SQLite store can say** becomes the fetch's predicate. The fetch
   is read in slices (`fetchOffset`, `fetchLimit`), in the plan's order.
@@ -307,10 +316,9 @@ in a tab. Changes undo with the model.
   - narrowed by the conditions under the step, in OData. ODataKit's service
     aggregates no filtered collection, so this case is noted there; the
     interpreter evaluates it on the objects it fetches.
-- **Rows:** the interpreter returns a row per object, a column reached
-  through a to-many holding every related object. ConQuer's relation, a row
-  per binding of the ticked nodes that meets the conditions, would be the
-  next step.
+- **Rows from the service:** the OData cursor's rows are the columns'
+  values as the entities come, each value of an expanded to-many, not only
+  the members a `some` binds. The interpreter's are a result set.
 - **Correlated joins in OData:** they need a request for each object, which
   is not made. Noted, and the join left out of the request; the interpreter
   probes them.
