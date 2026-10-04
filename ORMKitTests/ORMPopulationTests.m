@@ -253,6 +253,16 @@
 			NSArray *got = [plan.sorts count] > 0 ? [firsts array]
 			                                      : [[firsts array] sortedArrayUsingSelector:@selector(compare:)];
 			XCTAssertEqualObjects(got, [answers objectForKey:query.name], @"%@ %@", [path lastPathComponent], query.name);
+			if ([[path lastPathComponent] isEqualToString:@"University.orm"] && [query.name isEqualToString:@"Q3"]) {
+				/* Maybe a degree rated above 5: two academics with none have
+				 * a row each, the degree empty; the rest a row a degree. */
+				NSUInteger empty = 0;
+				for (NSArray *row in result.rows) {
+					empty += [row objectAtIndex:1] == [NSNull null] ? 1 : 0;
+				}
+				XCTAssertEqual([result.rows count], 7u, @"%@", result.rows);
+				XCTAssertEqual(empty, 2u, @"%@", result.rows);
+			}
 		}
 	}
 }

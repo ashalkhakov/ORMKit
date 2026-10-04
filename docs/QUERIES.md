@@ -278,7 +278,8 @@ Its text (`-[ORMQueryPlan text]`):
 | a step through a to-many, or an objectified fact type's entity | `some cars as x1 has ...` |
 | a unary | `isRetired = true` |
 | a subtype | `x1 is a Professor`, and a cast to read it as one |
-| not, or, maybe | `not (...)`, `... or ...`; maybe asks nothing |
+| not, or | `not (...)`, `... or ...` |
+| maybe | `maybe employee.cars as x2 has ...`: binds each member meeting the conditions, or none; asks nothing of the object read |
 | count(X) > n | `number of cars > 1`, or `number of cars as x2 having ... > 1` |
 | total, avg, max, min | `sum of x1.salary.usd over employees as x1 > 1000000`, with `having ...` where the steps below narrow the members |
 | a label met again, in scope | `x1.city is city` |
@@ -307,9 +308,12 @@ no tuple twice, across pages too.
   Latin, and the language" lists Latin, not every language they speak.
 - **Each alternative of an `or`.** A node one alternative binds is empty in
   the tuples of another.
-- **Each value of a `maybe`.** A maybe step binds nothing, so its node lists
-  every object its path reaches, or none: an outer join. A query whose objects are many, or slow to check, is read only as far
-as the caller asks. `-executePlan:inContext:error:` reads every page.
+- **Each value of a `maybe`.** A maybe step lists each object its path
+  reaches that meets the conditions below it, or none: an outer join. It
+  never leaves an object out.
+
+A query whose objects are many, or slow to check, is read only as far as
+the caller asks. `-executePlan:inContext:error:` reads every page.
 - **What the SQLite store can say** becomes the fetch's predicate. The fetch
   is read in slices (`fetchOffset`, `fetchLimit`), in the plan's order.
 - **What it cannot say** is checked on each slice as it comes:
@@ -466,11 +470,6 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 - **An absorbed object type met again out of scope:** its parts are
   compared only where both occurrences are in scope. Out of scope, the label
   is dropped, with a note.
-- **Conditions under a `maybe`:** ConQuer-II's Q3 (in
-  [Samples/University.orm](../Samples/University.orm)) lists each degree
-  rated above 5 where there is one. The planner lists each degree and drops
-  the condition: the columns under a `maybe` should take only the members
-  meeting it.
 - **Aggregates beyond a step's own group:**
   - grouped by something other than the node above (ConQuer-II's for-clauses,
     `max(Rating) for Employee > avg(Rating) for Department`);

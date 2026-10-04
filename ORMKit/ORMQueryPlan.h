@@ -110,6 +110,12 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 	 * is. A set that names neither is uncorrelated: the same for every object
 	 * of this one. */
 	ORMPlanMatches,
+	/* Maybe: each member of the collection at path (or the object a to-one
+	 * reaches), bound to variable, that meets operand (nil: each); none, and
+	 * the variable unbound, when none does. Asks nothing of the object
+	 * read; what it binds is what the columns below it list (an outer
+	 * join). */
+	ORMPlanMaybe,
 };
 
 @interface ORMPlanCondition : NSObject <NSCopying>
@@ -119,6 +125,7 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 + (instancetype)compare:(ORMPlanValue *)left comparison:(NSString *)comparison with:(ORMPlanValue *)right;
 + (instancetype)notNull:(ORMPlanPath *)path;
 + (instancetype)exists:(ORMPlanPath *)collection variable:(NSString *)variable where:(ORMPlanCondition *)condition;
++ (instancetype)maybe:(ORMPlanPath *)collection variable:(NSString *)variable where:(ORMPlanCondition *)condition;
 + (instancetype)count:(ORMPlanPath *)collection variable:(NSString *)variable where:(ORMPlanCondition *)condition
            comparison:(NSString *)comparison number:(NSUInteger)number;
 + (instancetype)aggregate:(NSString *)function

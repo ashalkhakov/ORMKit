@@ -482,8 +482,9 @@
 	                                                    @"      + maybe drives ✓Car\n");
 	XCTAssertEqualObjects([[self plan:q] text], @"read USbranch\n"
 	                                              @"where not (some uSbranchAchievedRankInYears as x1 has (x1.rank.nr = 1 "
-	                                              @"and x1.year.ad < 1998)) and employee.employeeName is set\n"
-	                                              @"list self (nr), employee.employeeName, employee.cars (regnr)");
+	                                              @"and x1.year.ad < 1998)) and employee.employeeName is set and maybe "
+	                                              @"employee.cars as x2\n"
+	                                              @"list self (nr), employee.employeeName, x2 (regnr)");
 	ORMQueryOData *odata = [self odata:q];
 	XCTAssertEqualObjects(odata.collectionPath, @"Branches/Default.USbranch");
 	XCTAssertEqualObjects([odata queryText], @"$filter=not USbranchAchievedRankInYears/any(x1:x1/Rank/Nr eq 1 and "
@@ -494,7 +495,8 @@
 	XCTAssertEqualObjects([plan.columns valueForKey:@"title"], (@[ @"USbranch", @"EmployeeName", @"Car" ]));
 	/* A US branch is known by its number, as a branch is. */
 	XCTAssertEqualObjects([[plan.columns firstObject] identifierKey], @"nr");
-	XCTAssertEqualObjects([[[plan.columns lastObject] valuePath] description], @"employee.cars.regnr");
+	XCTAssertEqualObjects([[[plan.columns lastObject] valuePath] description], @"x2.regnr");
+	XCTAssertEqualObjects([[plan.columns lastObject] trail], (@[ @"employee", @"cars" ]));
 	XCTAssertEqualObjects([self program:q], @"fetch USbranch where (NOT (SUBQUERY(uSbranchAchievedRankInYears, $x1, "
 	                                        @"($x1.rank.nr == 1) AND ($x1.year.ad < 1998)).@count > 0)) AND "
 	                                        @"(employee.employeeName != nil)");

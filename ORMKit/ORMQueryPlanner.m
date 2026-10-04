@@ -442,7 +442,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	for (ORMQueryStep *step in node.steps) {
 		BOOL listed = columns && step.operatorKind != ORMQueryNot;
 		ORMPlanCondition *condition = [self conditionForStep:step entity:entity at:at columns:listed];
-		if (step.operatorKind == ORMQueryMaybe || condition == nil) {
+		if (condition == nil) {
 			continue;
 		}
 		[steps addObject:step.operatorKind == ORMQueryNot ? [ORMPlanCondition not:condition] : condition];
@@ -494,9 +494,44 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
                               at:(ORMPlannerPlace *)at
                          columns:(BOOL)columns
 {
+	return [self binaryStep:step node:node property:property at:at columns:columns value:NO];
+}
+
+/* The same; with value, the place is the attribute's value itself (a
+ * variable a maybe binds to it), not the object it is of. Its conditions
+ * only: nil for none. */
+- (ORMPlanCondition *)binaryStep:(ORMQueryStep *)step
+                            node:(ORMQueryNode *)node
+                        property:(ORMCDProperty *)property
+                              at:(ORMPlannerPlace *)at
+                         columns:(BOOL)columns
+                           value:(BOOL)isValue
+{
+	if (isValue) {
+		if (columns) {
+			[self column:node place:at identifier:nil];
+		}
+		NSMutableArray *parts = [NSMutableArray arrayWithArray:[self correlationsOf:node place:at]];
+		[self reach:node place:at];
+		if (node.comparison != nil && node.comparedNode == nil) {
+			[parts addObject:[ORMPlanCondition compare:[ORMPlanValue valueAtPath:at.path] comparison:node.comparison
+			                                      with:[self constant:node.value attribute:(ORMCDAttribute *)property]]];
+		}
+		return ORMAllOf(parts);
+	}
 	if ([property isKindOfClass:[ORMCDAttribute class]]) {
 		ORMCDAttribute *attribute = (ORMCDAttribute *)property;
 		ORMPlannerPlace *value = [at adding:attribute entity:nil];
+		if (step != nil && step.operatorKind == ORMQueryMaybe) {
+			/* Maybe: the value, bound, where it meets its conditions. */
+			NSString *variable = [self nextVariable];
+			[_scope addObject:variable];
+			ORMPlanCondition *body = [self binaryStep:nil node:node property:attribute
+			                                       at:[ORMPlannerPlace variable:variable entity:nil trail:at.trail]
+			                                  columns:columns value:YES];
+			[_scope removeLastObject];
+			return [ORMPlanCondition maybe:value.path variable:variable where:body];
+		}
 		if (columns) {
 			[self column:node place:value identifier:nil];
 		}
@@ -518,17 +553,23 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	ORMCDRelationship *relationship = (ORMCDRelationship *)property;
 	ORMCDEntity *destination = [self destinationOf:relationship];
 	ORMPlannerPlace *reached = [at adding:relationship entity:destination];
+	if (step != nil && step.operatorKind == ORMQueryMaybe) {
+		/* Maybe: each object the path reaches that meets the conditions
+		 * below, bound; or none, nothing required (an outer join). */
+		NSString *variable = [self nextVariable];
+		[_scope addObject:variable];
+		ORMPlanCondition *body = [self conditionFor:node entity:destination
+		                                         at:[ORMPlannerPlace variable:variable entity:destination trail:reached.trail]
+		                                    columns:columns];
+		[_scope removeLastObject];
+		return [ORMPlanCondition maybe:reached.path variable:variable where:body];
+	}
 	if (!relationship.toMany) {
 		if (step != nil && step.countComparison != nil) {
 			[self note:[NSString stringWithFormat:@"%@ is one at most: it is not counted.", node.objectType.name]];
 		}
 		/* Through nothing, no condition holds: the condition says it is set. */
 		return [self conditionFor:node entity:destination at:reached columns:columns] ?: [ORMPlanCondition notNull:reached.path];
-	}
-	if (step != nil && step.operatorKind == ORMQueryMaybe) {
-		/* Maybe: nothing required, nothing bound; what it lists is each
-		 * object the path reaches, or none (an outer join). */
-		return [self conditionFor:node entity:destination at:reached columns:columns];
 	}
 	NSString *variable = [self nextVariable];
 	[_scope addObject:variable];
@@ -564,7 +605,8 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		return nil;
 	}
 	ORMPlannerPlace *reached = [at adding:relationship entity:factEntity];
-	NSString *variable = relationship.toMany && step.operatorKind != ORMQueryMaybe ? [self nextVariable] : nil;
+	BOOL maybe = step.operatorKind == ORMQueryMaybe;
+	NSString *variable = relationship.toMany || maybe ? [self nextVariable] : nil;
 	ORMPlannerPlace *inner = variable != nil ? [ORMPlannerPlace variable:variable entity:factEntity trail:reached.trail]
 	                                         : reached;
 	if (variable != nil) {
@@ -588,6 +630,9 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		[_scope removeLastObject];
 	}
 	ORMPlanCondition *body = ORMAllOf(parts);
+	if (maybe) {
+		return [ORMPlanCondition maybe:reached.path variable:variable where:body];
+	}
 	if (variable == nil) {
 		return body ?: [ORMPlanCondition notNull:reached.path];
 	}

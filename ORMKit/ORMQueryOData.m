@@ -489,11 +489,18 @@ ORMODataError(NSString *text)
 	case ORMPlanOr: {
 		NSMutableArray *parts = [NSMutableArray array];
 		for (ORMPlanCondition *operand in condition.operands) {
+			if (operand.kind == ORMPlanMaybe && condition.kind == ORMPlanAnd) {
+				/* Asks nothing beside what the others ask. */
+				continue;
+			}
 			ODataExpression *part = [self lower:operand];
 			if (part == nil) {
 				return nil;
 			}
 			[parts addObject:part];
+		}
+		if ([parts count] == 0) {
+			return [ODataExpression literalWithValue:@YES];
 		}
 		return [self all:parts connective:condition.kind == ORMPlanAnd ? @"and" : @"or"];
 	}
@@ -538,6 +545,9 @@ ORMODataError(NSString *text)
 		return [self among:condition.path trail:condition.trail];
 	case ORMPlanMatches:
 		return [self matches:condition];
+	case ORMPlanMaybe:
+		/* Asks nothing of the objects read. */
+		return [ODataExpression literalWithValue:@YES];
 	}
 	return nil;
 }
@@ -806,7 +816,7 @@ ORMODataError(NSString *text)
 	NSArray *conjuncts = condition == nil ? @[] : (condition.kind == ORMPlanAnd ? condition.operands : @[ condition ]);
 	NSMutableArray *kept = [NSMutableArray array];
 	for (ORMPlanCondition *conjunct in conjuncts) {
-		if (conjunct.kind == ORMPlanMatches && [self pageJoin:conjunct]) {
+		if (conjunct.kind == ORMPlanMaybe || (conjunct.kind == ORMPlanMatches && [self pageJoin:conjunct])) {
 			continue;
 		}
 		if (_error != nil) {

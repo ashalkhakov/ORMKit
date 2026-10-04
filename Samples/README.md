@@ -16,9 +16,7 @@ by hand.
 - `University.orm`, after Bloesch and Halpin, "Conceptual Queries using
   ConQuer-II" (ER '97), figure 2: academics, professors and chairs, and
   degrees awarded by universities. It adds "Academic has AcademicName",
-  which the paper does not have. Queries Q1 to Q3 are the paper's. Q3's
-  `maybe` with a condition is not yet planned as the paper means it
-  ([docs/QUERIES.md](../docs/QUERIES.md)).
+  which the paper does not have. Queries Q1 to Q3 are the paper's.
 - `UMLandORM.orm`, after Halpin and Bloesch, "Data modeling in UML and ORM:
   a comparison" (Journal of Database Management, 1999), one diagram per
   figure:
@@ -66,7 +64,8 @@ only the identifiers. That makes a row easy to check against the data.
   - Q1 finds academics 430 (Cara Diaz), 715 (Ana Lima) and 720 (Ben Cho);
   - Q2 finds 720 (Ben Cho), who holds the Informatics chair and has no
     degree from UQ;
-  - Q3 lists all five.
+  - Q3 lists all five, each with the degrees rated above 5 they have, or
+    with none: Dev Rao's only degree is rated 4, and Eli Moss has none.
 - **UMLandORM:**
   - **Figures 4 and 7:** the paper's own populations. Rooms 10, 20 and 33,
     their facilities, and who uses them when; and which titles determine

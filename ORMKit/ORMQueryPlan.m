@@ -34,7 +34,7 @@ static NSArray *
 ORMPlanKindNames(void)
 {
 	return @[ @"all", @"any", @"not", @"compare", @"notNull", @"exists", @"count", @"aggregate", @"isOf", @"same", @"among",
-	          @"matches" ];
+	          @"matches", @"maybe" ];
 }
 
 #pragma mark Steps and paths
@@ -276,6 +276,15 @@ ORMPlanKindNames(void)
 	return condition;
 }
 
++ (instancetype)maybe:(ORMPlanPath *)collection variable:(NSString *)variable where:(ORMPlanCondition *)operand
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanMaybe];
+	condition.path = collection;
+	condition.variable = variable;
+	condition.operand = operand;
+	return condition;
+}
+
 + (instancetype)count:(ORMPlanPath *)collection variable:(NSString *)variable where:(ORMPlanCondition *)operand
            comparison:(NSString *)comparison number:(NSUInteger)number
 {
@@ -441,6 +450,10 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 		return self.operand != nil ? [NSString stringWithFormat:@"some %@ as %@ has %@", self.path, self.variable,
 		                                                       [self.operand wrapped]]
 		                           : [NSString stringWithFormat:@"some %@", self.path];
+	case ORMPlanMaybe:
+		return self.operand != nil ? [NSString stringWithFormat:@"maybe %@ as %@ has %@", self.path, self.variable,
+		                                                       [self.operand wrapped]]
+		                           : [NSString stringWithFormat:@"maybe %@ as %@", self.path, self.variable];
 	case ORMPlanCount:
 		return self.operand != nil ? [NSString stringWithFormat:@"number of %@ as %@ having %@ %@ %lu", self.path,
 		                                                       self.variable, [self.operand wrapped], self.comparison,

@@ -66,6 +66,16 @@ ORMPredicateOperators(void)
 static ORMPredicatePart *
 ORMJoined(NSArray<ORMPredicatePart *> *parts, NSString *connective)
 {
+	/* What asks nothing says nothing among others that ask something. */
+	if ([connective isEqualToString:@"AND"] && [parts count] > 1) {
+		NSMutableArray *asking = [NSMutableArray array];
+		for (ORMPredicatePart *part in parts) {
+			if (![part.format isEqualToString:@"TRUEPREDICATE"]) {
+				[asking addObject:part];
+			}
+		}
+		parts = [asking count] > 0 ? asking : @[ [parts firstObject] ];
+	}
 	if ([parts count] == 1) {
 		return [parts firstObject];
 	}
@@ -380,6 +390,9 @@ ORMCompare(id left, NSString *comparison, id right)
 		return [self among:condition];
 	case ORMPlanMatches:
 		return [self matches:condition];
+	case ORMPlanMaybe:
+		/* Asks nothing: what it binds is the rows'. */
+		return [ORMPredicatePart format:@"TRUEPREDICATE" arguments:nil inStore:YES];
 	}
 	return [ORMPredicatePart format:@"FALSEPREDICATE" arguments:nil inStore:YES];
 }
@@ -653,6 +666,8 @@ ORMCompare(id left, NSString *comparison, id right)
 		id value = [self valueOf:condition.path object:object bindings:bindings];
 		return value != nil && [reached containsObject:value];
 	}
+	case ORMPlanMaybe:
+		return YES;
 	case ORMPlanMatches: {
 		/* A probe: the joined plan, its parts equal to this object's, the
 		 * objects it names bound; one object found is enough. */
@@ -722,6 +737,20 @@ ORMCompare(id left, NSString *comparison, id right)
 			}
 		}
 		return ways;
+	}
+	case ORMPlanMaybe: {
+		/* Each member meeting the conditions, or one way with none. */
+		NSMutableArray *ways = [NSMutableArray array];
+		for (id member in ORMMembers([self valueOf:condition.path object:object bindings:bindings])) {
+			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+			[inner setObject:member forKey:condition.variable];
+			if (condition.operand == nil) {
+				[ways addObject:inner];
+			} else {
+				[ways addObjectsFromArray:[self bindingsOf:condition.operand object:object bindings:inner]];
+			}
+		}
+		return [ways count] > 0 ? ways : @[ bindings ];
 	}
 	default:
 		return [self holds:condition object:object bindings:bindings] ? @[ bindings ] : @[];
