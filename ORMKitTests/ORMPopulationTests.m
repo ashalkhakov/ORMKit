@@ -215,6 +215,48 @@
 	                                                      @"Monogamy.orm", @"Supervision.orm" ]]));
 }
 
+/* The samples' own populations: each query finds what its paper says, or
+ * the sample's README. The first column's distinct values, sorted where the
+ * query sorts nothing. */
+- (void)testTheSamplesAnswerTheirQueries
+{
+	NSDictionary *expected = @{
+		@"Company.orm": @{ @"Q1": @[ @1, @3 ], @"Q2": @[ @1, @3, @4 ], @"Q3": @[ @102 ], @"Q4": @[ @2 ],
+		                   @"Q5": @[ @1, @4 ], @"Payroll": @[ @52, @7 ], @"Polyglots": @[ @1 ] },
+		@"University.orm": @{ @"Q1": @[ @430, @715, @720 ], @"Q2": @[ @720 ], @"Q3": @[ @430, @503, @651, @715, @720 ] },
+		@"UMLandORM.orm": @{ @"Rooms lacking a facility": @[], @"Coauthored papers": @[ @1 ] },
+	};
+	for (NSString *path in [self generatedModels]) {
+		NSDictionary *answers = [expected objectForKey:[path lastPathComponent]];
+		if (answers == nil) {
+			continue;
+		}
+		ORMModel *model = [ORMModel modelOfDocument:ORMParseDocument([NSData dataWithContentsOfFile:path], NULL) reason:NULL];
+		XCTAssertEqualObjects([[[[ORMPopulationChecker alloc] initWithModel:model] violations] valueForKey:@"text"], @[]);
+		/* As the designer runs them: by the document's first mapping. */
+		ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:model.document] firstObject];
+		ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:mapping];
+		ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+		NSError *error = nil;
+		NSManagedObjectContext *context = [store newContextWithError:&error];
+		XCTAssertNotNil(context, @"%@", error);
+		XCTAssertEqualObjects(store.notes, @[]);
+		ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+		for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
+			ORMQueryPlan *plan = [planner planForQuery:query];
+			ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+			XCTAssertNotNil(result, @"%@: %@", query.name, error);
+			NSMutableOrderedSet *firsts = [NSMutableOrderedSet orderedSet];
+			for (NSArray *row in result.rows) {
+				[firsts addObject:[row firstObject]];
+			}
+			NSArray *got = [plan.sorts count] > 0 ? [firsts array]
+			                                      : [[firsts array] sortedArrayUsingSelector:@selector(compare:)];
+			XCTAssertEqualObjects(got, [answers objectForKey:query.name], @"%@ %@", [path lastPathComponent], query.name);
+		}
+	}
+}
+
 /* The same model, the same population. */
 - (void)testGeneratingIsRepeatable
 {

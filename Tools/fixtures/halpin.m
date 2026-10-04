@@ -365,10 +365,209 @@ check(BOOL ok, const char *what)
 	for (ORMDiagram *diagram in _editor.model.diagrams) {
 		[_editor.diagramEditor arrangeDiagram:diagram.identifier];
 	}
+	/* A sample's population keeps its constraints. */
+	for (ORMPopulationViolation *violation in [[[ORMPopulationChecker alloc] initWithModel:_editor.model] violations]) {
+		check(NO, [[NSString stringWithFormat:@"%@: %@", [path lastPathComponent], violation.text] UTF8String]);
+	}
 	[[_editor dataForSaving] writeToFile:path atomically:YES];
 	NSLog(@"wrote %@: %lu object types, %lu fact types, %lu queries", path,
 	      (unsigned long)[_editor.model.objectTypes count], (unsigned long)[_editor.model.factTypes count],
 	      (unsigned long)[[ORMQuery queriesInModel:_editor.model] count]);
+}
+
+#pragma mark Populations
+
+/* An instance by its reference mode's value. */
+- (NSString *)one:(NSString *)typeName value:(NSString *)text in:(ORMSamplePopulation *)population
+{
+	ORMObjectType *type = [_editor.model objectTypeNamed:typeName];
+	ORMRole *role = [[type.preferredIdentifier allRoles] firstObject];
+	return [population instanceOf:type.identifier
+	                 identifiedBy:@{ role.identifier: [population value:text of:role.player.identifier] }];
+}
+
+/* A fact of the fact type named as -fact:players: named it, its players in
+ * its roles' order. Its id. */
+- (NSString *)fact:(NSString *)name of:(NSArray<NSString *> *)players in:(ORMSamplePopulation *)population
+{
+	NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < [players count]; i++) {
+		[byRole setObject:[players objectAtIndex:i] forKey:[self role:name at:i]];
+	}
+	ORMRole *role = [_editor.model elementWithId:[self role:name at:0]];
+	return [population factOf:role.factType.identifier players:byRole];
+}
+
+- (void)add:(ORMSamplePopulation *)population
+{
+	NSString *reason = nil;
+	CHECK([_editor.populationEditor addPopulation:population reason:&reason], reason);
+}
+
+/* The company the query tests ask about: each paper's query finds what the
+ * paper says it should. */
+- (void)companyPopulation
+{
+	ORMSamplePopulation *p = [[ORMSamplePopulation alloc] init];
+	NSString *australia = [self one:@"Country" value:@"Australia" in:p];
+	NSString *usa = [self one:@"Country" value:@"USA" in:p];
+	NSString *uk = [self one:@"Country" value:@"UK" in:p];
+	NSString *(^state)(NSString *, NSString *) = ^NSString *(NSString *country, NSString *code) {
+		return [p instanceOf:[self typeId:@"State"]
+		        identifiedBy:@{ [self role:@"stateCountry" at:1]: country,
+		                        [self role:@"stateCode" at:1]: [p value:code of:[self typeId:@"Statecode"]] }];
+	};
+	NSString *(^city)(NSString *, NSString *) = ^NSString *(NSString *name, NSString *inState) {
+		return [p instanceOf:[self typeId:@"City"]
+		        identifiedBy:@{ [self role:@"cityName" at:1]: [p value:name of:[self typeId:@"Cityname"]],
+		                        [self role:@"cityState" at:1]: inState }];
+	};
+	NSString *brisbane = city(@"Brisbane", state(australia, @"QLD")), *sydney = city(@"Sydney", state(australia, @"NSW"));
+	NSString *perth = city(@"Perth", state(australia, @"WA")), *seattle = city(@"Seattle", state(usa, @"WA"));
+	NSMutableDictionary *employees = [NSMutableDictionary dictionary];
+	NSDictionary *names = @{ @1: @"Ann", @2: @"Bea", @3: @"Cal", @4: @"Dee", @5: @"Eve", @10: @"Fay", @21: @"Gus" };
+	for (NSArray *row in @[ @[ @1, brisbane, australia, @"600000" ], @[ @2, sydney, australia, @"500000" ],
+	                        @[ @3, brisbane, australia, @"500000" ], @[ @4, seattle, usa, @"50000" ],
+	                        @[ @5, seattle, usa, @"50000" ], @[ @10, sydney, uk, @"600000" ],
+	                        @[ @21, perth, uk, @"50000" ] ]) {
+		NSString *e = [self one:@"Employee" value:[[row firstObject] stringValue] in:p];
+		[employees setObject:e forKey:[row firstObject]];
+		[self fact:@"hasName" of:@[ e, [p value:[names objectForKey:[row firstObject]] of:[self typeId:@"EmployeeName"]] ]
+		        in:p];
+		[self fact:@"livesIn" of:@[ e, [row objectAtIndex:1] ] in:p];
+		[self fact:@"bornIn" of:@[ e, [row objectAtIndex:2] ] in:p];
+		[self fact:@"earns" of:@[ e, [self one:@"Salary" value:[row lastObject] in:p] ] in:p];
+	}
+	NSString *(^employee)(int) = ^NSString *(int nr) {
+		return [employees objectForKey:@(nr)];
+	};
+	[self fact:@"reportsTo" of:@[ employee(10), employee(2) ] in:p];
+	[self fact:@"reportsTo" of:@[ employee(21), employee(1) ] in:p];
+	NSString *b52 = [self one:@"Branch" value:@"52" in:p], *b7 = [self one:@"Branch" value:@"7" in:p];
+	NSString *us1 = [p instanceOf:[self typeId:@"USbranch"] supertypeInstance:[self one:@"Branch" value:@"101" in:p]];
+	NSString *us2 = [p instanceOf:[self typeId:@"USbranch"] supertypeInstance:[self one:@"Branch" value:@"102" in:p]];
+	for (NSArray *row in @[ @[ b52, brisbane, @1 ], @[ b7, sydney, @2 ], @[ us1, seattle, @4 ], @[ us2, seattle, @5 ] ]) {
+		[self fact:@"locatedIn" of:@[ [row firstObject], [row objectAtIndex:1] ] in:p];
+		[self fact:@"heads" of:@[ employee([[row lastObject] intValue]), [row firstObject] ] in:p];
+	}
+	for (NSArray *row in @[ @[ @1, b52 ], @[ @3, b52 ], @[ @2, b7 ], @[ @10, b7 ], @[ @21, b7 ], @[ @4, us1 ], @[ @5, us2 ] ]) {
+		[self fact:@"worksFor" of:@[ employee([[row firstObject] intValue]), [row lastObject] ] in:p];
+	}
+	NSString *ute = [self one:@"CarModel" value:@"Ute" in:p];
+	NSString *a = [self one:@"Car" value:@"A" in:p], *b = [self one:@"Car" value:@"B" in:p];
+	NSString *c = [self one:@"Car" value:@"C" in:p];
+	for (NSString *car in @[ a, b, c ]) {
+		[self fact:@"carModel" of:@[ car, ute ] in:p];
+	}
+	for (NSArray *row in @[ @[ @1, c ], @[ @3, a ], @[ @3, b ], @[ @4, a ] ]) {
+		[self fact:@"drives" of:@[ employee([[row firstObject] intValue]), [row lastObject] ] in:p];
+	}
+	for (NSArray *row in @[ @[ @1, b ], @[ @3, a ], @[ @3, b ], @[ @4, a ] ]) {
+		[self fact:@"owns" of:@[ employee([[row firstObject] intValue]), [row lastObject] ] in:p];
+	}
+	NSString *english = [self one:@"Language" value:@"English" in:p], *latin = [self one:@"Language" value:@"Latin" in:p];
+	[self fact:@"speaks" of:@[ employee(1), english ] in:p];
+	[self fact:@"speaks" of:@[ employee(1), latin ] in:p];
+	[self fact:@"speaks" of:@[ employee(2), english ] in:p];
+	for (NSArray *row in @[ @[ us1, @"1", @"1995" ], @[ us2, @"1", @"2001" ], @[ us2, @"2", @"1996" ] ]) {
+		[self fact:@"achieved" of:@[ [row firstObject], [self one:@"Rank" value:[row objectAtIndex:1] in:p],
+		                             [self one:@"Year" value:[row lastObject] in:p] ]
+		        in:p];
+	}
+	[self add:p];
+}
+
+/* A Core Data mapping keeping City an entity of its own, so a query can
+ * compare cities (Q4): absorbed, a city has no one value to compare. */
+- (void)companyMapping
+{
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:_editor];
+	NSString *mapping = [mappings addCoreDataMappingNamed:@"Company" path:@"Company.xcdatamodeld"];
+	[mappings setMapping:ORMMapAsEntity ofObjectType:[self typeId:@"City"] inMapping:mapping];
+}
+
+/* Five academics: Q1 finds three, Q2 the one professor of informatics with
+ * no degree from UQ, Q3 all five, two of them with no degree rated above 5. */
+- (void)universityPopulation
+{
+	ORMSamplePopulation *p = [[ORMSamplePopulation alloc] init];
+	NSMutableDictionary *universities = [NSMutableDictionary dictionary];
+	for (NSString *code in @[ @"UQ", @"MIT", @"ANU" ]) {
+		[universities setObject:[self one:@"University" value:code in:p] forKey:code];
+	}
+	NSMutableDictionary *degrees = [NSMutableDictionary dictionary];
+	for (NSArray *row in @[ @[ @"BSc", @"UQ", @"6" ], @[ @"PhD", @"UQ", @"7" ], @[ @"BSc", @"MIT", @"5" ],
+	                        @[ @"PhD", @"MIT", @"7" ], @[ @"MSc", @"ANU", @"4" ] ]) {
+		NSString *degree = [p instanceOf:[self typeId:@"Degree"]
+		                    identifiedBy:@{ [self role:@"degreeCode" at:1]: [p value:[row firstObject]
+		                                                                          of:[self typeId:@"Degreecode"]],
+		                                    [self role:@"degreeUniversity" at:1]: [universities objectForKey:row[1]] }];
+		[self fact:@"rating" of:@[ degree, [p value:[row lastObject] of:[self typeId:@"Rating"]] ] in:p];
+		[degrees setObject:degree forKey:[NSString stringWithFormat:@"%@ %@", row[0], row[1]]];
+	}
+	NSMutableDictionary *academics = [NSMutableDictionary dictionary];
+	for (NSArray *row in @[ @[ @"715", @"P" ], @[ @"720", @"P" ], @[ @"430", @"SL" ], @[ @"503", @"L" ],
+	                        @[ @"651", @"AL" ] ]) {
+		NSString *academic = [self one:@"Academic" value:[row firstObject] in:p];
+		[academics setObject:academic forKey:[row firstObject]];
+		[self fact:@"rank" of:@[ academic, [self one:@"Rank" value:[row lastObject] in:p] ] in:p];
+	}
+	for (NSArray *row in @[ @[ @"715", @"Databases" ], @[ @"720", @"Informatics" ] ]) {
+		NSString *professor = [p instanceOf:[self typeId:@"Professor"]
+		                  supertypeInstance:[academics objectForKey:[row firstObject]]];
+		[self fact:@"holds" of:@[ professor, [self one:@"Chair" value:[row lastObject] in:p] ] in:p];
+	}
+	for (NSArray *row in @[ @[ @"715", @"BSc UQ", @"1979" ], @[ @"715", @"PhD MIT", @"1984" ],
+	                        @[ @"720", @"BSc MIT", @"1975" ], @[ @"720", @"PhD MIT", @"1980" ],
+	                        @[ @"430", @"BSc UQ", @"1990" ], @[ @"430", @"PhD UQ", @"1995" ],
+	                        @[ @"503", @"MSc ANU", @"2001" ] ]) {
+		[self fact:@"awarded" of:@[ [academics objectForKey:row[0]], [degrees objectForKey:row[1]],
+		                            [self one:@"Year" value:row[2] in:p] ]
+		        in:p];
+	}
+	[self add:p];
+}
+
+/* Figures 4 and 7's populations, as the paper gives them; and a few
+ * writings of our own, two of them on one paper. */
+- (void)umlAndORMPopulation
+{
+	ORMSamplePopulation *p = [[ORMSamplePopulation alloc] init];
+	NSMutableDictionary *facilities = [NSMutableDictionary dictionary];
+	for (NSArray *row in @[ @[ @"DP", @"Data projection unit" ], @[ @"INT", @"Internet access" ],
+	                        @[ @"PA", @"Public Address system" ] ]) {
+		NSString *facility = [self one:@"Facility" value:[row firstObject] in:p];
+		[facilities setObject:facility forKey:[row firstObject]];
+		[self fact:@"facilityName" of:@[ facility, [p value:[row lastObject] of:[self typeId:@"FacilityName"]] ] in:p];
+	}
+	for (NSArray *row in @[ @[ @"10", @"PA" ], @[ @"20", @"DP" ], @[ @"33", @"DP" ], @[ @"33", @"INT" ], @[ @"33", @"PA" ] ]) {
+		[self fact:@"provides" of:@[ [self one:@"Room" value:row[0] in:p], [facilities objectForKey:row[1]] ] in:p];
+	}
+	for (NSArray *row in @[ @[ @"VM class", @"DP" ], @[ @"AQ demo", @"DP" ], @[ @"AQ demo", @"INT" ] ]) {
+		[self fact:@"requires" of:@[ [self one:@"Activity" value:row[0] in:p], [facilities objectForKey:row[1]] ] in:p];
+	}
+	for (NSArray *row in @[ @[ @"20", @"Mon 9am", @"VM class" ], @[ @"20", @"Tue 2pm", @"VM class" ],
+	                        @[ @"33", @"Tue 2pm", @"AQ demo" ], @[ @"33", @"Wed 3pm", @"VM class" ],
+	                        @[ @"33", @"Fri 5pm", @"Party" ] ]) {
+		[self fact:@"used" of:@[ [self one:@"Room" value:row[0] in:p], [self one:@"Time" value:row[1] in:p],
+		                         [self one:@"Activity" value:row[2] in:p] ]
+		        in:p];
+	}
+	for (NSArray *row in @[ @[ @"Lady", @"F" ], @[ @"Mr", @"M" ], @[ @"Mrs", @"F" ], @[ @"Ms", @"F" ] ]) {
+		[self fact:@"determines" of:@[ [p value:row[0] of:[self typeId:@"Title"]], [self one:@"Sex" value:row[1] in:p] ]
+		        in:p];
+	}
+	/* Our own: who wrote which paper, and how long each writing took. */
+	ORMObjectType *writing = [_editor.model objectTypeNamed:@"Writing"];
+	for (NSArray *row in @[ @[ @"Terry", @"1", @"30" ], @[ @"Anthony", @"1", @"30" ], @[ @"Terry", @"2", @"12" ],
+	                        @[ @"Erik", @"3", @"45" ] ]) {
+		NSString *wrote = [self fact:@"wrote" of:@[ [self one:@"Person" value:row[0] in:p],
+		                                            [self one:@"Paper" value:row[1] in:p] ]
+		                          in:p];
+		NSString *instance = [p instanceOf:writing.identifier objectifying:wrote];
+		[self fact:@"took" of:@[ instance, [self one:@"Period" value:row[2] in:p] ] in:p];
+	}
+	[self add:p];
 }
 
 #pragma mark Company
@@ -574,12 +773,16 @@ int main(int argc, char **argv)
 		NSString *out = [NSString stringWithUTF8String:argv[1]];
 		Builder *company = [[Builder alloc] initNamed:@"Company"];
 		[company company];
+		[company companyPopulation];
+		[company companyMapping];
 		[company save:[out stringByAppendingPathComponent:@"Company.orm"]];
 		Builder *university = [[Builder alloc] initNamed:@"University"];
 		[university university];
+		[university universityPopulation];
 		[university save:[out stringByAppendingPathComponent:@"University.orm"]];
 		Builder *uml = [[Builder alloc] initNamed:@"UMLandORM"];
 		[uml umlAndORM];
+		[uml umlAndORMPopulation];
 		[uml save:[out stringByAppendingPathComponent:@"UMLandORM.orm"]];
 	}
 	return failures > 0;

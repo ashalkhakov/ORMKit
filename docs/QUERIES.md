@@ -310,6 +310,11 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 
 ## Not done yet
 
+- **Correlating an absorbed object type:** an object type absorbed into the
+  entities that use it (City, under the default mapping) has no one value to
+  compare, so a label on it is dropped, with a note. Company's Q4 needs City
+  as an entity, which the sample's mapping makes it; comparing all of an
+  absorbed type's parts would lift this.
 - **Correlation with conditions:** a label met again out of scope whose
   earlier occurrence had conditions of its own takes any object its path
   reaches, not only those meeting them. Noted. Where no inverse leads back,

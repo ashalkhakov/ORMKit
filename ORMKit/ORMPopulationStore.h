@@ -29,8 +29,9 @@
  * an interpreter runs plans against the context with. */
 @property (nonatomic, readonly, strong) NSManagedObjectModel *managedObjectModel;
 
-/* A new context over a new in-memory store holding the population, saved;
- * nil, and why, when the store cannot be made or saved. */
+/* A new context over a new store holding the population, saved: SQLite, as
+ * the interpreter's plans are made for, in a temporary file removed with
+ * this object. nil, and why, when the store cannot be made or saved. */
 - (NSManagedObjectContext *)newContextWithError:(NSError **)error;
 /* What of the population the last context does not hold, and why: a fact
  * the mapping keeps nowhere, a value its attribute cannot take. */

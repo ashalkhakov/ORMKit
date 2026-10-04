@@ -411,6 +411,12 @@ ORMCompare(id left, NSString *comparison, id right)
 	NSString *over = body != nil ? [NSString stringWithFormat:@"SUBQUERY(%@, $%@, %@)", collection, condition.variable,
 	                                                          body.format]
 	                             : collection;
+	if (body == nil && [condition.path.keys count] > 1 && condition.kind != ORMPlanAggregate) {
+		/* The SQLite store counts no key path through more than one
+		 * relationship ("a.b.@count"); a subquery over it, it does. */
+		over = [NSString stringWithFormat:@"SUBQUERY(%@, $%@, TRUEPREDICATE)", collection,
+		                                  condition.variable ?: [NSString stringWithFormat:@"c%lu", (unsigned long)_depth]];
+	}
 	BOOL inStore = !bound && (body == nil || body.inStore);
 	if (condition.kind == ORMPlanAggregate) {
 		NSString *function = [@{ @"sum": @"@sum", @"average": @"@avg", @"max": @"@max", @"min": @"@min" }
@@ -452,6 +458,7 @@ ORMCompare(id left, NSString *comparison, id right)
 		id base = [self.bindings objectForKey:condition.otherPath.variable];
 		at = [base isKindOfClass:[NSManagedObject class]] ? ((NSManagedObject *)base).entity : nil;
 	}
+	NSUInteger toMany = 0;
 	for (NSString *key in condition.trail) {
 		NSRelationshipDescription *relationship = [[at relationshipsByName] objectForKey:key];
 		if (relationship.inverseRelationship == nil) {
@@ -459,7 +466,13 @@ ORMCompare(id left, NSString *comparison, id right)
 			break;
 		}
 		[inverses insertObject:relationship.inverseRelationship.name atIndex:0];
+		toMany += [relationship.inverseRelationship isToMany] ? 1 : 0;
 		at = relationship.destinationEntity;
+	}
+	/* The SQLite store takes no ANY through more than one to-many
+	 * relationship: checked on the objects fetched instead. */
+	if (toMany > 1) {
+		back = NO;
 	}
 	if (back && [inverses count] > 0) {
 		return [ORMPredicatePart format:[NSString stringWithFormat:@"ANY %@.%@ == %@", path,

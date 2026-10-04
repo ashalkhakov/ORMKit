@@ -4,6 +4,7 @@
 #import "ORMPath.h"
 #import "ORMQueryPlaces.h"
 #import <CoreData/CoreData.h>
+#import <objc/runtime.h>
 
 /* A fact of the population: its fact type, and the instance playing each
  * role, by role id. */
@@ -16,6 +17,34 @@
 
 @implementation ORMPopulationFact
 @end
+
+/* A directory removed when it is let go of: the store's, held by its
+ * coordinator, which lets go of it once the store is closed. */
+@interface ORMTemporaryDirectory : NSObject
+- (instancetype)initWithPath:(NSString *)path;
+@end
+
+@implementation ORMTemporaryDirectory
+{
+	NSString *_path;
+}
+
+- (instancetype)initWithPath:(NSString *)path
+{
+	if ((self = [super init])) {
+		_path = [path copy];
+	}
+	return self;
+}
+
+- (void)dealloc
+{
+	[[NSFileManager defaultManager] removeItemAtPath:_path error:NULL];
+}
+
+@end
+
+static char ORMTemporaryDirectoryKey;
 
 @implementation ORMPopulationStore
 {
@@ -532,9 +561,22 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 	_objects = [NSMutableDictionary dictionary];
 	_played = [NSMutableDictionary dictionary];
 	_reached = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	/* SQLite, which evaluates a key path through several to-many
+	 * relationships as the plans mean it (an in-memory store compares the
+	 * nested sets), in a directory of its own, removed when the coordinator
+	 * is let go of. */
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:
+		[NSString stringWithFormat:@"ORMPopulationStore-%@", [[NSUUID UUID] UUIDString]]];
+	if (![[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil
+	                                                     error:error]) {
+		return nil;
+	}
+	NSURL *url = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"Population.sqlite"]];
 	NSPersistentStoreCoordinator *coordinator =
 		[[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:_managedObjectModel];
-	if ([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil
+	objc_setAssociatedObject(coordinator, &ORMTemporaryDirectoryKey, [[ORMTemporaryDirectory alloc] initWithPath:directory],
+	                         OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+	if ([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil URL:url options:nil
 	                                      error:error] == nil) {
 		return nil;
 	}

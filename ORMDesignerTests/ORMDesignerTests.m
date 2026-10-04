@@ -317,8 +317,8 @@
 	XCTAssertEqual([[ORMQuery queryWithId:query inModel:editor.model].root.steps count], 0u);
 }
 
-/* A sample's query run on a made-up population: the Results tab shows its
- * rows, and undoing the population takes them away. */
+/* A sample's query run on its own population, then on a made-up one: the
+ * Results tab shows the rows, and undoing brings the sample's back. */
 - (void)testAQueryRunsOnASamplePopulation
 {
 	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
@@ -331,9 +331,11 @@
 	editor.changed = ^{
 		[queries modelDidChange];
 	};
-	/* Each employee: as many as were made up. */
+	/* Each change its own step to undo, as no event loop groups them. */
+	[[_document undoManager] setGroupsByEvent:NO];
+	/* Each employee: the sample's seven, then as many as were made up. */
 	[queries addQueryFrom:[[editor.model objectTypeNamed:@"Employee"] identifier]];
-	XCTAssertNil([queries result], @"no population yet");
+	XCTAssertEqual([[[queries result] rows] count], (NSUInteger)7);
 	[queries makeUpPopulation:nil];
 	ORMQueryResult *result = [queries result];
 	XCTAssertNotNil(result);
@@ -345,7 +347,7 @@
 	XCTAssertEqual([table numberOfRows], (NSInteger)[result.rows count]);
 	XCTAssertEqual([[table tableColumns] count], [result.columnTitles count]);
 	[[_document undoManager] undo];
-	XCTAssertNil([queries result]);
+	XCTAssertEqual([[[queries result] rows] count], (NSUInteger)7);
 }
 
 /* The menu bar comes from MainMenu.xib, with what the XIB cannot hold set

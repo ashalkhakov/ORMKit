@@ -33,6 +33,47 @@ by hand.
     and 4 forbids.
   - Coauthored papers.
 
+## Populations
+
+Each sample has a sample population to run its queries on, kept in the file
+as NORMA keeps one ([docs/POPULATIONS.md](../docs/POPULATIONS.md)). Each
+keeps its model's constraints.
+
+- **Company:** seven employees in four cities of three countries, four
+  branches (two of them US branches), three cars, two languages. The papers
+  give no data; this is the company ORMKit's query tests ask about, made so
+  that each query finds something:
+
+  | Query | finds |
+  | --- | --- |
+  | Q1 | employees 1 and 3 |
+  | Q2 | employees 1, 3 and 4 |
+  | Q3 | US branch 102 |
+  | Q4 | employee 2 |
+  | Q5 | employees 1 and 4 |
+  | Payroll | branches 52 and 7 |
+  | Polyglots | employee 1 |
+
+  Its Core Data mapping keeps City an entity, so Q4 can compare two
+  employees' cities.
+- **University:** five academics, two of them professors, with degrees from
+  UQ, MIT and ANU. Also ours:
+  - Q1 finds academics 430, 715 and 720;
+  - Q2 finds 720, who holds the Informatics chair and has no degree from
+    UQ;
+  - Q3 lists all five.
+- **UMLandORM:**
+  - **Figures 4 and 7:** the paper's own populations. Rooms 10, 20 and 33,
+    their facilities, and who uses them when; and which titles determine
+    which sex. "Rooms lacking a facility" finds none, since the paper's data
+    keeps the join-subset constraint that query is about.
+  - **Writing:** a few writings of our own. "Coauthored papers" finds paper
+    1, written by Terry and Anthony.
+
+To try a query on the population, open the Queries window's **Results**
+tab. **Make Up a Population** replaces the population with one generated
+to meet the constraints, and undoing brings the sample's back.
+
 ## Trying one
 
 1. In ORMDesigner, choose **File ▸ Open Sample ▸ Company**. It opens as an

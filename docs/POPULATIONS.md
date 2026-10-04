@@ -35,7 +35,7 @@ store as it would an application's.
 | `ORMPopulationEditor` | adds a sample population as one undoable change, reusing the values and identities the model has; removes the whole population |
 | `ORMPopulationChecker` | what a population breaks, constraint by constraint |
 | `ORMPopulationGenerator` | a population made up to meet the constraints |
-| `ORMPopulationStore` | the population as Core Data objects, in an in-memory store of the mapping |
+| `ORMPopulationStore` | the population as Core Data objects, in a temporary store of the mapping |
 
 A file with a population still round-trips byte for byte, and normalizes
 to itself.
@@ -91,9 +91,15 @@ ActiveFacts models. The rest are listed under [Not done yet](#not-done-yet).
 
 ## In a store
 
-`ORMPopulationStore` puts the population in an in-memory store of the
-mapping's model, finding each fact's place by the traces the mapping leaves
-([COREDATA-MAPPING.md](COREDATA-MAPPING.md#traces)):
+`ORMPopulationStore` builds the mapping's model in memory and puts the
+population in a SQLite store of it, in a temporary file removed when the
+store is closed. It finds each fact's place by the traces the mapping leaves
+([COREDATA-MAPPING.md](COREDATA-MAPPING.md#traces)).
+
+The store is SQLite, not an in-memory store, because of key paths through
+more than one to-many relationship. SQLite flattens them as the
+interpreter's plans mean it; an in-memory store compares nested sets, and
+some queries silently find the wrong rows.
 
 - **Objects.** Each entity instance is one object of its most specific
   type's entity, and a supertype's instance and its subtypes' are the same
@@ -115,7 +121,8 @@ value its attribute cannot take, is in `notes`.
 
 The company of Halpin's "Conceptual Queries", written as a sample
 population, answers the paper's queries with the same rows as the store the
-query tests build by hand.
+query tests build by hand. Each sample in [Samples/](../Samples/README.md)
+has a population, and the tests check what each of its queries finds.
 
 ## In the designer
 
