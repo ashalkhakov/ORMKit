@@ -117,8 +117,11 @@ Pay Branches?$filter=Employees/aggregate(Salary/Usd with sum) gt 1000000&$orderb
 
 `-cursorWithTransport:serviceRoot:` reads the plan from the service a page at
 a time. It works through an ODataKit transport: the network, or a service in
-process. A page is `$top`/`$skip` of the request, so a query is read only as
-far as the caller asks.
+process. A page is `$top` of the request, so a query is read only as far as
+the caller asks. Where the entity has a key, pages are ordered by the plan's
+sorts and then the key, and each starts after the last one's values (`Nr gt
+21`, an `or` of them for several). Without a key, a page starts at `$skip`
+([CURSORS.md](CURSORS.md#capabilities)).
 
 A join among the plan's conditions (not under a `not`, an `or` or a lambda)
 is asked for page by page (`pageJoins`). For each page, one more request asks

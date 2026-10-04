@@ -353,7 +353,9 @@ no tuple twice, across pages too.
 A query whose objects are many, or slow to check, is read only as far as
 the caller asks. `-executePlan:inContext:error:` reads every page.
 - **What the SQLite store can say** becomes the fetch's predicate. The fetch
-  is read in slices (`fetchOffset`, `fetchLimit`), in the plan's order.
+  is read in slices (`fetchLimit`), in the plan's order and then the
+  entity's key. Each slice starts after the last one's key, or at
+  `fetchOffset` for an entity without one ([CURSORS.md](CURSORS.md)).
 - **What it cannot say** is checked on each slice as it comes:
   - an aggregate of the members meeting conditions;
   - an aggregate of a bag (a for-clause, or one compared with another);
@@ -514,9 +516,9 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 - **What a page does not name is read whole:** a bag whose group is below
   a to-many, and an OData join whose pairs come from a lambda's variable
   ([ODATA.md](ODATA.md#not-done-yet)).
-- **Paging is by offset** (`fetchOffset`, `$skip`), not by key, and the
-  rows given so far are kept so that none is given twice. Both are to be
-  cursor capabilities ([CURSORS.md](CURSORS.md)).
+- **The rows given so far are kept** so that none is given twice. That is
+  to become a cursor capability ([CURSORS.md](CURSORS.md)). Pages already
+  resume after the last key where the entity has one.
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point

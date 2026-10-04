@@ -7,7 +7,7 @@ backends share the tree. Core Data (`ORMQueryInterpreter`) and OData
 condition on its own objects. [QUERIES.md](QUERIES.md) has the plans,
 [ODATA.md](ODATA.md) the requests.
 
-Steps 1 and 2 below are built (`ORMCursor.h`). "Today" in the tables is
+Steps 1 to 3 below are built (`ORMCursor.h`). "Today" in the tables is
 what the code did before them; [Steps](#steps) says what is still to come.
 
 ## Why
@@ -187,8 +187,20 @@ run underneath does.
      interpreter's predicate.
    - The interpreter still probes a correlated join object by object,
      during the Filter, rather than once per batch as a BindJoin.
-3. **Resumable Scans** (keyset), where the entity is keyed and the order
-   total.
+3. **Done: resumable Scans.** `ORMSeek` orders by the plan's sorts and then
+   the entity's key (ODataKit's property mapper says which attributes it
+   is). A batch starts after the last one's values.
+   - Both scans read this way: `ORMStoreScan` in the predicate and
+     `ORMODataScan` in `$filter`, with the key added to `$orderby`.
+   - A scan falls back to offset in two cases:
+     - an entity with no key;
+     - a last object with a null in the order, since stores order nulls
+       differently.
+   - OData also falls back when an order attribute is no plain literal (a
+     date, a GUID).
+   - `testPagesResumeAfterTheLastKey` hires someone between pages, numbered
+     before the bookmark. Neither backend repeats or skips anyone; by
+     offset, both would.
 4. **Distinct without keeping every row,** where the columns allow it.
 5. **The interpreter's probes as BindJoins,** and Prefetch as an operator
    of its own.

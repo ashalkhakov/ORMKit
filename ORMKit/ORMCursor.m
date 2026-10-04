@@ -232,6 +232,64 @@
 
 @end
 
+@implementation ORMSeek
+
++ (instancetype)seekWithSorts:(NSArray<NSArray *> *)sorts key:(NSArray<NSString *> *)key
+{
+	if ([key count] == 0) {
+		return nil;
+	}
+	NSMutableArray *order = [NSMutableArray arrayWithArray:sorts ?: @[]];
+	for (NSString *part in key) {
+		BOOL sorted = NO;
+		for (NSArray *sort in sorts) {
+			sorted = sorted || [[sort firstObject] isEqualToArray:@[ part ]];
+		}
+		if (!sorted) {
+			[order addObject:@[ @[ part ], @YES ]];
+		}
+	}
+	ORMSeek *seek = [[self alloc] init];
+	seek->_order = [order copy];
+	return seek;
+}
+
+- (NSArray<NSArray<NSArray *> *> *)after:(NSArray *)values
+{
+	if ([values count] != [_order count]) {
+		return nil;
+	}
+	for (id value in values) {
+		if (value == [NSNull null]) {
+			return nil;
+		}
+	}
+	/* (a > x) or (a = x and b > y) or ... */
+	NSMutableArray *alternatives = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [_order count]; i++) {
+		NSMutableArray *all = [NSMutableArray array];
+		for (NSUInteger j = 0; j < i; j++) {
+			[all addObject:@[ [[_order objectAtIndex:j] firstObject], @"=", [values objectAtIndex:j] ]];
+		}
+		BOOL ascending = [[[_order objectAtIndex:i] lastObject] boolValue];
+		[all addObject:@[ [[_order objectAtIndex:i] firstObject], ascending ? @">" : @"<", [values objectAtIndex:i] ]];
+		[alternatives addObject:all];
+	}
+	return alternatives;
+}
+
+- (NSString *)orderText
+{
+	NSMutableArray *parts = [NSMutableArray array];
+	for (NSArray *part in _order) {
+		[parts addObject:[NSString stringWithFormat:@"%@%@", [[part firstObject] componentsJoinedByString:@"."],
+		                                            [[part lastObject] boolValue] ? @"" : @" descending"]];
+	}
+	return [parts componentsJoinedByString:@", then "];
+}
+
+@end
+
 ORMBatch *
 ORMNextNow(id<ORMCursor> cursor, NSUInteger count, NSError **error)
 {

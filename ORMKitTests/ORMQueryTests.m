@@ -455,7 +455,8 @@
 	                                              @"list self (nr), branch (nr)");
 	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=Cars/any() and Branch ne null&$select=Nr&"
 	                                                   @"$expand=Branch($select=Nr)");
-	XCTAssertEqualObjects([self program:q], @"fetch Employee where (cars.@count > 0) AND (branch != nil)");
+	XCTAssertEqualObjects([self program:q], @"fetch Employee where (cars.@count > 0) AND (branch != nil)\n"
+	                                        @"sorted by nr; each batch after the last one's");
 }
 
 /* Q3: the US branches that did not achieve the top rank before 1998, and
@@ -509,7 +510,8 @@
 	XCTAssertEqualObjects([[plan.columns lastObject] trail], (@[ @"employee", @"cars" ]));
 	XCTAssertEqualObjects([self program:q], @"fetch USbranch where (NOT (SUBQUERY(uSbranchAchievedRankInYears, $x1, "
 	                                        @"($x1.rank.nr == 1) AND ($x1.year.ad < 1998)).@count > 0)) AND "
-	                                        @"(employee.employeeName != nil)");
+	                                        @"(employee.employeeName != nil)\n"
+	                                        @"sorted by nr; each batch after the last one's");
 }
 
 /* Q4: who supervises an employee who lives in the same city as the
@@ -564,7 +566,8 @@
 	                                                   @"(x1/Country/Name eq $it/Country/Name))&$select=Nr");
 	XCTAssertEqualObjects([self program:q], @"fetch Employee where (city != nil) AND (country != nil) AND "
 	                                        @"(SUBQUERY(employees, $x1, ($x1.city == city) AND (NOT ($x1.country == "
-	                                        @"country))).@count > 0)");
+	                                        @"country))).@count > 0)\n"
+	                                        @"sorted by nr; each batch after the last one's");
 }
 
 /* Q5: who owns a car, and does not drive more than one of the cars they
@@ -607,7 +610,8 @@
 	                                                   @"$this/IsOwnedByEmployees/any(y1:y1/Nr eq $it/Nr)) gt 1)&"
 	                                                   @"$select=Nr");
 	XCTAssertEqualObjects([self program:q], @"fetch Employee where (ownsCars.@count > 0) AND (NOT (SUBQUERY(cars, $x2, "
-	                                        @"ANY $x2.isOwnedByEmployees == SELF).@count > 1))");
+	                                        @"ANY $x2.isOwnedByEmployees == SELF).@count > 1))\n"
+	                                        @"sorted by nr; each batch after the last one's");
 }
 
 /* The rows of the plan from the store and from the service over it: the
@@ -793,6 +797,78 @@
 	XCTAssertLessThan(counted.requests, 12u, @"%@", counted.paths);
 }
 
+/* An employee like the first, numbered to come before everyone, saved. */
+- (void)hire:(int)nr inContext:(NSManagedObjectContext *)context
+{
+	[context performBlockAndWait:^{
+		NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Employee"];
+		fetch.predicate = [NSPredicate predicateWithFormat:@"nr == 1"];
+		NSManagedObject *first = [[context executeFetchRequest:fetch error:NULL] firstObject];
+		NSManagedObject *hired = [NSEntityDescription insertNewObjectForEntityForName:@"Employee" inManagedObjectContext:context];
+		for (NSString *key in @[ @"city", @"country", @"salary", @"branch" ]) {
+			[hired setValue:[first valueForKey:key] forKey:key];
+		}
+		[hired setValue:@(nr) forKey:@"nr"];
+		[hired setValue:[NSString stringWithFormat:@"E%d", nr] forKey:@"employeeName"];
+		NSError *error = nil;
+		XCTAssertTrue([context save:&error], @"%@", error);
+	}];
+}
+
+/* Each page starts after the last one's key, not after a number of
+ * objects: someone hired between pages, numbered before them, neither
+ * repeats nor skips anyone. */
+- (void)testPagesResumeAfterTheLastKey
+{
+	NSString *q = [[self queries] addQueryNamed:@"Everyone" from:[self typeId:@"Employee"] reason:NULL];
+	[self from:[self root:q].identifier through:[self role:@"livesIn" at:0] in:q];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	NSString *program = [interpreter programForPlan:plan error:NULL];
+	XCTAssertTrue([program hasSuffix:@"sorted by nr; each batch after the last one's"], @"%@", program);
+	__block NSMutableArray *pages = [NSMutableArray array];
+	ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:context error:NULL];
+	[context performBlockAndWait:^{
+		[pages addObject:[[cursor nextPage:2 error:NULL].objects valueForKey:@"nr"]];
+	}];
+	[self hire:0 inContext:context];
+	[context performBlockAndWait:^{
+		while (![cursor atEnd]) {
+			[pages addObject:[[cursor nextPage:2 error:NULL].objects valueForKey:@"nr"]];
+		}
+	}];
+	XCTAssertEqualObjects([pages valueForKeyPath:@"@unionOfArrays.self"], (@[ @1, @2, @3, @4, @5, @10, @21 ]), @"%@", pages);
+	/* From the service the same: 0 and 1 first, then -1 hired. */
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	XCTAssertTrue([[odata requestText] rangeOfString:@"in pages ordered by nr, each after the last one's"].location
+	                  != NSNotFound, @"%@", [odata requestText]);
+	ORMTestCountingTransport *counted = [self countedServiceOver:context];
+	ORMQueryODataCursor *served = [odata cursorWithTransport:counted serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	NSMutableArray *servedPages = [NSMutableArray array];
+	for (NSUInteger guard = 0; guard < 10 && ![served atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		__block ORMQueryResult *page = nil;
+		[served nextPage:2 completion:^(ORMQueryResult *result, NSError *failed) {
+			XCTAssertNotNil(result, @"%@", failed);
+			page = result;
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
+		[servedPages addObject:[page.objects valueForKey:@"Nr"] ?: @[]];
+		if (guard == 0) {
+			[self hire:-1 inContext:context];
+		}
+	}
+	XCTAssertEqualObjects([servedPages valueForKeyPath:@"@unionOfArrays.self"], (@[ @0, @1, @2, @3, @4, @5, @10, @21 ]),
+	                      @"%@\n%@", servedPages, counted.queries);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* The same under a not: who lives in a city with no branch headed by
  * someone born in another country than they were? No page join says it:
  * for each page, the branches in its employees' cities are read, and the
@@ -942,7 +1018,7 @@
 	XCTAssertEqualObjects([odata queryText], @"$filter=Employees/aggregate(Salary/Usd with sum) gt 1000000&"
 	                                         @"$orderby=Nr desc&$select=Nr");
 	XCTAssertEqualObjects([self program:q], @"fetch Branch where employees.@sum.salary.usd > 1000000\n"
-	                                        @"sorted by nr descending");
+	                                        @"sorted by nr descending; each batch after the last one's");
 }
 
 /* Who speaks more than one language; who is above 100 and lives in a city
@@ -953,7 +1029,8 @@
 	NSString *speaks = nil;
 	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
 	XCTAssertTrue([[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL]);
-	XCTAssertEqualObjects([self program:polyglots], @"fetch Employee where languages.@count > 1");
+	XCTAssertEqualObjects([self program:polyglots], @"fetch Employee where languages.@count > 1\n"
+	                                                @"sorted by nr; each batch after the last one's");
 	XCTAssertEqualObjects([[self odata:polyglots] queryText], @"$filter=Languages/$count gt 1&$select=Nr");
 	XCTAssertTrue([[[self query:polyglots] outlineText] rangeOfString:@"count(Language) for Employee > 1"].location
 	              != NSNotFound);
@@ -969,7 +1046,8 @@
 	ORMQueryNode *language = [self from:root through:[self role:@"speaks" at:0] in:q];
 	[[self queries] setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL];
 	XCTAssertEqualObjects([self program:q], @"fetch Employee where (nr > 100) AND ((country.name == \"USA\") OR "
-	                                        @"(SUBQUERY(languages, $x1, $x1.name == \"Latin\").@count > 0))");
+	                                        @"(SUBQUERY(languages, $x1, $x1.name == \"Latin\").@count > 0))\n"
+	                                        @"sorted by nr; each batch after the last one's");
 	XCTAssertTrue([[[self query:q] outlineText] rangeOfString:@"+ or speaks Language = 'Latin'"].location != NSNotFound);
 	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=Nr gt 100 and (Country/Name eq 'USA' or "
 	                                                   @"Languages/any(x1:x1/Name eq 'Latin'))&$select=Nr");

@@ -110,7 +110,10 @@ ORMODataError(NSString *text)
 /* What the request's filter is narrowed by besides: a page's groups, for
  * a bag. */
 @property (nonatomic, strong) ODataExpression *extraFilter;
-- (void)scan:(NSUInteger)count offset:(NSUInteger)offset completion:(void (^)(NSArray *values, NSError *error))completion;
+- (void)scan:(NSUInteger)count
+      offset:(NSUInteger)offset
+       after:(NSArray *)last
+  completion:(void (^)(NSArray *values, NSError *error))completion;
 - (void)keep:(NSArray *)rows join:(ORMQueryODataJoin *)join completion:(void (^)(NSArray *kept, NSError *error))completion;
 @end
 
@@ -731,6 +734,10 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 - (BOOL)keeps:(NSDictionary *)json;
 /* Whether the bag is read for each page's groups. */
 - (BOOL)scopesBag:(NSString *)name;
+/* The order pages are read in, and how one starts after the last (nil:
+ * by offset); each part's wire path. */
+- (ORMSeek *)seek;
+- (NSArray<NSArray<NSString *> *> *)seekWire;
 - (ODataExpression *)join:(ORMQueryODataJoin *)join filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
 - (ODataExpression *)bag:(NSString *)name filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
 @end
@@ -1006,6 +1013,53 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		at = ((NSRelationshipDescription *)property).destinationEntity;
 	}
 	return [[request columnWire] objectAtIndex:index];
+}
+
+/* Each part of the seek's order, as a wire path; nil where one is not a
+ * value a literal says as the service compares it (a date, a GUID). */
+- (NSArray<NSArray<NSString *> *> *)seekWire
+{
+	ORMSeek *seek = [self seekOrder];
+	NSMutableArray *wires = [NSMutableArray array];
+	NSArray *plain = @[ @(NSInteger16AttributeType), @(NSInteger32AttributeType), @(NSInteger64AttributeType),
+	                    @(NSDecimalAttributeType), @(NSDoubleAttributeType), @(NSFloatAttributeType),
+	                    @(NSStringAttributeType), @(NSBooleanAttributeType) ];
+	for (NSArray *part in seek.order) {
+		NSEntityDescription *at = _read;
+		NSAttributeDescription *attribute = nil;
+		for (NSString *key in [part firstObject]) {
+			NSPropertyDescription *property = [[at propertiesByName] objectForKey:key];
+			if ([property isKindOfClass:[NSRelationshipDescription class]] && ![(NSRelationshipDescription *)property isToMany]) {
+				at = ((NSRelationshipDescription *)property).destinationEntity;
+			} else {
+				attribute = [property isKindOfClass:[NSAttributeDescription class]] ? (NSAttributeDescription *)property : nil;
+			}
+		}
+		NSArray *wire = [self wirePathFor:[part firstObject] from:_read entity:NULL];
+		if (attribute == nil || wire == nil || ![plain containsObject:@(attribute.attributeType)]) {
+			return nil;
+		}
+		[wires addObject:wire];
+	}
+	return [wires count] > 0 ? wires : nil;
+}
+
+- (ORMSeek *)seekOrder
+{
+	if (_read == nil) {
+		return nil;
+	}
+	NSMutableArray *sorts = [NSMutableArray array];
+	for (ORMPlanSort *sort in _plan.sorts) {
+		[sorts addObject:@[ sort.path.keys, @(sort.ascending) ]];
+	}
+	NSArray *key = [[_mapper keyAttributesForEntity:_read] valueForKey:@"name"];
+	return [ORMSeek seekWithSorts:sorts key:[key sortedArrayUsingSelector:@selector(compare:)]];
+}
+
+- (ORMSeek *)seek
+{
+	return [self seekWire] != nil ? [self seekOrder] : nil;
 }
 
 - (BOOL)scopesBag:(NSString *)name
@@ -2016,6 +2070,10 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		[text appendString:@"then, each @join its rows' parts:\n"];
 	}
 	[text appendString:ORMRequestLine(_collectionPath, _options)];
+	ORMSeek *seek = [self seek];
+	[text appendString:seek != nil ? [NSString stringWithFormat:@"  in pages ordered by %@, each after the last one's\n",
+	                                                           [seek orderText]]
+	                               : @"  in pages by $skip\n"];
 	for (ORMQueryODataJoin *join in _pageJoins) {
 		NSMutableArray *pairs = [NSMutableArray array];
 		for (NSArray *pair in join.pairs) {
@@ -2157,6 +2215,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 /* The request's objects, a page at a time: the cursors' leaf. */
 @interface ORMODataScan : NSObject <ORMCursor>
 @property (nonatomic, weak) ORMQueryODataCursor *cursor;
+@property (nonatomic, strong) ORMQueryOData *request;
 @end
 
 /* The input's objects a page join keeps (docs/CURSORS.md: SemiJoin). */
@@ -2306,8 +2365,13 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	step();
 }
 
-/* A page of the request's objects, after the offset. */
-- (void)scan:(NSUInteger)count offset:(NSUInteger)offset completion:(void (^)(NSArray *values, NSError *error))completion
+/* A page of the request's objects: in the seek's order, after the last
+ * page's last object (its values in that order); without them, after the
+ * offset. */
+- (void)scan:(NSUInteger)count
+      offset:(NSUInteger)offset
+       after:(NSArray *)last
+  completion:(void (^)(NSArray *values, NSError *error))completion
 {
 	[self prepare:^(NSError *unprepared) {
 		if (unprepared != nil) {
@@ -2316,8 +2380,65 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		}
 		ODataMutableQueryOptions *options = [self->_options mutableCopy];
 		options.top = @(count);
-		options.skip = @(offset);
 		NSError *error = nil;
+		ORMSeek *seek = [self->_request seek];
+		NSArray *wires = [self->_request seekWire];
+		if (seek != nil) {
+			/* In a total order: the sorts, then the key. */
+			NSMutableArray *order = [NSMutableArray array];
+			for (NSUInteger i = 0; i < [seek.order count]; i++) {
+				ODataExpression *path = [ODataExpression memberPath:[wires objectAtIndex:i] of:nil error:&error];
+				ODataOrderItem *item = path != nil ? [ODataOrderItem itemWithExpression:path
+				                                                             descending:![[[seek.order objectAtIndex:i] lastObject] boolValue]]
+				                                   : nil;
+				if (item == nil) {
+					completion(nil, error);
+					return;
+				}
+				[order addObject:item];
+			}
+			options.orderBy = order;
+		}
+		NSArray *after = seek != nil && last != nil ? [seek after:last] : nil;
+		if (after != nil) {
+			/* After the last one read: (a gt x) or (a eq x and b gt y) ... */
+			ODataExpression *any = nil;
+			for (NSArray *all in after) {
+				ODataExpression *conjunction = nil;
+				for (NSArray *part in all) {
+					NSUInteger index = [seek.order indexOfObjectPassingTest:^BOOL(NSArray *each, NSUInteger i, BOOL *stop) {
+						(void)i;
+						(void)stop;
+						return [[each firstObject] isEqualToArray:[part firstObject]];
+					}];
+					NSString *op = [@{ @"=": @"eq", @">": @"gt", @"<": @"lt" } objectForKey:[part objectAtIndex:1]];
+					ODataExpression *path = [ODataExpression memberPath:[wires objectAtIndex:index] of:nil error:&error];
+					ODataExpression *compared = path != nil ? [ODataExpression binary:op left:path
+					                                                            right:[ODataExpression literalWithValue:[part lastObject]]
+					                                                            error:&error]
+					                                        : nil;
+					conjunction = compared == nil ? nil
+						: (conjunction != nil ? [ODataExpression binary:@"and" left:conjunction right:compared error:&error] : compared);
+					if (conjunction == nil) {
+						completion(nil, error);
+						return;
+					}
+				}
+				any = any != nil ? [ODataExpression binary:@"or" left:any right:conjunction error:&error] : conjunction;
+				if (any == nil) {
+					completion(nil, error);
+					return;
+				}
+			}
+			options.filter = options.filter != nil ? [ODataExpression binary:@"and" left:options.filter right:any error:&error]
+			                                       : any;
+			if (options.filter == nil) {
+				completion(nil, error);
+				return;
+			}
+		} else {
+			options.skip = @(offset);
+		}
 		NSURL *url = [self URLFor:self->_request.collectionPath options:options error:&error];
 		if (url == nil) {
 			completion(nil, error);
@@ -2544,6 +2665,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	__weak ORMQueryODataCursor *weakSelf = self;
 	ORMODataScan *scan = [[ORMODataScan alloc] init];
 	scan.cursor = self;
+	scan.request = _request;
 	id<ORMCursor> cursor = scan;
 	for (ORMQueryODataJoin *join in _request.pageJoins) {
 		ORMODataSemiJoin *semi = [[ORMODataSemiJoin alloc] init];
@@ -2587,6 +2709,9 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 {
 	NSUInteger _offset;
 	BOOL _atEnd;
+	/* The last object's values in the seek's order; nil, by offset. */
+	NSArray *_last;
+	BOOL _byOffset;
 }
 
 - (BOOL)atEnd
@@ -2600,13 +2725,27 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		completion([ORMBatch batchWithObjects:@[] answers:@{}], nil);
 		return;
 	}
-	[self.cursor scan:count offset:_offset completion:^(NSArray *values, NSError *error) {
+	ORMQueryOData *request = self.request;
+	ORMSeek *seek = [request seek];
+	if (_last != nil && [seek after:_last] == nil) {
+		/* A value of the last is null: read on by offset. */
+		_byOffset = YES;
+	}
+	[self.cursor scan:count offset:_offset after:_byOffset ? nil : _last completion:^(NSArray *values, NSError *error) {
 		if (values == nil) {
 			completion(nil, error);
 			return;
 		}
 		self->_offset += [values count];
 		self->_atEnd = [values count] < count;
+		if (seek != nil && [values count] > 0) {
+			NSArray *wires = [request seekWire];
+			NSMutableArray *last = [NSMutableArray array];
+			for (NSArray *wire in wires) {
+				[last addObject:[ORMJSONValues([values lastObject], wire) firstObject] ?: [NSNull null]];
+			}
+			self->_last = last;
+		}
 		completion([ORMBatch batchWithObjects:values answers:@{}], nil);
 	}];
 }

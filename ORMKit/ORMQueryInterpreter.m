@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryInterpreter.h"
 #import "ORMCursor.h"
+#import <ODataKit/ODataPropertyMapper.h>
 #import <CoreData/CoreData.h>
 
 @interface ORMQueryResult ()
@@ -194,6 +195,9 @@ ORMCompare(id left, NSString *comparison, id right)
 /* The cursors reading it: its fetch, the bags read for each batch, and
  * its checks (docs/CURSORS.md). */
 - (id<ORMCursor>)cursor;
+/* The order its fetch reads in, and how a batch starts after the last:
+ * nil where the entity read has no key. */
+- (ORMSeek *)seek;
 /* Up to count more objects, read through its cursor at once; the answers
  * of the last batch read kept. */
 - (NSArray *)next:(NSUInteger)count;
@@ -303,6 +307,19 @@ ORMBagKey(ORMPlanValue *value)
 	}
 	_cursor = [[ORMFilterCursor alloc] initWithInput:cursor evaluator:self];
 	return _cursor;
+}
+
+- (ORMSeek *)seek
+{
+	if (self.read == nil) {
+		return nil;
+	}
+	NSMutableArray *sorts = [NSMutableArray array];
+	for (ORMPlanSort *sort in self.plan.sorts) {
+		[sorts addObject:@[ sort.path.keys, @(sort.ascending) ]];
+	}
+	NSArray *key = [[[[ODataPropertyMapper alloc] init] keyAttributesForEntity:self.read] valueForKey:@"name"];
+	return [ORMSeek seekWithSorts:sorts key:[key sortedArrayUsingSelector:@selector(compare:)]];
 }
 
 - (BOOL)keeps:(id)object
@@ -1112,7 +1129,10 @@ ORMBagKey(ORMPlanValue *value)
 	if (self.checkPart != nil) {
 		[lines addObject:[@"keep those where " stringByAppendingString:ORMDisplay(self.checkPart)]];
 	}
-	if ([self.plan.sorts count] > 0) {
+	ORMSeek *seek = [self seek];
+	if (seek != nil) {
+		[lines addObject:[NSString stringWithFormat:@"sorted by %@; each batch after the last one's", [seek orderText]]];
+	} else if ([self.plan.sorts count] > 0) {
 		[lines addObject:[@"sorted by " stringByAppendingString:[[self.plan.sorts valueForKey:@"description"]
 		                                                            componentsJoinedByString:@", "]]];
 	}
@@ -1125,6 +1145,11 @@ ORMBagKey(ORMPlanValue *value)
 {
 	NSUInteger _offset;
 	BOOL _atEnd;
+	ORMSeek *_seek;
+	BOOL _sought;
+	/* The last object's values in the seek's order; nil, read by offset. */
+	NSArray *_last;
+	BOOL _byOffset;
 }
 
 - (BOOL)atEnd
@@ -1139,15 +1164,48 @@ ORMBagKey(ORMPlanValue *value)
 		completion([ORMBatch batchWithObjects:@[] answers:@{}], nil);
 		return;
 	}
+	if (!_sought) {
+		_seek = [run seek];
+		_sought = YES;
+	}
 	NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:run.plan.entityName];
 	fetch.predicate = run.storePredicate;
 	NSMutableArray *sorts = [NSMutableArray array];
-	for (ORMPlanSort *sort in run.plan.sorts) {
-		[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:[sort.path.keys componentsJoinedByString:@"."]
-		                                               ascending:sort.ascending]];
+	for (NSArray *part in _seek != nil ? _seek.order : @[]) {
+		[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:[[part firstObject] componentsJoinedByString:@"."]
+		                                               ascending:[[part lastObject] boolValue]]];
+	}
+	if (_seek == nil) {
+		for (ORMPlanSort *sort in run.plan.sorts) {
+			[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:[sort.path.keys componentsJoinedByString:@"."]
+			                                               ascending:sort.ascending]];
+		}
 	}
 	fetch.sortDescriptors = sorts;
-	fetch.fetchOffset = _offset;
+	NSArray *after = _seek != nil && _last != nil && !_byOffset ? [_seek after:_last] : nil;
+	if (_last != nil && after == nil) {
+		/* A value of the last is nil: read on by offset. */
+		_byOffset = YES;
+	}
+	if (after != nil) {
+		/* After the last one read: (a > x) or (a = x and b > y) ... */
+		NSMutableArray *alternatives = [NSMutableArray array];
+		for (NSArray *all in after) {
+			NSMutableArray *parts = [NSMutableArray array];
+			for (NSArray *part in all) {
+				NSString *format = [NSString stringWithFormat:@"%%K %@ %%@", [[part objectAtIndex:1] isEqualToString:@"="] ? @"=="
+				                                                                                                       : [part objectAtIndex:1]];
+				[parts addObject:[NSPredicate predicateWithFormat:format, [[part firstObject] componentsJoinedByString:@"."],
+				                                                  [part lastObject]]];
+			}
+			[alternatives addObject:[NSCompoundPredicate andPredicateWithSubpredicates:parts]];
+		}
+		NSPredicate *seek = [NSCompoundPredicate orPredicateWithSubpredicates:alternatives];
+		fetch.predicate = run.storePredicate != nil
+			? [NSCompoundPredicate andPredicateWithSubpredicates:@[ run.storePredicate, seek ]] : seek;
+	} else {
+		fetch.fetchOffset = _offset;
+	}
 	fetch.fetchLimit = count;
 	NSError *error = nil;
 	NSArray *objects = [run.context executeFetchRequest:fetch error:&error];
@@ -1157,6 +1215,14 @@ ORMBagKey(ORMPlanValue *value)
 	}
 	_offset += [objects count];
 	_atEnd = [objects count] < count;
+	if (_seek != nil && [objects count] > 0) {
+		NSMutableArray *last = [NSMutableArray array];
+		for (NSArray *part in _seek.order) {
+			[last addObject:[[objects lastObject] valueForKeyPath:[[part firstObject] componentsJoinedByString:@"."]]
+			                    ?: [NSNull null]];
+		}
+		_last = last;
+	}
 	completion([ORMBatch batchWithObjects:objects answers:@{}], nil);
 }
 

@@ -65,6 +65,24 @@ typedef void (^ORMBindRead)(NSArray *values, void (^done)(id answer, NSError *er
 @property (nonatomic, readonly) BOOL atEnd;
 @end
 
+/* The order a Scan reads in, made total by the entity's key, and where its
+ * next batch starts: after the last object read, by its values in that
+ * order (the seek method), not after a number of objects. Each part of
+ * the order: @[ its key path from the object read (an array of keys),
+ * @(ascending) ]. */
+@interface ORMSeek : NSObject
+/* The sorts, then each part of the key no sort is by. No key, no seek. */
++ (instancetype)seekWithSorts:(NSArray<NSArray *> *)sorts key:(NSArray<NSString *> *)key;
+@property (nonatomic, readonly, copy) NSArray<NSArray *> *order;
+/* What comes after the values (the last object's, in the order): each
+ * alternative a list of @[ key path, comparison ("=", ">" or "<"), value ],
+ * all of which hold. nil where a value is nil (where nothing is, stores
+ * order differently): read on by offset then. */
+- (NSArray<NSArray<NSArray *> *> *)after:(NSArray *)values;
+/* "nr", "name, then nr": the order, to read. */
+- (NSString *)orderText;
+@end
+
 /* The next batch of a cursor whose completion is called before it returns
  * (a store's); nil, and why, when it fails or would answer later. */
 ORMBatch *ORMNextNow(id<ORMCursor> cursor, NSUInteger count, NSError **error);
