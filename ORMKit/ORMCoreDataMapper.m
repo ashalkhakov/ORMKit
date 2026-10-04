@@ -136,6 +136,16 @@ ORMLowerFirst(NSString *word)
 	return out;
 }
 
++ (BOOL)isCoreDataName:(NSString *)name
+{
+	NSCharacterSet *letters = [NSCharacterSet characterSetWithCharactersInString:
+		@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"];
+	NSMutableCharacterSet *rest = [letters mutableCopy];
+	[rest addCharactersInString:@"0123456789"];
+	return [name length] > 0 && [name length] <= 128 && [letters characterIsMember:[name characterAtIndex:0]]
+		&& [[name stringByTrimmingCharactersInSet:rest] length] == 0;
+}
+
 + (NSString *)pluralOf:(NSString *)name
 {
 	if ([name length] == 0) {
@@ -194,12 +204,33 @@ ORMReservedNames(void)
 	return names;
 }
 
+/* The user's name for the source, if it can be a Core Data name: a letter
+ * or underscore, then letters, digits and underscores. Any other (an
+ * override in a .orm, which could say anything) is noted and not used: it
+ * would be an entity or property of no model, and text in what is made of
+ * one (an OData request's names). */
+- (NSString *)overrideFor:(NSString *)source
+{
+	NSString *override = source != nil ? [self.mapping.nameOverrides objectForKey:source] : nil;
+	if (override == nil) {
+		return nil;
+	}
+	if (![ORMCoreDataMapper isCoreDataName:override]) {
+		[self note:ORMMappingWarning
+		      text:[NSString stringWithFormat:@"\"%@\" is no name Core Data allows (a letter or underscore, then letters, "
+		                                      @"digits and underscores): it is not used.", override]
+		   element:source];
+		return nil;
+	}
+	return override;
+}
+
 /* A property name on the entity: the user's for the source when there is
  * one, else the first of the candidates no property of its tree has. */
 - (NSString *)claimName:(NSArray<NSString *> *)candidates source:(NSString *)source on:(ORMCDEntity *)entity
 {
 	NSMutableSet *names = [self namesOf:entity];
-	NSString *override = source != nil ? [self.mapping.nameOverrides objectForKey:source] : nil;
+	NSString *override = [self overrideFor:source];
 	NSMutableArray *tries = [NSMutableArray array];
 	if (override != nil) {
 		[tries addObject:override];
@@ -228,7 +259,7 @@ ORMReservedNames(void)
 
 - (NSString *)claimEntityName:(NSString *)base source:(NSString *)source
 {
-	NSString *override = [self.mapping.nameOverrides objectForKey:source];
+	NSString *override = [self overrideFor:source];
 	NSString *name = override ?: [ORMCoreDataMapper entityNameFor:base];
 	if ([_entityNames containsObject:name]) {
 		for (NSUInteger i = 2;; i++) {

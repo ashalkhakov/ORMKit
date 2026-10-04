@@ -73,6 +73,11 @@ Core Data ↔ OData rule is ODataKit's, and none is copied here:
   `ODataAggregate`, `ODataQueryOptions`). Values are typed literals, which
   ODataKit quotes. An aggregate is built from its path and method, each
   checked to be an OData identifier (`+[ODataExpression aggregateOf:aggregate:]`).
+- **Names that are no identifiers** never reach a request. The mapping
+  doesn't use a name override Core Data can't hold (`+isCoreDataName:`),
+  and notes it. ODataKit's builders refuse any other name: one in the
+  model's `OData.property`, say. The refusal is noted, and no request is
+  written (`testANameThatIsNoIdentifierIsRefused`).
 - **The URL:** written by ODataKit's `ODataQueryBuilder`
   (`-URLWithServiceRoot:error:`). Where the API lacks something, ODataKit
   is changed, not worked around here.
@@ -86,7 +91,7 @@ Core Data ↔ OData rule is ODataKit's, and none is copied here:
 | objects compared, in scope | by key: `x1/City/Id eq $it/City/Id` |
 | a subtype | `isof(x1,Default.Professor)`, and a cast to read its properties |
 | `count(X) > n`, nothing asked of X | `Languages/$count gt 1` |
-| a count with conditions | `any` for some, `not any` for none; otherwise noted |
+| a count with conditions | `any` for some, `not any` for none; otherwise the members meeting them, counted (OData 4.01), the member `$this` and the outer object still `$it`: `Cars/$count($filter=$this/IsOwnedByEmployees/any(x3:x3/Nr eq $it/Nr)) gt 1` |
 | `total(X) > n` and the other aggregates | `Employees/aggregate(Salary/Usd with sum) gt 1000000` |
 | the ticked object types | `$select` (each level's key, and what is listed), `$expand` for what is reached |
 | the order | `$orderby=Nr desc` |
@@ -101,6 +106,8 @@ Q3  Branches/Default.USbranch?$filter=not USbranchAchievedRankInYears/any(x1:x1/
       &$expand=Employee($select=Nr,EmployeeName;$expand=Cars($select=Regnr))
 Q4  Employees?$filter=City ne null and Country ne null and Employees/any(x1:x1/City/Id eq $it/City/Id
       and not (x1/Country/Name eq $it/Country/Name))&$select=Nr
+Q5  Employees?$filter=OwnsCars/any() and not (Cars/$count($filter=$this/IsOwnedByEmployees/any(x3:x3/Nr
+      eq $it/Nr)) gt 1)&$select=Nr
 Pay Branches?$filter=Employees/aggregate(Salary/Usd with sum) gt 1000000&$orderby=Nr desc&$select=Nr
 ```
 
@@ -117,7 +124,7 @@ GET Employees?$filter=CityCityname ne null and (CityCityname eq 'Brisbane' and .
 returns. A part that is an entity is compared by its key.
 
 `testTheServiceAnswersTheQueries` (macOS) serves the mapped model with
-`ODataService` over SQLite and checks the rows that Q1 to Q4, the payroll query
+`ODataService` over SQLite and checks the rows that Q1 to Q5, the payroll query
 and a count return. The Query window has an OData tab, and `ormtool query`
 prints the request.
 
@@ -133,8 +140,6 @@ query builder is the client's). The tests also link `ODataService`.
 
 ## Not done yet
 
-- A filtered count other than none or some (`$count($filter=...)`, OData
-  4.01), which ODataKit does not read yet.
 - `$expand` of what a to-many step reaches lists every related object, not
   only those meeting the step's conditions. `$expand=X($filter=...)` would
   say it, where the conditions do not refer to `$it`.

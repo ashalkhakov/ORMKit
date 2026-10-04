@@ -44,6 +44,9 @@ typedef NS_ENUM(NSInteger, ORMMappingNoteKind) {
 + (NSString *)entityNameFor:(NSString *)name;
 + (NSString *)propertyNameFor:(NSString *)name;
 + (NSString *)pluralOf:(NSString *)name;
+/* A name Core Data allows an entity or property: a letter or underscore,
+ * then letters, digits and underscores (ASCII), 128 at most. */
++ (BOOL)isCoreDataName:(NSString *)name;
 /* NORMA's data type as Core Data's attribute type. */
 + (NSString *)attributeTypeFor:(ORMDataType *)dataType;
 @end

@@ -242,11 +242,6 @@ tab. Changes undo with the model.
 
 ## Not done yet
 
-- **A count of the objects meeting conditions,** other than none or some
-  (Q5's "does not drive more than one of the cars they own"), in OData:
-  OData 4.01 says it as `Cars/$count($filter=...) gt 1`, which ODataKit does
-  not read yet. Noted; the fetch request says it.
-
 - **Correlation beyond relationships:** a label met again out of scope,
   where the earlier occurrence ends in an attribute, is said as `IN` (which
   Core Data's SQLite store may not translate). The same goes for a label

@@ -171,7 +171,7 @@ ORMWithEntry(NSDictionary *info, NSString *key, NSString *value)
 		}
 	}
 	NSString *override = [_mapping.nameOverrides objectForKey:source];
-	NSString *base = [override length] > 0 ? override : @"id";
+	NSString *base = [ORMCoreDataMapper isCoreDataName:override] ? override : @"id";
 	NSString *name = base;
 	for (NSUInteger n = 2; [taken containsObject:name]; n++) {
 		name = [NSString stringWithFormat:@"%@%lu", base, (unsigned long)n];

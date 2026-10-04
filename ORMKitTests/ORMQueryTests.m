@@ -616,9 +616,11 @@
 	/* ConQuer-II's S5: the cars driven that are among those owned, found
 	 * from each car back to its owners. */
 	ORMQueryFetch *fetch = [self fetch:q];
-	/* OData counts a collection, not the members meeting conditions. */
-	ORMQueryOData *odata = [self odata:q notes:1];
-	XCTAssertTrue([[odata.notes firstObject] rangeOfString:@"counts no filtered collection"].location != NSNotFound);
+	/* The cars driven that are among those owned, counted (OData 4.01): in
+	 * the count's filter the car is $this, the employee still $it. */
+	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=OwnsCars/any() and not (Cars/$count($filter="
+	                                                   @"$this/IsOwnedByEmployees/any(x3:x3/Nr eq $it/Nr)) gt 1)&"
+	                                                   @"$select=Nr");
 	XCTAssertEqualObjects(fetch.predicateFormat, @"(ownsCars.@count > 0) AND (NOT (SUBQUERY(cars, $x2, ANY "
 	                                             @"$x2.isOwnedByEmployees == SELF).@count > 1))");
 	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
@@ -723,6 +725,40 @@
 	                                                   @"Languages/any(x1:x1/Name eq 'Latin'))&$select=Nr");
 }
 
+/* A name that is no identifier could carry filter text into a request.
+ * An override in a .orm is not used by the mapping; one that reaches the
+ * request anyway (a model's OData.property, set by hand) is refused by
+ * ODataKit's builders, and the request is not written. */
+- (void)testANameThatIsNoIdentifierIsRefused
+{
+	NSString *q = [self q1];
+	ORMCoreDataMapping *mapping = [self mapping];
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:mapping] map];
+	NSString *source = [[[mapped entityNamed:@"Employee"] attributeNamed:@"nr"] source];
+	XCTAssertNotNil(source);
+	[[[ORMMappingEditor alloc] initWithEditor:_editor] setName:@"nr eq 0 or true" forSource:source
+	                                                 inMapping:mapping.identifier];
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMCDModel *remapped = [mapper map];
+	XCTAssertNotNil([[remapped entityNamed:@"Employee"] attributeNamed:@"nr"]);
+	BOOL noted = NO;
+	for (ORMMappingNote *note in mapper.notes) {
+		noted = noted || [note.text rangeOfString:@"no name Core Data allows"].location != NSNotFound;
+	}
+	XCTAssertTrue(noted, @"%@", mapper.notes);
+	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=City/Branches/any(x1:x1/Nr eq 52)&$select=Nr");
+
+	ORMCDAttribute *nr = [[remapped entityNamed:@"Employee"] attributeNamed:@"nr"];
+	NSMutableDictionary *info = [nr.userInfo mutableCopy];
+	[info setObject:@"Nr eq 0 or true" forKey:@"OData.property"];
+	nr.userInfo = info;
+	ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:[self query:q] coreData:remapped];
+	XCTAssertFalse([odata isComplete]);
+	XCTAssertTrue([[odata.notes lastObject] rangeOfString:@"cannot be written"].location != NSNotFound, @"%@", odata.notes);
+	XCTAssertNil([odata URLWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"] error:NULL]);
+	XCTAssertNil(odata.filter);
+}
+
 /* The predicate means what the query says, on objects as key-value
  * coding finds them. */
 - (void)testThePredicateSelects
@@ -790,7 +826,8 @@
  * SQLite store: the rows the paper's queries ask for. */
 - (void)testTheServiceAnswersTheQueries
 {
-	NSString *q1 = [self q1], *q2 = [self q2], *q3 = [self q3], *q4 = [self q4], *payroll = [self payroll];
+	NSString *q1 = [self q1], *q2 = [self q2], *q3 = [self q3], *q4 = [self q4], *q5 = [self q5];
+	NSString *payroll = [self payroll];
 	NSString *polyglots = [[self queries] addQueryNamed:@"Polyglots" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *speaks = nil;
 	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
@@ -862,6 +899,10 @@
 		[[e1 mutableSetValueForKey:@"cars"] addObject:c];
 		[[e3 mutableSetValueForKey:@"cars"] addObjectsFromArray:@[ a, b ]];
 		[[e4 mutableSetValueForKey:@"cars"] addObject:a];
+		/* Q5's owners: Ann drives none of hers, Cal both of his, Dee one. */
+		[[e1 mutableSetValueForKey:@"ownsCars"] addObject:b];
+		[[e3 mutableSetValueForKey:@"ownsCars"] addObjectsFromArray:@[ a, b ]];
+		[[e4 mutableSetValueForKey:@"ownsCars"] addObject:a];
 		NSManagedObject *english = make(@"Language", @{ @"name": @"English" });
 		NSManagedObject *latin = make(@"Language", @{ @"name": @"Latin" });
 		[[e1 mutableSetValueForKey:@"languages"] addObjectsFromArray:@[ english, latin ]];
@@ -901,6 +942,7 @@
 	XCTAssertEqualObjects(sorted(numbers(q2)), (@[ @1, @3, @4 ]));
 	XCTAssertEqualObjects(sorted(numbers(q3)), (@[ @102 ]));
 	XCTAssertEqualObjects(sorted(numbers(q4)), (@[ @2 ]));
+	XCTAssertEqualObjects(sorted(numbers(q5)), (@[ @1, @4 ]));
 	/* In the order the query asks for: the larger number first. */
 	XCTAssertEqualObjects(numbers(payroll), (@[ @52, @7 ]));
 	XCTAssertEqualObjects(sorted(numbers(polyglots)), (@[ @1 ]));

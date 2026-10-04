@@ -227,7 +227,20 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		_reached = [NSMutableDictionary dictionary];
 		_columns = [NSMutableArray array];
 		_joins = [NSMutableArray array];
-		[self translate];
+		/* A name the model gives that OData's grammar does not allow (an
+		 * override's) is refused by ODataKit's builders: noted, and nothing
+		 * asked for, rather than written into the request. */
+		NSError *refused = nil;
+		if (ODataExpressionBuilding(&refused, ^id {
+			[self translate];
+			return @YES;
+		}) == nil) {
+			[self note:[NSString stringWithFormat:@"The request cannot be written: %@",
+			                                      [refused localizedDescription] ?: @"a name is no OData identifier."]];
+			_filter = nil;
+			_options = [[ODataMutableQueryOptions alloc] init];
+			_collectionPath = nil;
+		}
 	}
 	return self;
 }
@@ -985,8 +998,9 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		if (body == nil) {
 			return count;
 		}
-		/* OData counts a collection, not the members meeting conditions: but
-		 * "more than none" is some, and "none" is not any. */
+		/* "More than none" is some, and "none" is not any; any other count
+		 * is of the members meeting the conditions (OData 4.01), in which
+		 * the member is $this rather than the lambda's variable. */
 		BOOL some = ([operator isEqualToString:@"gt"] && n == 0) || ([operator isEqualToString:@"ge"] && n == 1)
 			|| ([operator isEqualToString:@"ne"] && n == 0);
 		BOOL none = ([operator isEqualToString:@"eq"] && n == 0) || ([operator isEqualToString:@"lt"] && n == 1)
@@ -997,10 +1011,9 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 		if (none) {
 			return [ODataExpression unary:@"not" operand:any];
 		}
-		[self note:[NSString stringWithFormat:@"count(%@) is of every %@, not only those meeting the conditions below "
-		                                      @"it: OData counts no filtered collection.",
-		                                      [step.aggregateNode designation], start.objectType.name]];
-		return count;
+		ODataExpression *filter = [body expressionReplacing:@{ variable: [ODataExpression variable:@"$this"] }];
+		return [ODataExpression binary:operator left:[ODataExpression countOf:of filter:filter]
+		                         right:[ODataExpression literalWithValue:@(n)]];
 	}
 	/* From the member, or from where its first hop leads. */
 	ORMCDEntity *startEntity = firstHop == nil ? member
