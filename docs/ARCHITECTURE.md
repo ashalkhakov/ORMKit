@@ -21,7 +21,7 @@ The other documents:
 - [COREDATA-MAPPING.md](COREDATA-MAPPING.md): the mapping to Core Data, both ways;
 - [ODATA.md](ODATA.md): the model served with ODataKit, and queries as requests to it;
 - [QUERIES.md](QUERIES.md): conceptual queries, their plans, and the two backends;
-- [VERBALIZATION.md]([VERBALIZATION.md](VERBALIZATION.md)): the FORML templates.
+- [VERBALIZATION.md](VERBALIZATION.md): the FORML templates.
 
 ## The XML document is the model
 
@@ -90,7 +90,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMJoinPathBuilder` | join paths written as NORMA keeps them, from logic: the fact types walked and the variables playing their roles |
 | `ORMPath` | NORMA's role paths (join paths, derivation rules), calculations, sample populations, cardinality |
 | `ORMLogic` | sequences, join paths and derivations as logic: variables, fact atoms, and/or/xor/not |
-| `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something (VERBALIZATION.md); plain text and HTML |
+| `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something ([VERBALIZATION.md](VERBALIZATION.md)); plain text and HTML |
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)) |
 | `ORMCoreDataImporter` | a Core Data model brought into ORM, with a mapping back to it |
