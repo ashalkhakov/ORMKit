@@ -483,6 +483,11 @@
 			isa = PBXBuildFile;
 			fileRef = E6D02C60A7E8B7C9FA581455 /* ORMWindowController.m */;
 		};
+		C1A88BE83BA3F15B5CF914AA /* OTelKit.framework */ = {
+			isa = PBXBuildFile;
+			fileRef = A9464F12C40389720351CF71 /* OTelKit.framework */;
+			settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); };
+		};
 		C29E25A6373F6415EBB76427 /* CoreData.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = 2AB66C65BE330D1517DF768E /* CoreData.framework */;
@@ -625,6 +630,7 @@
 				251FAF01B44554BF6A0D0F60 /* ORMKit.framework */,
 				00D27B0A86D115378F4DE0F3 /* ODataKit.framework */,
 				1BD69FB686BBAC9A43CF5C95 /* ODataIncrementalStore.framework */,
+				C1A88BE83BA3F15B5CF914AA /* OTelKit.framework */,
 			);
 			dstPath = "";
 			dstSubfolderSpec = 10;
@@ -1174,6 +1180,12 @@
 			path = ORMObjectTypeEditor.m;
 			sourceTree = "<group>";
 		};
+		A9464F12C40389720351CF71 /* OTelKit.framework */ = {
+			isa = PBXFileReference;
+			explicitFileType = wrapper.framework;
+			path = OTelKit.framework;
+			sourceTree = BUILT_PRODUCTS_DIR;
+		};
 		ACF5341500A4DB8CEAF80DED /* ORMCoreDataImportTests.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -1528,6 +1540,7 @@
 				2AB66C65BE330D1517DF768E /* CoreData.framework */,
 				F308B2510F1C0D890B6F2016 /* ODataKit.framework */,
 				82F51E4810BFBB8BEAC2202C /* ODataIncrementalStore.framework */,
+				A9464F12C40389720351CF71 /* OTelKit.framework */,
 				B484CF9AEF94633881A4517A /* ODataService.framework */,
 			);
 			name = Frameworks;

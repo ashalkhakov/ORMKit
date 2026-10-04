@@ -6,8 +6,9 @@
 
 @class ORMDocument;
 
-/* A document's window: the model browser on the left, the diagram with the
- * fact editor and the verbalization of the selection in the middle, the
+/* A document's window: the model browser on the left, the diagram (its
+ * pages as tabs under it) with the fact editor and the verbalization of the
+ * selection in the middle, the
  * inspector on the right, the tools across the top and a status line at the
  * bottom. ORMDocumentWindow.xib, without Auto Layout (gnustep-gui has none):
  * panes keep their place with springs and struts. */
@@ -21,6 +22,8 @@
 @property (nonatomic, readonly, strong) NSTextView *verbalization;
 @property (nonatomic, readonly, strong) NSTextField *factEditor;
 @property (nonatomic, readonly, strong) NSPopUpButton *diagramPopup;
+/* The diagrams as tabs under the canvas, NORMA's pages. */
+@property (nonatomic, readonly, strong) NSSegmentedControl *diagramTabs;
 @property (nonatomic, readonly, strong) NSTextField *status;
 
 /* The document's editor changed, or was replaced (a revert). */
@@ -42,6 +45,7 @@
 - (IBAction)renameDiagram:(id)sender;
 - (IBAction)deleteDiagram:(id)sender;
 - (IBAction)chooseDiagram:(id)sender;
+- (IBAction)chooseDiagramTab:(id)sender;
 - (IBAction)arrangeDiagram:(id)sender;
 - (IBAction)showOnDiagram:(id)sender;
 - (IBAction)showRelated:(id)sender;

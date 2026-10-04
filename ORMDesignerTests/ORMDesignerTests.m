@@ -67,6 +67,31 @@
 	XCTAssertEqualObjects(saved, [NSData dataWithContentsOfFile:[self fixturePath:@"StockMate.orm"]]);
 }
 
+/* Each of NORMA's diagram pages is a tab under the canvas, and shown, its
+ * shapes in view, when picked. */
+- (void)testEachDiagramPageIsShown
+{
+	[self open:@"StockMate.orm"];
+	[[_controller window] setContentSize:NSMakeSize(900, 600)];
+	NSSegmentedControl *tabs = _controller.diagramTabs;
+	XCTAssertEqual([tabs segmentCount], (NSInteger)4);
+	XCTAssertEqual([tabs selectedSegment], (NSInteger)0);
+	for (NSInteger i = [tabs segmentCount] - 1; i >= 0; i--) {
+		[tabs setSelectedSegment:i];
+		[_controller chooseDiagramTab:tabs];
+		ORMDiagram *diagram = [_controller.canvas diagram];
+		XCTAssertEqualObjects(diagram.name, [tabs labelForSegment:i]);
+		XCTAssertEqualObjects(diagram.name, [_controller.diagramPopup titleOfSelectedItem]);
+		NSRect visible = [_controller.canvas visibleRect];
+		NSUInteger seen = 0;
+		for (ORMShape *shape in diagram.shapes) {
+			seen += NSIntersectsRect(visible, shape.bounds) ? 1 : 0;
+		}
+		XCTAssertTrue(seen > 0, @"%@: none of %lu shapes in %@", diagram.name, (unsigned long)[diagram.shapes count],
+		              NSStringFromRect(visible));
+	}
+}
+
 - (void)testSelectingShowsTheInspectorAndVerbalization
 {
 	[self open:@"StockMate.orm"];

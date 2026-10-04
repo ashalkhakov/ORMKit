@@ -12,6 +12,8 @@ static const double ORMFactBarHeight = 30;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextView *verbalization;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *factEditor;
 @property (nonatomic, readwrite, strong) IBOutlet NSPopUpButton *diagramPopup;
+@property (nonatomic, readwrite, strong) NSSegmentedControl *diagramTabs;
+@property (nonatomic, strong) IBOutlet NSView *diagramTabsBar;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *status;
 @property (nonatomic, strong) IBOutlet NSOutlineView *browserOutline;
 @property (nonatomic, strong) IBOutlet NSView *toolBar;
@@ -127,6 +129,7 @@ static const double ORMFactBarHeight = 30;
 {
 	[super windowDidLoad];
 	[self makeToolButtons];
+	[self makeDiagramTabs];
 	[self.browserOutline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
 	_browser = [[ORMModelBrowser alloc] initWithOutlineView:self.browserOutline];
 	_browser.delegate = self;
@@ -153,6 +156,72 @@ static const double ORMFactBarHeight = 30;
 	[self layoutColumns:self.columnsSplit];
 	[self layoutMiddle:self.middleSplit];
 	[self editorDidChange];
+}
+
+#pragma mark Diagram tabs
+
+/* The model's diagrams as tabs under the canvas, as NORMA shows its pages,
+ * in a strip that scrolls when they are more than fit (the pop-up beside
+ * it lists them all). Made here: a segmented control in a XIB is not one
+ * gnustep-gui reads. */
+- (void)makeDiagramTabs
+{
+	NSRect bar = [self.diagramTabsBar bounds];
+	double width = MAX(NSMinX([self.diagramPopup frame]) - 6, 40);
+	NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, width, NSHeight(bar))];
+	[scroll setAutoresizingMask:NSViewWidthSizable];
+	[scroll setHasHorizontalScroller:NO];
+	[scroll setHasVerticalScroller:NO];
+	[scroll setBorderType:NSNoBorder];
+	[scroll setDrawsBackground:NO];
+	self.diagramTabs = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, 1, 40, NSHeight(bar) - 2)];
+	[[self.diagramTabs cell] setTrackingMode:NSSegmentSwitchTrackingSelectOne];
+	[self.diagramTabs setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+	[self.diagramTabs setTarget:self];
+	[self.diagramTabs setAction:@selector(chooseDiagramTab:)];
+	NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Diagram"];
+	for (NSArray *item in @[ @[ @"New Diagram", @"newDiagram:" ], @[ @"Rename Diagram…", @"renameDiagram:" ],
+	                         @[ @"Delete Diagram", @"deleteDiagram:" ] ]) {
+		[[menu addItemWithTitle:[item objectAtIndex:0] action:NSSelectorFromString([item objectAtIndex:1])
+		          keyEquivalent:@""] setTarget:self];
+	}
+	[self.diagramTabs setMenu:menu];
+	[scroll setDocumentView:self.diagramTabs];
+	[self.diagramTabsBar addSubview:scroll];
+}
+
+/* The tabs, one a diagram, the open one selected and scrolled to. */
+- (void)reloadDiagramTabs
+{
+	NSArray<ORMDiagram *> *diagrams = [self editor].model.diagrams;
+	NSSegmentedControl *tabs = self.diagramTabs;
+	NSDictionary *attributes = @{ NSFontAttributeName: [tabs font] };
+	[tabs setSegmentCount:(NSInteger)[diagrams count]];
+	double x = 0;
+	NSRect open = NSZeroRect;
+	for (NSUInteger i = 0; i < [diagrams count]; i++) {
+		ORMDiagram *diagram = [diagrams objectAtIndex:i];
+		NSString *title = diagram.name ?: @"Diagram";
+		double width = MIN(MAX(ceil([title sizeWithAttributes:attributes].width) + 20, 48), 200);
+		[tabs setLabel:title forSegment:(NSInteger)i];
+		[tabs setWidth:width forSegment:(NSInteger)i];
+		if ([diagram.identifier isEqualToString:_canvas.diagramId]) {
+			[tabs setSelectedSegment:(NSInteger)i];
+			open = NSMakeRect(x, 0, width, NSHeight([tabs frame]));
+		}
+		x += width + 2;
+	}
+	[tabs setFrameSize:NSMakeSize(MAX(x + 8, 40), NSHeight([tabs frame]))];
+	[tabs scrollRectToVisible:open];
+}
+
+- (IBAction)chooseDiagramTab:(id)sender
+{
+	NSInteger index = [sender selectedSegment];
+	NSArray *diagrams = [self editor].model.diagrams;
+	if (index >= 0 && (NSUInteger)index < [diagrams count]) {
+		[self openDiagram:[[diagrams objectAtIndex:(NSUInteger)index] identifier]];
+	}
 }
 
 #pragma mark Splits
@@ -255,6 +324,7 @@ static const double ORMFactBarHeight = 30;
 			[_diagramPopup selectItem:[_diagramPopup lastItem]];
 		}
 	}
+	[self reloadDiagramTabs];
 }
 
 /* The selection's sentences in the verbalization pane, coloured as NORMA

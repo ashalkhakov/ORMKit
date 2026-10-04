@@ -219,6 +219,8 @@ jobs:
           codesign --force --timestamp --options runtime \
                    --sign "$IDENTITY" "$built/ODataKit.framework"
           codesign --force --timestamp --options runtime \
+                   --sign "$IDENTITY" "$built/OTelKit.framework"
+          codesign --force --timestamp --options runtime \
                    --sign "$IDENTITY" "$built/ODataIncrementalStore.framework"
           codesign --force --timestamp --options runtime \
                    --sign "$IDENTITY" "$built/ORMKit.framework"
@@ -263,7 +265,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/ormtool" && mkdir -p "$RUNNER_TEMP/ormtool"
           cp "$built/ormtool" "$RUNNER_TEMP/ormtool/"
           cp -R "$built/ORMKit.framework" "$built/ODataKit.framework" "$built/ODataIncrementalStore.framework" \
-            "$RUNNER_TEMP/ormtool/"
+            "$built/OTelKit.framework" "$RUNNER_TEMP/ormtool/"
           ditto -c -k --keepParent "$built/ORMDesigner.app" \
             "ORMKit-macOS-${APP_VERSION}${suffix}.zip"
           ditto -c -k --keepParent "$RUNNER_TEMP/ormtool" \
