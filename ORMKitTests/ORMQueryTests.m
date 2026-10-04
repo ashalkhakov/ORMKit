@@ -24,6 +24,45 @@
 }
 @end
 
+/* A cursor over batches given beforehand. */
+@interface ORMTestBatches : NSObject <ORMCursor>
+@property (nonatomic, strong) NSMutableArray<NSArray *> *batches;
+@end
+
+@implementation ORMTestBatches
+- (BOOL)atEnd
+{
+	return [self.batches count] == 0;
+}
+- (void)next:(NSUInteger)count completion:(void (^)(ORMBatch *batch, NSError *error))completion
+{
+	(void)count;
+	NSArray *objects = [self.batches firstObject] ?: @[];
+	if ([self.batches count] > 0) {
+		[self.batches removeObjectAtIndex:0];
+	}
+	completion([ORMBatch batchWithObjects:objects answers:@{}], nil);
+}
+@end
+
+/* Rows given beforehand, by object. */
+@interface ORMTestRows : NSObject <ORMBatchEvaluator>
+@property (nonatomic, copy) NSDictionary<NSString *, id> *answers;
+@property (nonatomic, copy) NSDictionary *rows;
+@end
+
+@implementation ORMTestRows
+- (BOOL)keeps:(id)object
+{
+	(void)object;
+	return YES;
+}
+- (NSArray<NSArray *> *)rowsOf:(id)object
+{
+	return [self.rows objectForKey:object];
+}
+@end
+
 /* An exchange with the service, waited for. */
 @interface ORMTestExchangeWaiter : NSObject
 @end
@@ -795,6 +834,30 @@
 	XCTAssertEqualObjects(rows, (@[ @[ @10 ] ]), @"%@", counted.paths);
 	/* Two requests a page, never one an employee. */
 	XCTAssertLessThan(counted.requests, 12u, @"%@", counted.paths);
+}
+
+/* No tuple twice: where the rows list the object read, an object's rows
+ * are compared with its own only, and nothing is kept between objects;
+ * else every row given is. */
+- (void)testRowsOfObjectsApartAreNotKept
+{
+	NSDictionary *rows = @{ @"a": @[ @[ @"a", @1 ], @[ @"a", @1 ], @[ @"a", @2 ] ], @"b": @[ @[ @"b", @1 ] ] };
+	for (NSNumber *apart in @[ @YES, @NO ]) {
+		ORMTestBatches *batches = [[ORMTestBatches alloc] init];
+		batches.batches = [NSMutableArray arrayWithObjects:@[ @"a" ], @[ @"b" ], nil];
+		ORMTestRows *evaluator = [[ORMTestRows alloc] init];
+		evaluator.rows = rows;
+		ORMPageReader *reader = [[ORMPageReader alloc] initWithInput:batches evaluator:evaluator columnTitles:@[ @"X", @"N" ]];
+		reader.objectsApart = [apart boolValue];
+		__block ORMQueryResult *page = nil;
+		[reader nextPage:10 completion:^(ORMQueryResult *result, NSError *error) {
+			XCTAssertNotNil(result, @"%@", error);
+			page = result;
+		}];
+		XCTAssertEqualObjects(page.objects, (@[ @"a", @"b" ]));
+		XCTAssertEqualObjects(page.rows, (@[ @[ @"a", @1 ], @[ @"a", @2 ], @[ @"b", @1 ] ]));
+		XCTAssertEqual(reader.rowsKept, [apart boolValue] ? 0u : 3u);
+	}
 }
 
 /* An employee like the first, numbered to come before everyone, saved. */

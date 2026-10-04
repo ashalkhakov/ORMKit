@@ -1247,6 +1247,7 @@ ORMBagKey(ORMPlanValue *value)
 	if (self.reader == nil) {
 		self.reader = [[ORMPageReader alloc] initWithInput:[self.run cursor] evaluator:self.run
 		                                      columnTitles:[self.run.plan.columns valueForKey:@"title"]];
+		self.reader.objectsApart = [self.run.plan listsTheObjectRead];
 	}
 	__block ORMQueryResult *page = nil;
 	__block NSError *failed = nil;

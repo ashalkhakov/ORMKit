@@ -246,6 +246,9 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* What must hold of each; nil: nothing. */
 @property (nonatomic, readonly, strong) ORMPlanCondition *condition;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanColumn *> *columns;
+/* Whether a column lists the object read itself: then no row of one
+ * object is another's. */
+- (BOOL)listsTheObjectRead;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanSort *> *sorts;
 /* What the query says that the plan leaves out. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;

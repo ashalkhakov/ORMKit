@@ -63,6 +63,13 @@ typedef void (^ORMBindRead)(NSArray *values, void (^done)(id answer, NSError *er
                  columnTitles:(NSArray<NSString *> *)titles;
 - (void)nextPage:(NSUInteger)size completion:(void (^)(ORMQueryResult *page, NSError *error))completion;
 @property (nonatomic, readonly) BOOL atEnd;
+/* Whether rows of different objects can never be the same tuple (the
+ * rows list the object read): then an object's rows are compared with its
+ * own only, and none is kept from one object to the next. NO by default:
+ * every row given is kept, across pages. */
+@property (nonatomic) BOOL objectsApart;
+/* How many rows are kept to give none twice. */
+@property (nonatomic, readonly) NSUInteger rowsKept;
 @end
 
 /* The order a Scan reads in, made total by the entity's key, and where its

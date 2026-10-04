@@ -645,6 +645,16 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 
 @implementation ORMQueryPlan
 
+- (BOOL)listsTheObjectRead
+{
+	for (ORMPlanColumn *column in self.columns) {
+		if (column.path.variable == nil && [column.path.keys count] == 0) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 + (instancetype)planReading:(NSString *)entityName
                       where:(ORMPlanCondition *)condition
                     columns:(NSArray<ORMPlanColumn *> *)columns

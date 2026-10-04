@@ -53,6 +53,7 @@
 #import "ORMQueryPlan.h"
 #import "ORMQueryPlanner.h"
 #import "ORMQueryInterpreter.h"
+#import "ORMCursor.h"
 #import "ORMPopulationStore.h"
 #import "ORMPopulationChecker.h"
 #import "ORMPopulationGenerator.h"

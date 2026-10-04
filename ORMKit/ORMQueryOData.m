@@ -2699,6 +2699,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	if (_reader == nil) {
 		_reader = [[ORMPageReader alloc] initWithInput:[self cursor] evaluator:_request
 		                                  columnTitles:[_request.plan.columns valueForKey:@"title"]];
+		_reader.objectsApart = [_request.plan listsTheObjectRead];
 	}
 	[_reader nextPage:size completion:completion];
 }

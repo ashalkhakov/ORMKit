@@ -160,14 +160,20 @@
 	return _input.atEnd;
 }
 
+- (NSUInteger)rowsKept
+{
+	return [_given count];
+}
+
 /* The batch's objects and rows, with its answers, added to the page. */
 - (void)take:(ORMBatch *)batch objects:(NSMutableArray *)objects rows:(NSMutableArray *)rows
 {
 	_evaluator.answers = batch.answers;
 	for (id object in batch.objects) {
+		NSMutableSet *given = _objectsApart ? [NSMutableSet set] : _given;
 		for (NSArray *tuple in [_evaluator rowsOf:object]) {
-			if (![_given containsObject:tuple]) {
-				[_given addObject:tuple];
+			if (![given containsObject:tuple]) {
+				[given addObject:tuple];
 				[rows addObject:tuple];
 			}
 		}

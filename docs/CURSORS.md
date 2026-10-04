@@ -7,7 +7,7 @@ backends share the tree. Core Data (`ORMQueryInterpreter`) and OData
 condition on its own objects. [QUERIES.md](QUERIES.md) has the plans,
 [ODATA.md](ODATA.md) the requests.
 
-Steps 1 to 3 below are built (`ORMCursor.h`). "Today" in the tables is
+Steps 1 to 4 below are built (`ORMCursor.h`). "Today" in the tables is
 what the code did before them; [Steps](#steps) says what is still to come.
 
 ## Why
@@ -201,7 +201,12 @@ run underneath does.
    - `testPagesResumeAfterTheLastKey` hires someone between pages, numbered
      before the bookmark. Neither backend repeats or skips anyone; by
      offset, both would.
-4. **Distinct without keeping every row,** where the columns allow it.
+4. **Done: Distinct without keeping every row,** where the rows list the
+   object read (`-[ORMQueryPlan listsTheObjectRead]`).
+   - The Page reader's `objectsApart` then compares an object's rows with
+     its own only, and keeps nothing from one object to the next.
+   - Otherwise it keeps every row given, as before.
+   - The ordered case (equal tuples adjacent) is not done.
 5. **The interpreter's probes as BindJoins,** and Prefetch as an operator
    of its own.
 
