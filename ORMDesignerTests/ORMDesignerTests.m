@@ -243,7 +243,7 @@
 	XCTAssertTrue([[built outlineText] rangeOfString:@"Location"].location != NSNotFound, @"%@", [built outlineText]);
 	XCTAssertTrue([[queries verbalizationText] hasPrefix:@"List each Warehouse where"], @"%@",
 	              [queries verbalizationText]);
-	XCTAssertTrue([[queries fetchText] rangeOfString:@"fetchRequestWithEntityName:@\"Warehouse\""].location != NSNotFound,
+	XCTAssertTrue([[queries fetchText] rangeOfString:@"fetch Warehouse"].location != NSNotFound,
 	              @"%@", [queries fetchText]);
 	/* The window is the XIB's, its outlets connected: what it shows is what
 	 * the controller says. */
@@ -353,7 +353,7 @@
 	XCTAssertEqualObjects(made.countComparison, @">");
 	XCTAssertEqual(made.countValue, 2u);
 	XCTAssertEqualObjects(made.aggregateNode.objectType.name, @"Location");
-	XCTAssertTrue([[queries fetchText] rangeOfString:@"ascending:NO"].location != NSNotFound, @"%@", [queries fetchText]);
+	XCTAssertTrue([[queries fetchText] rangeOfString:@"sorted by"].location != NSNotFound, @"%@", [queries fetchText]);
 	XCTAssertTrue([[queries requestText] rangeOfString:@"GET Warehouses?$filter="].location != NSNotFound,
 	              @"%@", [queries requestText]);
 	XCTAssertTrue([[queries requestText] rangeOfString:@"$orderby="].location != NSNotFound, @"%@", [queries requestText]);

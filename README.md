@@ -97,7 +97,8 @@ else into a new model, with what ORM cannot say on standard error.
 `validation` writes code that checks the constraints Core Data cannot enforce:
 a category on each entity's class, called from its `validateForInsert:` and
 `validateForUpdate:`. `query` prints a conceptual query (docs/QUERIES.md) as
-ConQuer's outline, in FORML, and as a Core Data fetch request.
+ConQuer's outline, in FORML, as a request to the OData service ODataKit makes
+of the mapping, and as its plan with the fetches that run it.
 
 ## License
 

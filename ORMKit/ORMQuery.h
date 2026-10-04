@@ -22,7 +22,8 @@
  *
  * As logic a query is a relation, its ticked object types the columns: the
  * verbalizer says it in FORML (-[ORMVerbalizer sentenceForQuery:]) and
- * ORMQueryFetch says it as a Core Data fetch request.
+ * ORMQueryPlanner plans it against a mapped model, for ORMQueryInterpreter to
+ * run against a Core Data store and ORMQueryOData to send to a service.
  *
  * Queries live in the .orm, in ORMKit's own namespace beside the mappings,
  * and every change to one goes through the editor, so it is undone with

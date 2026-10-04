@@ -3,9 +3,8 @@
 #import "ORMCDModel.h"
 
 /* Where a query's object types and fact types are in a mapped Core Data
- * model, by the traces the mapping leaves (ormkit.source): what both a
- * fetch request (ORMQueryFetch) and an OData request (ORMQueryOData) are
- * said in terms of. */
+ * model, by the traces the mapping leaves (ormkit.source): what the planner
+ * (ORMQueryPlanner) looks up. */
 @interface ORMQueryPlaces : NSObject
 - (instancetype)initWithCoreData:(ORMCDModel *)coreData;
 @property (nonatomic, readonly, strong) ORMCDModel *coreData;

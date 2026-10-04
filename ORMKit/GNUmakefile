@@ -44,7 +44,9 @@ ORMKit_HEADER_FILES = \
   ORMODataAnnotator.h \
   ORMQuery.h \
   ORMCDModel+CoreData.h \
-  ORMQueryFetch.h \
+  ORMQueryPlan.h \
+  ORMQueryPlanner.h \
+  ORMQueryInterpreter.h \
   ORMQueryOData.h
 ORMKit_OBJC_FILES = \
   ORMXML.m \
@@ -76,9 +78,11 @@ ORMKit_OBJC_FILES = \
   ORMCoreDataValidation.m \
   ORMODataAnnotator.m \
   ORMQuery.m \
-  ORMQueryFetch.m \
   ORMCDModel+CoreData.m \
   ORMQueryPlaces.m \
+  ORMQueryPlan.m \
+  ORMQueryPlanner.m \
+  ORMQueryInterpreter.m \
   ORMQueryOData.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the

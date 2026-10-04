@@ -1,8 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
 #import <ODataKit/ODataExpression.h>
-#if defined(__APPLE__)
 #import <CoreData/CoreData.h>
+#if defined(__APPLE__)
 #import <ODataKit/ODataTransport.h>
 #import <ODataService/ODataService.h>
 
@@ -33,36 +33,14 @@
 @end
 #endif
 
-/* Conceptual queries (ORMQuery.h, ORMQueryFetch.h), on the schema and
+/* Conceptual queries (ORMQuery.h): planned (ORMQueryPlanner.h), run against
+ * a store (ORMQueryInterpreter.h) and sent to a service (ORMQueryOData.h),
+ * on the schema and
  * queries of Halpin's "Conceptual Queries" (Database Newsletter 26:2,
  * figure 1): employees, the branches they work for and head, the cities
  * they live in (a city identified by its name and state, a state by its
  * code and country), the cars they drive, and US branches' ranks by year. */
 @interface ORMQueryTests : ORMTestCase
-@end
-
-/* An object as key-value coding sees it, equal only to itself: what a
- * predicate walks, inverse relationships and all. */
-@interface ORMTestThing : NSObject
-@property (nonatomic, strong) NSMutableDictionary *values;
-@end
-
-@implementation ORMTestThing
-- (instancetype)init
-{
-	if ((self = [super init])) {
-		_values = [NSMutableDictionary dictionary];
-	}
-	return self;
-}
-- (id)valueForUndefinedKey:(NSString *)key
-{
-	return [self.values objectForKey:key];
-}
-- (void)setValue:(id)value forUndefinedKey:(NSString *)key
-{
-	[self.values setObject:value forKey:key];
-}
 @end
 
 @implementation ORMQueryTests
@@ -300,13 +278,21 @@
 	return [ORMCoreDataMapping mappingWithId:mapping inDocument:_editor.document];
 }
 
-- (ORMQueryFetch *)fetch:(NSString *)queryId
+/* What the interpreter does to run the query's plan, to read. */
+- (NSString *)program:(NSString *)queryId
 {
-	ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:[self query:queryId] model:_editor.model
-	                                                    mapping:[self mapping]];
-	XCTAssertEqual([fetch.notes count], 0u, @"%@", fetch.notes);
-	XCTAssertNotNil([NSPredicate predicateWithFormat:fetch.predicateFormat]);
-	return fetch;
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	NSError *error = nil;
+	NSString *program = [interpreter programForPlan:[planner planForQuery:[self query:queryId]] error:&error];
+	XCTAssertNotNil(program, @"%@", error);
+	return program;
+}
+
+/* The query planned through the test's mapping. */
+- (ORMQueryPlan *)plan:(NSString *)queryId
+{
+	return [[[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]] planForQuery:[self query:queryId]];
 }
 
 /* The query as a request to the service: no notes, and its filter is OData
@@ -320,8 +306,10 @@
 
 - (ORMQueryOData *)odata:(NSString *)queryId notes:(NSUInteger)notes
 {
-	ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:[self query:queryId] model:_editor.model
-	                                                    mapping:[self mapping]];
+	NSError *error = nil;
+	ORMQueryOData *odata = [ORMQueryOData requestForQuery:[self query:queryId] model:_editor.model mapping:[self mapping]
+	                                                error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
 	XCTAssertEqual([odata.notes count], notes, @"%@", odata.notes);
 	if (odata.filter != nil) {
 		NSError *error = nil;
@@ -360,10 +348,12 @@
 	                      @"and that Branch is 52.");
 }
 
-- (void)testQ1IsAFetchRequest
+- (void)testQ1IsAPlanAndARequest
 {
 	NSString *q1 = [self q1];
-	ORMQueryFetch *fetch = [self fetch:q1];
+	XCTAssertEqualObjects([[self plan:q1] text], @"read Employee\n"
+	                                               @"where some city.branches as x1 has x1.nr = 52\n"
+	                                               @"list self (nr)");
 	ORMQueryOData *odata = [self odata:q1];
 	XCTAssertEqualObjects(odata.collectionPath, @"Employees");
 	XCTAssertEqualObjects([odata queryText], @"$filter=City/Branches/any(x1:x1/Nr eq 52)&$select=Nr");
@@ -371,12 +361,9 @@
 	NSURL *url = [odata URLWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"] error:NULL];
 	XCTAssertEqualObjects([url path], @"/odata/Employees");
 	XCTAssertEqualObjects([[url query] stringByRemovingPercentEncoding], [odata queryText]);
-	XCTAssertEqualObjects(fetch.entityName, @"Employee");
-	XCTAssertEqualObjects(fetch.predicateFormat, @"SUBQUERY(city.branches, $x1, $x1.nr == 52).@count > 0");
-	XCTAssertEqualObjects([fetch.columns valueForKey:@"keyPath"], (@[ @"self" ]));
-	XCTAssertEqualObjects([[fetch.columns firstObject] identifierKeyPath], @"nr");
-	XCTAssertTrue([[fetch objectiveCSource] rangeOfString:@"fetchRequestWithEntityName:@\"Employee\""].location
-	              != NSNotFound);
+	ORMQueryPlan *plan = [self plan:q1];
+	XCTAssertEqualObjects(plan.entityName, @"Employee");
+	XCTAssertEqualObjects([[plan.columns firstObject] identifierKey], @"nr");
 }
 
 /* Absorbed, City's parts are attributes of employees and branches, and no
@@ -384,39 +371,10 @@
  * whose city parts are its. The query is the same; the request is two. */
 - (void)testQ1JoinsThroughAnAbsorbedCity
 {
-	ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:[self query:[self q1]] model:_editor.model mapping:nil];
-	XCTAssertEqual([fetch.notes count], 0u, @"%@", fetch.notes);
-	XCTAssertEqualObjects(fetch.entityName, @"Employee");
-	XCTAssertEqualObjects(fetch.predicateFormat, @"cityCityname != nil");
-	XCTAssertEqual([fetch.joins count], 1u);
-	ORMQueryJoin *join = [fetch.joins firstObject];
-	XCTAssertEqualObjects(join.entityName, @"Branch");
-	XCTAssertEqualObjects(join.predicateFormat, @"nr == 52");
-	NSArray *expected = @[ @[ @"cityCityname", @"cityCityname" ], @[ @"cityStateStatecode", @"cityStateStatecode" ],
-	                       @[ @"cityStateCountry", @"cityStateCountry" ] ];
-	XCTAssertEqualObjects(join.pairs, expected);
-
-	/* Branch 52 is in Brisbane, Queensland, Australia: who lives there. */
-	NSDictionary *australia = @{ @"name": @"Australia" };
-	NSDictionary *branch = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD", @"cityStateCountry": australia };
-	NSPredicate *predicate = [fetch predicateJoining:@{ join.name: @[ branch ] }];
-	NSDictionary *local = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD", @"cityStateCountry": australia };
-	NSDictionary *elsewhere = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD",
-	                             @"cityStateCountry": @{ @"name": @"Elsewhere" } };
-	XCTAssertTrue([predicate evaluateWithObject:local]);
-	XCTAssertFalse([predicate evaluateWithObject:elsewhere]);
-	/* No such branch: nobody. */
-	XCTAssertFalse([[fetch predicateJoining:@{ join.name: @[] }] evaluateWithObject:local]);
-
-	NSString *source = [fetch objectiveCSource];
-	XCTAssertTrue([source rangeOfString:@"cityCityname == %@ AND cityStateStatecode == %@ AND cityStateCountry == %@"]
-	                  .location != NSNotFound, @"%@", source);
-	XCTAssertTrue([source rangeOfString:@"orPredicateWithSubpredicates:join1Matches"].location != NSNotFound);
-
-	/* The same two requests to the service. */
-	ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:[self query:[self q1]] model:_editor.model mapping:nil];
+	/* Two requests to the service. */
+	ORMQueryOData *odata = [ORMQueryOData requestForQuery:[self query:[self q1]] model:_editor.model mapping:nil error:NULL];
 	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
-	XCTAssertEqualObjects([odata queryText], @"$filter=CityCityname ne null&$select=Nr");
+	XCTAssertEqualObjects([odata queryText], @"$filter=@join1&$select=Nr");
 	ORMQueryODataJoin *branches = [odata.joins firstObject];
 	NSURL *joinURL = [branches URLWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"] error:NULL];
 	XCTAssertEqualObjects([joinURL path], @"/odata/Branches");
@@ -429,14 +387,14 @@
 	XCTAssertEqualObjects(branches.pairs, wirePairs);
 	NSDictionary *row = @{ @"CityCityname": @"Brisbane", @"CityStateStatecode": @"QLD",
 	                       @"CityStateCountry": @{ @"Name": @"Australia" } };
-	XCTAssertEqualObjects([[odata filterJoining:@{ branches.name: @[ row ] }] description],
-	                      @"CityCityname ne null and (CityCityname eq 'Brisbane' and CityStateStatecode eq 'QLD' and "
-	                      @"CityStateCountry/Name eq 'Australia')");
-	XCTAssertEqualObjects([[odata filterJoining:@{ branches.name: @[] }] description], @"CityCityname ne null and false");
+	XCTAssertEqualObjects([[odata filterJoining:@{ branches.name: @[ row ] } error:NULL] description],
+	                      @"CityCityname eq 'Brisbane' and CityStateStatecode eq 'QLD' and CityStateCountry/Name eq 'Australia'");
+	XCTAssertEqualObjects([[odata filterJoining:@{ branches.name: @[] } error:NULL] description], @"false");
 }
 
-/* A join inside a not takes fetches within fetches: noted, not made. */
-- (void)testAJoinUnderNotIsNoted
+/* A join inside a not: the joined objects are fetched first wherever the
+ * join is, and the plan says not of their match. */
+- (void)testAJoinUnderNotIsPlanned
 {
 	NSString *q = [[self queries] addQueryNamed:@"Q" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *lives = nil;
@@ -445,10 +403,14 @@
 	[[self queries] setOperator:ORMQueryNot ofStep:lives];
 	ORMQueryNode *branch = [self from:city.identifier through:[self role:@"locatedIn" at:1] in:q];
 	[[self queries] setCondition:@"=" value:@"52" ofNode:branch.identifier reason:NULL];
-	ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:[self query:q] model:_editor.model mapping:nil];
-	XCTAssertFalse([fetch isComplete]);
-	XCTAssertEqual([fetch.joins count], 0u);
-	XCTAssertTrue([[fetch.notes firstObject] rangeOfString:@"inside a not"].location != NSNotFound, @"%@", fetch.notes);
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqualObjects(plan.condition.kind == ORMPlanNot ? @(plan.condition.operand.kind) : nil, @(ORMPlanMatches),
+	                      @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	XCTAssertEqualObjects([odata queryText], @"$filter=not @join1&$select=Nr");
+	XCTAssertEqual([odata.joins count], 1u);
 }
 
 /* Q2: employee drivers and their branches. */
@@ -468,12 +430,12 @@
 	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee\n"
 	                                                    @"  + drives Car\n"
 	                                                    @"  + works for ✓Branch\n");
-	ORMQueryFetch *fetch = [self fetch:q];
+	XCTAssertEqualObjects([[self plan:q] text], @"read Employee\n"
+	                                              @"where some cars and branch is set\n"
+	                                              @"list self (nr), branch (nr)");
 	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=Cars/any() and Branch ne null&$select=Nr&"
 	                                                   @"$expand=Branch($select=Nr)");
-	XCTAssertEqualObjects(fetch.predicateFormat, @"(cars.@count > 0) AND (branch != nil)");
-	XCTAssertEqualObjects([fetch.columns valueForKey:@"keyPath"], (@[ @"self", @"branch" ]));
-	XCTAssertEqualObjects([[fetch.columns lastObject] identifierKeyPath], @"branch.nr");
+	XCTAssertEqualObjects([self program:q], @"fetch Employee where (cars.@count > 0) AND (branch != nil)");
 }
 
 /* Q3: the US branches that did not achieve the top rank before 1998, and
@@ -508,20 +470,24 @@
 	                                                    @"    + is headed by Employee\n"
 	                                                    @"      + has ✓EmployeeName\n"
 	                                                    @"      + maybe drives ✓Car\n");
-	ORMQueryFetch *fetch = [self fetch:q];
+	XCTAssertEqualObjects([[self plan:q] text], @"read USbranch\n"
+	                                              @"where not (some uSbranchAchievedRankInYears as x1 has (x1.rank.nr = 1 "
+	                                              @"and x1.year.ad < 1998)) and employee.employeeName is set\n"
+	                                              @"list self (nr), employee.employeeName, employee.cars (regnr)");
 	ORMQueryOData *odata = [self odata:q];
 	XCTAssertEqualObjects(odata.collectionPath, @"Branches/Default.USbranch");
 	XCTAssertEqualObjects([odata queryText], @"$filter=not USbranchAchievedRankInYears/any(x1:x1/Rank/Nr eq 1 and "
 	                                         @"x1/Year/Ad lt 1998) and Employee/EmployeeName ne null&$select=Nr&"
 	                                         @"$expand=Employee($select=Nr,EmployeeName;$expand=Cars($select=Regnr))");
-	XCTAssertEqualObjects(fetch.entityName, @"USbranch");
-	XCTAssertEqualObjects(fetch.predicateFormat, @"(NOT (SUBQUERY(uSbranchAchievedRankInYears, $x1, ($x1.rank.nr == 1) "
-	                                             @"AND ($x1.year.ad < 1998)).@count > 0)) AND (employee.employeeName "
-	                                             @"!= nil)");
-	XCTAssertEqualObjects([fetch.columns valueForKey:@"title"], (@[ @"USbranch", @"EmployeeName", @"Car" ]));
+	ORMQueryPlan *plan = [self plan:q];
+	XCTAssertEqualObjects(plan.entityName, @"USbranch");
+	XCTAssertEqualObjects([plan.columns valueForKey:@"title"], (@[ @"USbranch", @"EmployeeName", @"Car" ]));
 	/* A US branch is known by its number, as a branch is. */
-	XCTAssertEqualObjects([[fetch.columns firstObject] identifierKeyPath], @"nr");
-	XCTAssertEqualObjects([[fetch.columns lastObject] identifierKeyPath], @"employee.cars.regnr");
+	XCTAssertEqualObjects([[plan.columns firstObject] identifierKey], @"nr");
+	XCTAssertEqualObjects([[[plan.columns lastObject] valuePath] description], @"employee.cars.regnr");
+	XCTAssertEqualObjects([self program:q], @"fetch USbranch where (NOT (SUBQUERY(uSbranchAchievedRankInYears, $x1, "
+	                                        @"($x1.rank.nr == 1) AND ($x1.year.ad < 1998)).@count > 0)) AND "
+	                                        @"(employee.employeeName != nil)");
 }
 
 /* Q4: who supervises an employee who lives in the same city as the
@@ -566,25 +532,17 @@
 	                      @"and Country2 is not Country1.");
 	/* The supervised employee's city and country, against the supervisor's:
 	 * a key path in the subquery is the fetched object's. */
-	ORMQueryFetch *fetch = [self fetch:q];
+	XCTAssertEqualObjects([[self plan:q] text], @"read Employee\n"
+	                                              @"where city is set and country is set and some employees as x1 has "
+	                                              @"(x1.city is city and not (x1.country is country))\n"
+	                                              @"list self (nr)");
 	/* In the lambda, the supervisor is $it; a city, a surrogate's, by its key. */
 	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=City ne null and Country ne null and "
 	                                                   @"Employees/any(x1:x1/City/Id eq $it/City/Id and not "
 	                                                   @"(x1/Country/Name eq $it/Country/Name))&$select=Nr");
-	XCTAssertEqualObjects(fetch.predicateFormat, @"(city != nil) AND (country != nil) AND (SUBQUERY(employees, $x1, "
-	                                             @"($x1.city == city) AND ($x1.country != country)).@count > 0)");
-	NSDictionary *sydney = @{ @"name": @"Sydney" }, *perth = @{ @"name": @"Perth" };
-	NSDictionary *australia = @{ @"name": @"Australia" }, *uk = @{ @"name": @"UK" };
-	NSDictionary *migrant = @{ @"city": sydney, @"country": uk };
-	NSDictionary *local = @{ @"city": sydney, @"country": australia };
-	NSDictionary *away = @{ @"city": perth, @"country": uk };
-	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
-	BOOL holds1 = [predicate evaluateWithObject:@{ @"city": sydney, @"country": australia,
-	                                               @"employees": [NSSet setWithObjects:local, migrant, nil] }];
-	XCTAssertTrue(holds1);
-	BOOL holds2 = [predicate evaluateWithObject:@{ @"city": sydney, @"country": australia,
-	                                                @"employees": [NSSet setWithObjects:local, away, nil] }];
-	XCTAssertFalse(holds2);
+	XCTAssertEqualObjects([self program:q], @"fetch Employee where (city != nil) AND (country != nil) AND "
+	                                        @"(SUBQUERY(employees, $x1, ($x1.city == city) AND (NOT ($x1.country == "
+	                                        @"country))).@count > 0)");
 }
 
 /* Q5: who owns a car, and does not drive more than one of the cars they
@@ -615,36 +573,19 @@
 	                                        @"greater than 1.");
 	/* ConQuer-II's S5: the cars driven that are among those owned, found
 	 * from each car back to its owners. */
-	ORMQueryFetch *fetch = [self fetch:q];
+	/* Car1 met again out of the scope it was met in: among what ownsCars
+	 * reaches from the employee. */
+	XCTAssertEqualObjects([[self plan:q] text], @"read Employee\n"
+	                                              @"where some ownsCars and not (number of cars as x2 having x2 is among "
+	                                              @"ownsCars > 1)\n"
+	                                              @"list self (nr)");
 	/* The cars driven that are among those owned, counted (OData 4.01): in
 	 * the count's filter the car is $this, the employee still $it. */
 	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=OwnsCars/any() and not (Cars/$count($filter="
-	                                                   @"$this/IsOwnedByEmployees/any(x3:x3/Nr eq $it/Nr)) gt 1)&"
+	                                                   @"$this/IsOwnedByEmployees/any(y1:y1/Nr eq $it/Nr)) gt 1)&"
 	                                                   @"$select=Nr");
-	XCTAssertEqualObjects(fetch.predicateFormat, @"(ownsCars.@count > 0) AND (NOT (SUBQUERY(cars, $x2, ANY "
-	                                             @"$x2.isOwnedByEmployees == SELF).@count > 1))");
-	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
-	ORMTestThing *(^employee)(NSArray *, NSArray *) = ^ORMTestThing *(NSArray *owned, NSArray *driven) {
-		ORMTestThing *person = [[ORMTestThing alloc] init];
-		[person setValue:[NSSet setWithArray:owned] forKey:@"ownsCars"];
-		[person setValue:[NSSet setWithArray:driven] forKey:@"cars"];
-		for (ORMTestThing *car in owned) {
-			[[car valueForKey:@"isOwnedByEmployees"] addObject:person];
-		}
-		return person;
-	};
-	ORMTestThing *(^car)(void) = ^ORMTestThing *(void) {
-		ORMTestThing *thing = [[ORMTestThing alloc] init];
-		[thing setValue:[NSMutableSet set] forKey:@"isOwnedByEmployees"];
-		return thing;
-	};
-	ORMTestThing *a = car(), *b = car(), *c = car();
-	/* Owns two and drives both: more than one. */
-	XCTAssertFalse([predicate evaluateWithObject:employee(@[ a, b ], @[ a, b ])]);
-	/* Drives two, one of them their own. */
-	XCTAssertTrue([predicate evaluateWithObject:employee(@[ c ], @[ c, a ])]);
-	/* Owns none. */
-	XCTAssertFalse([predicate evaluateWithObject:employee(@[], @[ a ])]);
+	XCTAssertEqualObjects([self program:q], @"fetch Employee where (ownsCars.@count > 0) AND (NOT (SUBQUERY(cars, $x2, "
+	                                        @"ANY $x2.isOwnedByEmployees == SELF).@count > 1))");
 }
 
 /* ConQuer-II's: "what are the branches and total salary costs of branches
@@ -675,23 +616,15 @@
 	                                                    @"    + earns Salary\n");
 	XCTAssertTrue([[self english:q] hasSuffix:@"the total of that Salary is greater than 1000000 in descending order of "
 	                                          @"Branch."], @"%@", [self english:q]);
-	ORMQueryFetch *fetch = [self fetch:q];
+	XCTAssertEqualObjects([[self plan:q] text], @"read Branch\n"
+	                                              @"where sum of x1.salary.usd over employees as x1 > 1000000\n"
+	                                              @"list self (nr)\n"
+	                                              @"order by nr descending");
 	ORMQueryOData *odata = [self odata:q];
 	XCTAssertEqualObjects([odata queryText], @"$filter=Employees/aggregate(Salary/Usd with sum) gt 1000000&"
 	                                         @"$orderby=Nr desc&$select=Nr");
-	XCTAssertEqualObjects(fetch.predicateFormat, @"employees.@sum.salary.usd > 1000000");
-	XCTAssertEqualObjects(fetch.sortDescriptors, @[ [NSSortDescriptor sortDescriptorWithKey:@"nr" ascending:NO] ]);
-	XCTAssertTrue([[fetch objectiveCSource] rangeOfString:@"sortDescriptorWithKey:@\"nr\" ascending:NO"].location
-	              != NSNotFound);
-
-	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
-	NSDictionary *rich = @{ @"employees": [NSSet setWithObjects:@{ @"salary": @{ @"usd": @600000 } },
-	                                                            @{ @"salary": @{ @"usd": @500000 } }, nil] };
-	NSDictionary *poor = @{ @"employees": [NSSet setWithObject:@{ @"salary": @{ @"usd": @900000 } }] };
-	BOOL richHolds = [predicate evaluateWithObject:rich];
-	BOOL poorHolds = [predicate evaluateWithObject:poor];
-	XCTAssertTrue(richHolds);
-	XCTAssertFalse(poorHolds);
+	XCTAssertEqualObjects([self program:q], @"fetch Branch where employees.@sum.salary.usd > 1000000\n"
+	                                        @"sorted by nr descending");
 }
 
 /* Who speaks more than one language; who is above 100 and lives in a city
@@ -702,7 +635,7 @@
 	NSString *speaks = nil;
 	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
 	XCTAssertTrue([[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL]);
-	XCTAssertEqualObjects([self fetch:polyglots].predicateFormat, @"languages.@count > 1");
+	XCTAssertEqualObjects([self program:polyglots], @"fetch Employee where languages.@count > 1");
 	XCTAssertEqualObjects([[self odata:polyglots] queryText], @"$filter=Languages/$count gt 1&$select=Nr");
 	XCTAssertTrue([[[self query:polyglots] outlineText] rangeOfString:@"count(Language) for Employee > 1"].location
 	              != NSNotFound);
@@ -717,9 +650,8 @@
 	[[self queries] setCondition:@"=" value:@"USA" ofNode:country.identifier reason:NULL];
 	ORMQueryNode *language = [self from:root through:[self role:@"speaks" at:0] in:q];
 	[[self queries] setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL];
-	XCTAssertEqualObjects([self fetch:q].predicateFormat,
-	                      @"(nr > 100) AND ((country.name == \"USA\") OR (SUBQUERY(languages, $x1, $x1.name == "
-	                      @"\"Latin\").@count > 0))");
+	XCTAssertEqualObjects([self program:q], @"fetch Employee where (nr > 100) AND ((country.name == \"USA\") OR "
+	                                        @"(SUBQUERY(languages, $x1, $x1.name == \"Latin\").@count > 0))");
 	XCTAssertTrue([[[self query:q] outlineText] rangeOfString:@"+ or speaks Language = 'Latin'"].location != NSNotFound);
 	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=Nr gt 100 and (Country/Name eq 'USA' or "
 	                                                   @"Languages/any(x1:x1/Name eq 'Latin'))&$select=Nr");
@@ -752,25 +684,10 @@
 	NSMutableDictionary *info = [nr.userInfo mutableCopy];
 	[info setObject:@"Nr eq 0 or true" forKey:@"OData.property"];
 	nr.userInfo = info;
-	ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:[self query:q] coreData:remapped];
-	XCTAssertFalse([odata isComplete]);
-	XCTAssertTrue([[odata.notes lastObject] rangeOfString:@"cannot be written"].location != NSNotFound, @"%@", odata.notes);
-	XCTAssertNil([odata URLWithServiceRoot:[NSURL URLWithString:@"http://example.test/odata/"] error:NULL]);
-	XCTAssertNil(odata.filter);
-}
-
-/* The predicate means what the query says, on objects as key-value
- * coding finds them. */
-- (void)testThePredicateSelects
-{
-	ORMQueryFetch *fetch = [self fetch:[self q1]];
-	NSPredicate *predicate = [NSPredicate predicateWithFormat:fetch.predicateFormat];
-	NSDictionary *brisbane = @{ @"branches": [NSSet setWithObject:@{ @"nr": @52 }] };
-	NSDictionary *sydney = @{ @"branches": [NSSet setWithObject:@{ @"nr": @7 }] };
-	BOOL holds5 = [predicate evaluateWithObject:@{ @"city": brisbane }];
-	XCTAssertTrue(holds5);
-	BOOL holds6 = [predicate evaluateWithObject:@{ @"city": sydney }];
-	XCTAssertFalse(holds6);
+	ORMQueryPlan *plan = [[[ORMQueryPlanner alloc] initWithCoreData:remapped] planForQuery:[self query:q]];
+	NSError *error = nil;
+	XCTAssertNil([ORMQueryOData requestForPlan:plan coreData:remapped error:&error]);
+	XCTAssertNotNil(error);
 }
 
 - (void)testAStepMustBeOneTheNodePlays
@@ -817,33 +734,33 @@
 	ORMQuery *query = [self query:q];
 	XCTAssertFalse(query.isComplete);
 	XCTAssertEqualObjects([query outlineText], @"✓Employee\n  + lives in City\n");
-	ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:query model:_editor.model mapping:nil];
-	XCTAssertFalse([fetch isComplete]);
+	ORMQueryPlan *plan = [[[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil] planForQuery:query];
+	XCTAssertTrue([[plan.notes firstObject] rangeOfString:@"no longer in the model"].location != NSNotFound, @"%@", plan.notes);
 }
 
-#if defined(__APPLE__)
-/* The requests, sent to ODataKit's service over the mapped model in a
- * SQLite store: the rows the paper's queries ask for. */
-- (void)testTheServiceAnswersTheQueries
+/* The paper's queries, and a count, by name. */
+- (NSDictionary<NSString *, NSString *> *)paperQueries
 {
-	NSString *q1 = [self q1], *q2 = [self q2], *q3 = [self q3], *q4 = [self q4], *q5 = [self q5];
-	NSString *payroll = [self payroll];
 	NSString *polyglots = [[self queries] addQueryNamed:@"Polyglots" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *speaks = nil;
 	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
 	[[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL];
+	return @{ @"Q1": [self q1], @"Q2": [self q2], @"Q3": [self q3], @"Q4": [self q4], @"Q5": [self q5],
+	          @"Payroll": [self payroll], @"Polyglots": polyglots };
+}
 
-	/* The mapping as an application has it: compiled, in a store. */
-	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]] map];
-	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
-	NSString *package = [directory stringByAppendingPathComponent:@"Company.xcdatamodeld"];
-	NSString *compiled = [directory stringByAppendingPathComponent:@"Company.momd"];
+/* The rows each of them asks for, of the store -companyIn: fills. */
+- (NSDictionary<NSString *, NSArray *> *)paperAnswers
+{
+	return @{ @"Q1": @[ @1, @3 ], @"Q2": @[ @1, @3, @4 ], @"Q3": @[ @102 ], @"Q4": @[ @2 ], @"Q5": @[ @1, @4 ],
+	          @"Payroll": @[ @52, @7 ], @"Polyglots": @[ @1 ] };
+}
+
+/* A SQLite store of the mapped model, as Core Data describes it, filled
+ * with the paper's company: what each backend is asked about. */
+- (NSManagedObjectContext *)companyIn:(NSString *)directory model:(NSManagedObjectModel *)model
+{
 	NSError *error = nil;
-	XCTAssertTrue([mapped writeToPackage:package error:&error], @"%@", error);
-	NSTask *momc = [NSTask launchedTaskWithLaunchPath:@"/usr/bin/xcrun" arguments:@[ @"momc", package, compiled ]];
-	[momc waitUntilExit];
-	NSManagedObjectModel *model = [[NSManagedObjectModel alloc] initWithContentsOfURL:[NSURL fileURLWithPath:compiled]];
-	XCTAssertNotNil(model);
 	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
 	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
 	                                                    URL:[NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"Company.sqlite"]]
@@ -916,7 +833,184 @@
 		NSError *saveError = nil;
 		XCTAssertTrue([context save:&saveError], @"%@", [saveError userInfo]);
 	}];
+	return context;
+}
 
+/* The plans, run against the store by the interpreter: the rows the
+ * paper's queries ask for, in fetches and on the objects fetched. */
+- (void)testTheStoreAnswersTheQueries
+{
+	NSDictionary *queries = [self paperQueries];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	NSDictionary *answers = [self paperAnswers];
+	for (NSString *name in answers) {
+		ORMQueryPlan *plan = [planner planForQuery:[self query:[queries objectForKey:name]]];
+		__block ORMQueryResult *result = nil;
+		__block NSError *error = nil;
+		[context performBlockAndWait:^{
+			result = [interpreter executePlan:plan inContext:context error:&error];
+		}];
+		XCTAssertNotNil(result, @"%@: %@", name, error);
+		NSArray *numbers = [result.objects valueForKey:@"nr"];
+		/* The order the query asks for, where it does. */
+		if ([plan.sorts count] == 0) {
+			numbers = [numbers sortedArrayUsingSelector:@selector(compare:)];
+		}
+		XCTAssertEqualObjects(numbers, [answers objectForKey:name], @"%@\n%@", name,
+		                      [interpreter programForPlan:plan error:NULL]);
+	}
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* A total of the employees who speak Latin: the store aggregates no
+ * subquery, so the interpreter asks the objects it fetches. Unfiltered, both
+ * branches would pass; filtered, only 52's Latin speaker earns enough. */
+- (void)testAnAggregateOfSomeMembersIsTakenOnTheObjects
+{
+	NSString *q = [self payroll];
+	ORMQueryNode *employee = [[[[self query:q].root.steps firstObject] nodes] firstObject];
+	ORMQueryNode *language = [self from:employee.identifier through:[self role:@"speaks" at:0] in:q];
+	[[self queries] setCondition:@"=" value:@"Latin" ofNode:language.identifier reason:NULL];
+	ORMQueryStep *employs = [[self query:q].root.steps firstObject];
+	ORMQueryNode *salary = nil;
+	for (ORMQueryStep *step in [[employs.nodes firstObject] steps]) {
+		if ([[[step.nodes firstObject] objectType].name isEqualToString:@"Salary"]) {
+			salary = [step.nodes firstObject];
+		}
+	}
+	XCTAssertTrue([[self queries] setAggregate:ORMQueryTotal ofNode:salary.identifier comparison:@">" value:@"550000"
+	                                    ofStep:employs.identifier reason:NULL]);
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertTrue([[plan text] rangeOfString:@"having"].location != NSNotFound, @"%@", [plan text]);
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	NSString *program = [interpreter programForPlan:plan error:NULL];
+	XCTAssertTrue([program rangeOfString:@"keep those where SUBQUERY(employees"].location != NSNotFound, @"%@", program);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	__block ORMQueryResult *result = nil;
+	__block NSError *error = nil;
+	[context performBlockAndWait:^{
+		result = [interpreter executePlan:plan inContext:context error:&error];
+	}];
+	XCTAssertEqualObjects([result.objects valueForKey:@"nr"], (@[ @52 ]), @"%@", error);
+	/* OData cannot: it says so. */
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	XCTAssertTrue([[odata.notes lastObject] rangeOfString:@"aggregates no filtered collection"].location != NSNotFound,
+	              @"%@", odata.notes);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* Q1 with City absorbed: branch 52 fetched first, and the employees whose
+ * city parts are its. */
+- (void)testAJoinIsAFetchMadeFirst
+{
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:[self q1]]];
+	XCTAssertEqualObjects([plan text], @"read Employee\n"
+	                                   @"where cityCityname = cityCityname, cityStateStatecode = cityStateStatecode, "
+	                                   @"cityStateCountry = cityStateCountry match [read Branch; where nr = 52]\n"
+	                                   @"list self (nr)");
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	NSString *program = [interpreter programForPlan:plan error:NULL];
+	XCTAssertTrue([program hasPrefix:@"join1: fetch Branch where nr == 52\n"], @"%@", program);
+	XCTAssertTrue([program rangeOfString:@"for one of join1"].location != NSNotFound, @"%@", program);
+
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	NSError *error = nil;
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+	                                                    URL:[NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"A.sqlite"]]
+	                                                options:nil error:&error], @"%@", error);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	context.persistentStoreCoordinator = coordinator;
+	__block ORMQueryResult *result = nil;
+	[context performBlockAndWait:^{
+		NSManagedObject *(^make)(NSString *, NSDictionary *) = ^NSManagedObject *(NSString *entity, NSDictionary *values) {
+			NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
+			[object setValuesForKeysWithDictionary:values];
+			return object;
+		};
+		NSManagedObject *australia = make(@"Country", @{ @"name": @"Australia" });
+		NSManagedObject *pay = make(@"Salary", @{ @"usd": @50000 });
+		NSDictionary *brisbane = @{ @"cityCityname": @"Brisbane", @"cityStateStatecode": @"QLD", @"cityStateCountry": australia };
+		NSDictionary *sydney = @{ @"cityCityname": @"Sydney", @"cityStateStatecode": @"NSW", @"cityStateCountry": australia };
+		NSManagedObject *(^employee)(int, NSDictionary *) = ^NSManagedObject *(int nr, NSDictionary *city) {
+			NSMutableDictionary *values = [NSMutableDictionary dictionaryWithDictionary:city];
+			[values addEntriesFromDictionary:@{ @"nr": @(nr), @"employeeName": @"E", @"country": australia, @"salary": pay }];
+			return make(@"Employee", values);
+		};
+		NSManagedObject *e1 = employee(1, brisbane), *e2 = employee(2, sydney), *e3 = employee(3, brisbane);
+		NSMutableDictionary *b52 = [NSMutableDictionary dictionaryWithDictionary:brisbane];
+		[b52 addEntriesFromDictionary:@{ @"nr": @52, @"employee": e1 }];
+		NSMutableDictionary *b7 = [NSMutableDictionary dictionaryWithDictionary:sydney];
+		[b7 addEntriesFromDictionary:@{ @"nr": @7, @"employee": e2 }];
+		NSManagedObject *branch52 = make(@"Branch", b52), *branch7 = make(@"Branch", b7);
+		for (NSArray *works in @[ @[ e1, branch52 ], @[ e3, branch52 ], @[ e2, branch7 ] ]) {
+			[[works firstObject] setValue:[works lastObject] forKey:@"branch"];
+		}
+		NSError *saveError = nil;
+		XCTAssertTrue([context save:&saveError], @"%@", [saveError userInfo]);
+		NSError *runError = nil;
+		result = [interpreter executePlan:plan inContext:context error:&runError];
+		XCTAssertNotNil(result, @"%@", runError);
+	}];
+	XCTAssertEqualObjects([[result.objects valueForKey:@"nr"] sortedArrayUsingSelector:@selector(compare:)], (@[ @1, @3 ]));
+	XCTAssertEqualObjects(result.columnTitles, (@[ @"Employee" ]));
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* A plan is data: written as a property list and read back the same; one
+ * that names what no model can is refused. */
+- (void)testAPlanIsAPropertyList
+{
+	NSDictionary *queries = [self paperQueries];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	for (NSString *name in queries) {
+		ORMQueryPlan *plan = [planner planForQuery:[self query:[queries objectForKey:name]]];
+		id list = [plan propertyList];
+		NSData *data = [NSPropertyListSerialization dataWithPropertyList:list format:NSPropertyListXMLFormat_v1_0 options:0
+		                                                           error:NULL];
+		XCTAssertNotNil(data, @"%@", name);
+		id read = [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL];
+		NSError *error = nil;
+		ORMQueryPlan *back = [ORMQueryPlan planWithPropertyList:read error:&error];
+		XCTAssertEqualObjects([back text], [plan text], @"%@: %@", name, error);
+	}
+	ORMQueryPlan *joined = [[[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil] planForQuery:[self query:[self q1]]];
+	XCTAssertEqualObjects([[ORMQueryPlan planWithPropertyList:[joined propertyList] error:NULL] text], [joined text]);
+
+	NSMutableDictionary *bad = [[[planner planForQuery:[self query:[self q1]]] propertyList] mutableCopy];
+	[bad setObject:@"Employee where 1" forKey:@"entity"];
+	NSError *error = nil;
+	XCTAssertNil([ORMQueryPlan planWithPropertyList:bad error:&error]);
+	XCTAssertTrue([[error localizedDescription] rangeOfString:@"no entity's name"].location != NSNotFound, @"%@", error);
+	NSDictionary *badPath = @{ @"entity": @"Employee",
+	                           @"condition": @{ @"kind": @"notNull",
+	                                            @"path": @{ @"steps": @[ @{ @"key": @"nr eq 0 or true" } ] } } };
+	XCTAssertNil([ORMQueryPlan planWithPropertyList:badPath error:&error]);
+}
+
+#if defined(__APPLE__)
+/* The requests, sent to ODataKit's service over the same store: the same
+ * rows. */
+- (void)testTheServiceAnswersTheQueries
+{
+	NSDictionary *queries = [self paperQueries];
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]] map];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[mapped managedObjectModel]];
+	NSPersistentStoreCoordinator *coordinator = context.persistentStoreCoordinator;
 	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:coordinator
 	                                                                     serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
 	NSArray *(^numbers)(NSString *) = ^NSArray *(NSString *queryId) {
@@ -938,14 +1032,12 @@
 	NSArray *(^sorted)(NSArray *) = ^NSArray *(NSArray *values) {
 		return [values sortedArrayUsingSelector:@selector(compare:)];
 	};
-	XCTAssertEqualObjects(sorted(numbers(q1)), (@[ @1, @3 ]));
-	XCTAssertEqualObjects(sorted(numbers(q2)), (@[ @1, @3, @4 ]));
-	XCTAssertEqualObjects(sorted(numbers(q3)), (@[ @102 ]));
-	XCTAssertEqualObjects(sorted(numbers(q4)), (@[ @2 ]));
-	XCTAssertEqualObjects(sorted(numbers(q5)), (@[ @1, @4 ]));
-	/* In the order the query asks for: the larger number first. */
-	XCTAssertEqualObjects(numbers(payroll), (@[ @52, @7 ]));
-	XCTAssertEqualObjects(sorted(numbers(polyglots)), (@[ @1 ]));
+	NSDictionary *answers = [self paperAnswers];
+	for (NSString *name in answers) {
+		NSArray *got = numbers([queries objectForKey:name]);
+		/* In the order the query asks for, where it does. */
+		XCTAssertEqualObjects([name isEqualToString:@"Payroll"] ? got : sorted(got), [answers objectForKey:name], @"%@", name);
+	}
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 #endif

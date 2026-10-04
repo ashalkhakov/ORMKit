@@ -196,7 +196,11 @@ ORMComparisonTitles(void)
 		return @"";
 	}
 	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
-	ORMQueryOData *odata = [[ORMQueryOData alloc] initWithQuery:_query model:self.editor.model mapping:mapping];
+	NSError *error = nil;
+	ORMQueryOData *odata = [ORMQueryOData requestForQuery:_query model:self.editor.model mapping:mapping error:&error];
+	if (odata == nil) {
+		return [NSString stringWithFormat:@"No request: %@", [error localizedDescription]];
+	}
 	NSMutableString *text = [NSMutableString stringWithString:[odata requestText]];
 	for (NSString *note in odata.notes) {
 		[text appendFormat:@"\nNote: %@", note];
@@ -210,9 +214,15 @@ ORMComparisonTitles(void)
 		return @"";
 	}
 	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
-	ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:_query model:self.editor.model mapping:mapping];
-	NSMutableString *text = [NSMutableString stringWithString:[fetch objectiveCSource]];
-	for (NSString *note in fetch.notes) {
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
+	ORMQueryPlan *plan = [planner planForQuery:_query];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	NSError *error = nil;
+	NSString *program = plan.entityName != nil ? [interpreter programForPlan:plan error:&error] : nil;
+	/* The plan, and how the interpreter runs it against a store. */
+	NSMutableString *text = [NSMutableString stringWithFormat:@"%@\n\n%@", [plan text],
+	                                                          program ?: [error localizedDescription] ?: @""];
+	for (NSString *note in plan.notes) {
 		[text appendFormat:@"\nNote: %@", note];
 	}
 	return text;

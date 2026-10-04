@@ -1,0 +1,828 @@
+/* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
+#import "ORMQueryPlan.h"
+
+NSString * const ORMQueryPlanErrorDomain = @"ORMQueryPlanErrorDomain";
+
+/* A name a Core Data model can have, or a variable a plan binds: a letter
+ * or underscore, then letters, digits and underscores. */
+static BOOL
+ORMPlanIsName(id name)
+{
+	if (![name isKindOfClass:[NSString class]] || [name length] == 0 || [name length] > 128) {
+		return NO;
+	}
+	NSCharacterSet *letters = [NSCharacterSet characterSetWithCharactersInString:
+		@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"];
+	NSMutableCharacterSet *rest = [letters mutableCopy];
+	[rest addCharactersInString:@"0123456789"];
+	return [letters characterIsMember:[name characterAtIndex:0]] && [[name stringByTrimmingCharactersInSet:rest] length] == 0;
+}
+
+static NSArray *
+ORMPlanComparisons(void)
+{
+	return @[ @"=", @"<>", @"<", @"<=", @">", @">=" ];
+}
+
+static NSArray *
+ORMPlanFunctions(void)
+{
+	return @[ @"sum", @"average", @"max", @"min" ];
+}
+
+static NSArray *
+ORMPlanKindNames(void)
+{
+	return @[ @"all", @"any", @"not", @"compare", @"notNull", @"exists", @"count", @"aggregate", @"isOf", @"same", @"among",
+	          @"matches" ];
+}
+
+#pragma mark Steps and paths
+
+@implementation ORMPlanStep
+
++ (instancetype)stepWithKey:(NSString *)key
+{
+	ORMPlanStep *step = [[self alloc] init];
+	step->_key = [key copy];
+	return step;
+}
+
++ (instancetype)stepAsEntity:(NSString *)entityName
+{
+	ORMPlanStep *step = [[self alloc] init];
+	step->_entityName = [entityName copy];
+	return step;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return self;
+}
+
+- (BOOL)isEqual:(id)other
+{
+	return [other isKindOfClass:[ORMPlanStep class]] && [[self description] isEqualToString:[other description]];
+}
+
+- (NSUInteger)hash
+{
+	return [[self description] hash];
+}
+
+- (NSString *)description
+{
+	return _key != nil ? _key : [NSString stringWithFormat:@"(%@)", _entityName];
+}
+
+@end
+
+@implementation ORMPlanPath
+
++ (instancetype)pathFrom:(NSString *)variable steps:(NSArray<ORMPlanStep *> *)steps
+{
+	ORMPlanPath *path = [[self alloc] init];
+	path->_variable = [variable copy];
+	path->_steps = [steps copy] ?: @[];
+	return path;
+}
+
++ (instancetype)pathFrom:(NSString *)variable keys:(NSArray<NSString *> *)keys
+{
+	NSMutableArray *steps = [NSMutableArray array];
+	for (NSString *key in keys) {
+		[steps addObject:[ORMPlanStep stepWithKey:key]];
+	}
+	return [self pathFrom:variable steps:steps];
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return self;
+}
+
+- (NSArray<NSString *> *)keys
+{
+	NSMutableArray *keys = [NSMutableArray array];
+	for (ORMPlanStep *step in _steps) {
+		if (step.key != nil) {
+			[keys addObject:step.key];
+		}
+	}
+	return keys;
+}
+
+- (ORMPlanPath *)pathByAddingKey:(NSString *)key
+{
+	return [ORMPlanPath pathFrom:_variable steps:[_steps arrayByAddingObject:[ORMPlanStep stepWithKey:key]]];
+}
+
+- (ORMPlanPath *)pathByAddingCast:(NSString *)entityName
+{
+	return [ORMPlanPath pathFrom:_variable steps:[_steps arrayByAddingObject:[ORMPlanStep stepAsEntity:entityName]]];
+}
+
+- (BOOL)isEqual:(id)other
+{
+	return [other isKindOfClass:[ORMPlanPath class]] && [[self description] isEqualToString:[other description]];
+}
+
+- (NSUInteger)hash
+{
+	return [[self description] hash];
+}
+
+- (NSString *)description
+{
+	NSMutableArray *parts = [NSMutableArray array];
+	if (_variable != nil) {
+		[parts addObject:_variable];
+	}
+	for (ORMPlanStep *step in _steps) {
+		[parts addObject:[step description]];
+	}
+	return [parts count] > 0 ? [parts componentsJoinedByString:@"."] : @"self";
+}
+
+@end
+
+@implementation ORMPlanValue
+
++ (instancetype)valueAtPath:(ORMPlanPath *)path
+{
+	ORMPlanValue *value = [[self alloc] init];
+	value->_path = path;
+	return value;
+}
+
++ (instancetype)constant:(NSString *)text type:(NSString *)attributeType
+{
+	ORMPlanValue *value = [[self alloc] init];
+	value->_text = [text copy] ?: @"";
+	value->_attributeType = [attributeType copy] ?: @"String";
+	return value;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return self;
+}
+
+- (NSString *)description
+{
+	if (_path != nil) {
+		return [_path description];
+	}
+	BOOL quoted = [_attributeType isEqualToString:@"String"] || [_attributeType isEqualToString:@"Date"];
+	return quoted ? [NSString stringWithFormat:@"'%@'", [_text stringByReplacingOccurrencesOfString:@"'" withString:@"''"]]
+	              : _text;
+}
+
+@end
+
+#pragma mark Conditions
+
+@interface ORMPlanCondition ()
+@property (nonatomic, readwrite) ORMPlanConditionKind kind;
+@property (nonatomic, readwrite, copy) NSArray<ORMPlanCondition *> *operands;
+@property (nonatomic, readwrite, strong) ORMPlanCondition *operand;
+@property (nonatomic, readwrite, strong) ORMPlanValue *left;
+@property (nonatomic, readwrite, strong) ORMPlanValue *right;
+@property (nonatomic, readwrite, copy) NSString *comparison;
+@property (nonatomic, readwrite, strong) ORMPlanPath *path;
+@property (nonatomic, readwrite, strong) ORMPlanPath *otherPath;
+@property (nonatomic, readwrite, copy) NSString *variable;
+@property (nonatomic, readwrite) NSUInteger number;
+@property (nonatomic, readwrite, copy) NSString *function;
+@property (nonatomic, readwrite, strong) ORMPlanPath *valuePath;
+@property (nonatomic, readwrite, strong) ORMPlanValue *constant;
+@property (nonatomic, readwrite, copy) NSString *entityName;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *trail;
+@property (nonatomic, readwrite, strong) ORMQueryPlan *plan;
+@property (nonatomic, readwrite, copy) NSArray<NSArray<ORMPlanPath *> *> *pairs;
+@end
+
+@implementation ORMPlanCondition
+
++ (instancetype)ofKind:(ORMPlanConditionKind)kind
+{
+	ORMPlanCondition *condition = [[self alloc] init];
+	condition.kind = kind;
+	return condition;
+}
+
++ (instancetype)all:(NSArray<ORMPlanCondition *> *)operands
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanAnd];
+	condition.operands = operands;
+	return condition;
+}
+
++ (instancetype)any:(NSArray<ORMPlanCondition *> *)operands
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanOr];
+	condition.operands = operands;
+	return condition;
+}
+
++ (instancetype)not:(ORMPlanCondition *)operand
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanNot];
+	condition.operand = operand;
+	return condition;
+}
+
++ (instancetype)compare:(ORMPlanValue *)left comparison:(NSString *)comparison with:(ORMPlanValue *)right
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanCompare];
+	condition.left = left;
+	condition.comparison = comparison;
+	condition.right = right;
+	return condition;
+}
+
++ (instancetype)notNull:(ORMPlanPath *)path
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanNotNull];
+	condition.path = path;
+	return condition;
+}
+
++ (instancetype)exists:(ORMPlanPath *)collection variable:(NSString *)variable where:(ORMPlanCondition *)operand
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanExists];
+	condition.path = collection;
+	condition.variable = variable;
+	condition.operand = operand;
+	return condition;
+}
+
++ (instancetype)count:(ORMPlanPath *)collection variable:(NSString *)variable where:(ORMPlanCondition *)operand
+           comparison:(NSString *)comparison number:(NSUInteger)number
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanCount];
+	condition.path = collection;
+	condition.variable = variable;
+	condition.operand = operand;
+	condition.comparison = comparison;
+	condition.number = number;
+	return condition;
+}
+
++ (instancetype)aggregate:(NSString *)function
+                       of:(ORMPlanPath *)valuePath
+                     over:(ORMPlanPath *)collection
+                 variable:(NSString *)variable
+                    where:(ORMPlanCondition *)operand
+               comparison:(NSString *)comparison
+                 constant:(ORMPlanValue *)constant
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanAggregate];
+	condition.function = function;
+	condition.valuePath = valuePath;
+	condition.path = collection;
+	condition.variable = variable;
+	condition.operand = operand;
+	condition.comparison = comparison;
+	condition.constant = constant;
+	return condition;
+}
+
++ (instancetype)isOf:(ORMPlanPath *)path entity:(NSString *)entityName
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanIsOf];
+	condition.path = path;
+	condition.entityName = entityName;
+	return condition;
+}
+
++ (instancetype)same:(ORMPlanPath *)path as:(ORMPlanPath *)otherPath
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanSame];
+	condition.path = path;
+	condition.otherPath = otherPath;
+	return condition;
+}
+
++ (instancetype)among:(ORMPlanPath *)path trail:(NSArray<NSString *> *)keys
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanAmong];
+	condition.path = path;
+	condition.trail = keys;
+	return condition;
+}
+
++ (instancetype)matches:(ORMQueryPlan *)plan pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanMatches];
+	condition.plan = plan;
+	condition.pairs = pairs;
+	return condition;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return self;
+}
+
+- (BOOL)isCompound
+{
+	return self.kind == ORMPlanAnd || self.kind == ORMPlanOr;
+}
+
+- (NSString *)wrapped
+{
+	return [self isCompound] ? [NSString stringWithFormat:@"(%@)", self] : [self description];
+}
+
+- (NSString *)description
+{
+	switch (self.kind) {
+	case ORMPlanAnd:
+	case ORMPlanOr: {
+		NSMutableArray *parts = [NSMutableArray array];
+		for (ORMPlanCondition *operand in self.operands) {
+			[parts addObject:[operand wrapped]];
+		}
+		return [parts componentsJoinedByString:self.kind == ORMPlanAnd ? @" and " : @" or "];
+	}
+	case ORMPlanNot:
+		return [NSString stringWithFormat:@"not (%@)", self.operand];
+	case ORMPlanCompare:
+		return [NSString stringWithFormat:@"%@ %@ %@", self.left, self.comparison, self.right];
+	case ORMPlanNotNull:
+		return [NSString stringWithFormat:@"%@ is set", self.path];
+	case ORMPlanExists:
+		return self.operand != nil ? [NSString stringWithFormat:@"some %@ as %@ has %@", self.path, self.variable,
+		                                                       [self.operand wrapped]]
+		                           : [NSString stringWithFormat:@"some %@", self.path];
+	case ORMPlanCount:
+		return self.operand != nil ? [NSString stringWithFormat:@"number of %@ as %@ having %@ %@ %lu", self.path,
+		                                                       self.variable, [self.operand wrapped], self.comparison,
+		                                                       (unsigned long)self.number]
+		                           : [NSString stringWithFormat:@"number of %@ %@ %lu", self.path, self.comparison,
+		                                                       (unsigned long)self.number];
+	case ORMPlanAggregate:
+		return [NSString stringWithFormat:@"%@ of %@ over %@ as %@%@ %@ %@", self.function, self.valuePath, self.path,
+		                                  self.variable,
+		                                  self.operand != nil ? [@" having " stringByAppendingString:[self.operand wrapped]] : @"",
+		                                  self.comparison, self.constant];
+	case ORMPlanIsOf:
+		return [NSString stringWithFormat:@"%@ is a %@", self.path, self.entityName];
+	case ORMPlanSame:
+		return [NSString stringWithFormat:@"%@ is %@", self.path, self.otherPath];
+	case ORMPlanAmong:
+		return [NSString stringWithFormat:@"%@ is among %@", self.path,
+		                                  [self.trail count] > 0 ? [self.trail componentsJoinedByString:@"."] : @"self"];
+	case ORMPlanMatches: {
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSArray *pair in self.pairs) {
+			[pairs addObject:[NSString stringWithFormat:@"%@ = %@", [pair firstObject], [pair lastObject]]];
+		}
+		return [NSString stringWithFormat:@"%@ match [%@]", [pairs componentsJoinedByString:@", "],
+		                                  [[[self.plan text] componentsSeparatedByString:@"\n"] componentsJoinedByString:@"; "]];
+	}
+	}
+	return @"";
+}
+
+@end
+
+#pragma mark Columns, sorts, plans
+
+@implementation ORMPlanColumn
+
++ (instancetype)columnTitled:(NSString *)title node:(NSString *)nodeId path:(ORMPlanPath *)path
+                  identifier:(NSString *)identifierKey
+{
+	ORMPlanColumn *column = [[self alloc] init];
+	column->_title = [title copy];
+	column->_nodeId = [nodeId copy];
+	column->_path = path;
+	column->_identifierKey = [identifierKey copy];
+	return column;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return self;
+}
+
+- (ORMPlanPath *)valuePath
+{
+	return _identifierKey != nil ? [_path pathByAddingKey:_identifierKey] : _path;
+}
+
+- (NSString *)description
+{
+	return _identifierKey != nil ? [NSString stringWithFormat:@"%@ (%@)", _path, _identifierKey] : [_path description];
+}
+
+@end
+
+@implementation ORMPlanSort
+
++ (instancetype)sortBy:(ORMPlanPath *)path ascending:(BOOL)ascending
+{
+	ORMPlanSort *sort = [[self alloc] init];
+	sort->_path = path;
+	sort->_ascending = ascending;
+	return sort;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return self;
+}
+
+- (NSString *)description
+{
+	return [NSString stringWithFormat:@"%@ %@", _path, _ascending ? @"ascending" : @"descending"];
+}
+
+@end
+
+@interface ORMQueryPlan ()
++ (instancetype)readPlan:(id)list error:(NSError **)reason;
+@end
+
+@implementation ORMQueryPlan
+
++ (instancetype)planReading:(NSString *)entityName
+                      where:(ORMPlanCondition *)condition
+                    columns:(NSArray<ORMPlanColumn *> *)columns
+                      sorts:(NSArray<ORMPlanSort *> *)sorts
+                      notes:(NSArray<NSString *> *)notes
+{
+	ORMQueryPlan *plan = [[self alloc] init];
+	plan->_entityName = [entityName copy];
+	plan->_condition = condition;
+	plan->_columns = [columns copy] ?: @[];
+	plan->_sorts = [sorts copy] ?: @[];
+	plan->_notes = [notes copy] ?: @[];
+	return plan;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return self;
+}
+
+- (NSString *)text
+{
+	if (_entityName == nil) {
+		return @"read nothing";
+	}
+	NSMutableArray *lines = [NSMutableArray arrayWithObject:[@"read " stringByAppendingString:_entityName]];
+	if (_condition != nil) {
+		[lines addObject:[@"where " stringByAppendingString:[_condition description]]];
+	}
+	if ([_columns count] > 0) {
+		[lines addObject:[@"list " stringByAppendingString:[[_columns valueForKey:@"description"] componentsJoinedByString:@", "]]];
+	}
+	if ([_sorts count] > 0) {
+		[lines addObject:[@"order by " stringByAppendingString:[[_sorts valueForKey:@"description"] componentsJoinedByString:@", "]]];
+	}
+	return [lines componentsJoinedByString:@"\n"];
+}
+
+- (NSString *)description
+{
+	return [self text];
+}
+
+#pragma mark Property lists
+
+static id
+ORMPathList(ORMPlanPath *path)
+{
+	NSMutableArray *steps = [NSMutableArray array];
+	for (ORMPlanStep *step in path.steps) {
+		[steps addObject:step.key != nil ? @{ @"key": step.key } : @{ @"as": step.entityName }];
+	}
+	NSMutableDictionary *list = [NSMutableDictionary dictionaryWithObject:steps forKey:@"steps"];
+	if (path.variable != nil) {
+		[list setObject:path.variable forKey:@"variable"];
+	}
+	return list;
+}
+
+static id
+ORMValueList(ORMPlanValue *value)
+{
+	return value.path != nil ? @{ @"path": ORMPathList(value.path) }
+	                         : @{ @"constant": value.text, @"type": value.attributeType };
+}
+
+static id
+ORMConditionList(ORMPlanCondition *condition)
+{
+	NSMutableDictionary *list = [NSMutableDictionary dictionary];
+	[list setObject:[ORMPlanKindNames() objectAtIndex:(NSUInteger)condition.kind] forKey:@"kind"];
+	if (condition.operands != nil) {
+		NSMutableArray *operands = [NSMutableArray array];
+		for (ORMPlanCondition *operand in condition.operands) {
+			[operands addObject:ORMConditionList(operand)];
+		}
+		[list setObject:operands forKey:@"operands"];
+	}
+	if (condition.operand != nil) {
+		[list setObject:ORMConditionList(condition.operand) forKey:@"operand"];
+	}
+	if (condition.left != nil) {
+		[list setObject:ORMValueList(condition.left) forKey:@"left"];
+	}
+	if (condition.right != nil) {
+		[list setObject:ORMValueList(condition.right) forKey:@"right"];
+	}
+	if (condition.comparison != nil) {
+		[list setObject:condition.comparison forKey:@"comparison"];
+	}
+	if (condition.path != nil) {
+		[list setObject:ORMPathList(condition.path) forKey:@"path"];
+	}
+	if (condition.otherPath != nil) {
+		[list setObject:ORMPathList(condition.otherPath) forKey:@"otherPath"];
+	}
+	if (condition.variable != nil) {
+		[list setObject:condition.variable forKey:@"variable"];
+	}
+	if (condition.kind == ORMPlanCount) {
+		[list setObject:@(condition.number) forKey:@"number"];
+	}
+	if (condition.function != nil) {
+		[list setObject:condition.function forKey:@"function"];
+	}
+	if (condition.valuePath != nil) {
+		[list setObject:ORMPathList(condition.valuePath) forKey:@"valuePath"];
+	}
+	if (condition.constant != nil) {
+		[list setObject:ORMValueList(condition.constant) forKey:@"constant"];
+	}
+	if (condition.entityName != nil) {
+		[list setObject:condition.entityName forKey:@"entity"];
+	}
+	if (condition.trail != nil) {
+		[list setObject:condition.trail forKey:@"trail"];
+	}
+	if (condition.plan != nil) {
+		[list setObject:[condition.plan propertyList] forKey:@"plan"];
+	}
+	if (condition.pairs != nil) {
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSArray *pair in condition.pairs) {
+			[pairs addObject:@[ ORMPathList([pair firstObject]), ORMPathList([pair lastObject]) ]];
+		}
+		[list setObject:pairs forKey:@"pairs"];
+	}
+	return list;
+}
+
+- (id)propertyList
+{
+	NSMutableDictionary *list = [NSMutableDictionary dictionary];
+	if (_entityName != nil) {
+		[list setObject:_entityName forKey:@"entity"];
+	}
+	if (_condition != nil) {
+		[list setObject:ORMConditionList(_condition) forKey:@"condition"];
+	}
+	NSMutableArray *columns = [NSMutableArray array];
+	for (ORMPlanColumn *column in _columns) {
+		NSMutableDictionary *item = [NSMutableDictionary dictionaryWithObjectsAndKeys:column.title ?: @"", @"title",
+		                                                 column.nodeId ?: @"", @"node", ORMPathList(column.path), @"path", nil];
+		if (column.identifierKey != nil) {
+			[item setObject:column.identifierKey forKey:@"identifier"];
+		}
+		[columns addObject:item];
+	}
+	[list setObject:columns forKey:@"columns"];
+	NSMutableArray *sorts = [NSMutableArray array];
+	for (ORMPlanSort *sort in _sorts) {
+		[sorts addObject:@{ @"path": ORMPathList(sort.path), @"ascending": @(sort.ascending) }];
+	}
+	[list setObject:sorts forKey:@"sorts"];
+	[list setObject:_notes forKey:@"notes"];
+	return list;
+}
+
+/* Reading back: each part checked, the first wrong one the error. */
+
+static NSError *
+ORMPlanError(NSString *text)
+{
+	return [NSError errorWithDomain:ORMQueryPlanErrorDomain code:1
+	                       userInfo:@{ NSLocalizedDescriptionKey: [@"Not a query plan: " stringByAppendingString:text] }];
+}
+
+static ORMPlanPath *
+ORMReadPath(id list, NSError **error)
+{
+	if (![list isKindOfClass:[NSDictionary class]] || ![[list objectForKey:@"steps"] isKindOfClass:[NSArray class]]) {
+		*error = ORMPlanError(@"a path is a dictionary with steps.");
+		return nil;
+	}
+	id variable = [list objectForKey:@"variable"];
+	if (variable != nil && !ORMPlanIsName(variable)) {
+		*error = ORMPlanError([NSString stringWithFormat:@"%@ is no variable's name.", variable]);
+		return nil;
+	}
+	NSMutableArray *steps = [NSMutableArray array];
+	for (id step in [list objectForKey:@"steps"]) {
+		id key = [step isKindOfClass:[NSDictionary class]] ? [step objectForKey:@"key"] : nil;
+		id as = [step isKindOfClass:[NSDictionary class]] ? [step objectForKey:@"as"] : nil;
+		if (ORMPlanIsName(key)) {
+			[steps addObject:[ORMPlanStep stepWithKey:key]];
+		} else if (ORMPlanIsName(as)) {
+			[steps addObject:[ORMPlanStep stepAsEntity:as]];
+		} else {
+			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no property's or entity's name.", key ?: as ?: step]);
+			return nil;
+		}
+	}
+	return [ORMPlanPath pathFrom:variable steps:steps];
+}
+
+static ORMPlanValue *
+ORMReadValue(id list, NSError **error)
+{
+	if (![list isKindOfClass:[NSDictionary class]]) {
+		*error = ORMPlanError(@"a value is a dictionary.");
+		return nil;
+	}
+	if ([list objectForKey:@"path"] != nil) {
+		ORMPlanPath *path = ORMReadPath([list objectForKey:@"path"], error);
+		return path != nil ? [ORMPlanValue valueAtPath:path] : nil;
+	}
+	id text = [list objectForKey:@"constant"];
+	id type = [list objectForKey:@"type"];
+	if (![text isKindOfClass:[NSString class]] || ![type isKindOfClass:[NSString class]]) {
+		*error = ORMPlanError(@"a constant has its text and its type.");
+		return nil;
+	}
+	return [ORMPlanValue constant:text type:type];
+}
+
+static ORMPlanCondition *
+ORMReadCondition(id list, NSError **error)
+{
+	if (![list isKindOfClass:[NSDictionary class]]) {
+		*error = ORMPlanError(@"a condition is a dictionary.");
+		return nil;
+	}
+	NSUInteger kind = [ORMPlanKindNames() indexOfObject:[list objectForKey:@"kind"] ?: @""];
+	if (kind == NSNotFound) {
+		*error = ORMPlanError([NSString stringWithFormat:@"%@ is no kind of condition.", [list objectForKey:@"kind"]]);
+		return nil;
+	}
+	ORMPlanCondition *condition = [ORMPlanCondition ofKind:(ORMPlanConditionKind)kind];
+	if ([list objectForKey:@"operands"] != nil) {
+		NSMutableArray *operands = [NSMutableArray array];
+		for (id each in [list objectForKey:@"operands"]) {
+			ORMPlanCondition *operand = ORMReadCondition(each, error);
+			if (operand == nil) {
+				return nil;
+			}
+			[operands addObject:operand];
+		}
+		condition.operands = operands;
+	}
+#define ORM_READ(key, reader, property) \
+	if ([list objectForKey:key] != nil) { \
+		id read = reader([list objectForKey:key], error); \
+		if (read == nil) { \
+			return nil; \
+		} \
+		condition.property = read; \
+	}
+	ORM_READ(@"operand", ORMReadCondition, operand)
+	ORM_READ(@"left", ORMReadValue, left)
+	ORM_READ(@"right", ORMReadValue, right)
+	ORM_READ(@"path", ORMReadPath, path)
+	ORM_READ(@"otherPath", ORMReadPath, otherPath)
+	ORM_READ(@"valuePath", ORMReadPath, valuePath)
+	ORM_READ(@"constant", ORMReadValue, constant)
+#undef ORM_READ
+	id comparison = [list objectForKey:@"comparison"];
+	if (comparison != nil && ![ORMPlanComparisons() containsObject:comparison]) {
+		*error = ORMPlanError([NSString stringWithFormat:@"%@ is no comparison.", comparison]);
+		return nil;
+	}
+	condition.comparison = comparison;
+	id function = [list objectForKey:@"function"];
+	if (function != nil && ![ORMPlanFunctions() containsObject:function]) {
+		*error = ORMPlanError([NSString stringWithFormat:@"%@ is no aggregate function.", function]);
+		return nil;
+	}
+	condition.function = function;
+	id variable = [list objectForKey:@"variable"];
+	if (variable != nil && !ORMPlanIsName(variable)) {
+		*error = ORMPlanError([NSString stringWithFormat:@"%@ is no variable's name.", variable]);
+		return nil;
+	}
+	condition.variable = variable;
+	condition.number = [[list objectForKey:@"number"] unsignedIntegerValue];
+	id entity = [list objectForKey:@"entity"];
+	if (entity != nil && !ORMPlanIsName(entity)) {
+		*error = ORMPlanError([NSString stringWithFormat:@"%@ is no entity's name.", entity]);
+		return nil;
+	}
+	condition.entityName = entity;
+	id trail = [list objectForKey:@"trail"];
+	if (trail != nil) {
+		for (id key in [trail isKindOfClass:[NSArray class]] ? trail : @[ @"" ]) {
+			if (!ORMPlanIsName(key)) {
+				*error = ORMPlanError([NSString stringWithFormat:@"%@ is no property's name.", key]);
+				return nil;
+			}
+		}
+		condition.trail = trail;
+	}
+	if ([list objectForKey:@"plan"] != nil) {
+		condition.plan = [ORMQueryPlan readPlan:[list objectForKey:@"plan"] error:error];
+		if (condition.plan == nil) {
+			return nil;
+		}
+	}
+	if ([list objectForKey:@"pairs"] != nil) {
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (id pair in [list objectForKey:@"pairs"]) {
+			if (![pair isKindOfClass:[NSArray class]] || [pair count] != 2) {
+				*error = ORMPlanError(@"a pair is two paths.");
+				return nil;
+			}
+			ORMPlanPath *ours = ORMReadPath([pair firstObject], error);
+			ORMPlanPath *theirs = ours != nil ? ORMReadPath([pair lastObject], error) : nil;
+			if (theirs == nil) {
+				return nil;
+			}
+			[pairs addObject:@[ ours, theirs ]];
+		}
+		condition.pairs = pairs;
+	}
+	return condition;
+}
+
++ (instancetype)planWithPropertyList:(id)list error:(NSError **)error
+{
+	NSError *failure = nil;
+	ORMQueryPlan *plan = [self readPlan:list error:&failure];
+	if (plan == nil && error != NULL) {
+		*error = failure ?: ORMPlanError(@"it could not be read.");
+	}
+	return plan;
+}
+
++ (instancetype)readPlan:(id)list error:(NSError **)reason
+{
+	if (![list isKindOfClass:[NSDictionary class]]) {
+		*reason = ORMPlanError(@"a plan is a dictionary.");
+		return nil;
+	}
+	id entity = [list objectForKey:@"entity"];
+	if (entity != nil && !ORMPlanIsName(entity)) {
+		*reason = ORMPlanError([NSString stringWithFormat:@"%@ is no entity's name.", entity]);
+		return nil;
+	}
+	ORMPlanCondition *condition = nil;
+	if ([list objectForKey:@"condition"] != nil) {
+		condition = ORMReadCondition([list objectForKey:@"condition"], reason);
+		if (condition == nil) {
+			return nil;
+		}
+	}
+	NSMutableArray *columns = [NSMutableArray array];
+	for (id item in [list objectForKey:@"columns"] ?: @[]) {
+		ORMPlanPath *path = [item isKindOfClass:[NSDictionary class]] ? ORMReadPath([item objectForKey:@"path"], reason) : nil;
+		id identifier = [item isKindOfClass:[NSDictionary class]] ? [item objectForKey:@"identifier"] : nil;
+		if (path == nil || (identifier != nil && !ORMPlanIsName(identifier))) {
+			if (path != nil || *reason == nil) {
+				*reason = ORMPlanError(@"a column has a path, and an identifier's name.");
+			}
+			return nil;
+		}
+		[columns addObject:[ORMPlanColumn columnTitled:[item objectForKey:@"title"] node:[item objectForKey:@"node"] path:path
+		                                    identifier:identifier]];
+	}
+	NSMutableArray *sorts = [NSMutableArray array];
+	for (id item in [list objectForKey:@"sorts"] ?: @[]) {
+		ORMPlanPath *path = [item isKindOfClass:[NSDictionary class]] ? ORMReadPath([item objectForKey:@"path"], reason) : nil;
+		if (path == nil) {
+			if (*reason == nil) {
+				*reason = ORMPlanError(@"a sort has a path.");
+			}
+			return nil;
+		}
+		[sorts addObject:[ORMPlanSort sortBy:path ascending:[[item objectForKey:@"ascending"] boolValue]]];
+	}
+	return [self planReading:entity where:condition columns:columns sorts:sorts notes:[list objectForKey:@"notes"] ?: @[]];
+}
+
+@end

@@ -9,10 +9,18 @@ stays valid when the mapping changes (an object type absorbed, a subtype
 flattened, a fact type made many-to-many); only the requests made from it
 change.
 
-A query becomes two requests. One is an OData request to the service ODataKit
-makes of the mapping (`ORMQueryOData`, ODATA.md), which an application, a
-report or another service sends. The other is a Core Data fetch request
-(`ORMQueryFetch`) for an application that holds the store itself.
+A query is planned against a mapping (`ORMQueryPlanner`): what to read, and
+what must hold of it, in the mapped model's entities and properties, said for
+no store in particular (`ORMQueryPlan`). Two backends say the plan in their
+own terms:
+
+| Who asks | Backend | What it makes |
+| --- | --- | --- |
+| an application that holds the store, such as one implementing a service with ODataKit | `ORMQueryInterpreter` | fetches against Core Data, as many as the plan takes, and what is kept of what they return |
+| an application, report or service that calls the API | `ORMQueryOData` (ODATA.md) | requests to the service ODataKit makes of the model |
+
+A plan is public data: it is written as a property list and read back. So it
+can be made where the model is edited and run where the store is.
 
 ## Outline
 
@@ -66,8 +74,8 @@ different country?":
 ```
 
 Both occurrences of City1 are one city. Country2 is compared with Country1.
-In the logic, a label makes the nodes one variable. In a fetch request,
-the later occurrence is compared with the earlier one. Inside a `SUBQUERY`,
+In the logic, a label makes the nodes one variable. In the plan, the later
+occurrence is compared with the earlier one. Inside a `SUBQUERY`,
 a bare key path is the fetched object's, and `$x1` the member:
 
 ```
@@ -93,10 +101,10 @@ those cars?":
 AND (NOT (SUBQUERY(cars, $x2, ANY $x2.isOwnedByEmployees == SELF).@count > 1))
 ```
 
-Q4 and Q5 were checked against Core Data's SQLite store on macOS. On GNUstep,
-the in-memory evaluation of a subquery's bare key paths is the fetched
-object's only with gnustep-patches' `predicate-subquery` as revised on
-2026-10-03. Before that revision, GNUstep evaluated them against the member.
+On GNUstep, evaluating a subquery's bare key paths in memory needs
+gnustep-patches' `predicate-subquery` as revised on 2026-10-03. With it,
+they mean the fetched object's paths; before it, GNUstep evaluated them
+against the member.
 
 ## FORML
 
@@ -107,96 +115,115 @@ rules (`-[ORMVerbalizer sentencesForQuery:]`):
 > List each Employee where that Employee lives in some City that is location
 > of some Branch and that Branch is 52.
 
-## Core Data
+## Plans
 
-`ORMQueryFetch` turns a query into a fetch request through a mapping. Each
-step follows the property the mapping traced to the step's fact type (see
-COREDATA-MAPPING.md, "Traces"):
+`ORMQueryPlanner` makes the plan. Each step follows the property the mapping
+traced to the step's fact type (see COREDATA-MAPPING.md, "Traces"). Every
+ORM-level decision is made here, once, for both backends: scopes, correlation,
+subtypes, aggregate paths, and joins. Its text (`-[ORMQueryPlan text]`):
 
-| ORM | Core Data |
+| ORM | The plan |
 | --- | --- |
-| the root object type | the entity fetched; a subtype the root's required steps go down to, if any |
-| a step to a value | its attribute: `rating > 5` |
-| a step through a to-one | a key path: `degree.rating > 5` |
-| a step through a to-many, or through an objectified fact type's entity | `SUBQUERY(cars, $x1, ...).@count > 0` |
-| a unary | `isRetired == YES` |
-| a subtype | `entity.name IN {"Professor"}` |
-| not | `NOT (...)` |
-| maybe | nothing |
-| count(X) > n | `cars.@count > 1`, or `SUBQUERY(...).@count > 1` |
-| total, avg, max, min | `employees.@sum.salary.usd > 1000000`: over every object the step reaches |
-| a sorted listed node | a sort descriptor on its identifier or value, through to-ones |
-| a condition on an entity | on its identifier: `city.branches.nr`, `code == "UQ"` |
-| a label met again, in scope | `$x1.city == city` |
-| a label met again, out of scope | `ANY $x2.isOwnedByEmployees == SELF` |
-| a node compared with another | `$x1.country != country` |
-| a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname == "Brisbane"` |
-| a step through an absorbed object type to an entity that absorbs it too | a join: a second fetch (below) |
+| the root object type | `read Employee`; a subtype the root's required steps go down to, if any |
+| a step to a value | `x1.rating > 5` |
+| a step through a to-one | a path: `degree.rating > 5` |
+| a step through a to-many, or an objectified fact type's entity | `some cars as x1 has ...` |
+| a unary | `isRetired = true` |
+| a subtype | `x1 is a Professor`, and a cast to read it as one |
+| not, or, maybe | `not (...)`, `... or ...`; maybe asks nothing |
+| count(X) > n | `number of cars > 1`, or `number of cars as x2 having ... > 1` |
+| total, avg, max, min | `sum of x1.salary.usd over employees as x1 > 1000000`, with `having ...` where the steps below narrow the members |
+| a label met again, in scope | `x1.city is city` |
+| a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read |
+| a node compared with another | `not (x1.country is country)` |
+| a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname` |
+| a step through an absorbed object type to an entity that absorbs it too | `... match [read Branch; where nr = 52]`: a plan of its own (below) |
+| the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier |
+| a sorted listed node | `order by nr descending`, through to-ones |
 
-Fetching the subtype matters. A store fetching Academic has none of
-Professor's properties, so `chair.name == "Informatics"` is only valid on a
-request for Professor. When every result must be a professor, Professor is
-what is fetched.
+Reading the subtype matters. A store fetching Academic has none of
+Professor's properties, so `chair.name = 'Informatics'` holds only of a
+Professor. When every result must be a professor, Professor is what is read.
 
-The ticked object types become key paths from each fetched object, with the
-identifier's key path beside them for display (`employee.cars.regnr`). Through
-a to-many, such a key path reaches every related object, not only those that
-meet the conditions: a fetch request returns objects, not the rows ConQuer
-lists.
+## The interpreter: running a plan against Core Data
+
+Some plans cannot be one fetch request, so `ORMQueryInterpreter` runs them
+(`-executePlan:inContext:error:`). It returns the objects, and a row for each
+with a value per column.
+- **Joins:** each `match` is fetched first, wherever it is, even inside a
+  `not`, an `or` or a subquery. Its objects' values go into the predicate in
+  its place.
+- **What the SQLite store can say** becomes the fetch's predicate.
+- **What it cannot say** is evaluated on the objects it returns, an aggregate
+  of the members meeting conditions for instance.
+
+Values go into predicates as arguments, never as text. `-programForPlan:error:`
+says what it will do:
+
+```
+fetch Branch where employees.@sum.salary.usd > 1000000
+sorted by nr descending
+```
+
+| The plan | Core Data |
+| --- | --- |
+| a path | a key path; from a variable: `$x1.city` |
+| `some C as x1 has ...` | `SUBQUERY(C, $x1, ...).@count > 0` |
+| `number of C ... > n` | `C.@count > n`, `SUBQUERY(...).@count > n` |
+| `sum of x1.v over C` | `C.@sum.v`; with `having`, on the objects fetched (`keep those where ...`) |
+| `is a Professor` | `entity.name IN {Professor and its subentities}` |
+| `is` | `==` |
+| `is among` a trail | `ANY $x2.isOwnedByEmployees == SELF`: back along the inverses, which the SQLite store says in SQL |
+| `match [...]` | that plan fetched first: `join1: fetch Branch where nr == 52` |
 
 ## Joins through absorbed object types
 
-By default the mapping absorbs a value-like composite (City, Address) into
-the entities that use it: its parts become their attributes. Going through
-it is then a join on those parts' values, as the paper's SQL S1 joins
+By default the mapping absorbs a value-like composite, such as City or Address,
+into the entities that use it, and its parts become their attributes. Going
+through it is then a join on those parts' values, as the paper's SQL S1 joins
 Employee and Branch on city name, state code and country. No relationship
-connects the two entities. A predicate cannot fetch one entity inside
-another's request. Nor can a subquery range over fetched objects in Core
-Data's SQLite store ("Unsupported subquery collection expression type").
-So the request is two fetches:
+connects the two entities, so the plan holds a plan of the joined entity:
 
 ```
-✓Employee                        join1: Branch where nr == 52
-  + lives in City                Employee where cityCityname != nil
-    + is location of Branch = 52   AND (cityCityname == join1's AND cityStateStatecode == join1's
-                                        AND cityStateCountry == join1's, for one of join1)
+✓Employee                        read Employee
+  + lives in City                where cityCityname = cityCityname, cityStateStatecode = ...,
+    + is location of Branch = 52   cityStateCountry = cityStateCountry match [read Branch; where nr = 52]
 ```
 
-`ORMQueryFetch.joins` lists the fetches to make first. Each has its entity,
-its predicate, and the pairs of key paths whose values must be equal.
-`-predicateJoining:` builds the request's predicate from the objects they
-found, and `objectiveCSource` writes the same thing as code. A join is made
-only where the absorbed object type is reached directly from the fetched
-object, not inside a `not`, an `or` or a subquery, which would need fetches
-within fetches. Those are noted.
-
-The query is the same whichever way City is mapped. Mapped as an entity, it
-is a relationship and one fetch (`SUBQUERY(city.branches, $x1, $x1.nr ==
-52)`); absorbed, it is two. This is ConQuer's semantic stability. Both were
-run against Core Data's SQLite store.
+The interpreter fetches branch 52 first, then the employees whose parts equal
+one of its objects'. ODataKit's service has no `$root`, so the OData backend
+also makes the join a request of its own. The query is the same however City
+is mapped. As an entity it is a relationship and one fetch; absorbed, it is
+two. This is ConQuer's semantic stability.
 
 ## Examples, from the paper
 
 The tests (`ORMQueryTests.m`) build the paper's Figure 1 schema and these
-queries. The tests check them against key-value coding. They were also run
-against Core Data's SQLite store on macOS.
+queries, and check each plan. The interpreter runs them against a SQLite
+store on both platforms; ODataKit's service is checked on macOS. Both return
+the same rows.
 
 ```
-Q1 ✓Employee                        SUBQUERY(city.branches, $x1, $x1.nr == 52).@count > 0
-     + lives in City
+Q1 ✓Employee                        read Employee
+     + lives in City                where some city.branches as x1 has x1.nr = 52
        + is location of Branch = 52
 
-Q2 ✓Employee                        (cars.@count > 0) AND (branch != nil)
-     + drives Car
-     + works for ✓Branch
+Q2 ✓Employee                        read Employee
+     + drives Car                   where some cars and branch is set
+     + works for ✓Branch            list self (nr), branch (nr)
 
-Q3 ✓USbranch                        fetches USbranch:
-     + not achieved Rank = 1          (NOT (SUBQUERY(uSbranchAchievedRankInYears, $x1,
-         in Year < 1998                 ($x1.rank.nr == 1) AND ($x1.year.ad < 1998)).@count > 0))
-     + is Branch                       AND (employee.employeeName != nil)
+Q3 ✓USbranch                        read USbranch
+     + not achieved Rank = 1        where not (some uSbranchAchievedRankInYears as x1 has
+         in Year < 1998               (x1.rank.nr = 1 and x1.year.ad < 1998))
+     + is Branch                      and employee.employeeName is set
        + is headed by Employee
          + has ✓EmployeeName
          + maybe drives ✓Car
+
+Q5 ✓Employee                        read Employee
+     + owns Car1                    where some ownsCars and not (number of cars as x2
+     + not drives Car1                having x2 is among ownsCars > 1)
+       + count(Car1) > 1
 ```
 
 ## Where queries live
@@ -215,10 +242,10 @@ a query is undone with the model. **Save a Copy for NORMA** leaves them out:
 ```
 
 If a fact type the query uses is deleted, the query is incomplete: the steps
-through it are left out, and the fetch says so.
+through it are left out, and the plan notes it.
 
 `ormtool query model.orm [name] [mapping]` prints each query's outline, its
-FORML, its OData request and its fetch request.
+FORML, its OData request, its plan, and how the interpreter runs it.
 
 ## In the designer
 
@@ -236,25 +263,29 @@ Under the outline:
   another labelled node of the same type ("Country1") compares the two;
 - the selected step: and, not or maybe, and its count.
 
-The FORML, the OData request and the Core Data fetch request (from the
-document's first mapping, or the defaults) follow every change, each in a
-tab. Changes undo with the model.
+The FORML, the OData request, and the plan with how the interpreter runs it
+(from the document's first mapping, or the defaults) follow every change, each
+in a tab. Changes undo with the model.
 
 ## Not done yet
 
-- **Correlation beyond relationships:** a label met again out of scope,
-  where the earlier occurrence ends in an attribute, is said as `IN` (which
-  Core Data's SQLite store may not translate). The same goes for a label
-  whose earlier occurrence had conditions of its own: any object its path
-  reaches is taken, not only those meeting them. Both cases are noted.
-- **Joins inside a `not`, an `or` or a subquery,** through an absorbed
-  object type. These need nested fetches.
+- **Correlation with conditions:** a label met again out of scope whose
+  earlier occurrence had conditions of its own takes any object its path
+  reaches, not only those meeting them. Noted. Where no inverse leads back,
+  the interpreter evaluates `IN` on the objects fetched.
 - **Aggregates beyond a step's own group:**
   - grouped by something other than the node above (ConQuer-II's for-clauses,
     `max(Rating) for Employee > avg(Rating) for Department`);
   - compared with another aggregate;
-  - narrowed by the conditions under the step. Core Data's store aggregates
-    no subquery, so this case is noted.
+  - narrowed by the conditions under the step, in OData. ODataKit's service
+    aggregates no filtered collection, so this case is noted there; the
+    interpreter evaluates it on the objects it fetches.
+- **Rows:** the interpreter returns a row per object, a column reached
+  through a to-many holding every related object. ConQuer's relation, a row
+  per binding of the ticked nodes that meets the conditions, would be the
+  next step.
+- **Correlated joins:** a plan in a `match` reads from no variable of the
+  plan that holds it, so it is run once.
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point

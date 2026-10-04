@@ -32,7 +32,8 @@
 - (NSString *)addStepThrough:(ORMRole *)role;
 /* The FORML, as shown. */
 - (NSString *)verbalizationText;
-/* The OData request, and the Core Data fetch request, as the tabs show them. */
+/* The OData request, and the plan with how the interpreter runs it against a
+ * Core Data store, as the tabs show them. */
 - (NSString *)requestText;
 - (NSString *)fetchText;
 @end

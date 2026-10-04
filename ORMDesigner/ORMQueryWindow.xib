@@ -519,7 +519,7 @@
                                     </subviews>
                                 </view>
                             </tabViewItem>
-                            <tabViewItem label="Core Data Fetch" identifier="fetch" id="tabsfetchItem">
+                            <tabViewItem label="Core Data" identifier="fetch" id="tabsfetchItem">
                                 <view key="view" id="tabsfetchView">
                                     <rect key="frame" x="10" y="33" width="884" height="144"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>

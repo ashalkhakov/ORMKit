@@ -31,7 +31,7 @@ jobs:
       GNUSTEP_PATCHES_REF: 6eee3cc7bc1c751b88877b3fe4a6581517cccecb
       # ODataKit, and FreeCoreData under it: the pins ci.yml has.
       FREECOREDATA_REF: b612b0a90fcae0b0fabcd1ff71442988eb67b518
-      ODATAKIT_REF: 214a0fd7442334782e72b76d9fb607f6c1292deb
+      ODATAKIT_REF: 771721232130b67c5bc79d9f25679b3db5def0dc
       # See the note in ci.yml: the gnustep layout does not treat the prefix's
       # plain lib/ as a library root, but libobjc2 and libdispatch live there.
       LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
@@ -148,7 +148,7 @@ jobs:
     # ships an unsigned build, saying so and passing.
     environment: production
     env:
-      ODATAKIT_REF: 214a0fd7442334782e72b76d9fb607f6c1292deb
+      ODATAKIT_REF: 771721232130b67c5bc79d9f25679b3db5def0dc
     # Beside ODataKit's checkout, as ORMKit.xcworkspace finds it.
     defaults:
       run:

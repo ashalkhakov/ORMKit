@@ -88,7 +88,9 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways (COREDATA-MAPPING.md) |
 | `ORMCoreDataImporter` | a Core Data model brought into ORM, with a mapping back to it |
-| `ORMQuery`, `ORMQueryEditor`, `ORMQueryFetch` | conceptual queries after ConQuer, as logic and as Core Data fetch requests (QUERIES.md) |
+| `ORMQuery`, `ORMQueryEditor` | conceptual queries after ConQuer, as logic (QUERIES.md) |
+| `ORMQueryPlanner`, `ORMQueryPlan` | a query planned against a mapping: public, a property list |
+| `ORMQueryInterpreter`, `ORMQueryOData` | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
 | `ORMCoreDataValidation` | the constraints Core Data cannot enforce, as an Objective-C category on each entity's class |
 
 ORMKit has no AppKit and no Core Data: the Core Data side is Xcode's source

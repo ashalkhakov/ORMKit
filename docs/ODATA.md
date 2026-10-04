@@ -62,8 +62,10 @@ macOS:
 
 ## Queries as requests
 
-`ORMQueryOData` says a conceptual query (QUERIES.md) as the request an
-application, a report or another service sends to the service. Every
+`ORMQueryOData` says a query's plan (QUERIES.md) as the request an
+application, a report or another service sends to the service. It is the
+backend for code that calls the API. Code that implements it, and holds the
+store, runs the same plan with `ORMQueryInterpreter`. Every
 Core Data ↔ OData rule is ODataKit's, and none is copied here:
 - **Names:** wire names, entity sets, collection paths, type names and keys
   come from ODataKit's `ODataPropertyMapper`. It reads the model as Core
