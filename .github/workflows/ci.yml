@@ -99,6 +99,23 @@ jobs:
           xmllint --noout /tmp/diagrams/*.svg
           xcrun momc /tmp/StockMate.xcdatamodeld /tmp/StockMate.momd
 
+      # The programs that make WorkMate.orm and Samples/ go through ORMEditor:
+      # they must keep compiling and running as its API changes.
+      - name: The fixture builders run
+        run: |
+          built=$(xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKit \
+                    -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
+                  | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
+          for tool in workmate halpin; do
+            clang -fobjc-arc -fmodules -F"$built" -framework ORMKit -Wl,-rpath,"$built" \
+              "Tools/fixtures/$tool.m" -o "/tmp/$tool"
+          done
+          /tmp/workmate /tmp/WorkMate.orm
+          mkdir -p /tmp/samples && /tmp/halpin /tmp/samples
+          for f in /tmp/WorkMate.orm /tmp/samples/*.orm; do
+            DYLD_FRAMEWORK_PATH="$built" "$built/ormtool" check "$f"
+          done
+
       # Unsigned: signing needs the Developer ID secrets and belongs to a
       # release. These are for trying a build, and say so in the name.
       - name: Package

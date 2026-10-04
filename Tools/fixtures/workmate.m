@@ -1,14 +1,17 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
-#import "ORMKit.h"
+#import <ORMKit/ORMKit.h>
 #include <stdio.h>
 
 /* WorkMate's ORM2 model, reverse-engineered from the WorkMate database's
  * tables: what ORMKitTests/Fixtures/WorkMate.orm is made by.
  *
- *   clang -fobjc-arc -IORMKit Tools/fixtures/workmate.m ORMKit/ORM*.m -framework Foundation -o /tmp/workmate
+ *   xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKit -derivedDataPath /tmp/ormkit build
+ *   P=/tmp/ormkit/Build/Products/Debug
+ *   clang -fobjc-arc -fmodules -F$P -framework ORMKit -Wl,-rpath,$P Tools/fixtures/workmate.m -o /tmp/workmate
  *   /tmp/workmate ORMKitTests/Fixtures/WorkMate.orm */
 
 static ORMEditor *E;
+static ORMSentenceEditor *sentences;
 static int failures;
 
 static void
@@ -36,7 +39,7 @@ static NSArray<NSString *> *
 fact(NSString *diagramName, NSString *sentence, NSArray<NSString *> *flags)
 {
 	NSString *reason = nil;
-	NSString *f = [E addFactTypeFromSentence:sentence onDiagram:diagram(diagramName) at:ORMAutomaticPlacement reason:&reason];
+	NSString *f = [sentences addFactTypeFromSentence:sentence onDiagram:diagram(diagramName) at:ORMAutomaticPlacement reason:&reason];
 	check(f != nil, sentence, reason);
 	NSMutableArray *ids = [NSMutableArray array];
 	NSArray *roles = [[E.model elementWithId:f] visibleRoles];
@@ -45,10 +48,10 @@ fact(NSString *diagramName, NSString *sentence, NSArray<NSString *> *flags)
 		[ids addObject:role];
 		NSString *flag = i < [flags count] ? flags[i] : @"";
 		if ([flag containsString:@"u"]) {
-			check([E setUnique:YES role:role reason:&reason], [sentence stringByAppendingString:@" unique"], reason);
+			check([E.constraintEditor setUnique:YES role:role reason:&reason], [sentence stringByAppendingString:@" unique"], reason);
 		}
 		if ([flag containsString:@"m"]) {
-			check([E setMandatory:YES role:role reason:&reason], [sentence stringByAppendingString:@" mandatory"], reason);
+			check([E.constraintEditor setMandatory:YES role:role reason:&reason], [sentence stringByAppendingString:@" mandatory"], reason);
 		}
 	}
 	return ids;
@@ -60,20 +63,20 @@ dataType(NSString *name, NSString *type, NSInteger length, NSInteger scale)
 	NSString *reason = nil;
 	ORMObjectType *t = [E.model objectTypeNamed:name];
 	check(t != nil, name, @"no such object type");
-	check([E setDataType:type length:length scale:scale of:t.identifier reason:&reason], name, reason);
+	check([E.objectTypeEditor setDataType:type length:length scale:scale of:t.identifier reason:&reason], name, reason);
 }
 
 static void
 external(NSArray<NSString *> *roles, NSString *what)
 {
 	NSString *reason = nil;
-	NSString *c = [E addUniquenessConstraintOverRoles:roles reason:&reason];
+	NSString *c = [E.constraintEditor addUniquenessConstraintOverRoles:roles reason:&reason];
 	check(c != nil, what, reason);
 	ORMConstraint *constraint = [E.model elementWithId:c];
 	for (ORMFactType *f in [constraint factTypes]) {
 		for (ORMDiagram *d in E.model.diagrams) {
 			if ([d shapeForSubject:f.identifier] != nil) {
-				[E placeElement:c onDiagram:d.identifier at:ORMAutomaticPlacement];
+				[E.diagramEditor placeElement:c onDiagram:d.identifier at:ORMAutomaticPlacement];
 				return;
 			}
 		}
@@ -84,7 +87,7 @@ static void
 roleName(NSString *role, NSString *name)
 {
 	NSString *reason = nil;
-	check([E rename:role to:name reason:&reason], name, reason);
+	check([E.elementEditor rename:role to:name reason:&reason], name, reason);
 }
 
 int
@@ -92,10 +95,11 @@ main(int argc, char **argv)
 {
 	@autoreleasepool {
 		E = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"WorkMate"] undoManager:nil];
+		sentences = [[ORMSentenceEditor alloc] initWithEditor:E];
 		NSString *first = [[E.model.diagrams firstObject] identifier];
-		[E rename:first to:@"Sites and Accounts" reason:NULL];
-		[E addDiagramNamed:@"Equipment"];
-		[E addDiagramNamed:@"Meters"];
+		[E.elementEditor rename:first to:@"Sites and Accounts" reason:NULL];
+		[E.diagramEditor addDiagramNamed:@"Equipment"];
+		[E.diagramEditor addDiagramNamed:@"Meters"];
 		NSString *S = @"Sites and Accounts", *Q = @"Equipment", *M = @"Meters";
 		NSArray *u = @[ @"um" ], *um = @[ @"um", @"u" ], *o = @[ @"u" ];
 
@@ -128,9 +132,9 @@ main(int argc, char **argv)
 		NSArray *parent = fact(Q, @"EquipmentType is a kind of EquipmentType", o);
 		roleName(parent[1], @"parent");
 		NSString *reason = nil;
-		NSString *ring = [E addRingConstraint:ORMRingAcyclic overRoles:parent reason:&reason];
+		NSString *ring = [E.constraintEditor addRingConstraint:ORMRingAcyclic overRoles:parent reason:&reason];
 		check(ring != nil, @"acyclic equipment types", reason);
-		[E placeElement:ring onDiagram:diagram(Q) at:ORMAutomaticPlacement];
+		[E.diagramEditor placeElement:ring onDiagram:diagram(Q) at:ORMAutomaticPlacement];
 		/* EquipmentUnit: named uniquely within its location. */
 		NSArray *unitLocation = fact(Q, @"EquipmentUnit(.Id) is at Location", u);
 		fact(Q, @"EquipmentUnit is of Equipment", u);
@@ -182,7 +186,7 @@ main(int argc, char **argv)
 		fact(M, @"MeterReading has Photo()", u);
 
 		/* Values, from the column types. */
-		check([E setValueConstraint:@"{'asc', 'desc', 'bidi'}" of:[[E.model objectTypeNamed:@"Direction"] identifier]
+		check([E.objectTypeEditor setValueConstraint:@"{'asc', 'desc', 'bidi'}" of:[[E.model objectTypeNamed:@"Direction"] identifier]
 		                     reason:&reason], @"Direction values", reason);
 		NSDictionary *texts = @{ @"SiteName": @50, @"EmailAddress": @200, @"FullName": @200, @"LocationName": @50,
 		                         @"MeterGroupName": @100, @"ManufacturerName": @100, @"ModelName": @100,
@@ -210,7 +214,7 @@ main(int argc, char **argv)
 		}
 
 		for (ORMDiagram *d in E.model.diagrams) {
-			[E arrangeDiagram:d.identifier];
+			[E.diagramEditor arrangeDiagram:d.identifier];
 		}
 		[[E dataForSaving] writeToFile:@(argv[1]) atomically:YES];
 		printf("%lu object types, %lu fact types, %lu constraints; %d failures\n",

@@ -5,6 +5,8 @@
   writes: the tests require them to round-trip byte for byte and to
   normalize to themselves, and check ORMKit's derived data against NORMA's.
   `StockMate.CoRef.orm` has no `ORM2` root wrapper and no diagrams.
+  Their author, ORMKit's, lets the project use them freely; ORMDesigner
+  bundles `StockMate.orm` as a sample.
 - `ActiveFacts/*.orm`: Clifford Heath's examples
   (<https://github.com/cjheath/activefacts-examples>, commit 49b397c, MIT
   licensed: `ActiveFacts/LICENSE.txt`), written by NORMA builds of 2008 to
