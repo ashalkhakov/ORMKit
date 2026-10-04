@@ -64,4 +64,6 @@
  * object type. */
 - (IBAction)showQueries:(id)sender;
 - (IBAction)newQueryFromSelection:(id)sender;
+/* Query > Make Up a Sample Population. */
+- (IBAction)makeUpPopulation:(id)sender;
 @end

@@ -179,14 +179,16 @@
 }
 
 /* Every model gets a population that is written, read back and put in the
- * store of its default mapping; those the generator can make whole (the
- * samples', StockMate, WorkMate and most of ActiveFacts's) break nothing.
- * The rest it says why of. */
+ * store of its default mapping. All but five break nothing (the samples,
+ * StockMate, WorkMate, 24 of the 29 ActiveFacts models); for those five the
+ * generator says why. */
 - (void)testAGeneratedPopulationMeetsTheConstraints
 {
-	NSSet *partial = [NSSet setWithArray:@[ @"Blog.orm", @"CinemaTickets.orm", @"Diplomacy.orm", @"Metamodel.orm",
-	                                        @"Monogamy.orm", @"Orienteering.orm", @"Supervision.orm" ]];
+	NSMutableSet *broken = [NSMutableSet set];
 	for (NSString *path in [self generatedModels]) {
+		/* Each model's let go of before the next: under the sanitizer, 34
+		 * of them at once are more than the test's memory. */
+		@autoreleasepool {
 		NSString *name = [path lastPathComponent];
 		NSData *data = [NSData dataWithContentsOfFile:path];
 		ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
@@ -197,9 +199,8 @@
 		              reason);
 		ORMPopulationChecker *checker = [[ORMPopulationChecker alloc] initWithModel:editor.model];
 		NSArray *violations = [[checker violations] valueForKey:@"text"];
-		if (![partial containsObject:name]) {
-			XCTAssertEqualObjects(violations, @[], @"%@", name);
-		} else if ([violations count] > 0) {
+		if ([violations count] > 0) {
+			[broken addObject:name];
 			XCTAssertTrue([generator.notes count] > 0, @"%@ says why it is not whole", name);
 		}
 		ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:nil] map];
@@ -207,7 +208,11 @@
 		NSError *error = nil;
 		XCTAssertNotNil([store newContextWithError:&error], @"%@: %@", name, error);
 		XCTAssertEqualObjects(store.notes, @[], @"%@", name);
+		}
 	}
+	/* What the generator cannot yet make whole: docs/POPULATIONS.md. */
+	XCTAssertEqualObjects(broken, ([NSSet setWithArray:@[ @"Blog.orm", @"Diplomacy.orm", @"Metamodel.orm",
+	                                                      @"Monogamy.orm", @"Supervision.orm" ]]));
 }
 
 /* The same model, the same population. */

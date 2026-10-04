@@ -102,7 +102,9 @@ of the mapping, and as its plan with the fetches that run it.
 
 [Samples/](Samples/README.md) has models to start from: the schemas of
 Halpin's papers on conceptual queries and on UML and ORM, with the papers'
-queries.
+queries. Queries run on a model's sample population, kept in the `.orm` as
+NORMA keeps it, or made up to meet the constraints
+([docs/POPULATIONS.md](docs/POPULATIONS.md)).
 
 ## License
 

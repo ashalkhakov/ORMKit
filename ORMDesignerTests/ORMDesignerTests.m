@@ -317,6 +317,37 @@
 	XCTAssertEqual([[ORMQuery queryWithId:query inModel:editor.model].root.steps count], 0u);
 }
 
+/* A sample's query run on a made-up population: the Results tab shows its
+ * rows, and undoing the population takes them away. */
+- (void)testAQueryRunsOnASamplePopulation
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	NSURL *company = [NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]];
+	_document = [ORMDocument sampleWithContentsOfURL:company error:NULL];
+	XCTAssertNotNil(_document);
+	ORMEditor *editor = _document.editor;
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	/* Each employee: as many as were made up. */
+	[queries addQueryFrom:[[editor.model objectTypeNamed:@"Employee"] identifier]];
+	XCTAssertNil([queries result], @"no population yet");
+	[queries makeUpPopulation:nil];
+	ORMQueryResult *result = [queries result];
+	XCTAssertNotNil(result);
+	XCTAssertEqualObjects(result.columnTitles, @[ @"Employee" ]);
+	XCTAssertEqual([result.rows count], (NSUInteger)5);
+	NSTabView *tabs = [queries valueForKey:@"tabs"];
+	[tabs selectTabViewItemWithIdentifier:@"results"];
+	NSTableView *table = [queries valueForKey:@"resultsTable"];
+	XCTAssertEqual([table numberOfRows], (NSInteger)[result.rows count]);
+	XCTAssertEqual([[table tableColumns] count], [result.columnTitles count]);
+	[[_document undoManager] undo];
+	XCTAssertNil([queries result]);
+}
+
 /* The menu bar comes from MainMenu.xib, with what the XIB cannot hold set
  * in code. */
 - (void)testTheMenuBarIsLoaded

@@ -38,7 +38,11 @@ ADDITIONAL_OBJCFLAGS += -fsanitize=address -fno-omit-frame-pointer -g
 ADDITIONAL_LDFLAGS += -fsanitize=address
 ASAN_ARCH := $(shell uname -m)
 ASAN_LIB := $(shell $(CC) -print-file-name=libclang_rt.asan-$(ASAN_ARCH).so)
-SANITIZE_ENV := LD_PRELOAD="$(ASAN_LIB)" ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:handle_abort=1
+# Memory freed goes back to the system, and the quarantine is small: the
+# suite's peaks (a generated population for each ActiveFacts model, the
+# OData service) otherwise stay resident and outgrow an 8 GB machine.
+SANITIZE_ENV := LD_PRELOAD="$(ASAN_LIB)" \
+  ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:handle_abort=1:allocator_release_to_os_interval_ms=100:quarantine_size_mb=64
 endif
 
 ifeq ($(UBSAN),1)

@@ -10,7 +10,8 @@
  * builds them: start at an object type, pick the fact types to go on
  * through from each object type reached, tick what to list, add conditions,
  * negate a step or make it optional. The query is shown as its outline,
- * in FORML, and as the Core Data fetch request its mapping makes of it.
+ * in FORML, as the request to the OData service, as its plan, and as the
+ * rows it reads from the model's sample population.
  *
  * Every change goes through the document's editor, so it is undone with
  * the model's own changes. */
@@ -36,4 +37,12 @@
  * Core Data store, as the tabs show them. */
 - (NSString *)requestText;
 - (NSString *)fetchText;
+/* The query run against the model's sample population, put in a store of
+ * its mapping (ORMPopulationStore): the first page of rows the Results tab
+ * shows; nil, and the tab says why, when there is no population or the
+ * query reads nothing. */
+- (ORMQueryResult *)result;
+/* Replaces the sample population with one made up to meet the constraints
+ * (ORMPopulationGenerator), as one change. */
+- (IBAction)makeUpPopulation:(id)sender;
 @end

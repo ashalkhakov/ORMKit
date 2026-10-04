@@ -97,6 +97,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMQuery`, `ORMQueryEditor` | conceptual queries after ConQuer, as logic ([QUERIES.md](QUERIES.md)) |
 | `ORMQueryPlanner`, `ORMQueryPlan` | a query planned against a mapping: public, a property list |
 | `ORMQueryInterpreter`, `ORMQueryOData` | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
+| `ORMPopulationEditor`, `ORMPopulationChecker`, `ORMPopulationGenerator`, `ORMPopulationStore` | sample populations: written as NORMA keeps them, checked, made up, and put in a Core Data store for queries ([POPULATIONS.md](POPULATIONS.md)) |
 | `ORMCoreDataValidation` | the constraints Core Data cannot enforce, as an Objective-C category on each entity's class |
 
 ORMKit has no AppKit and no Core Data: the Core Data side is Xcode's source
@@ -154,8 +155,9 @@ Not done yet:
   a layered layout (WorkflowKit's `WKDLayout` is the one to port) instead
   of the grid-and-spiral `arrangeDiagram:`; printing across pages.
 - **NORMA features kept but not edited**: derivation rules (only their
-  free-text note), constraint join paths, sample populations, NORMA's model
-  error checks.
+  free-text note), constraint join paths, NORMA's model error checks. Sample
+  populations are written and made up, but not yet edited by hand in the
+  designer ([POPULATIONS.md](POPULATIONS.md#not-done-yet)).
 - **Verbalization**: wording checked against NORMA's report only by eye.
 - **Core Data**: per-relationship deletion rule overrides; watching the
   `.xcdatamodeld` for changes; validating with FreeCoreData's `momc` in the

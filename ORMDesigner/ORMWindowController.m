@@ -796,6 +796,15 @@ static const double ORMFactBarHeight = 30;
 	[controller showWindow:self];
 }
 
+/* The sample population made up, and the queries shown to run on it. */
+- (IBAction)makeUpPopulation:(id)sender
+{
+	ORMQueryController *controller = [self queryController];
+	[controller makeUpPopulation:sender];
+	[controller showWindow:self];
+	[self say:@"A sample population: the Queries window's Results tab runs each query on it."];
+}
+
 - (IBAction)importCoreData:(id)sender
 {
 	(void)sender;

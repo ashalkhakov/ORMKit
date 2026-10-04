@@ -423,6 +423,12 @@ CA
                                     <action selector="newQueryFromSelection:" target="-1" id="newQueryfromSelectionAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem isSeparatorItem="YES" id="querySeparator"/>
+                            <menuItem title="Make Up a Sample Population" id="makeUpPopulation">
+                                <connections>
+                                    <action selector="makeUpPopulation:" target="-1" id="makeUpPopulationAction"/>
+                                </connections>
+                            </menuItem>
                         </items>
                     </menu>
                 </menuItem>

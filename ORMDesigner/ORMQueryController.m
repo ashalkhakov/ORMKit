@@ -7,7 +7,7 @@ ORMComparisonTitles(void)
 	return @[ @"—", @"=", @"<>", @"<", @"<=", @">", @">=" ];
 }
 
-@interface ORMQueryController ()
+@interface ORMQueryController () <NSTabViewDelegate>
 @property (nonatomic, strong) IBOutlet NSPopUpButton *queryPopUp;
 @property (nonatomic, strong) IBOutlet NSTextField *nameField;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *startAtPopUp;
@@ -29,7 +29,13 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSTextView *fetchView;
 @property (nonatomic, strong) IBOutlet NSTextView *requestView;
 @property (nonatomic, strong) IBOutlet NSTextField *statusLabel;
+@property (nonatomic, strong) IBOutlet NSTabView *tabs;
+@property (nonatomic, strong) IBOutlet NSTableView *resultsTable;
+@property (nonatomic, strong) IBOutlet NSTextField *resultsLabel;
 @end
+
+/* The most rows the Results tab reads: a page of the plan's objects. */
+static const NSUInteger ORMResultsPage = 200;
 
 @implementation ORMQueryController
 {
@@ -49,6 +55,12 @@ ORMComparisonTitles(void)
 	/* The outline is being filled: what it says of its selection is its
 	 * old one, not the user's. */
 	BOOL _reloading;
+	/* The sample population in a store, made again when the model changes,
+	 * and the rows the query reads from it. */
+	ORMPopulationStore *_store;
+	NSManagedObjectContext *_context;
+	ORMQueryResult *_result;
+	NSString *_resultsNote;
 }
 
 - (instancetype)initWithEditor:(ORMEditor *)editor
@@ -96,6 +108,8 @@ ORMComparisonTitles(void)
 {
 	ORMModel *model = self.editor.model;
 	_model = model;
+	_store = nil;
+	_context = nil;
 	NSArray *queries = [ORMQuery queriesInModel:model];
 	if (self.queryId != nil && [ORMQuery queryWithId:self.queryId inModel:model] == nil) {
 		self.queryId = nil;
@@ -176,6 +190,10 @@ ORMComparisonTitles(void)
 	[_verbalizationView setString:[self verbalizationText]];
 	[_fetchView setString:[self fetchText]];
 	[_requestView setString:[self requestText]];
+	_result = nil;
+	if ([[[self.tabs selectedTabViewItem] identifier] isEqual:@"results"]) {
+		[self showResults];
+	}
 	[self say:_query == nil ? @"Choose an object type to start a query from, and New."
 	       : (_query.isComplete ? @"" : @"Something this query went through is no longer in the model.")];
 }
@@ -226,6 +244,132 @@ ORMComparisonTitles(void)
 		[text appendFormat:@"\nNote: %@", note];
 	}
 	return text;
+}
+
+#pragma mark Results
+
+/* Whether the model has a sample population to read. */
+- (BOOL)hasPopulation
+{
+	for (ORMObjectType *type in self.editor.model.objectTypes) {
+		if ([[type instances] count] > 0) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+- (ORMQueryResult *)result
+{
+	if (_result != nil || _query == nil) {
+		return _result;
+	}
+	_resultsNote = nil;
+	if (![self hasPopulation]) {
+		_resultsNote = @"The model has no sample population: Make Up a Population gives it one.";
+		return nil;
+	}
+	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
+	NSError *error = nil;
+	if (_context == nil) {
+		_store = [[ORMPopulationStore alloc] initWithModel:self.editor.model coreData:planner.coreData];
+		_context = [_store newContextWithError:&error];
+		if (_context == nil) {
+			_resultsNote = [NSString stringWithFormat:@"The population cannot be put in a store: %@",
+			                                          [error localizedDescription]];
+			return nil;
+		}
+	}
+	ORMQueryPlan *plan = [planner planForQuery:_query];
+	if (plan.entityName == nil) {
+		_resultsNote = @"The query reads nothing yet.";
+		return nil;
+	}
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:_store.managedObjectModel];
+	ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:_context error:&error];
+	_result = [cursor nextPage:ORMResultsPage error:&error];
+	if (_result == nil) {
+		_resultsNote = [NSString stringWithFormat:@"The query cannot be run: %@", [error localizedDescription]];
+		return nil;
+	}
+	NSMutableString *note = [NSMutableString stringWithFormat:@"%lu %@ of the sample population%@.",
+	                                                          (unsigned long)[_result.rows count],
+	                                                          [_result.rows count] == 1 ? @"row" : @"rows",
+	                                                          [cursor atEnd] ? @"" : @", the first page"];
+	if ([_store.notes count] > 0) {
+		[note appendFormat:@" Not in the store: %@", [_store.notes componentsJoinedByString:@" "]];
+	}
+	_resultsNote = note;
+	return _result;
+}
+
+/* The rows in the table, a column each of the plan's columns. */
+- (void)showResults
+{
+	ORMQueryResult *result = [self result];
+	NSTableView *table = self.resultsTable;
+	NSArray *titles = result.columnTitles ?: @[];
+	while ([[table tableColumns] count] > MAX([titles count], (NSUInteger)1)) {
+		[table removeTableColumn:[[table tableColumns] lastObject]];
+	}
+	while ([[table tableColumns] count] < [titles count]) {
+		NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:
+			[NSString stringWithFormat:@"%lu", (unsigned long)[[table tableColumns] count]]];
+		[column setWidth:160];
+		[[column dataCell] setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+		[table addTableColumn:column];
+	}
+	for (NSUInteger i = 0; i < [[table tableColumns] count]; i++) {
+		NSTableColumn *column = [[table tableColumns] objectAtIndex:i];
+		[column setIdentifier:[NSString stringWithFormat:@"%lu", (unsigned long)i]];
+		[[column headerCell] setStringValue:i < [titles count] ? [titles objectAtIndex:i] : @""];
+	}
+	[table reloadData];
+	[self.resultsLabel setStringValue:_resultsNote ?: @""];
+}
+
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item
+{
+	(void)tabView;
+	if ([[item identifier] isEqual:@"results"]) {
+		[self showResults];
+	}
+}
+
+/* A value as a cell shows it: none as a dash. */
+static NSString *
+ORMCellText(id value)
+{
+	if (value == nil || value == [NSNull null]) {
+		return @"—";
+	}
+	if ([value isKindOfClass:[NSDate class]]) {
+		NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+		[formatter setDateFormat:@"yyyy-MM-dd HH:mm"];
+		[formatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
+		return [formatter stringFromDate:value];
+	}
+	return [value description];
+}
+
+- (IBAction)makeUpPopulation:(id)sender
+{
+	(void)sender;
+	ORMPopulationGenerator *generator = [[ORMPopulationGenerator alloc] initWithModel:self.editor.model];
+	ORMSamplePopulation *population = [generator population];
+	__block BOOL added = NO;
+	__block NSString *reason = nil;
+	[self.editor group:@"Make Up a Sample Population" with:^{
+		[self.editor.populationEditor removePopulation];
+		added = [self.editor.populationEditor addPopulation:population reason:&reason];
+	}];
+	if (!added) {
+		[self say:[NSString stringWithFormat:@"No population: %@", reason]];
+		return;
+	}
+	[self say:[generator.notes count] > 0 ? [generator.notes componentsJoinedByString:@" "]
+	                                      : @"A sample population that meets the constraints."];
 }
 
 #pragma mark Selection
@@ -612,14 +756,20 @@ ORMComparisonTitles(void)
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
-	(void)tableView;
+	if (tableView == self.resultsTable) {
+		return (NSInteger)[_result.rows count];
+	}
 	return (NSInteger)[_available count];
 }
 
 /* "lives in City", as the step would read. */
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
-	(void)tableView;
+	if (tableView == self.resultsTable) {
+		NSArray *values = [_result.rows objectAtIndex:(NSUInteger)row];
+		NSUInteger index = (NSUInteger)[[column identifier] integerValue];
+		return index < [values count] ? ORMCellText([values objectAtIndex:index]) : @"";
+	}
 	(void)column;
 	ORMRole *role = [_available objectAtIndex:(NSUInteger)row];
 	if (role.factType.kind == ORMFactTypeSubtype) {

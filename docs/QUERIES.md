@@ -303,6 +303,11 @@ The FORML, the OData request, and the plan with how the interpreter runs it
 (from the document's first mapping, or the defaults) follow every change, each
 in a tab. Changes undo with the model.
 
+The Results tab runs the query against the model's sample population, in a
+store of the mapping, and shows its rows. **Make Up a Population** (or
+**Query ▸ Make Up a Sample Population**) gives a model without one a
+population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
+
 ## Not done yet
 
 - **Correlation with conditions:** a label met again out of scope whose
