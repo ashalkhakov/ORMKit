@@ -181,6 +181,8 @@ identified (a name, a state, a country).
 | `+ maybe ...` | the step if there is one: listed, but leaves nothing out (the outer join) |
 | `+ count(X) for Y > n` | how many X each Y has, compared |
 | `+ total(Salary) for Branch > 1000000` | an aggregate (count, total, avg, max, min) of a node the step reaches, for each object above it |
+| `+ count(Language) for Branch > 1` | the same for a node further above (ConQuer-II's for-clause): the languages of all a branch's employees |
+| `+ max(Salary) for Employee > avg(Salary) for Branch` | an aggregate compared with another, of the same node, for another node above |
 | `✓Branch ↓` | the results in descending (↑ ascending) order of that node |
 | `+ or ...` | the node's steps are alternatives, not all required |
 | `+ is Professor` | a subtype link, from the supertype or from the subtype |
@@ -282,6 +284,7 @@ Its text (`-[ORMQueryPlan text]`):
 | maybe | `maybe employee.cars as x2 has ...`: binds each member meeting the conditions, or none; asks nothing of the object read |
 | count(X) > n | `number of cars > 1`, or `number of cars as x2 having ... > 1` |
 | total, avg, max, min | `sum of x1.salary.usd over employees as x1 > 1000000`, with `having ...` where the steps below narrow the members |
+| an aggregate for a node further above, or compared with another | an aggregate of a bag, as ConQuer-II defines them: `count over (some employees as x1 has some x1.languages) > 1`; `max of x1.salary.usd over () > average of x2.salary.usd over (some employees as x2)`. The bag is the ways its somes hold, from the node it is for down to the node aggregated |
 | a label met again, in scope | `x1.city is city` |
 | a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read, and meeting the conditions the earlier occurrence had: `x2 is among ownsCars and x2.regnr = 'B'` |
 | a label on an absorbed object type, met again | its parts compared: `x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and ...` |
@@ -318,6 +321,7 @@ the caller asks. `-executePlan:inContext:error:` reads every page.
   is read in slices (`fetchOffset`, `fetchLimit`), in the plan's order.
 - **What it cannot say** is checked on each slice as it comes:
   - an aggregate of the members meeting conditions;
+  - an aggregate of a bag (a for-clause, or one compared with another);
   - a subquery over objects bound outside the fetch.
 
   The interpreter evaluates the plan's own conditions there, by key-value
@@ -470,13 +474,12 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 - **An absorbed object type met again out of scope:** its parts are
   compared only where both occurrences are in scope. Out of scope, the label
   is dropped, with a note.
-- **Aggregates beyond a step's own group:**
-  - grouped by something other than the node above (ConQuer-II's for-clauses,
-    `max(Rating) for Employee > avg(Rating) for Department`);
-  - compared with another aggregate;
-  - narrowed by the conditions under the step, in OData. ODataKit's service
-    aggregates no filtered collection, so this case is noted there; the
-    interpreter evaluates it on the objects it fetches.
+- **An aggregate's bag** goes from the node it is for down to the node
+  aggregated, through binaries the mapping keeps as relationships, the
+  aggregated node's condition kept. A step on the way through a fact type
+  with an entity of its own, or an absorbed object type, is noted. The
+  conditions of the nodes between are not kept in the bag, and nothing says
+  so yet.
 - **A correlated join under a `not`, an `or` or a lambda, in OData:** noted,
   and left out of the request; the interpreter probes it
   ([ODATA.md](ODATA.md#not-done-yet)).

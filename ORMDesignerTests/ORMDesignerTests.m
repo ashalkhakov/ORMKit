@@ -21,6 +21,16 @@
 	ORMWindowController *_controller;
 }
 
+/* The document and its window let go of: XCTest keeps every test case to
+ * the end of the run. */
+- (void)tearDown
+{
+	[_document close];
+	_document = nil;
+	_controller = nil;
+	[super tearDown];
+}
+
 - (void)setUp
 {
 	[super setUp];
@@ -451,6 +461,58 @@
 	              @"%@", [queries requestText]);
 	XCTAssertTrue([[queries requestText] rangeOfString:@"$orderby="].location != NSNotFound, @"%@", [queries requestText]);
 	XCTAssertEqualObjects([[[queries valueForKey:@"requestView"] textStorage] string], [queries requestText]);
+}
+
+/* An aggregate compared with another, for a node above, set from the
+ * window: the branches whose employees earn more than their average. */
+- (void)testAnAggregateIsComparedWithAnotherFromTheWindow
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	ORMEditor *editor = _document.editor;
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Branch"] identifier]];
+	/* The role the selected node plays in the fact type read so. */
+	ORMRole *(^through)(NSString *, NSString *) = ^ORMRole *(NSString *verb, NSString *player) {
+		for (ORMRole *role in [queries availableRoles]) {
+			NSString *reading = [[role.factType primaryReading] text] ?: @"";
+			for (ORMRole *other in role.factType.roles) {
+				if (other != role && [other.player.name isEqualToString:player]
+				    && [reading rangeOfString:verb].location != NSNotFound) {
+					return role;
+				}
+			}
+		}
+		return nil;
+	};
+	[queries addStepThrough:through(@"works for", @"Employee")];
+	ORMQueryStep *employs = [[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject];
+	[queries selectElement:[[employs.nodes firstObject] identifier]];
+	NSString *earns = [queries addStepThrough:through(@"earns", @"Salary")];
+	XCTAssertEqualObjects(queries.selectedId, earns);
+	[[queries valueForKey:@"aggregatePopUp"] selectItemWithTitle:@"max"];
+	[[queries valueForKey:@"countComparisonPopUp"] selectItemWithTitle:@">"];
+	[[queries valueForKey:@"countField"] setStringValue:@"0"];
+	[queries performSelector:@selector(countChanged:) withObject:nil];
+	[[queries valueForKey:@"comparedPopUp"] selectItemWithTitle:@"avg"];
+	[[queries valueForKey:@"comparedGroupPopUp"] selectItemWithTitle:@"for Branch"];
+	[queries performSelector:@selector(comparedChanged:) withObject:nil];
+	ORMQuery *built = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertTrue([[built outlineText] hasSuffix:@"max(Salary) for Employee > avg(Salary) for Branch\n"], @"%@",
+	              [built outlineText]);
+	XCTAssertTrue([[queries valueForKey:@"countField"] isHidden]);
+	/* On the sample's company: 52 and 7 have such employees. */
+	NSMutableSet *branches = [NSMutableSet set];
+	for (NSArray *row in [[queries result] rows]) {
+		[branches addObject:[row firstObject]];
+	}
+	XCTAssertEqualObjects(branches, ([NSSet setWithArray:@[ @52, @7 ]]), @"%@", [queries fetchText]);
 }
 
 - (void)testEveryMenuItemHasSomewhereToGo

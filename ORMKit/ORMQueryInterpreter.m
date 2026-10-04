@@ -329,6 +329,11 @@ ORMCompare(id left, NSString *comparison, id right)
 		                        inStore:operand.inStore];
 	}
 	case ORMPlanCompare: {
+		if (condition.left.bag != nil || condition.right.bag != nil) {
+			/* An aggregate of a bag: computed on the objects fetched. */
+			NSString *text = [[condition description] stringByReplacingOccurrencesOfString:@"%" withString:@"%%"];
+			return [ORMPredicatePart format:text arguments:nil inStore:NO];
+		}
 		NSMutableArray *arguments = [NSMutableArray array];
 		NSString *(^side)(ORMPlanValue *) = ^NSString *(ORMPlanValue *value) {
 			if (value.path != nil) {
@@ -576,6 +581,35 @@ ORMCompare(id left, NSString *comparison, id right)
 
 #pragma mark Checking the objects fetched
 
+/* A value of the object read: a path's, a constant, or an aggregate of a
+ * bag over the ways it holds. */
+- (id)value:(ORMPlanValue *)value object:(id)object bindings:(NSDictionary *)bindings
+{
+	if (value.path != nil) {
+		return [self valueOf:value.path object:object bindings:bindings];
+	}
+	if (value.bag == nil) {
+		return [self constant:value];
+	}
+	NSArray *ways = [self bindingsOf:value.bag object:object bindings:bindings];
+	if ([value.function isEqualToString:@"count"]) {
+		return @([ways count]);
+	}
+	NSMutableArray *values = [NSMutableArray array];
+	for (NSDictionary *way in ways) {
+		id each = [self valueOf:value.aggregatedPath object:object bindings:way];
+		if (each != nil && each != [NSNull null]) {
+			[values addObject:each];
+		}
+	}
+	if ([values count] == 0) {
+		return [value.function isEqualToString:@"sum"] ? @0 : nil;
+	}
+	NSString *function = [@{ @"sum": @"@sum.self", @"average": @"@avg.self", @"max": @"@max.self",
+	                         @"min": @"@min.self" } objectForKey:value.function];
+	return [values valueForKeyPath:function];
+}
+
 /* Whether the condition holds of the object read, the variables bound. */
 - (BOOL)holds:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings
 {
@@ -597,10 +631,8 @@ ORMCompare(id left, NSString *comparison, id right)
 	case ORMPlanNot:
 		return ![self holds:condition.operand object:object bindings:bindings];
 	case ORMPlanCompare: {
-		id left = condition.left.path != nil ? [self valueOf:condition.left.path object:object bindings:bindings]
-		                                     : [self constant:condition.left];
-		id right = condition.right.path != nil ? [self valueOf:condition.right.path object:object bindings:bindings]
-		                                       : [self constant:condition.right];
+		id left = [self value:condition.left object:object bindings:bindings];
+		id right = [self value:condition.right object:object bindings:bindings];
 		return ORMCompare(left, condition.comparison, right);
 	}
 	case ORMPlanNotNull: {

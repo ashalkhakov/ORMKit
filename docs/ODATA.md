@@ -162,6 +162,13 @@ answers, and the request expands what they look at. A column under
 `some languages as x1 has x1.name = 'Latin'` lists Latin, not every language
 of a Latin speaker.
 
+What a filter cannot say at all is checked on the answers too: an aggregate
+of the members meeting conditions (ODataKit's service aggregates no filtered
+collection), and an aggregate of a bag (a for-clause, or one compared with
+another). The filter asks what it can of such a condition (a `some` without
+the parts it cannot say), and the cursor keeps the objects that meet it
+whole, the request expanding what it looks at.
+
 `testTheServiceAnswersTheQueries` serves the mapped model with `ODataService`
 over SQLite and checks the rows that Q1 to Q5, the payroll query and a count
 return; `testTheServiceRowsAreTheStoresRows` checks every row against the

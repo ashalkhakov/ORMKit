@@ -32,6 +32,13 @@
 + (instancetype)termWithVariable:(ORMVariable *)variable;
 + (instancetype)termWithConstant:(NSString *)constant;
 + (instancetype)termWithFunction:(NSString *)name arguments:(NSArray<ORMTerm *> *)arguments aggregate:(BOOL)aggregate;
+/* An aggregate for each object of the group: "the maximum of that Rating
+ * for that Employee". */
++ (instancetype)termWithFunction:(NSString *)name
+                       arguments:(NSArray<ORMTerm *> *)arguments
+                       aggregate:(BOOL)aggregate
+                           group:(ORMTerm *)group;
+@property (nonatomic, readonly, strong) ORMTerm *group;
 @end
 
 typedef NS_ENUM(NSInteger, ORMFormulaKind) {

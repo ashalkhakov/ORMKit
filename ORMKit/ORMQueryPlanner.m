@@ -454,8 +454,118 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	return ORMAllOf(parts);
 }
 
+/* Whether the step's aggregate is a bag's: for another node than the one
+ * above, or compared with another aggregate. */
+- (BOOL)tallies:(ORMQueryStep *)step
+{
+	return step.countComparison != nil && step.aggregateNode != nil
+	       && (step.groupNode != step.parent || step.comparesAggregates);
+}
+
 - (ORMPlanCondition *)conditionForStep:(ORMQueryStep *)step entity:(ORMCDEntity *)entity at:(ORMPlannerPlace *)at
                                columns:(BOOL)columns
+{
+	ORMPlanCondition *condition = [self plainConditionForStep:step entity:entity at:at columns:columns];
+	if (![self tallies:step]) {
+		return condition;
+	}
+	/* The aggregate, of the bag from the node it is for, compared with
+	 * the value or with the other aggregate. */
+	NSArray *functions = @[ @"count", @"sum", @"average", @"max", @"min" ];
+	ORMPlanValue *left = [self aggregate:[functions objectAtIndex:(NSUInteger)step.aggregate] of:step.aggregateNode
+	                                 for:step.groupNode];
+	ORMPlanValue *right = nil;
+	if (step.comparesAggregates) {
+		right = [self aggregate:[functions objectAtIndex:(NSUInteger)step.comparedAggregate] of:step.aggregateNode
+		                    for:step.comparedGroupNode];
+	} else {
+		ORMCDAttribute *attribute = [left.aggregatedPath.keys count] > 0 ? [self attributeAtEndOf:step.aggregateNode] : nil;
+		right = [ORMPlanValue constant:step.aggregateValue ?: @""
+		                          type:step.aggregate == ORMQueryCount ? @"Integer 64" : attribute.attributeType ?: @"Double"];
+	}
+	if (left == nil || right == nil) {
+		return condition;
+	}
+	ORMPlanCondition *compared = [ORMPlanCondition compare:left comparison:step.countComparison with:right];
+	return condition != nil ? ORMAllOf(@[ condition, compared ]) : compared;
+}
+
+/* The attribute a node's value is: its own, or its identifier's. */
+- (ORMCDAttribute *)attributeAtEndOf:(ORMQueryNode *)node
+{
+	ORMQueryNode *above = node.step.parent;
+	ORMCDEntity *entity = above != nil ? [_places entityOf:above.objectType] : nil;
+	ORMCDProperty *property = entity != nil ? [_places propertyOf:entity source:node.role.identifier] : nil;
+	if ([property isKindOfClass:[ORMCDAttribute class]]) {
+		return (ORMCDAttribute *)property;
+	}
+	ORMCDEntity *own = [_places entityOf:node.objectType];
+	return own != nil ? [_places identifierOf:node.objectType on:own] : nil;
+}
+
+/* An aggregate of the node for the group, a node above it: its bag the
+ * steps from the group down to the node, a some for each to-many, the
+ * node's condition kept. nil, noted, where a step on the way is no binary
+ * the mapping keeps as a property. */
+- (ORMPlanValue *)aggregate:(NSString *)function of:(ORMQueryNode *)node for:(ORMQueryNode *)group
+{
+	ORMPlannerPlace *start = [_reached objectForKey:group.identifier];
+	NSMutableArray *chain = [NSMutableArray array];
+	for (ORMQueryNode *at = node; at != nil && at != group; at = at.step.parent) {
+		[chain insertObject:at atIndex:0];
+	}
+	if (start == nil || start.entity == nil || [[chain firstObject] step].parent != group) {
+		[self note:[NSString stringWithFormat:@"%@(%@) for %@: %@ is not reached above it.", function, [node designation],
+		                                      [group designation], [group designation]]];
+		return nil;
+	}
+	ORMPlanPath *at = [self pathOf:start];
+	ORMCDEntity *entity = start.entity;
+	NSMutableArray *collections = [NSMutableArray array];
+	ORMPlanPath *value = nil;
+	for (ORMQueryNode *next in chain) {
+		ORMCDProperty *property = [_places propertyOf:entity source:next.role.identifier];
+		if ([property isKindOfClass:[ORMCDAttribute class]] && next == node) {
+			value = [at pathByAddingKey:property.name];
+			break;
+		}
+		if (![property isKindOfClass:[ORMCDRelationship class]]) {
+			[self note:[NSString stringWithFormat:@"%@(%@) for %@ goes through \"%@\", which the mapping keeps as no "
+			                                      @"relationship of %@.",
+			                                      function, [node designation], [group designation],
+			                                      [[next.step.factType primaryReading] expandedText] ?: next.step.factType.name,
+			                                      entity.name]];
+			return nil;
+		}
+		ORMCDRelationship *relationship = (ORMCDRelationship *)property;
+		entity = [self destinationOf:relationship];
+		at = [at pathByAddingKey:relationship.name];
+		if (relationship.toMany) {
+			NSString *variable = [self nextVariable];
+			[collections addObject:@[ at, variable ]];
+			at = [ORMPlanPath pathFrom:variable keys:@[]];
+		}
+	}
+	if (value == nil) {
+		ORMCDAttribute *identifier = entity != nil ? [_places identifierOf:node.objectType on:entity] : nil;
+		value = identifier != nil ? [at pathByAddingKey:identifier.name] : at;
+	}
+	/* The node's own condition narrows the bag. */
+	ORMPlanCondition *bag = nil;
+	if (node.comparison != nil && node.comparedNode == nil) {
+		ORMCDAttribute *attribute = [self attributeAtEndOf:node];
+		bag = [ORMPlanCondition compare:[ORMPlanValue valueAtPath:value] comparison:node.comparison
+		                           with:[self constant:node.value attribute:attribute]];
+	}
+	for (NSArray *collection in [collections reverseObjectEnumerator]) {
+		bag = [ORMPlanCondition exists:[collection firstObject] variable:[collection lastObject] where:bag];
+	}
+	return [ORMPlanValue aggregate:function of:[function isEqualToString:@"count"] ? nil : value
+	                          over:bag ?: [ORMPlanCondition all:@[]]];
+}
+
+- (ORMPlanCondition *)plainConditionForStep:(ORMQueryStep *)step entity:(ORMCDEntity *)entity at:(ORMPlannerPlace *)at
+                                    columns:(BOOL)columns
 {
 	if ([step isSubtyping]) {
 		return [self subtypeStep:step entity:entity at:at columns:columns];
@@ -539,7 +649,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 			[self note:[NSString stringWithFormat:@"%@ is an attribute: what is said of it further is left out.",
 			                                      node.objectType.name]];
 		}
-		if (step != nil && step.countComparison != nil) {
+		if (step != nil && step.countComparison != nil && ![self tallies:step]) {
 			[self note:[NSString stringWithFormat:@"%@ is one attribute: it is not counted.", node.objectType.name]];
 		}
 		NSMutableArray *parts = [NSMutableArray arrayWithArray:[self correlationsOf:node place:value]];
@@ -565,7 +675,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		return [ORMPlanCondition maybe:reached.path variable:variable where:body];
 	}
 	if (!relationship.toMany) {
-		if (step != nil && step.countComparison != nil) {
+		if (step != nil && step.countComparison != nil && ![self tallies:step]) {
 			[self note:[NSString stringWithFormat:@"%@ is one at most: it is not counted.", node.objectType.name]];
 		}
 		/* Through nothing, no condition holds: the condition says it is set. */
@@ -660,7 +770,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
                             step:(ORMQueryStep *)step
 {
 	ORMPlanCondition *exists = [ORMPlanCondition exists:collection variable:body != nil ? variable : nil where:body];
-	if (step == nil || step.countComparison == nil) {
+	if (step == nil || step.countComparison == nil || [self tallies:step]) {
 		return exists;
 	}
 	if (step.aggregate == ORMQueryCount) {

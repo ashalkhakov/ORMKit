@@ -131,6 +131,13 @@
 	XCTAssertTrue([_editor.constraintEditor setPreferredIdentifier:unique reason:NULL], @"%@", type);
 }
 
+- (void)tearDown
+{
+	_editor = nil;
+	_facts = nil;
+	[super tearDown];
+}
+
 - (void)setUp
 {
 	[super setUp];
@@ -598,6 +605,94 @@
 	                                                   @"$select=Nr");
 	XCTAssertEqualObjects([self program:q], @"fetch Employee where (ownsCars.@count > 0) AND (NOT (SUBQUERY(cars, $x2, "
 	                                        @"ANY $x2.isOwnedByEmployees == SELF).@count > 1))");
+}
+
+/* The rows of the plan from the store and from the service over it: the
+ * same, and returned. */
+- (NSArray<NSArray *> *)rowsOfPlan:(ORMQueryPlan *)plan planner:(ORMQueryPlanner *)planner
+                         inContext:(NSManagedObjectContext *)context
+{
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	__block ORMQueryResult *stored = nil;
+	__block NSError *error = nil;
+	[context performBlockAndWait:^{
+		stored = [interpreter executePlan:plan inContext:context error:&error];
+	}];
+	XCTAssertNotNil(stored, @"%@", error);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqual([odata.notes count], 0u, @"%@", odata.notes);
+	NSArray *served = [self rowsOf:odata transport:[self countedServiceOver:context]];
+	XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:stored.rows], @"%@", [odata requestText]);
+	return [stored.rows sortedArrayUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) {
+		return [[a description] compare:[b description]];
+	}];
+}
+
+/* ConQuer-II's for-clause: an aggregate for a node above the step's.
+ * Which branches' employees speak more than one language between them? */
+- (void)testAnAggregateForANodeAbove
+{
+	NSString *q = [[self queries] addQueryNamed:@"Many tongues" from:[self typeId:@"Branch"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *employee = [self from:root through:[self role:@"worksFor" at:1] in:q];
+	NSString *speaks = nil;
+	[self from:employee.identifier through:[self role:@"speaks" at:0] in:q step:&speaks];
+	XCTAssertTrue([[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL]);
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setGroupNode:root ofStep:speaks reason:&reason], @"%@", reason);
+	XCTAssertFalse([[self queries] setGroupNode:employee.identifier ofStep:@"no such step" reason:NULL]);
+	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch\n"
+	                                                    @"  + employs Employee\n"
+	                                                    @"    + speaks Language\n"
+	                                                    @"      + count(Language) for Branch > 1\n");
+	XCTAssertTrue([[self english:q] rangeOfString:@"the number of that Language for that Branch is greater than 1"]
+	                  .location != NSNotFound, @"%@", [self english:q]);
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertTrue([[plan text] rangeOfString:@"count over (some employees as x"].location != NSNotFound, @"%@", [plan text]);
+	XCTAssertEqualObjects([[ORMQueryPlan planWithPropertyList:[plan propertyList] error:NULL] text], [plan text]);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	/* 52's speak English and Latin; 7's, English only. */
+	XCTAssertEqualObjects([self rowsOfPlan:plan planner:planner inContext:context], (@[ @[ @52 ] ]));
+}
+
+/* ConQuer-II's aggregate compared with an aggregate: the branches, and
+ * their employees who earn more than their branch's average. */
+- (void)testAnAggregateComparedWithAnother
+{
+	NSString *q = [[self queries] addQueryNamed:@"Well paid" from:[self typeId:@"Branch"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *employee = [self from:root through:[self role:@"worksFor" at:1] in:q];
+	[[self queries] setProjected:YES ofNode:employee.identifier];
+	NSString *earns = nil;
+	ORMQueryNode *salary = [[self from:employee.identifier through:[self role:@"earns" at:0] in:q step:&earns] firstObject];
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setAggregate:ORMQueryMaximum ofNode:salary.identifier comparison:@">" value:@"0"
+	                                    ofStep:earns reason:&reason], @"%@", reason);
+	XCTAssertTrue([[self queries] setComparedAggregate:ORMQueryAverage group:root ofStep:earns reason:&reason], @"%@",
+	              reason);
+	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch\n"
+	                                                    @"  + employs ✓Employee\n"
+	                                                    @"    + earns Salary\n"
+	                                                    @"      + max(Salary) for Employee > avg(Salary) for Branch\n");
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	/* 52: Ann's 600 000 over 550 000; 7: Bea's 500 000 and Fay's 600 000
+	 * over 383 333. */
+	XCTAssertEqualObjects([self rowsOfPlan:plan planner:planner inContext:context],
+	                      (@[ @[ @52, @1 ], @[ @7, @10 ], @[ @7, @2 ] ]));
+	/* Taken away, it is the value again. */
+	XCTAssertTrue([[self queries] setComparedAggregate:ORMQueryAverage group:nil ofStep:earns reason:NULL]);
+	XCTAssertTrue([[[self query:q] outlineText] hasSuffix:@"max(Salary) for Employee > 0\n"], @"%@",
+	              [[self query:q] outlineText]);
 }
 
 /* Who lives in a city with a branch headed by someone born in another
@@ -1125,10 +1220,12 @@
 		result = [interpreter executePlan:plan inContext:context error:&error];
 	}];
 	XCTAssertEqualObjects([result.objects valueForKey:@"nr"], (@[ @52 ]), @"%@", error);
-	/* OData cannot: it says so. */
+	/* From the service, which aggregates no filtered collection: checked on
+	 * its answers, the members' salaries expanded. */
 	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
-	XCTAssertTrue([[odata.notes lastObject] rangeOfString:@"aggregates no filtered collection"].location != NSNotFound,
-	              @"%@", odata.notes);
+	XCTAssertEqualObjects(odata.notes, @[]);
+	XCTAssertEqualObjects([self rowsOf:odata transport:[self countedServiceOver:context]], (@[ @[ @52 ] ]),
+	                      @"%@", [odata requestText]);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
@@ -1512,16 +1609,20 @@
 	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
 	ORMTestCountingTransport *counted = [self countedServiceOver:context];
 	for (NSString *name in queries) {
-		ORMQueryPlan *plan = [planner planForQuery:[self query:[queries objectForKey:name]]];
-		__block ORMQueryResult *stored = nil;
-		[context performBlockAndWait:^{
-			stored = [interpreter executePlan:plan inContext:context error:NULL];
-		}];
-		ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
-		NSArray *served = [self rowsOf:odata transport:counted];
-		XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:stored.rows], @"%@\n%@", name,
-		                      [odata requestText]);
-		XCTAssertEqual([served count], [stored.rows count], @"%@", name);
+		/* Each query's let go of before the next: GNUstep's XCTest drains
+		 * nothing between them, and the service's answers are many. */
+		@autoreleasepool {
+			ORMQueryPlan *plan = [planner planForQuery:[self query:[queries objectForKey:name]]];
+			__block ORMQueryResult *stored = nil;
+			[context performBlockAndWait:^{
+				stored = [interpreter executePlan:plan inContext:context error:NULL];
+			}];
+			ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+			NSArray *served = [self rowsOf:odata transport:counted];
+			XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:stored.rows], @"%@\n%@", name,
+			                      [odata requestText]);
+			XCTAssertEqual([served count], [stored.rows count], @"%@", name);
+		}
 	}
 	ORMQueryPlan *plan = [planner planForQuery:[self query:latin]];
 	__block ORMQueryResult *latinRows = nil;
@@ -1562,9 +1663,12 @@
 	};
 	NSDictionary *answers = [self paperAnswers];
 	for (NSString *name in answers) {
-		NSArray *got = numbers([queries objectForKey:name]);
-		/* In the order the query asks for, where it does. */
-		XCTAssertEqualObjects([name isEqualToString:@"Payroll"] ? got : sorted(got), [answers objectForKey:name], @"%@", name);
+		@autoreleasepool {
+			NSArray *got = numbers([queries objectForKey:name]);
+			/* In the order the query asks for, where it does. */
+			XCTAssertEqualObjects([name isEqualToString:@"Payroll"] ? got : sorted(got), [answers objectForKey:name], @"%@",
+			                      name);
+		}
 	}
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }

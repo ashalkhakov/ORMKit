@@ -79,6 +79,12 @@ ORMQueryAggregateNames(void)
 @property (nonatomic, readwrite, weak) ORMQueryNode *aggregateNode;
 @property (nonatomic, copy) NSString *aggregateNodeId;
 @property (nonatomic, readwrite, copy) NSString *aggregateValue;
+@property (nonatomic, readwrite, weak) ORMQueryNode *groupNode;
+@property (nonatomic, copy) NSString *groupNodeId;
+@property (nonatomic, readwrite) BOOL comparesAggregates;
+@property (nonatomic, readwrite) ORMQueryAggregate comparedAggregate;
+@property (nonatomic, readwrite, weak) ORMQueryNode *comparedGroupNode;
+@property (nonatomic, copy) NSString *comparedGroupNodeId;
 @end
 
 @interface ORMQuery ()
@@ -164,14 +170,23 @@ ORMQueryAggregateNames(void)
 				node.comparedNode = other;
 			}
 		}
-		/* What each step aggregates: its own node unless it says. */
+		/* What each step aggregates: its own node unless it says; and for
+		 * what, its parent unless it says. */
 		for (ORMQueryStep *step in node.steps) {
 			step.aggregateNode = [step.nodes firstObject];
-			for (ORMQueryNode *other in step.aggregateNodeId != nil ? nodes : @[]) {
-				if ([other.identifier isEqualToString:step.aggregateNodeId]) {
+			step.groupNode = step.parent;
+			for (ORMQueryNode *other in nodes) {
+				if ([other.identifier isEqualToString:step.aggregateNodeId ?: @""]) {
 					step.aggregateNode = other;
 				}
+				if ([other.identifier isEqualToString:step.groupNodeId ?: @""]) {
+					step.groupNode = other;
+				}
+				if ([other.identifier isEqualToString:step.comparedGroupNodeId ?: @""]) {
+					step.comparedGroupNode = other;
+				}
 			}
+			step.comparesAggregates = step.comparesAggregates && step.comparedGroupNode != nil;
 		}
 		/* What it was compared with is gone: so is the condition. */
 		if (node.comparedNodeId != nil && node.comparedNode == nil) {
@@ -231,6 +246,12 @@ ORMQueryAggregateNames(void)
 	NSUInteger aggregate = [ORMQueryAggregateNames() indexOfObject:ORMAttribute(element, @"Aggregate") ?: @"Count"];
 	step.aggregate = aggregate != NSNotFound ? (ORMQueryAggregate)aggregate : ORMQueryCount;
 	step.aggregateNodeId = ORMAttribute(element, @"AggregateNode");
+	step.groupNodeId = ORMAttribute(element, @"GroupNode");
+	NSString *compared = ORMAttribute(element, @"CompareAggregate");
+	NSUInteger comparedIndex = compared != nil ? [ORMQueryAggregateNames() indexOfObject:compared] : NSNotFound;
+	step.comparesAggregates = comparedIndex != NSNotFound;
+	step.comparedAggregate = comparedIndex != NSNotFound ? (ORMQueryAggregate)comparedIndex : ORMQueryCount;
+	step.comparedGroupNodeId = ORMAttribute(element, @"CompareGroupNode");
 	NSMutableArray *nodes = [NSMutableArray array];
 	for (NSXMLElement *nodeElement in ORMChildren(element, Q, @"Node")) {
 		ORMRole *role = [model elementWithId:ORMAttribute(nodeElement, @"Role")];
@@ -412,9 +433,13 @@ ORMQueryAggregateNames(void)
 		[out appendFormat:@"%@+ %@%@%@\n", pad, node.combinesWithOr && !first ? @"or " : @"", operator, reading];
 		first = NO;
 		if (step.countComparison != nil && step.aggregateNode != nil) {
+			NSString *compared = step.comparesAggregates
+				? [NSString stringWithFormat:@"%@(%@) for %@", [ORMQuery nameOfAggregate:step.comparedAggregate],
+				                             [step.aggregateNode designation], [step.comparedGroupNode designation]]
+				: step.aggregateValue ?: @"";
 			[out appendFormat:@"%@  + %@(%@) for %@ %@ %@\n", pad, [ORMQuery nameOfAggregate:step.aggregate],
-			                  [step.aggregateNode designation], [node designation], step.countComparison,
-			                  step.aggregateValue ?: @""];
+			                  [step.aggregateNode designation], [step.groupNode ?: node designation],
+			                  step.countComparison, compared];
 		}
 		for (ORMQueryNode *child in step.nodes) {
 			if ([child.steps count] == 0) {
@@ -515,15 +540,22 @@ ORMQueryAggregateNames(void)
 		}
 	}
 	if (step.countComparison != nil && step.aggregateNode != nil) {
-		NSString *function = [@[ @"count", @"total", @"average", @"maximum", @"minimum" ]
-			objectAtIndex:(NSUInteger)step.aggregate];
-		ORMTerm *aggregate = [ORMTerm termWithFunction:function
-		                                     arguments:@[ [ORMTerm termWithVariable:[variables
-		                                                                                objectForKey:step.aggregateNode
-		                                                                                                 .identifier]] ]
-		                                     aggregate:YES];
-		[conjuncts addObject:[ORMFormula compare:step.countComparison
-		                                operands:@[ aggregate, [ORMTerm termWithConstant:step.aggregateValue ?: @""] ]]];
+		NSArray *functions = @[ @"count", @"total", @"average", @"maximum", @"minimum" ];
+		ORMTerm *argument = [ORMTerm termWithVariable:[variables objectForKey:step.aggregateNode.identifier]];
+		/* "for that Employee" only where it is for another than the node
+		 * above, or compared with another aggregate. */
+		BOOL grouped = step.groupNode != step.parent || step.comparesAggregates;
+		ORMTerm *aggregate = [ORMTerm termWithFunction:[functions objectAtIndex:(NSUInteger)step.aggregate]
+		                                     arguments:@[ argument ] aggregate:YES
+		                                         group:grouped ? [ORMTerm termWithVariable:[variables objectForKey:
+		                                                                                     step.groupNode.identifier]]
+		                                                       : nil];
+		ORMTerm *other = step.comparesAggregates
+			? [ORMTerm termWithFunction:[functions objectAtIndex:(NSUInteger)step.comparedAggregate] arguments:@[ argument ]
+			                  aggregate:YES
+			                      group:[ORMTerm termWithVariable:[variables objectForKey:step.comparedGroupNode.identifier]]]
+			: [ORMTerm termWithConstant:step.aggregateValue ?: @""];
+		[conjuncts addObject:[ORMFormula compare:step.countComparison operands:@[ aggregate, other ]]];
 	}
 	ORMFormula *formula = [conjuncts count] == 1 ? atom : [ORMFormula combine:ORMFormulaAnd children:conjuncts];
 	return step.operatorKind == ORMQueryNot ? [ORMFormula not:formula] : formula;
@@ -821,6 +853,11 @@ ORMQueryAggregateNames(void)
 		                comparison != nil ? [NSString stringWithFormat:@"%lu", (unsigned long)value] : nil);
 		ORMSetAttribute(step, @"Aggregate", nil);
 		ORMSetAttribute(step, @"AggregateNode", nil);
+		if (comparison == nil) {
+			ORMSetAttribute(step, @"GroupNode", nil);
+			ORMSetAttribute(step, @"CompareAggregate", nil);
+			ORMSetAttribute(step, @"CompareGroupNode", nil);
+		}
 	}];
 	return YES;
 }
@@ -863,6 +900,62 @@ ORMQueryAggregateNames(void)
 		ORMSetAttribute(step, @"Aggregate", comparison != nil && aggregate != ORMQueryCount
 		                                        ? [ORMQueryAggregateNames() objectAtIndex:(NSUInteger)aggregate] : nil);
 		ORMSetAttribute(step, @"AggregateNode", comparison != nil ? nodeId : nil);
+	}];
+	return YES;
+}
+
+/* Whether the node element is the step's parent or above it. */
+static BOOL
+ORMIsAbove(NSXMLElement *node, NSXMLElement *step)
+{
+	for (NSXMLNode *at = [step parent]; at != nil; at = [at parent]) {
+		if (at == node) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+- (BOOL)setGroupNode:(NSString *)nodeId ofStep:(NSString *)stepId reason:(NSString **)reason
+{
+	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
+	NSXMLElement *node = nodeId != nil ? [self queryElement:nodeId named:@"Node"] : nil;
+	if (step == nil || (nodeId != nil && (node == nil || !ORMIsAbove(node, step)))) {
+		if (reason != NULL) {
+			*reason = step == nil ? @"There is no such step." : @"An aggregate is for a node above its step.";
+		}
+		return NO;
+	}
+	/* The parent is the default: said by nothing. */
+	NSString *value = node != nil && node != (NSXMLElement *)[step parent] ? nodeId : nil;
+	if ([ORMAttribute(step, @"GroupNode") ?: @"" isEqualToString:value ?: @""]) {
+		return YES;
+	}
+	[_editor change:@"Set Query Aggregate Group" with:^{
+		ORMSetAttribute(step, @"GroupNode", value);
+	}];
+	return YES;
+}
+
+- (BOOL)setComparedAggregate:(ORMQueryAggregate)aggregate
+                       group:(NSString *)nodeId
+                      ofStep:(NSString *)stepId
+                      reason:(NSString **)reason
+{
+	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
+	NSXMLElement *node = nodeId != nil ? [self queryElement:nodeId named:@"Node"] : nil;
+	if (step == nil || ORMAttribute(step, @"Count") == nil || (nodeId != nil && (node == nil || !ORMIsAbove(node, step)))) {
+		if (reason != NULL) {
+			*reason = step == nil ? @"There is no such step."
+				: ORMAttribute(step, @"Count") == nil ? @"The step has no aggregate to compare."
+				                                      : @"The aggregate compared with is for a node above the step.";
+		}
+		return NO;
+	}
+	[_editor change:@"Set Query Compared Aggregate" with:^{
+		ORMSetAttribute(step, @"CompareAggregate",
+		                nodeId != nil ? [ORMQueryAggregateNames() objectAtIndex:(NSUInteger)aggregate] : nil);
+		ORMSetAttribute(step, @"CompareGroupNode", nodeId);
 	}];
 	return YES;
 }

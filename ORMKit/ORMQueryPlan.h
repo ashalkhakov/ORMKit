@@ -63,15 +63,27 @@
 - (ORMPlanPath *)pathByAddingCast:(NSString *)entityName;
 @end
 
-/* A path's value, or a constant: its text as the query has it, and the
- * Core Data attribute type it is of ("Integer 64", "String", "Boolean",
- * "Date", ...), which a backend reads it as. */
+@class ORMPlanCondition;
+
+/* A path's value, a constant, or an aggregate. A constant has its text as
+ * the query has it, and the Core Data attribute type it is of ("Integer
+ * 64", "String", "Boolean", "Date", ...), which a backend reads it as. */
 @interface ORMPlanValue : NSObject <NSCopying>
 + (instancetype)valueAtPath:(ORMPlanPath *)path;
 + (instancetype)constant:(NSString *)text type:(NSString *)attributeType;
+/* An aggregate of a bag, as ConQuer-II's are: function ("count", "sum",
+ * "average", "max", "min") of the value at valuePath for each way the bag
+ * holds (the variables its somes bind, each member meeting its
+ * conditions); a count, of the ways. "max of x2.rating over (some
+ * employees as x1 has some x1.ratings as x2)". */
++ (instancetype)aggregate:(NSString *)function of:(ORMPlanPath *)valuePath over:(ORMPlanCondition *)bag;
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
 @property (nonatomic, readonly, copy) NSString *text;
 @property (nonatomic, readonly, copy) NSString *attributeType;
+/* An aggregate's: its function, what it is of, and its bag. */
+@property (nonatomic, readonly, copy) NSString *function;
+@property (nonatomic, readonly, strong) ORMPlanPath *aggregatedPath;
+@property (nonatomic, readonly, strong) ORMPlanCondition *bag;
 @end
 
 typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {

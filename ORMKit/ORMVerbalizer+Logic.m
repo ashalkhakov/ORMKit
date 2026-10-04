@@ -127,6 +127,9 @@ ORMComparisonWords(NSString *name)
 	for (ORMTerm *argument in term.arguments) {
 		[self count:argument into:counts];
 	}
+	if (term.group != nil) {
+		[self count:term.group into:counts];
+	}
 }
 
 - (void)countFormula:(ORMFormula *)formula into:(NSCountedSet *)counts
@@ -332,6 +335,10 @@ ORMComparisonWords(NSString *name)
 				[b keyword:@" and "];
 			}
 			[self sayTerm:[term.arguments objectAtIndex:i] into:b];
+		}
+		if (term.group != nil) {
+			[b keyword:@" for "];
+			[self sayTerm:term.group into:b];
 		}
 	}
 }

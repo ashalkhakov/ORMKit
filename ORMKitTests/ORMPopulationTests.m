@@ -13,6 +13,12 @@
 	NSString *_person, *_country, *_born;
 }
 
+- (void)tearDown
+{
+	_editor = nil;
+	[super tearDown];
+}
+
 - (void)setUp
 {
 	[super setUp];

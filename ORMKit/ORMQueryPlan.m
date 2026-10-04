@@ -165,6 +165,15 @@ ORMPlanKindNames(void)
 	return value;
 }
 
++ (instancetype)aggregate:(NSString *)function of:(ORMPlanPath *)valuePath over:(ORMPlanCondition *)bag
+{
+	ORMPlanValue *value = [[self alloc] init];
+	value->_function = [function copy];
+	value->_aggregatedPath = valuePath;
+	value->_bag = bag;
+	return value;
+}
+
 - (id)copyWithZone:(NSZone *)zone
 {
 	(void)zone;
@@ -175,6 +184,11 @@ ORMPlanKindNames(void)
 {
 	if (_path != nil) {
 		return [_path description];
+	}
+	if (_bag != nil) {
+		return [_function isEqualToString:@"count"] ? [NSString stringWithFormat:@"count over (%@)", _bag]
+		                                            : [NSString stringWithFormat:@"%@ of %@ over (%@)", _function,
+		                                                                         _aggregatedPath, _bag];
 	}
 	BOOL quoted = [_attributeType isEqualToString:@"String"] || [_attributeType isEqualToString:@"Date"];
 	return quoted ? [NSString stringWithFormat:@"'%@'", [_text stringByReplacingOccurrencesOfString:@"'" withString:@"''"]]
@@ -390,6 +404,12 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	ORMAddVariable(free, self.otherPath);
 	ORMAddVariable(free, self.left.path);
 	ORMAddVariable(free, self.right.path);
+	for (ORMPlanValue *value in @[ self.left ?: [NSNull null], self.right ?: [NSNull null] ]) {
+		if ([value isKindOfClass:[ORMPlanValue class]] && value.bag != nil) {
+			/* What its bag names but binds not. */
+			[free unionSet:[value.bag freeVariables]];
+		}
+	}
 	for (NSArray *pair in self.pairs) {
 		ORMAddVariable(free, [pair firstObject]);
 	}
@@ -682,9 +702,19 @@ ORMPathList(ORMPlanPath *path)
 	return list;
 }
 
+static id ORMConditionList(ORMPlanCondition *condition);
+
 static id
 ORMValueList(ORMPlanValue *value)
 {
+	if (value.bag != nil) {
+		NSMutableDictionary *list = [NSMutableDictionary dictionaryWithObjectsAndKeys:value.function, @"aggregate",
+		                                                 ORMConditionList(value.bag), @"over", nil];
+		if (value.aggregatedPath != nil) {
+			[list setObject:ORMPathList(value.aggregatedPath) forKey:@"of"];
+		}
+		return list;
+	}
 	return value.path != nil ? @{ @"path": ORMPathList(value.path) }
 	                         : @{ @"constant": value.text, @"type": value.attributeType };
 }
@@ -828,6 +858,31 @@ ORMReadPath(id list, NSError **error)
 	return [ORMPlanPath pathFrom:variable steps:steps];
 }
 
+static ORMPlanCondition *ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, NSError **error);
+
+/* A value that may be an aggregate, its bag reading the sets defined. */
+static ORMPlanValue *
+ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, NSError **error)
+{
+	if ([list isKindOfClass:[NSDictionary class]] && [list objectForKey:@"aggregate"] != nil) {
+		id function = [list objectForKey:@"aggregate"];
+		if (![@[ @"count", @"sum", @"average", @"max", @"min" ] containsObject:function]) {
+			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no aggregate function.", function]);
+			return nil;
+		}
+		ORMPlanCondition *bag = ORMReadCondition([list objectForKey:@"over"], defined, error);
+		ORMPlanPath *of = nil;
+		if (bag != nil && [list objectForKey:@"of"] != nil) {
+			of = ORMReadPath([list objectForKey:@"of"], error);
+			if (of == nil) {
+				return nil;
+			}
+		}
+		return bag != nil ? [ORMPlanValue aggregate:function of:of over:bag] : nil;
+	}
+	return ORMReadValue(list, error);
+}
+
 static ORMPlanValue *
 ORMReadValue(id list, NSError **error)
 {
@@ -886,8 +941,15 @@ ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined
 			return nil;
 		}
 	}
-	ORM_READ(@"left", ORMReadValue, left)
-	ORM_READ(@"right", ORMReadValue, right)
+	for (NSString *side in @[ @"left", @"right" ]) {
+		if ([list objectForKey:side] != nil) {
+			ORMPlanValue *value = ORMReadValueIn([list objectForKey:side], defined, error);
+			if (value == nil) {
+				return nil;
+			}
+			[condition setValue:value forKey:side];
+		}
+	}
 	ORM_READ(@"path", ORMReadPath, path)
 	ORM_READ(@"otherPath", ORMReadPath, otherPath)
 	ORM_READ(@"valuePath", ORMReadPath, valuePath)

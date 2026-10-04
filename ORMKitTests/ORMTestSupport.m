@@ -104,6 +104,16 @@
 	return _undoManager;
 }
 
+/* XCTest keeps every test case to the end of the run: what one holds (an
+ * undo manager's copies of the document, each change's) is let go of when
+ * it is done. */
+- (void)tearDown
+{
+	[_undoManager removeAllActions];
+	_undoManager = nil;
+	[super tearDown];
+}
+
 - (ORMEditor *)newEditor
 {
 	_undoManager = [[NSUndoManager alloc] init];

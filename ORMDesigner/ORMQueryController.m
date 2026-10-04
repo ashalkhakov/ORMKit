@@ -23,6 +23,9 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSTextField *labelField;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *aggregatePopUp;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *aggregateNodePopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *groupPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *comparedPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *comparedGroupPopUp;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *sortPopUp;
 @property (nonatomic, strong) IBOutlet NSButton *removeStepButton;
 @property (nonatomic, strong) IBOutlet NSTextView *verbalizationView;
@@ -410,7 +413,7 @@ ORMCellText(id value)
 		[control setEnabled:node != nil];
 	}
 	for (NSControl *control in @[ _operatorPopUp, _aggregatePopUp, _aggregateNodePopUp, _countComparisonPopUp, _countField,
-	                              _removeStepButton ]) {
+	                              _removeStepButton, _groupPopUp, _comparedPopUp, _comparedGroupPopUp ]) {
 		[control setEnabled:step != nil];
 	}
 	[_listCheck setState:node.isProjected ? NSControlStateValueOn : NSControlStateValueOff];
@@ -440,6 +443,24 @@ ORMCellText(id value)
 			[below addObjectsFromArray:next.nodes];
 		}
 	}
+	/* What it is for, and what it is compared with: the nodes above. */
+	[_groupPopUp removeAllItems];
+	[_comparedGroupPopUp removeAllItems];
+	for (ORMQueryNode *above = step.parent; above != nil; above = above.step.parent) {
+		[_groupPopUp addItemWithTitle:[above designation]];
+		[[_groupPopUp lastItem] setRepresentedObject:above.identifier];
+		if (above == step.groupNode) {
+			[_groupPopUp selectItem:[_groupPopUp lastItem]];
+		}
+		[_comparedGroupPopUp addItemWithTitle:[@"for " stringByAppendingString:[above designation]]];
+		[[_comparedGroupPopUp lastItem] setRepresentedObject:above.identifier];
+		if (above == step.comparedGroupNode) {
+			[_comparedGroupPopUp selectItem:[_comparedGroupPopUp lastItem]];
+		}
+	}
+	[_comparedPopUp selectItemAtIndex:step.comparesAggregates ? (NSInteger)step.comparedAggregate + 1 : 0];
+	[_countField setHidden:step.comparesAggregates];
+	[_comparedGroupPopUp setHidden:!step.comparesAggregates];
 	_available = node != nil ? [ORMQuery rolesFrom:node.objectType] : @[];
 	[_roles reloadData];
 }
@@ -647,6 +668,36 @@ ORMCellText(id value)
 	}
 }
 
+- (void)groupChanged:(id)sender
+{
+	(void)sender;
+	ORMQueryStep *step = [self selectedStep];
+	NSString *nodeId = [[_groupPopUp selectedItem] representedObject];
+	NSString *reason = nil;
+	if (step != nil && nodeId != nil && ![[self queries] setGroupNode:nodeId ofStep:step.identifier reason:&reason]) {
+		NSBeep();
+		[self say:reason];
+	}
+}
+
+/* A value, or another aggregate of the same node for a node above. */
+- (void)comparedChanged:(id)sender
+{
+	(void)sender;
+	ORMQueryStep *step = [self selectedStep];
+	if (step == nil) {
+		return;
+	}
+	NSInteger index = [_comparedPopUp indexOfSelectedItem];
+	NSString *nodeId = index > 0 ? ([[_comparedGroupPopUp selectedItem] representedObject] ?: step.parent.identifier) : nil;
+	NSString *reason = nil;
+	if (![[self queries] setComparedAggregate:(ORMQueryAggregate)MAX(0, index - 1) group:nodeId ofStep:step.identifier
+	                                   reason:&reason]) {
+		NSBeep();
+		[self say:reason ?: @"Set the step's aggregate first."];
+	}
+}
+
 #pragma mark The outline
 
 /* Items are node and step ids: a node's children its steps, a step's
@@ -720,9 +771,14 @@ ORMCellText(id value)
 		                              range:NSMakeRange(0, [reading length])];
 	}
 	NSString *operator = step.operatorKind == ORMQueryNot ? @"not " : step.operatorKind == ORMQueryMaybe ? @"maybe " : @"";
+	NSString *group = step.groupNode != step.parent ? [@" for " stringByAppendingString:[step.groupNode designation]] : @"";
+	NSString *compared = step.comparesAggregates
+		? [NSString stringWithFormat:@"%@(%@) for %@", [ORMQuery nameOfAggregate:step.comparedAggregate],
+		                             [step.aggregateNode designation], [step.comparedGroupNode designation]]
+		: step.aggregateValue ?: @"";
 	NSString *count = step.countComparison != nil
-		? [NSString stringWithFormat:@"   %@(%@) %@ %@", [ORMQuery nameOfAggregate:step.aggregate],
-		                             [step.aggregateNode designation], step.countComparison, step.aggregateValue ?: @""]
+		? [NSString stringWithFormat:@"   %@(%@)%@ %@ %@", [ORMQuery nameOfAggregate:step.aggregate],
+		                             [step.aggregateNode designation], group, step.countComparison, compared]
 		: @"";
 	return [NSString stringWithFormat:@"+ %@%@%@", operator, reading, count];
 }

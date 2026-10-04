@@ -104,6 +104,16 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, copy) NSString *aggregateValue;
 /* The value as a whole number, for a count. */
 @property (nonatomic, readonly) NSUInteger countValue;
+/* What the aggregate is for (ConQuer-II's for-clause): a node above the
+ * step, its parent unless it says; "count(Language) for Branch" counts the
+ * languages of all a branch's employees. */
+@property (nonatomic, readonly, weak) ORMQueryNode *groupNode;
+/* An aggregate the step's is compared with, rather than a value: of the
+ * same node, for another node above ("max(Rating) for Employee >
+ * avg(Rating) for Department"). comparesAggregates NO for none. */
+@property (nonatomic, readonly) BOOL comparesAggregates;
+@property (nonatomic, readonly) ORMQueryAggregate comparedAggregate;
+@property (nonatomic, readonly, weak) ORMQueryNode *comparedGroupNode;
 /* Through a subtype link: "is Professor". */
 - (BOOL)isSubtyping;
 @end
@@ -180,6 +190,15 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
                value:(NSString *)value
               ofStep:(NSString *)stepId
               reason:(NSString **)reason;
+/* What the step's aggregate is for: the node, the step's parent or one
+ * above it; nil for the parent. */
+- (BOOL)setGroupNode:(NSString *)nodeId ofStep:(NSString *)stepId reason:(NSString **)reason;
+/* The aggregate the step's is compared with, of the same node, for a node
+ * the step's parent or above it; nil takes it away (the value again). */
+- (BOOL)setComparedAggregate:(ORMQueryAggregate)aggregate
+                       group:(NSString *)nodeId
+                      ofStep:(NSString *)stepId
+                      reason:(NSString **)reason;
 - (void)setSortOrder:(ORMQuerySort)order ofNode:(NSString *)nodeId;
 /* comparison nil clears the count. */
 - (BOOL)setCount:(NSString *)comparison
