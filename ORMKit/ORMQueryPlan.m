@@ -202,10 +202,26 @@ ORMPlanKindNames(void)
 @property (nonatomic, readwrite, copy) NSString *entityName;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *trail;
 @property (nonatomic, readwrite, strong) ORMQueryPlan *plan;
+@property (nonatomic, readwrite, strong) ORMPlanDefinition *definition;
 @property (nonatomic, readwrite, copy) NSArray<NSArray<ORMPlanPath *> *> *pairs;
 @end
 
 @implementation ORMPlanCondition
+{
+	ORMQueryPlan *_plan;
+}
+
+@synthesize definition = _definition;
+
+- (ORMQueryPlan *)plan
+{
+	return _definition != nil ? _definition.plan : _plan;
+}
+
+- (void)setPlan:(ORMQueryPlan *)plan
+{
+	_plan = plan;
+}
 
 + (instancetype)ofKind:(ORMPlanConditionKind)kind
 {
@@ -329,6 +345,17 @@ ORMPlanKindNames(void)
 	return condition;
 }
 
++ (instancetype)matchesDefinition:(ORMPlanDefinition *)definition
+                            pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs
+                            outer:(NSString *)variable
+{
+	ORMPlanCondition *condition = [self ofKind:ORMPlanMatches];
+	condition.definition = definition;
+	condition.pairs = pairs;
+	condition.variable = variable;
+	return condition;
+}
+
 + (instancetype)among:(ORMPlanPath *)path trail:(NSArray<NSString *> *)keys from:(ORMPlanPath *)base
 {
 	ORMPlanCondition *condition = [self among:path trail:keys];
@@ -443,12 +470,55 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 		for (NSArray *pair in self.pairs) {
 			[pairs addObject:[NSString stringWithFormat:@"%@ = %@", [pair firstObject], [pair lastObject]]];
 		}
+		if (self.definition != nil) {
+			return [NSString stringWithFormat:@"%@ in %@%@", [pairs componentsJoinedByString:@", "], self.definition.name,
+			                                  self.variable != nil ? [NSString stringWithFormat:@" (%@ is this)", self.variable]
+			                                                       : @""];
+		}
 		return [NSString stringWithFormat:@"%@ match [%@%@]", [pairs componentsJoinedByString:@", "],
 		                                  self.variable != nil ? [NSString stringWithFormat:@"%@ is this; ", self.variable] : @"",
 		                                  [[[self.plan text] componentsSeparatedByString:@"\n"] componentsJoinedByString:@"; "]];
 	}
 	}
 	return @"";
+}
+
+@end
+
+#pragma mark Definitions
+
+@implementation ORMPlanDefinition
+
++ (instancetype)definitionNamed:(NSString *)name plan:(ORMQueryPlan *)plan
+{
+	ORMPlanDefinition *definition = [[self alloc] init];
+	definition->_name = [name copy];
+	definition->_plan = plan;
+	return definition;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	(void)zone;
+	return self;
+}
+
+- (NSArray<NSString *> *)parameters
+{
+	NSSet *free = [_plan.condition freeVariables] ?: [NSSet set];
+	return [[free allObjects] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+/* "let join1 = read Branch where nr = 52"; with its parameters,
+ * "let join1(o1) = ...". */
+- (NSString *)description
+{
+	NSArray *parameters = [self parameters];
+	return [NSString stringWithFormat:@"let %@%@ = %@", _name,
+	                                  [parameters count] > 0 ? [NSString stringWithFormat:@"(%@)",
+	                                                                                      [parameters componentsJoinedByString:@", "]]
+	                                                         : @"",
+	                                  [[[_plan text] componentsSeparatedByString:@"\n"] componentsJoinedByString:@" "]];
 }
 
 @end
@@ -520,7 +590,9 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 @end
 
 @interface ORMQueryPlan ()
-+ (instancetype)readPlan:(id)list error:(NSError **)reason;
+/* The definitions visible: those of the plans it is in, by name. */
++ (instancetype)readPlan:(id)list defined:(NSDictionary<NSString *, ORMPlanDefinition *> *)defined
+                   error:(NSError **)reason;
 @end
 
 @implementation ORMQueryPlan
@@ -531,7 +603,18 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
                       sorts:(NSArray<ORMPlanSort *> *)sorts
                       notes:(NSArray<NSString *> *)notes
 {
+	return [self planReading:entityName where:condition columns:columns sorts:sorts notes:notes definitions:@[]];
+}
+
++ (instancetype)planReading:(NSString *)entityName
+                      where:(ORMPlanCondition *)condition
+                    columns:(NSArray<ORMPlanColumn *> *)columns
+                      sorts:(NSArray<ORMPlanSort *> *)sorts
+                      notes:(NSArray<NSString *> *)notes
+                definitions:(NSArray<ORMPlanDefinition *> *)definitions
+{
 	ORMQueryPlan *plan = [[self alloc] init];
+	plan->_definitions = [definitions copy] ?: @[];
 	plan->_entityName = [entityName copy];
 	plan->_condition = condition;
 	plan->_columns = [columns copy] ?: @[];
@@ -551,7 +634,8 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	if (_entityName == nil) {
 		return @"read nothing";
 	}
-	NSMutableArray *lines = [NSMutableArray arrayWithObject:[@"read " stringByAppendingString:_entityName]];
+	NSMutableArray *lines = [NSMutableArray arrayWithArray:[_definitions valueForKey:@"description"]];
+	[lines addObject:[@"read " stringByAppendingString:_entityName]];
 	if (_condition != nil) {
 		[lines addObject:[@"where " stringByAppendingString:[_condition description]]];
 	}
@@ -643,7 +727,9 @@ ORMConditionList(ORMPlanCondition *condition)
 	if (condition.trail != nil) {
 		[list setObject:condition.trail forKey:@"trail"];
 	}
-	if (condition.plan != nil) {
+	if (condition.definition != nil) {
+		[list setObject:condition.definition.name forKey:@"definition"];
+	} else if (condition.plan != nil) {
 		[list setObject:[condition.plan propertyList] forKey:@"plan"];
 	}
 	if (condition.pairs != nil) {
@@ -659,6 +745,13 @@ ORMConditionList(ORMPlanCondition *condition)
 - (id)propertyList
 {
 	NSMutableDictionary *list = [NSMutableDictionary dictionary];
+	if ([_definitions count] > 0) {
+		NSMutableArray *definitions = [NSMutableArray array];
+		for (ORMPlanDefinition *definition in _definitions) {
+			[definitions addObject:@{ @"name": definition.name, @"plan": [definition.plan propertyList] }];
+		}
+		[list setObject:definitions forKey:@"definitions"];
+	}
 	if (_entityName != nil) {
 		[list setObject:_entityName forKey:@"entity"];
 	}
@@ -743,7 +836,7 @@ ORMReadValue(id list, NSError **error)
 }
 
 static ORMPlanCondition *
-ORMReadCondition(id list, NSError **error)
+ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, NSError **error)
 {
 	if (![list isKindOfClass:[NSDictionary class]]) {
 		*error = ORMPlanError(@"a condition is a dictionary.");
@@ -758,7 +851,7 @@ ORMReadCondition(id list, NSError **error)
 	if ([list objectForKey:@"operands"] != nil) {
 		NSMutableArray *operands = [NSMutableArray array];
 		for (id each in [list objectForKey:@"operands"]) {
-			ORMPlanCondition *operand = ORMReadCondition(each, error);
+			ORMPlanCondition *operand = ORMReadCondition(each, defined, error);
 			if (operand == nil) {
 				return nil;
 			}
@@ -774,7 +867,12 @@ ORMReadCondition(id list, NSError **error)
 		} \
 		condition.property = read; \
 	}
-	ORM_READ(@"operand", ORMReadCondition, operand)
+	if ([list objectForKey:@"operand"] != nil) {
+		condition.operand = ORMReadCondition([list objectForKey:@"operand"], defined, error);
+		if (condition.operand == nil) {
+			return nil;
+		}
+	}
 	ORM_READ(@"left", ORMReadValue, left)
 	ORM_READ(@"right", ORMReadValue, right)
 	ORM_READ(@"path", ORMReadPath, path)
@@ -817,8 +915,15 @@ ORMReadCondition(id list, NSError **error)
 		}
 		condition.trail = trail;
 	}
-	if ([list objectForKey:@"plan"] != nil) {
-		condition.plan = [ORMQueryPlan readPlan:[list objectForKey:@"plan"] error:error];
+	id definition = [list objectForKey:@"definition"];
+	if (definition != nil) {
+		condition.definition = [definition isKindOfClass:[NSString class]] ? [defined objectForKey:definition] : nil;
+		if (condition.definition == nil) {
+			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no set defined before it is used.", definition]);
+			return nil;
+		}
+	} else if ([list objectForKey:@"plan"] != nil) {
+		condition.plan = [ORMQueryPlan readPlan:[list objectForKey:@"plan"] defined:defined error:error];
 		if (condition.plan == nil) {
 			return nil;
 		}
@@ -845,18 +950,41 @@ ORMReadCondition(id list, NSError **error)
 + (instancetype)planWithPropertyList:(id)list error:(NSError **)error
 {
 	NSError *failure = nil;
-	ORMQueryPlan *plan = [self readPlan:list error:&failure];
+	ORMQueryPlan *plan = [self readPlan:list defined:@{} error:&failure];
 	if (plan == nil && error != NULL) {
 		*error = failure ?: ORMPlanError(@"it could not be read.");
 	}
 	return plan;
 }
 
-+ (instancetype)readPlan:(id)list error:(NSError **)reason
++ (instancetype)readPlan:(id)list defined:(NSDictionary<NSString *, ORMPlanDefinition *> *)defined
+                   error:(NSError **)reason
 {
 	if (![list isKindOfClass:[NSDictionary class]]) {
 		*reason = ORMPlanError(@"a plan is a dictionary.");
 		return nil;
+	}
+	/* Its sets, each seeing those before it. */
+	NSMutableDictionary *visible = [NSMutableDictionary dictionaryWithDictionary:defined];
+	NSMutableArray *definitions = [NSMutableArray array];
+	id definitionList = [list objectForKey:@"definitions"];
+	if (definitionList != nil && ![definitionList isKindOfClass:[NSArray class]]) {
+		*reason = ORMPlanError(@"its definitions are a list.");
+		return nil;
+	}
+	for (id item in definitionList ?: @[]) {
+		id name = [item isKindOfClass:[NSDictionary class]] ? [item objectForKey:@"name"] : nil;
+		if (!ORMPlanIsName(name) || [visible objectForKey:name] != nil) {
+			*reason = ORMPlanError([NSString stringWithFormat:@"%@ is no name of a set, or one defined twice.", name ?: item]);
+			return nil;
+		}
+		ORMQueryPlan *body = [self readPlan:[item objectForKey:@"plan"] defined:visible error:reason];
+		if (body == nil) {
+			return nil;
+		}
+		ORMPlanDefinition *definition = [ORMPlanDefinition definitionNamed:name plan:body];
+		[definitions addObject:definition];
+		[visible setObject:definition forKey:name];
 	}
 	id entity = [list objectForKey:@"entity"];
 	if (entity != nil && !ORMPlanIsName(entity)) {
@@ -865,7 +993,7 @@ ORMReadCondition(id list, NSError **error)
 	}
 	ORMPlanCondition *condition = nil;
 	if ([list objectForKey:@"condition"] != nil) {
-		condition = ORMReadCondition([list objectForKey:@"condition"], reason);
+		condition = ORMReadCondition([list objectForKey:@"condition"], visible, reason);
 		if (condition == nil) {
 			return nil;
 		}
@@ -902,7 +1030,8 @@ ORMReadCondition(id list, NSError **error)
 		}
 		[sorts addObject:[ORMPlanSort sortBy:path ascending:[[item objectForKey:@"ascending"] boolValue]]];
 	}
-	return [self planReading:entity where:condition columns:columns sorts:sorts notes:[list objectForKey:@"notes"] ?: @[]];
+	return [self planReading:entity where:condition columns:columns sorts:sorts notes:[list objectForKey:@"notes"] ?: @[]
+	             definitions:definitions];
 }
 
 @end

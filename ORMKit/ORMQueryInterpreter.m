@@ -490,7 +490,7 @@ ORMCompare(id left, NSString *comparison, id right)
 - (ORMPredicatePart *)matches:(ORMPlanCondition *)condition
 {
 	_joins++;
-	NSString *name = [NSString stringWithFormat:@"join%lu", (unsigned long)_joins];
+	NSString *name = condition.definition.name ?: [NSString stringWithFormat:@"join%lu", (unsigned long)_joins];
 	NSMutableSet *free = [NSMutableSet setWithSet:[condition.plan.condition freeVariables] ?: [NSSet set]];
 	if (condition.variable != nil) {
 		[free removeObject:condition.variable];

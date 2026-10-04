@@ -676,7 +676,7 @@ ORMODataError(NSString *text)
 	options.select = select;
 	options.expand = expand;
 	ORMQueryODataJoin *join = [[ORMQueryODataJoin alloc] init];
-	join.name = [NSString stringWithFormat:@"join%lu", (unsigned long)[_joins count] + 1];
+	join.name = condition.definition.name ?: [NSString stringWithFormat:@"join%lu", (unsigned long)[_joins count] + 1];
 	join.entityName = condition.plan.entityName;
 	join.collectionPath = joined.collectionPath;
 	join.options = options;

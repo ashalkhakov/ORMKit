@@ -1130,9 +1130,10 @@
 {
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
 	ORMQueryPlan *plan = [planner planForQuery:[self query:[self q1]]];
-	XCTAssertEqualObjects([plan text], @"read Employee\n"
+	XCTAssertEqualObjects([plan text], @"let join1 = read Branch where nr = 52\n"
+	                                   @"read Employee\n"
 	                                   @"where cityCityname = cityCityname, cityStateStatecode = cityStateStatecode, "
-	                                   @"cityStateCountry = cityStateCountry match [read Branch; where nr = 52]\n"
+	                                   @"cityStateCountry = cityStateCountry in join1\n"
 	                                   @"list self (nr)");
 	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
 	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
@@ -1173,10 +1174,10 @@
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
 	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
 	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
-	XCTAssertEqualObjects([plan text], @"read Employee\n"
+	XCTAssertEqualObjects([plan text], @"let join1(o1) = read Branch where employee is o1\n"
+	                                   @"read Employee\n"
 	                                   @"where cityCityname = cityCityname, cityStateStatecode = cityStateStatecode, "
-	                                   @"cityStateCountry = cityStateCountry match [o1 is this; read Branch; where "
-	                                   @"employee is o1]\n"
+	                                   @"cityStateCountry = cityStateCountry in join1 (o1 is this)\n"
 	                                   @"list self (nr)");
 	XCTAssertEqualObjects([[ORMQueryPlan planWithPropertyList:[plan propertyList] error:NULL] text], [plan text]);
 	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
@@ -1360,6 +1361,12 @@
 	                           @"condition": @{ @"kind": @"notNull",
 	                                            @"path": @{ @"steps": @[ @{ @"key": @"nr eq 0 or true" } ] } } };
 	XCTAssertNil([ORMQueryPlan planWithPropertyList:badPath error:&error]);
+	/* A set used before it is defined, or not at all, is refused. */
+	NSMutableDictionary *undefined = [[joined propertyList] mutableCopy];
+	[undefined removeObjectForKey:@"definitions"];
+	XCTAssertNil([ORMQueryPlan planWithPropertyList:undefined error:&error]);
+	XCTAssertTrue([[error localizedDescription] rangeOfString:@"defined before"].location != NSNotFound, @"%@", error);
+	XCTAssertEqual([[[ORMQueryPlan planWithPropertyList:[joined propertyList] error:NULL] definitions] count], 1u);
 }
 
 /* The requests, sent to ODataKit's service over the same store: the same

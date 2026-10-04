@@ -254,7 +254,21 @@ rules (`-[ORMVerbalizer sentencesForQuery:]`):
 `ORMQueryPlanner` makes the plan. Each step follows the property the mapping
 traced to the step's fact type (see [COREDATA-MAPPING.md, "Traces"](COREDATA-MAPPING.md#traces)). Every
 ORM-level decision is made here, once, for both backends: scopes, correlation,
-subtypes, aggregate paths, and joins. Its text (`-[ORMQueryPlan text]`):
+subtypes, aggregate paths, and joins.
+
+A plan is a program, as a ConQuer-II query is: a sequence of named sets
+(`ORMPlanDefinition`), each read by a plan of its own and free to use the
+sets before it, then the set the plan reads. Its conditions may use any of
+them. A set with parameters depends on the plan using it: on its object read
+(`o1`), or on what is bound where it is used.
+
+```
+let join1 = read Branch where nr = 52
+read Employee
+where cityCityname = cityCityname, ... in join1
+```
+
+Its text (`-[ORMQueryPlan text]`):
 
 | ORM | The plan |
 | --- | --- |
@@ -271,7 +285,7 @@ subtypes, aggregate paths, and joins. Its text (`-[ORMQueryPlan text]`):
 | a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read |
 | a node compared with another | `not (x1.country is country)` |
 | a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname` |
-| a step through an absorbed object type to an entity that absorbs it too | `... match [read Branch; where nr = 52]`: a plan of its own (below) |
+| a step through an absorbed object type to an entity that absorbs it too | `... in join1`, a set the plan defines: `let join1 = read Branch where nr = 52` (below) |
 | the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier |
 | a sorted listed node | `order by nr descending`, through to-ones |
 
@@ -303,18 +317,19 @@ as the caller asks. `-executePlan:inContext:error:` reads every page.
 
   The interpreter evaluates the plan's own conditions there, by key-value
   coding.
-- **Joins:** a `match` is said in the predicate when three things hold:
+- **Joins:** a join with a set (`in join1`) is said in the predicate when
+  three things hold:
   - its plan is the store's to say entirely;
   - it reads from nothing of this plan;
   - it finds few objects (`joinPrefetchLimit`, 1000).
 
   Then they are fetched once, and their values put in its place, wherever the
-  `match` is, inside a `not`, an `or` or a subquery too. Otherwise each object
+  join is, inside a `not`, an `or` or a subquery too. Otherwise each object
   is probed: the joined plan is run with that object's values, and stops at
   the first object found. A join over a large table never loads the table.
 - **Correlated joins:** a joined plan may name what the plan it is in reached:
-  - its object read, as a variable (`o1`) the match binds;
-  - the variables bound where the match is.
+  - its object read, as a parameter (`o1`) the join binds;
+  - the variables bound where the join is.
 
   Such a join is probed for each object, with those bound.
 
@@ -335,7 +350,7 @@ sorted by nr descending
 | `is a Professor` | `entity.name IN {Professor and its subentities}` |
 | `is` | `==` |
 | `is among` a trail | `ANY $x2.isOwnedByEmployees == SELF`: back along the inverses, which the SQLite store says in SQL |
-| `match [...]` | that plan fetched first: `join1: fetch Branch where nr == 52` |
+| `... in join1` | the set fetched first: `join1: fetch Branch where nr == 52` |
 
 ## Joins through absorbed object types
 
@@ -343,12 +358,14 @@ By default the mapping absorbs a value-like composite, such as City or Address,
 into the entities that use it, and its parts become their attributes. Going
 through it is then a join on those parts' values, as the paper's SQL S1 joins
 Employee and Branch on city name, state code and country. No relationship
-connects the two entities, so the plan holds a plan of the joined entity:
+connects the two entities, so the plan defines the joined set and compares
+the parts with its objects':
 
 ```
-✓Employee                        read Employee
-  + lives in City                where cityCityname = cityCityname, cityStateStatecode = ...,
-    + is location of Branch = 52   cityStateCountry = cityStateCountry match [read Branch; where nr = 52]
+✓Employee                        let join1 = read Branch where nr = 52
+  + lives in City                read Employee
+    + is location of Branch = 52 where cityCityname = cityCityname, cityStateStatecode = ...,
+                                   cityStateCountry = cityStateCountry in join1
 ```
 
 The interpreter fetches branch 52 first, then the employees whose parts equal
@@ -357,8 +374,9 @@ in "who heads a branch in the city they live in", the join depends on each
 employee:
 
 ```
+let join1(o1) = read Branch where employee is o1
 read Employee
-where cityCityname = cityCityname, ... match [o1 is this; read Branch; where employee is o1]
+where cityCityname = cityCityname, ... in join1 (o1 is this)
 ```
 
 The interpreter probes each employee, with `o1` bound to it. ODataKit's service has no `$root`, so the OData backend

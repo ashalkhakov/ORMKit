@@ -12,12 +12,32 @@
  *   where some city.branches as x1 has x1.nr = 52
  *   list self (nr)
  *
+ * A plan is a program, as ConQuer-II's are: named sets first, each read by a
+ * plan of its own and free to use the ones before it, then the set the
+ * plan reads, whose conditions may use them all.
+ *
+ *   let join1 = read Branch where nr = 52
+ *   read Employee
+ *   where cityCityname = cityCityname, ... in join1
+ *
  * A plan is data: it is written as a property list and read back
  * (-propertyList, +planWithPropertyList:error:), so it can be made where the
  * model is edited and run where the store is. Names are the Core Data
  * model's: entities, and properties along paths. */
 
 @class ORMQueryPlan;
+
+/* A set a plan names (ConQuer-II's named subquery): the objects its own plan
+ * reads. Its parameters are what that plan names of the plans using it: the
+ * object one of them reads (o1), or a variable bound where it is used; a
+ * definition with none is the same set wherever it is used. */
+@interface ORMPlanDefinition : NSObject <NSCopying>
++ (instancetype)definitionNamed:(NSString *)name plan:(ORMQueryPlan *)plan;
+@property (nonatomic, readonly, copy) NSString *name;
+@property (nonatomic, readonly, strong) ORMQueryPlan *plan;
+/* The variables its plan names that it does not bind itself, sorted. */
+- (NSArray<NSString *> *)parameters;
+@end
 
 /* A step along a path: a property, by name, or a cast to a subentity, which
  * reading the subentity's own properties takes where a store asks for it
@@ -83,11 +103,12 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 	 * a node met before, out of the scope it was met in. */
 	ORMPlanAmong,
 	/* The values at the pairs' paths, ours and theirs, equal those of some
-	 * object plan reads: a join on values no relationship makes (an object
-	 * type absorbed into the entities that use it). In plan, variable (o1),
-	 * where it is set, is the object this plan reads; plan may also name the
-	 * variables bound where the match is. A plan that names neither is
-	 * uncorrelated: one set of objects for every object of this one. */
+	 * object of a set (definition, or an unnamed plan): a join on values no
+	 * relationship makes (an object type absorbed into the entities that use
+	 * it). In the set's plan, variable (o1), where it is set, is the object
+	 * this plan reads; it may also name the variables bound where the match
+	 * is. A set that names neither is uncorrelated: the same for every object
+	 * of this one. */
 	ORMPlanMatches,
 };
 
@@ -116,6 +137,10 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 + (instancetype)matches:(ORMQueryPlan *)plan pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs;
 /* The same, plan naming the object this one reads as outer. */
 + (instancetype)matches:(ORMQueryPlan *)plan pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs outer:(NSString *)variable;
+/* The same of a set the plan defines, by its name. */
++ (instancetype)matchesDefinition:(ORMPlanDefinition *)definition
+                            pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs
+                            outer:(NSString *)variable;
 /* The variables the condition names that it does not bind itself: those
  * bound around it, or an enclosing plan's object. */
 - (NSSet<NSString *> *)freeVariables;
@@ -136,7 +161,9 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 @property (nonatomic, readonly, strong) ORMPlanValue *constant;
 @property (nonatomic, readonly, copy) NSString *entityName;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *trail;
+/* Matches': the set's plan, its definition's where it is one. */
 @property (nonatomic, readonly, strong) ORMQueryPlan *plan;
+@property (nonatomic, readonly, strong) ORMPlanDefinition *definition;
 @property (nonatomic, readonly, copy) NSArray<NSArray<ORMPlanPath *> *> *pairs;
 @end
 
@@ -176,6 +203,15 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
                     columns:(NSArray<ORMPlanColumn *> *)columns
                       sorts:(NSArray<ORMPlanSort *> *)sorts
                       notes:(NSArray<NSString *> *)notes;
+/* The same, after the sets it defines, in order: each may use those before. */
++ (instancetype)planReading:(NSString *)entityName
+                      where:(ORMPlanCondition *)condition
+                    columns:(NSArray<ORMPlanColumn *> *)columns
+                      sorts:(NSArray<ORMPlanSort *> *)sorts
+                      notes:(NSArray<NSString *> *)notes
+                definitions:(NSArray<ORMPlanDefinition *> *)definitions;
+/* The sets it names, in order. */
+@property (nonatomic, readonly, copy) NSArray<ORMPlanDefinition *> *definitions;
 /* The entity whose objects are the results; nil when the query reads none. */
 @property (nonatomic, readonly, copy) NSString *entityName;
 /* What must hold of each; nil: nothing. */
@@ -186,12 +222,12 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
 
 /* The plan as a property list, and read back: nil, and why, for one that
- * is no plan, or names what no Core Data model can (a name that is no
- * identifier). */
+ * is no plan, names what no Core Data model can (a name that is no
+ * identifier), or uses a set it does not define before. */
 - (id)propertyList;
 + (instancetype)planWithPropertyList:(id)propertyList error:(NSError **)error;
 
-/* The plan to read: "read Employee\nwhere ...\nlist ...". */
+/* The plan to read: "let join1 = ...\nread Employee\nwhere ...\nlist ...". */
 - (NSString *)text;
 @end
 

@@ -85,6 +85,9 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	NSUInteger _level;
 	NSMutableArray<NSString *> *_outerNames;
 	NSUInteger _outers;
+	/* The sets the plan names, in the order they are made: one made inside
+	 * another's planning comes before it. */
+	NSMutableArray<ORMPlanDefinition *> *_definitions;
 }
 
 - (instancetype)initWithCoreData:(ORMCDModel *)coreData
@@ -153,6 +156,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	_level = 0;
 	_outerNames = [NSMutableArray array];
 	_outers = 0;
+	_definitions = [NSMutableArray array];
 	ORMQueryNode *root = query.root;
 	ORMCDEntity *entity = root != nil ? [_places entityOf:root.objectType] : nil;
 	if (entity == nil) {
@@ -202,7 +206,18 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		                                         trail:[place.trail valueForKey:@"name"]
 		                                    identifier:identifier != [NSNull null] ? [identifier name] : nil]];
 	}
-	return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:[self sorts] notes:_notes];
+	return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:[self sorts] notes:_notes
+	                     definitions:_definitions];
+}
+
+/* A set named in the plan, its plan reading the entity. */
+- (ORMPlanDefinition *)define:(NSString *)prefix plan:(ORMQueryPlan *)plan
+{
+	ORMPlanDefinition *definition = [ORMPlanDefinition definitionNamed:[NSString stringWithFormat:@"%@%lu", prefix,
+	                                                                                               (unsigned long)[_definitions count] + 1]
+	                                                              plan:plan];
+	[_definitions addObject:definition];
+	return definition;
 }
 
 /* Each sorted node's column, by its identifier or value, through to-ones. */
@@ -725,7 +740,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	[_outerNames removeLastObject];
 	ORMQueryPlan *plan = [ORMQueryPlan planReading:joined.name where:condition columns:@[] sorts:@[] notes:@[]];
 	BOOL correlated = [[condition freeVariables] containsObject:outer];
-	return [ORMPlanCondition matches:plan pairs:pairs outer:correlated ? outer : nil];
+	return [ORMPlanCondition matchesDefinition:[self define:@"join" plan:plan] pairs:pairs outer:correlated ? outer : nil];
 }
 
 @end
