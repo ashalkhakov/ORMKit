@@ -151,7 +151,8 @@ updated. A change to another object on the join path (the head's salary
 rising) is not seen there. Dataphor checks database-wide constraints at
 commit; the code here is per object, as Core Data's validation is.
 
-Run the store or service check to catch the rest. The generated comment says
+Run the store or service check to catch the rest, or, later, the check at
+commit (below). The generated comment says
 which objects the rule depends on. The notes call such a constraint
 "checked from Employee only".
 
@@ -183,3 +184,28 @@ which objects the rule depends on. The notes call such a constraint
   hooks).
 - **Transition constraints**, about what may change into what. Dataphor has
   them; this does not.
+- **Constraints checked at commit,** not only from the root object, so that
+  a change anywhere on a rule's join path is seen. Dataphor compiles each
+  database constraint into checks on the tables it reads, restricted to
+  the rows a change touches. The literature calls this incremental
+  integrity checking: Nicolas, "Logic for Improving Integrity Checking in
+  Relational Data Bases" (1982); Ceri and Widom, "Deriving Production
+  Rules for Constraint Maintenance" (VLDB 1990). Here:
+  - **Which rules a save can break:** a rule depends on the entities its
+    plan reads. That is the root and every relationship on its join paths,
+    which the plan already names.
+  - **Which objects to re-check:** follow the inverse relationships from
+    each changed object back to the root entity. That is the same walk
+    `among` does, where Q5 is said in SQL. Run the rule's plan only for
+    those roots, as one more BindJoin-style scope: `nr IN` the affected
+    roots.
+  - **Where it hooks in:** a context method the generated code adds, called
+    before saving, say
+    `-[NSManagedObjectContext orm_validateRulesForSave:]`. It reads the
+    context's inserted, updated and deleted objects and checks the affected
+    roots. Core Data's will-save notification cannot refuse a save, so the
+    app calls this in its own save path, as it calls
+    `orm_validateConstraints:` today. Deletions matter too: deleting an
+    Employee can break a rule about Branches.
+  - **The same for the OData service:** at the end of a change set, through
+    ODataKit's service hooks, before the transaction commits.
