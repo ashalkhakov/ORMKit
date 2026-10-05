@@ -28,7 +28,7 @@ jobs:
       # decides which of them this build gets. It is part of the cache key
       # below, so moving it rebuilds the stack rather than reusing a prefix
       # patched differently. Name a commit here to pin the build exactly.
-      GNUSTEP_PATCHES_REF: 7539fc686a72250574fff6c17e1c92eb024ddc33
+      GNUSTEP_PATCHES_REF: 00a9c890134abe3e752d49545556a228cb8b7122
       # ODataKit, and FreeCoreData under it: the pins ci.yml has.
       FREECOREDATA_REF: b612b0a90fcae0b0fabcd1ff71442988eb67b518
       ODATAKIT_REF: 771721232130b67c5bc79d9f25679b3db5def0dc
