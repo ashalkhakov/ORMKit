@@ -9,7 +9,7 @@ Both are said in the model's terms, verbalized, checked against sample
 populations, and run against a store or a service. Constraints also become
 validation code.
 
-This is a design, being built: steps 1 to 4 are done ([Steps](#steps)).
+This is a design, being built: steps 1 to 5 are done ([Steps](#steps)).
 
 ## Why
 
@@ -200,8 +200,15 @@ which objects the rule depends on. The notes call such a constraint
    - Not yet done: reporting a `Value` calculation with more than one value
      (the table above says the population check does). Today it is only
      empty.
-5. **The designer:** Kind, Modality, Function and Of in the Queries window;
-   violations and values in the Results tab.
+5. **Done: the designer.**
+   - The Queries window has **Kind** (List, Constraint, Calculation),
+     **Modality** for a constraint, and the **Function** and **of** node for
+     a calculation. Each is an editor change, so it undoes.
+   - The query list marks a rule "(rule)" and a calculation "(calculation)".
+   - A rule's Results tab says how many violations the sample population
+     has. A calculation's lists each object and its value.
+   - Not done: the list does not yet mark which rules are broken, as the
+     table above says it would.
 6. **Validation code** for constraints whose condition the store can say.
 
 ## Not here, for later

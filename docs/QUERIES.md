@@ -516,6 +516,10 @@ store of the mapping, and shows its rows. **Make Up a Population** (or
 **Query ▸ Make Up a Sample Population**) gives a model without one a
 population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 
+**Kind** makes the query a constraint, whose rows are its violations, or a
+calculation of a node's values for each object of its root type, with its
+**Function** and the node it is **of** ([RULES.md](RULES.md)).
+
 ## Not done yet
 
 - **An absorbed object type met again out of scope:** its parts are

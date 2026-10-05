@@ -515,6 +515,74 @@
 	XCTAssertEqualObjects(branches, ([NSSet setWithArray:@[ @52, @7 ]]), @"%@", [queries fetchText]);
 }
 
+/* A rule and a calculation from the window (docs/RULES.md): the sample's
+ * rule says what breaks it; a query made a calculation of each branch's
+ * total salary lists every branch and its total. */
+- (void)testARuleAndACalculationFromTheWindow
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	ORMEditor *editor = _document.editor;
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	[queries window];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	for (ORMQuery *query in [ORMQuery queriesInModel:editor.model]) {
+		if ([query.name isEqualToString:@"Lives near work"]) {
+			queries.queryId = query.identifier;
+		}
+	}
+	[queries modelDidChange];
+	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:@"Lives near work (rule)"]);
+	XCTAssertEqual([[queries valueForKey:@"kindPopUp"] indexOfSelectedItem], (NSInteger)ORMQueryConstraint);
+	XCTAssertEqual([[queries valueForKey:@"modalityPopUp"] indexOfSelectedItem], 1);
+	XCTAssertFalse([[queries valueForKey:@"functionPopUp"] isEnabled]);
+	[[queries valueForKey:@"tabs"] selectTabViewItemWithIdentifier:@"results"];
+	XCTAssertEqualObjects([[queries valueForKey:@"resultsLabel"] stringValue],
+	                      @"1 violation of the rule in the sample population.");
+
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Branch"] identifier]];
+	ORMRole *(^through)(NSString *, NSString *) = ^ORMRole *(NSString *verb, NSString *player) {
+		for (ORMRole *role in [queries availableRoles]) {
+			NSString *reading = [[role.factType primaryReading] text] ?: @"";
+			for (ORMRole *other in role.factType.roles) {
+				if (other != role && [other.player.name isEqualToString:player]
+				    && [reading rangeOfString:verb].location != NSNotFound) {
+					return role;
+				}
+			}
+		}
+		return nil;
+	};
+	[queries addStepThrough:through(@"works for", @"Employee")];
+	ORMQueryStep *employs = [[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject];
+	[queries selectElement:[[employs.nodes firstObject] identifier]];
+	[queries addStepThrough:through(@"earns", @"Salary")];
+	[[queries valueForKey:@"kindPopUp"] selectItemWithTitle:@"Calculation"];
+	[queries performSelector:@selector(kindChanged:) withObject:nil];
+	XCTAssertTrue([[queries valueForKey:@"functionPopUp"] isEnabled]);
+	XCTAssertFalse([[queries valueForKey:@"modalityPopUp"] isEnabled]);
+	[[queries valueForKey:@"functionPopUp"] selectItemWithTitle:@"total"];
+	[[queries valueForKey:@"ofPopUp"] selectItemWithTitle:@"Salary"];
+	[queries performSelector:@selector(calculationChanged:) withObject:nil];
+	ORMQuery *built = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqual(built.kind, ORMQueryCalculation);
+	XCTAssertEqual(built.calculationFunction, ORMCalculationTotal);
+	XCTAssertEqualObjects([built.calculatedNode designation], @"Salary");
+	NSSet *totals = [NSSet setWithArray:@[ @[ @52, @1100000 ], @[ @7, @1150000 ], @[ @101, @50000 ], @[ @102, @50000 ] ]];
+	XCTAssertEqualObjects([NSSet setWithArray:[[queries result] rows]], totals, @"%@", [queries fetchText]);
+	/* Undone, a list again. */
+	[[_document undoManager] undo];
+	XCTAssertEqual([ORMQuery queryWithId:query inModel:editor.model].kind, ORMQueryCalculation);
+	XCTAssertNil([ORMQuery queryWithId:query inModel:editor.model].calculatedNode);
+	[[_document undoManager] undo];
+	XCTAssertEqual([ORMQuery queryWithId:query inModel:editor.model].kind, ORMQueryList);
+}
+
 - (void)testEveryMenuItemHasSomewhereToGo
 {
 	[self open:@"StockMate.orm"];

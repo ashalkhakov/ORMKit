@@ -35,6 +35,12 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSTabView *tabs;
 @property (nonatomic, strong) IBOutlet NSTableView *resultsTable;
 @property (nonatomic, strong) IBOutlet NSTextField *resultsLabel;
+/* What the query is for (docs/RULES.md): its kind; a constraint's
+ * modality; a calculation's function and node. */
+@property (nonatomic, strong) IBOutlet NSPopUpButton *kindPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *modalityPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *functionPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *ofPopUp;
 @end
 
 /* The most rows the Results tab reads: a page of the plan's objects. */
@@ -122,7 +128,10 @@ static const NSUInteger ORMResultsPage = 200;
 	}
 	[_queryPopUp removeAllItems];
 	for (ORMQuery *query in queries) {
-		[_queryPopUp addItemWithTitle:query.name];
+		/* A rule or a calculation says so beside its name. */
+		NSString *kind = query.kind == ORMQueryConstraint ? @" (rule)"
+			: (query.kind == ORMQueryCalculation ? @" (calculation)" : @"");
+		[_queryPopUp addItemWithTitle:[query.name stringByAppendingString:kind]];
 		[[_queryPopUp lastItem] setRepresentedObject:query.identifier];
 		if ([query.identifier isEqualToString:self.queryId]) {
 			[_queryPopUp selectItem:[_queryPopUp lastItem]];
@@ -145,6 +154,7 @@ static const NSUInteger ORMResultsPage = 200;
 	_query = self.queryId != nil ? [ORMQuery queryWithId:self.queryId inModel:model] : nil;
 	[_nameField setStringValue:_query.name ?: @""];
 	[_nameField setEnabled:_query != nil];
+	[self showKind];
 	[_items removeAllObjects];
 	[_children removeAllObjects];
 	for (ORMQueryNode *node in [_query nodes]) {
@@ -296,9 +306,13 @@ static const NSUInteger ORMResultsPage = 200;
 		_resultsNote = [NSString stringWithFormat:@"The query cannot be run: %@", [error localizedDescription]];
 		return nil;
 	}
-	NSMutableString *note = [NSMutableString stringWithFormat:@"%lu %@ of the sample population%@.",
-	                                                          (unsigned long)[_result.rows count],
-	                                                          [_result.rows count] == 1 ? @"row" : @"rows",
+	/* A rule's rows are its violations. */
+	BOOL rule = _query.kind == ORMQueryConstraint;
+	NSUInteger found = rule && [_result.columnTitles count] == 0 ? [_result.objects count] : [_result.rows count];
+	NSMutableString *note = [NSMutableString stringWithFormat:@"%lu %@ %@ the sample population%@.", (unsigned long)found,
+	                                                          rule ? (found == 1 ? @"violation" : @"violations")
+	                                                               : (found == 1 ? @"row" : @"rows"),
+	                                                          rule ? @"of the rule in" : @"of",
 	                                                          [cursor atEnd] ? @"" : @", the first page"];
 	if ([_store.notes count] > 0) {
 		[note appendFormat:@" Not in the store: %@", [_store.notes componentsJoinedByString:@" "]];
@@ -465,7 +479,70 @@ ORMCellText(id value)
 	[_roles reloadData];
 }
 
+/* What the query is for, and what only its kind has. */
+- (void)showKind
+{
+	ORMQueryKind kind = _query != nil ? _query.kind : ORMQueryList;
+	[_kindPopUp setEnabled:_query != nil];
+	[_kindPopUp selectItemAtIndex:kind];
+	[_modalityPopUp setEnabled:kind == ORMQueryConstraint];
+	[_modalityPopUp selectItemAtIndex:_query.isDeontic ? 1 : 0];
+	[_functionPopUp setEnabled:kind == ORMQueryCalculation];
+	[_functionPopUp selectItemAtIndex:kind == ORMQueryCalculation ? _query.calculationFunction : 0];
+	/* What a calculation can be of: every node below the root. */
+	[_ofPopUp removeAllItems];
+	[_ofPopUp addItemWithTitle:@"—"];
+	for (ORMQueryNode *node in kind == ORMQueryCalculation ? [_query nodes] : @[]) {
+		if (node == _query.root) {
+			continue;
+		}
+		[_ofPopUp addItemWithTitle:[node designation]];
+		[[_ofPopUp lastItem] setRepresentedObject:node.identifier];
+		if (node == _query.calculatedNode) {
+			[_ofPopUp selectItem:[_ofPopUp lastItem]];
+		}
+	}
+	[_ofPopUp setEnabled:kind == ORMQueryCalculation];
+}
+
 #pragma mark Actions
+
+- (void)kindChanged:(id)sender
+{
+	(void)sender;
+	NSString *reason = nil;
+	if (self.queryId == nil
+	    || ![[self queries] setKind:(ORMQueryKind)[_kindPopUp indexOfSelectedItem] ofQuery:self.queryId reason:&reason]) {
+		NSBeep();
+		[self say:reason ?: @"Choose a query first."];
+	}
+}
+
+- (void)modalityChanged:(id)sender
+{
+	(void)sender;
+	NSString *reason = nil;
+	if (![[self queries] setDeontic:[_modalityPopUp indexOfSelectedItem] == 1 ofQuery:self.queryId reason:&reason]) {
+		NSBeep();
+		[self say:reason ?: @"Only a constraint is alethic or deontic."];
+	}
+}
+
+- (void)calculationChanged:(id)sender
+{
+	(void)sender;
+	NSString *nodeId = [[_ofPopUp selectedItem] representedObject];
+	if (nodeId == nil) {
+		[self say:@"Choose the node the calculation is of."];
+		return;
+	}
+	NSString *reason = nil;
+	if (![[self queries] setCalculation:(ORMQueryCalculationFunction)[_functionPopUp indexOfSelectedItem] ofNode:nodeId
+	                            inQuery:self.queryId reason:&reason]) {
+		NSBeep();
+		[self say:reason ?: @"Only a calculation computes a value."];
+	}
+}
 
 - (NSString *)addQueryFrom:(NSString *)objectTypeId
 {

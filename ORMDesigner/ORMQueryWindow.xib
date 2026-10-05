@@ -34,6 +34,10 @@
                 <outlet property="tabs" destination="tabs" id="tabsOutlet"/>
                 <outlet property="resultsTable" destination="resultsTable" id="resultsTableOutlet"/>
                 <outlet property="resultsLabel" destination="resultsLabel" id="resultsLabelOutlet"/>
+                <outlet property="kindPopUp" destination="kindPopUp" id="kindPopUpOutlet"/>
+                <outlet property="modalityPopUp" destination="modalityPopUp" id="modalityPopUpOutlet"/>
+                <outlet property="functionPopUp" destination="functionPopUp" id="functionPopUpOutlet"/>
+                <outlet property="ofPopUp" destination="ofPopUp" id="ofPopUpOutlet"/>
                 <outlet property="window" destination="queryWindow" id="queryWindowOutlet16"/>
             </connections>
         </customObject>
@@ -122,15 +126,104 @@
                             <action selector="newQuery:" target="-2" id="newQueryButtonAction"/>
                         </connections>
                     </button>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="kindLabel">
+                        <rect key="frame" x="12" y="592" width="40" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Kind:" id="kindLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <popUpButton toolTip="What the query is for: listing, a rule its rows break, or a value of each object" verticalHuggingPriority="750" id="kindPopUp">
+                        <rect key="frame" x="52" y="588" width="120" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="kindPopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="kindPopUpMenu">
+                                <items>
+                                <menuItem title="List" id="kindPopUpItem0"/>
+                                <menuItem title="Constraint" id="kindPopUpItem1"/>
+                                <menuItem title="Calculation" id="kindPopUpItem2"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="kindChanged:" target="-2" id="kindPopUpAction"/>
+                        </connections>
+                    </popUpButton>
+                    <popUpButton toolTip="A rule that must hold, or one to be told of" verticalHuggingPriority="750" id="modalityPopUp">
+                        <rect key="frame" x="176" y="588" width="100" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="modalityPopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="modalityPopUpMenu">
+                                <items>
+                                <menuItem title="Alethic" id="modalityPopUpItem0"/>
+                                <menuItem title="Deontic" id="modalityPopUpItem1"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="modalityChanged:" target="-2" id="modalityPopUpAction"/>
+                        </connections>
+                    </popUpButton>
+                    <popUpButton toolTip="What the calculation computes of the node" verticalHuggingPriority="750" id="functionPopUp">
+                        <rect key="frame" x="280" y="588" width="90" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="functionPopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="functionPopUpMenu">
+                                <items>
+                                <menuItem title="value" id="functionPopUpItem0"/>
+                                <menuItem title="count" id="functionPopUpItem1"/>
+                                <menuItem title="total" id="functionPopUpItem2"/>
+                                <menuItem title="avg" id="functionPopUpItem3"/>
+                                <menuItem title="max" id="functionPopUpItem4"/>
+                                <menuItem title="min" id="functionPopUpItem5"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="calculationChanged:" target="-2" id="functionPopUpAction"/>
+                        </connections>
+                    </popUpButton>
+                    <textField focusRingType="none" verticalHuggingPriority="750" id="calculationOfLabel">
+                        <rect key="frame" x="374" y="592" width="20" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="of" id="calculationOfLabelCell">
+                            <font key="font" metaFont="smallSystem"/>
+                            <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                            <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                        </textFieldCell>
+                    </textField>
+                    <popUpButton toolTip="The node the calculation is of" verticalHuggingPriority="750" id="ofPopUp">
+                        <rect key="frame" x="396" y="588" width="208" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="ofPopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="ofPopUpMenu">
+                                <items>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="calculationChanged:" target="-2" id="ofPopUpAction"/>
+                        </connections>
+                    </popUpButton>
                     <scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="outlineScroll">
-                        <rect key="frame" x="8" y="286" width="596" height="328"/>
+                        <rect key="frame" x="8" y="286" width="596" height="296"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <clipView key="contentView" copiesOnScroll="NO" id="outlineClip">
-                            <rect key="frame" x="1" y="1" width="579" height="326"/>
+                            <rect key="frame" x="1" y="1" width="579" height="294"/>
                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                             <subviews>
                                 <outlineView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="outlineHeader" indentationPerLevel="14" outlineTableColumn="outlineoutlineColumn" id="outline">
-                                    <rect key="frame" x="0" y="0" width="579" height="303"/>
+                                    <rect key="frame" x="0" y="0" width="579" height="271"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                     <size key="intercellSpacing" width="3" height="2"/>
                                     <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
@@ -156,11 +249,11 @@
                             </subviews>
                         </clipView>
                         <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="outlineHScroller">
-                            <rect key="frame" x="1" y="312" width="579" height="15"/>
+                            <rect key="frame" x="1" y="280" width="579" height="15"/>
                             <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         </scroller>
                         <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="outlineVScroller">
-                            <rect key="frame" x="580" y="1" width="15" height="326"/>
+                            <rect key="frame" x="580" y="1" width="15" height="294"/>
                             <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
                         </scroller>
                         <tableHeaderView key="headerView" wantsLayer="YES" id="outlineHeader">
