@@ -1406,6 +1406,7 @@ ORMBagKey(ORMPlanValue *value)
 		self.reader = [[ORMPageReader alloc] initWithInput:[self.run cursor] evaluator:self.run
 		                                      columnTitles:[self.run.plan.columns valueForKey:@"title"]];
 		self.reader.objectsApart = [self.run.plan listsTheObjectRead];
+		self.reader.rowsInOrder = [self.run.plan ordersItsRows];
 	}
 	__block ORMQueryResult *page = nil;
 	__block NSError *failed = nil;

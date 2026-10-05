@@ -68,6 +68,10 @@ typedef void (^ORMBindRead)(NSArray *values, void (^done)(id answer, NSError *er
  * own only, and none is kept from one object to the next. NO by default:
  * every row given is kept, across pages. */
 @property (nonatomic) BOOL objectsApart;
+/* Whether equal rows are of objects one after another (the input is in
+ * the rows' order): then only the last object's rows are kept. NO by
+ * default. */
+@property (nonatomic) BOOL rowsInOrder;
 /* How many rows are kept to give none twice. */
 @property (nonatomic, readonly) NSUInteger rowsKept;
 @end

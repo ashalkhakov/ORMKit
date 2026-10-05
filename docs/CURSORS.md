@@ -201,8 +201,12 @@ run underneath does.
    object read (`-[ORMQueryPlan listsTheObjectRead]`).
    - The Page reader's `objectsApart` then compares an object's rows with
      its own only, and keeps nothing from one object to the next.
+   - Where the rows come in their own order (`-[ORMQueryPlan
+     ordersItsRows]`), `rowsInOrder` keeps only the last object's rows:
+     equal rows are of objects one after another. That holds when every
+     column is a value of the object read (no variable's), and the plan's
+     first sorts are by exactly those columns.
    - Otherwise it keeps every row given, as before.
-   - The ordered case (equal tuples adjacent) is not done.
 5. **Done: the interpreter's probes as BindJoins.**
    - A join the checks would probe object by object is read once for each
      batch, when its pairs' values are the object read's. Only its plan's

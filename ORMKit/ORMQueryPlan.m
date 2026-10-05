@@ -645,6 +645,26 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 
 @implementation ORMQueryPlan
 
+- (BOOL)ordersItsRows
+{
+	NSMutableSet *listed = [NSMutableSet set];
+	for (ORMPlanColumn *column in self.columns) {
+		if (column.path.variable != nil) {
+			return NO;
+		}
+		NSArray *keys = column.trail ?: @[];
+		[listed addObject:column.identifierKey != nil ? [keys arrayByAddingObject:column.identifierKey] : keys];
+	}
+	if ([listed count] == 0 || [self.sorts count] < [listed count]) {
+		return NO;
+	}
+	NSMutableSet *sorted = [NSMutableSet set];
+	for (NSUInteger i = 0; i < [listed count]; i++) {
+		[sorted addObject:[[self.sorts objectAtIndex:i] path].keys];
+	}
+	return [sorted isEqualToSet:listed];
+}
+
 - (BOOL)listsTheObjectRead
 {
 	for (ORMPlanColumn *column in self.columns) {

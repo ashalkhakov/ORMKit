@@ -249,6 +249,10 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* Whether a column lists the object read itself: then no row of one
  * object is another's. */
 - (BOOL)listsTheObjectRead;
+/* Whether its rows come in their own order: every column a value of the
+ * object read (no variable's), and its first sorts by exactly those. Then
+ * equal rows are of objects read one after another. */
+- (BOOL)ordersItsRows;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanSort *> *sorts;
 /* What the query says that the plan leaves out. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;

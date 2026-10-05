@@ -521,9 +521,12 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 - **What a page does not name is read whole:** a bag whose group is below
   a to-many, and an OData join whose pairs come from a lambda's variable
   ([ODATA.md](ODATA.md#not-done-yet)).
-- **The rows given so far are kept** so that none is given twice, unless
-  the rows list the object read: then no row of one object can be
-  another's, and nothing is kept between objects ([CURSORS.md](CURSORS.md)).
+- **The rows given so far are kept** so that none is given twice, with two
+  exceptions ([CURSORS.md](CURSORS.md)):
+  - when the rows list the object read: no row of one object can be
+    another's, and nothing is kept between objects;
+  - when the rows are sorted by all they list: equal rows come together, and
+    only the last is kept.
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point

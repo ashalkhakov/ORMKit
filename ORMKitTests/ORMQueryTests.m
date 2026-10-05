@@ -860,6 +860,74 @@
 	}
 }
 
+/* Rows in their own order: equal ones of objects one after another, so
+ * only the last object's are kept. */
+- (void)testRowsInOrderKeepOnlyTheLast
+{
+	ORMTestBatches *batches = [[ORMTestBatches alloc] init];
+	batches.batches = [NSMutableArray arrayWithObjects:@[ @"a", @"b" ], @[ @"c", @"d" ], nil];
+	ORMTestRows *evaluator = [[ORMTestRows alloc] init];
+	evaluator.rows = @{ @"a": @[ @[ @"x" ], @[ @"x" ] ], @"b": @[ @[ @"x" ] ], @"c": @[ @[ @"y" ] ], @"d": @[ @[ @"y" ] ] };
+	ORMPageReader *reader = [[ORMPageReader alloc] initWithInput:batches evaluator:evaluator columnTitles:@[ @"X" ]];
+	reader.rowsInOrder = YES;
+	NSMutableArray *rows = [NSMutableArray array];
+	while (![reader atEnd]) {
+		[reader nextPage:2 completion:^(ORMQueryResult *result, NSError *error) {
+			XCTAssertNotNil(result, @"%@", error);
+			[rows addObjectsFromArray:result.rows];
+		}];
+		XCTAssertLessThanOrEqual(reader.rowsKept, 1u);
+	}
+	XCTAssertEqualObjects(rows, (@[ @[ @"x" ], @[ @"y" ] ]));
+}
+
+/* Where the countries employees were born in, sorted, are all a query
+ * lists, equal rows come together: each country once, across batches and
+ * pages, from the store and from the service. */
+- (void)testSortedRowsAreDistinct
+{
+	NSString *q = [[self queries] addQueryNamed:@"Birthplaces" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	[[self queries] setProjected:NO ofNode:root];
+	ORMQueryNode *country = [self from:root through:[self role:@"bornIn" at:0] in:q];
+	[[self queries] setProjected:YES ofNode:country.identifier];
+	[[self queries] setSortOrder:ORMQueryAscending ofNode:country.identifier];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertTrue([plan ordersItsRows], @"%@", [plan text]);
+	XCTAssertFalse([plan listsTheObjectRead], @"%@", [plan text]);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:context error:NULL];
+	NSMutableArray *rows = [NSMutableArray array];
+	[context performBlockAndWait:^{
+		while (![cursor atEnd]) {
+			[rows addObjectsFromArray:[cursor nextPage:2 error:NULL].rows];
+		}
+	}];
+	NSArray *countries = @[ @[ @"Australia" ], @[ @"UK" ], @[ @"USA" ] ];
+	XCTAssertEqualObjects(rows, countries);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	ORMQueryODataCursor *served = [odata cursorWithTransport:[self countedServiceOver:context]
+	                                             serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	NSMutableArray *servedRows = [NSMutableArray array];
+	for (NSUInteger guard = 0; guard < 10 && ![served atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		[served nextPage:2 completion:^(ORMQueryResult *result, NSError *failed) {
+			XCTAssertNotNil(result, @"%@", failed);
+			[servedRows addObjectsFromArray:result.rows ?: @[]];
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
+	}
+	XCTAssertEqualObjects(servedRows, countries, @"%@", [odata requestText]);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* An employee like the first, numbered to come before everyone, saved. */
 - (void)hire:(int)nr inContext:(NSManagedObjectContext *)context
 {

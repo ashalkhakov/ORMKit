@@ -140,6 +140,8 @@
 	id<ORMBatchEvaluator> _evaluator;
 	NSArray<NSString *> *_titles;
 	NSMutableSet<NSArray *> *_given;
+	/* In order: the last object's rows. */
+	NSMutableSet<NSArray *> *_previous;
 }
 
 - (instancetype)initWithInput:(id<ORMCursor>)input
@@ -162,7 +164,7 @@
 
 - (NSUInteger)rowsKept
 {
-	return [_given count];
+	return [_given count] + [_previous count];
 }
 
 /* The batch's objects and rows, with its answers, added to the page. */
@@ -170,12 +172,16 @@
 {
 	_evaluator.answers = batch.answers;
 	for (id object in batch.objects) {
-		NSMutableSet *given = _objectsApart ? [NSMutableSet set] : _given;
+		BOOL own = _objectsApart || _rowsInOrder;
+		NSMutableSet *given = own ? [NSMutableSet set] : _given;
 		for (NSArray *tuple in [_evaluator rowsOf:object]) {
-			if (![given containsObject:tuple]) {
-				[given addObject:tuple];
+			if (![given containsObject:tuple] && !(_rowsInOrder && !_objectsApart && [_previous containsObject:tuple])) {
 				[rows addObject:tuple];
 			}
+			[given addObject:tuple];
+		}
+		if (_rowsInOrder && !_objectsApart && [given count] > 0) {
+			_previous = given;
 		}
 	}
 	_evaluator.answers = nil;
