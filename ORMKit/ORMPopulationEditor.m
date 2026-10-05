@@ -157,6 +157,93 @@ ORMHasInvariantForm(ORMObjectType *type)
 
 /* What each id names: the population's own instances first, by kind and
  * type, then the model's. */
+/* What the model has, by what makes it the one it is: a value by its
+ * type and text, an entity by the instances identifying it, a subtype's
+ * by its supertype's, a fact by its players. A sample population's item
+ * so keyed is that instance, not another. */
+- (NSMutableDictionary<NSString *, NSString *> *)existingInstances
+{
+	ORMModel *model = _editor.model;
+	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
+	for (ORMObjectType *type in model.objectTypes) {
+		for (ORMInstance *instance in [type instances]) {
+			if (instance.value != nil) {
+				[existing setObject:instance.identifier forKey:[NSString stringWithFormat:@"%@ %@", type.identifier,
+				                                                                           instance.value]];
+				continue;
+			}
+			if ([instance supertypeInstance] != nil) {
+				[existing setObject:instance.identifier
+				             forKey:[NSString stringWithFormat:@"%@ ^%@", type.identifier,
+				                                               [[instance supertypeInstance] identifier]]];
+				continue;
+			}
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			NSDictionary *identifying = [instance identifyingInstancesByRole];
+			for (NSString *roleId in identifying) {
+				[byRole setObject:[[identifying objectForKey:roleId] identifier] forKey:roleId];
+			}
+			if ([byRole count] > 0) {
+				[existing setObject:instance.identifier forKey:ORMKeyOf(type.identifier, byRole)];
+			}
+		}
+	}
+	for (ORMFactType *fact in model.factTypes) {
+		for (ORMFactInstance *instance in [fact instances]) {
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			for (NSString *roleId in instance.instancesByRole) {
+				ORMInstance *player = [instance.instancesByRole objectForKey:roleId];
+				/* A unary's truth value is not named when one is added. */
+				if (!player.objectType.isImplicitBooleanValue) {
+					[byRole setObject:player.identifier forKey:roleId];
+				}
+			}
+			[existing setObject:instance.identifier forKey:ORMKeyOf(fact.identifier, byRole)];
+		}
+	}
+	return existing;
+}
+
+/* The model's instance or fact a population's item would be, as adding it
+ * would find it; nil when it would be new. */
+- (NSString *)modelIdOf:(NSString *)sampleId in:(ORMSamplePopulation *)population
+{
+	NSDictionary *existing = [self existingInstances];
+	NSMutableDictionary *found = [NSMutableDictionary dictionary];
+	for (ORMSampleItem *item in [population items]) {
+		NSString *key = nil;
+		NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+		BOOL known = YES;
+		for (NSString *roleId in item.byRole) {
+			NSString *player = [item.byRole objectForKey:roleId];
+			NSString *had = [found objectForKey:player] ?: ([_editor.model elementWithId:player] != nil ? player : nil);
+			known = known && had != nil;
+			[byRole setObject:had ?: player forKey:roleId];
+		}
+		switch (item.kind) {
+		case ORMSampleValue:
+			key = [NSString stringWithFormat:@"%@ %@", item.typeId, item.text];
+			break;
+		case ORMSampleSubtype: {
+			NSString *supertype = [found objectForKey:item.text] ?: item.text;
+			key = [NSString stringWithFormat:@"%@ ^%@", item.typeId, supertype];
+			break;
+		}
+		case ORMSampleEntity:
+		case ORMSampleFact:
+			key = known ? ORMKeyOf(item.typeId, byRole) : nil;
+			break;
+		case ORMSampleObjectifying:
+			break;
+		}
+		NSString *had = key != nil ? [existing objectForKey:key] : nil;
+		if (had != nil) {
+			[found setObject:had forKey:item.identifier];
+		}
+	}
+	return [found objectForKey:sampleId];
+}
+
 - (BOOL)check:(ORMSamplePopulation *)population types:(NSMutableDictionary *)types reason:(NSString **)reason
 {
 	ORMModel *model = _editor.model;
@@ -304,26 +391,7 @@ ORMHasInvariantForm(ORMObjectType *type)
 		return YES;
 	}
 	ORMModel *model = _editor.model;
-	/* A value, or an entity so identified, the model has already is that
-	 * instance, not another. */
-	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
-	for (ORMObjectType *type in model.objectTypes) {
-		for (ORMInstance *instance in [type instances]) {
-			if (instance.value != nil) {
-				[existing setObject:instance.identifier forKey:[NSString stringWithFormat:@"%@ %@", type.identifier,
-				                                                                           instance.value]];
-				continue;
-			}
-			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
-			NSDictionary *identifying = [instance identifyingInstancesByRole];
-			for (NSString *roleId in identifying) {
-				[byRole setObject:[[identifying objectForKey:roleId] identifier] forKey:roleId];
-			}
-			if ([byRole count] > 0) {
-				[existing setObject:instance.identifier forKey:ORMKeyOf(type.identifier, byRole)];
-			}
-		}
-	}
+	NSMutableDictionary *existing = [self existingInstances];
 	[_editor change:@"Add Sample Population" with:^{
 		NSXMLDocument *document = self->_editor.document;
 		NSMutableDictionary *renamed = [NSMutableDictionary dictionary];
@@ -395,6 +463,11 @@ ORMHasInvariantForm(ORMObjectType *type)
 				break;
 			}
 			case ORMSampleSubtype: {
+				NSString *had = [existing objectForKey:[NSString stringWithFormat:@"%@ ^%@", item.typeId, resolve(item.text)]];
+				if (had != nil) {
+					[renamed setObject:had forKey:item.identifier];
+					break;
+				}
 				NSXMLElement *instance = ORMNewElement(document, CORE, @"EntityTypeSubtypeInstance");
 				ORMSetAttribute(instance, @"id", item.identifier);
 				[instance addChild:ORMNewRef(document, CORE, @"SupertypeInstance", resolve(item.text))];
@@ -665,6 +738,10 @@ ORMWrapPart(NSString *name, BOOL composite)
 		}
 	}
 	NSString *created = [population factOf:factTypeId players:players];
+	if ([self modelIdOf:created in:population] != nil) {
+		[self refuse:@"That fact is there already." reason:reason];
+		return nil;
+	}
 	return [self addPopulation:population reason:reason] ? created : nil;
 }
 
@@ -736,7 +813,20 @@ ORMWrapPart(NSString *name, BOOL composite)
 	NSString *factTypeId = fact.factType.identifier;
 	/* What would refuse it, asked before anything changes. */
 	ORMRole *role = [_editor.model elementWithId:roleId];
-	if ([self instanceOf:role.player.identifier named:text into:[[ORMSamplePopulation alloc] init] reason:reason] == nil) {
+	ORMSamplePopulation *trial = [[ORMSamplePopulation alloc] init];
+	NSString *player = [self instanceOf:role.player.identifier named:text into:trial reason:reason];
+	if (player == nil) {
+		return nil;
+	}
+	NSMutableDictionary *players = [kept mutableCopy];
+	[players setObject:player forKey:roleId];
+	NSString *same = [self modelIdOf:[trial factOf:factTypeId players:players] in:trial];
+	if ([same isEqualToString:factInstanceId]) {
+		/* Named as it was: nothing to change. */
+		return factInstanceId;
+	}
+	if (same != nil) {
+		[self refuse:@"That fact is there already." reason:reason];
 		return nil;
 	}
 	if ([[self elements:@"ObjectifiedInstance" referringTo:factInstanceId] count] > 0) {
@@ -752,11 +842,196 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return created;
 }
 
+/* The instance added, unless the model has it already. */
+- (NSString *)addInstance:(NSString *)created of:(NSString *)objectTypeId in:(ORMSamplePopulation *)population
+                   reason:(NSString **)reason
+{
+	if (created == nil) {
+		return nil;
+	}
+	NSString *had = [self modelIdOf:created in:population];
+	if (had != nil) {
+		ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+		[self refuse:[NSString stringWithFormat:@"There is already a %@ %@.", type.name,
+		                                        [self nameOf:[_editor.model elementWithId:had]]]
+		      reason:reason];
+		return nil;
+	}
+	return [self addPopulation:population reason:reason] ? created : nil;
+}
+
 - (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason
 {
 	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
 	NSString *created = [self instanceOf:objectTypeId named:text into:population reason:reason];
-	return created != nil && [self addPopulation:population reason:reason] ? created : nil;
+	return [self addInstance:created of:objectTypeId in:population reason:reason];
+}
+
+/* The instance with the values identifying it named anew, by the role
+ * each plays; or, for a value, the value. */
+- (BOOL)renameInstance:(NSString *)instanceId parts:(NSDictionary<NSString *, NSString *> *)textsByRole
+                reason:(NSString **)reason
+{
+	ORMInstance *instance = [_editor.model elementWithId:instanceId];
+	if (![instance isKindOfClass:[ORMInstance class]]) {
+		return [self refuse:@"There is no such instance." reason:reason];
+	}
+	ORMObjectType *type = instance.objectType;
+	if ([instance supertypeInstance] != nil) {
+		/* Identified as its supertype is: that one renamed. */
+		return [self renameInstance:[[instance supertypeInstance] identifier] parts:textsByRole reason:reason];
+	}
+	if (instance.value != nil) {
+		NSString *text = [textsByRole objectForKey:@""];
+		if ([text length] == 0) {
+			return [self refuse:@"Name the instance." reason:reason];
+		}
+		if ([text isEqualToString:instance.value]) {
+			return YES;
+		}
+		for (ORMInstance *other in [type instances]) {
+			if ([other.value isEqualToString:text]) {
+				return [self refuse:[NSString stringWithFormat:@"There is already a %@ %@.", type.name, text] reason:reason];
+			}
+		}
+		NSXMLElement *element = [_editor xml:instanceId];
+		[_editor change:@"Rename Value" with:^{
+			for (NSString *local in @[ @"Value", @"InvariantValue" ]) {
+				[ORMChild(element, CORE, local) setStringValue:text];
+			}
+		}];
+		return YES;
+	}
+	if ([instance objectifiedInstance] != nil || [self isTheFactItObjectifies:type]) {
+		return [self refuse:[NSString stringWithFormat:@"%@ is the fact it objectifies: edit that fact.", type.name]
+		             reason:reason];
+	}
+	/* The new parts, found or made; the others kept. */
+	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
+	NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+	NSDictionary *identifying = [instance identifyingInstancesByRole];
+	for (NSString *roleId in identifying) {
+		[byRole setObject:[[identifying objectForKey:roleId] identifier] forKey:roleId];
+	}
+	NSMutableDictionary *named = [NSMutableDictionary dictionary];
+	for (NSString *roleId in textsByRole) {
+		ORMRole *role = [_editor.model elementWithId:roleId];
+		if (![role isKindOfClass:[ORMRole class]] || [byRole objectForKey:roleId] == nil) {
+			return [self refuse:@"It is not identified by that role." reason:reason];
+		}
+		NSString *part = [self instanceOf:role.player.identifier named:[textsByRole objectForKey:roleId] into:population
+		                           reason:reason];
+		if (part == nil) {
+			return NO;
+		}
+		[byRole setObject:part forKey:roleId];
+		[named setObject:part forKey:roleId];
+	}
+	/* Another so identified, when each part is one the model has. */
+	NSMutableDictionary *resolved = [NSMutableDictionary dictionary];
+	BOOL known = YES;
+	for (NSString *roleId in byRole) {
+		NSString *part = [byRole objectForKey:roleId];
+		NSString *had = [_editor.model elementWithId:part] != nil ? part : [self modelIdOf:part in:population];
+		known = known && had != nil;
+		[resolved setObject:had ?: part forKey:roleId];
+	}
+	NSString *same = known ? [[self existingInstances] objectForKey:ORMKeyOf(type.identifier, resolved)] : nil;
+	if ([same isEqualToString:instanceId]) {
+		return YES;
+	}
+	if (same != nil) {
+		return [self refuse:[NSString stringWithFormat:@"There is already a %@ %@.", type.name,
+		                                               [self nameOf:[_editor.model elementWithId:same]]]
+		             reason:reason];
+	}
+	/* Its role instances for those roles, pointed at the new parts. */
+	NSMutableDictionary *roleInstances = [NSMutableDictionary dictionary];
+	for (NSXMLElement *refs in ORMChildren([_editor xml:instanceId], CORE, @"RoleInstances")) {
+		for (NSXMLElement *ref in ORMChildren(refs, CORE, @"EntityTypeRoleInstance")) {
+			NSXMLElement *roleInstance = [_editor xml:ORMAttribute(ref, @"ref")];
+			NSXMLElement *role = (NSXMLElement *)[[roleInstance parent] parent];
+			NSString *roleId = ORMAttribute(role, @"id");
+			if (roleId != nil && [named objectForKey:roleId] != nil) {
+				[roleInstances setObject:roleInstance forKey:roleId];
+			}
+		}
+	}
+	__block BOOL done = YES;
+	[_editor group:@"Rename Instance" with:^{
+		/* The new parts first: they may be found, or made, under other ids. */
+		NSMutableDictionary *parts = [NSMutableDictionary dictionary];
+		for (NSString *roleId in named) {
+			NSString *had = [self modelIdOf:[named objectForKey:roleId] in:population];
+			[parts setObject:had ?: [named objectForKey:roleId] forKey:roleId];
+		}
+		if (![population isEmpty] && ![self addPopulation:population reason:reason]) {
+			done = NO;
+			return;
+		}
+		NSMutableArray *old = [NSMutableArray array];
+		[self->_editor change:@"Rename Instance" with:^{
+			for (NSString *roleId in roleInstances) {
+				NSXMLElement *roleInstance = [roleInstances objectForKey:roleId];
+				[old addObject:ORMAttribute(roleInstance, @"ref") ?: @""];
+				ORMSetAttribute(roleInstance, @"ref", [parts objectForKey:roleId]);
+			}
+		}];
+		/* A value that identified it and nothing else now goes. */
+		for (NSString *identifier in old) {
+			NSXMLElement *element = [self->_editor xml:identifier];
+			if ([[element localName] isEqualToString:@"ValueTypeInstance"]
+			    && [[self elements:@"EntityTypeRoleInstance" referringTo:identifier] count] == 0
+			    && [[self elements:@"FactTypeRoleInstance" referringTo:identifier] count] == 0) {
+				[self->_editor change:@"Remove Value" with:^{
+					[element detach];
+				}];
+			}
+		}
+	}];
+	return done;
+}
+
+- (BOOL)renameInstance:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason
+{
+	ORMInstance *instance = [_editor.model elementWithId:instanceId];
+	while ([instance isKindOfClass:[ORMInstance class]] && [instance supertypeInstance] != nil) {
+		instance = [instance supertypeInstance];
+	}
+	if (![instance isKindOfClass:[ORMInstance class]]) {
+		return [self refuse:@"There is no such instance." reason:reason];
+	}
+	if (instance.value != nil) {
+		return [self renameInstance:instance.identifier parts:@{ @"": text ?: @"" } reason:reason];
+	}
+	NSArray *roles = [instance.objectType.preferredIdentifier allRoles];
+	if ([roles count] == 1) {
+		return [self renameInstance:instance.identifier parts:@{ [[roles firstObject] identifier]: text ?: @"" }
+		                     reason:reason];
+	}
+	NSArray *parts = ORMNameParts(text ?: @"");
+	if ([roles count] == 0 || [parts count] != [roles count]) {
+		return [self refuse:[NSString stringWithFormat:@"Name each of what identifies %@, separated by commas.",
+		                                               instance.objectType.name]
+		             reason:reason];
+	}
+	NSMutableDictionary *texts = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		[texts setObject:ORMUnwrapPart([parts objectAtIndex:i]) forKey:[[roles objectAtIndex:i] identifier]];
+	}
+	return [self renameInstance:instance.identifier parts:texts reason:reason];
+}
+
+- (BOOL)renameInstance:(NSString *)instanceId role:(NSString *)roleId to:(NSString *)text reason:(NSString **)reason
+{
+	ORMInstance *instance = [_editor.model elementWithId:instanceId];
+	while ([instance isKindOfClass:[ORMInstance class]] && [instance supertypeInstance] != nil) {
+		instance = [instance supertypeInstance];
+	}
+	if ([[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] length] == 0) {
+		return [self refuse:@"Name the instance." reason:reason];
+	}
+	return [self renameInstance:instance.identifier parts:@{ roleId ?: @"": text } reason:reason];
 }
 
 - (NSString *)addInstanceOf:(NSString *)objectTypeId
@@ -765,7 +1040,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 {
 	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
 	NSString *created = [self instanceOf:objectTypeId namedByRole:textsByRole into:population reason:reason];
-	return created != nil && [self addPopulation:population reason:reason] ? created : nil;
+	return [self addInstance:created of:objectTypeId in:population reason:reason];
 }
 
 - (BOOL)removeInstance:(NSString *)instanceId reason:(NSString **)reason

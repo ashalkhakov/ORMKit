@@ -119,6 +119,59 @@
 	XCTAssertTrue([[[ORMPopulationChecker alloc] initWithModel:_editor.model].violations count] == 0);
 }
 
+/* What the model has already is not added again: an instance, a fact, or
+ * a fact edited into another's twin. An instance is renamed: an entity by
+ * its identifying value, the facts it plays in kept, the value no longer
+ * used gone; a value in place; never to another's name. */
+- (void)testDuplicatesAreRefusedAndInstancesRenamed
+{
+	[self addAnnAndBob];
+	ORMPopulationEditor *editor = _editor.populationEditor;
+	ORMFactType *born = [_editor.model elementWithId:_born];
+	NSString *personRole = [[born.roles firstObject] identifier];
+	NSString *countryRole = [[born.roles lastObject] identifier];
+	NSString *reason = nil;
+	XCTAssertNil([editor addInstanceOf:_country named:@"AU" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"There is already a Country AU.");
+	XCTAssertNil([editor addInstanceOf:_person named:@"2" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"There is already a Person 2.");
+	XCTAssertNil(([editor addFactOf:_born named:@{ personRole: @"1", countryRole: @"AU" } reason:&reason]));
+	XCTAssertEqualObjects(reason, @"That fact is there already.");
+	XCTAssertEqual([[[_editor.model elementWithId:_born] instances] count], 2u);
+
+	/* Ann's fact edited: as it was, nothing changes; into Bob's, refused. */
+	ORMFactInstance *ann = [[[_editor.model elementWithId:_born] instances] firstObject];
+	XCTAssertEqualObjects([editor setPlayer:@"AU" ofRole:countryRole inFact:ann.identifier reason:&reason], ann.identifier);
+	XCTAssertNil([editor setPlayer:@"2" ofRole:personRole inFact:ann.identifier reason:&reason]);
+	XCTAssertEqualObjects(reason, @"That fact is there already.");
+	XCTAssertEqual([[[_editor.model elementWithId:_born] instances] count], 2u);
+
+	/* Person 1 is Person 7 now, still born in AU; the id 1 is gone. */
+	ORMInstance *first = [[(ORMObjectType *)[_editor.model elementWithId:_person] instances] firstObject];
+	XCTAssertEqualObjects([editor nameOf:first], @"1");
+	XCTAssertTrue([editor renameInstance:first.identifier to:@"7" reason:&reason], @"%@", reason);
+	first = [_editor.model elementWithId:first.identifier];
+	XCTAssertEqualObjects([editor nameOf:first], @"7");
+	ann = [_editor.model elementWithId:ann.identifier];
+	XCTAssertEqualObjects([editor nameOf:[ann.instancesByRole objectForKey:personRole]], @"7");
+	ORMObjectType *ids = [[_editor.model elementWithId:_person] referenceModeValueType];
+	XCTAssertEqualObjects([[[ids instances] valueForKey:@"value"] sortedArrayUsingSelector:@selector(compare:)], (@[ @"2", @"7" ]));
+	XCTAssertFalse([editor renameInstance:first.identifier to:@"2" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"There is already a Person 2.");
+	XCTAssertTrue([editor renameInstance:first.identifier to:@"7" reason:&reason]);
+	[self.undoManager undo];
+	XCTAssertEqualObjects([editor nameOf:[_editor.model elementWithId:first.identifier]], @"1");
+
+	/* A value renamed in place: the country it identifies with it. */
+	ORMObjectType *codes = [[_editor.model elementWithId:_country] referenceModeValueType];
+	ORMInstance *au = [[codes instances] firstObject];
+	XCTAssertTrue([editor renameInstance:au.identifier to:@"AT" reason:&reason], @"%@", reason);
+	XCTAssertEqualObjects([editor nameOf:[[(ORMObjectType *)[_editor.model elementWithId:_country] instances] firstObject]], @"AT");
+	XCTAssertTrue([editor addInstanceOf:_country named:@"AU" reason:&reason] != nil, @"%@", reason);
+	XCTAssertFalse([editor renameInstance:au.identifier to:@"AU" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"There is already a Country_code AU.");
+}
+
 /* An entity type identified by the facts it plays in, not one value: the
  * roles of its preferred identifier and their players. */
 - (NSString *)entity:(NSString *)name identifiedBy:(NSArray<NSString *> *)players readings:(NSArray<NSString *> *)readings
@@ -167,8 +220,9 @@
 	ORMInstance *first = [_editor.model elementWithId:added];
 	XCTAssertEqualObjects([editor nameOf:first], @"1, 101");
 	XCTAssertEqual([[[_editor.model elementWithId:building] instances] count], 1u);
-	/* Named again: the same one. */
-	XCTAssertNotNil([editor addInstanceOf:room named:@" 1 ,101 " reason:&reason], @"%@", reason);
+	/* Named again, spaced otherwise: the same one, not added twice. */
+	XCTAssertNil([editor addInstanceOf:room named:@" 1 ,101 " reason:&reason]);
+	XCTAssertEqualObjects(reason, @"There is already a Room 1, 101.");
 	XCTAssertEqual([[[_editor.model elementWithId:room] instances] count], 1u);
 	XCTAssertNil([editor addInstanceOf:room named:@"1" reason:&reason]);
 	XCTAssertEqualObjects(reason, @"Room is identified by Building, RoomNr: name each, separated by commas.");
@@ -179,10 +233,18 @@
 	XCTAssertNotNil(added, @"%@", reason);
 	NSString *name = [editor nameOf:[_editor.model elementWithId:added]];
 	XCTAssertEqualObjects(name, @"2, 'A, east'");
-	XCTAssertNotNil([editor addInstanceOf:room named:name reason:&reason], @"%@", reason);
+	XCTAssertNil([editor addInstanceOf:room named:name reason:&reason]);
 	XCTAssertEqual([[[_editor.model elementWithId:room] instances] count], 2u);
 	XCTAssertNil([editor addInstanceOf:room namedByRole:@{ [roles[0] identifier]: @"3" } reason:&reason]);
 	XCTAssertEqualObjects(reason, @"Name the RoomNr too.");
+	XCTAssertNil([editor addInstanceOf:room named:@"2, 'A, east'" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"There is already a Room 2, 'A, east'.");
+	/* One part renamed; into another's name, refused. */
+	XCTAssertTrue([editor renameInstance:first.identifier role:[roles[1] identifier] to:@"102" reason:&reason], @"%@", reason);
+	XCTAssertEqualObjects([editor nameOf:[_editor.model elementWithId:first.identifier]], @"1, 102");
+	XCTAssertFalse([editor renameInstance:first.identifier to:@"2, 'A, east'" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"There is already a Room 2, 'A, east'.");
+	XCTAssertTrue([editor renameInstance:first.identifier to:@"1, 101" reason:&reason], @"%@", reason);
 
 	/* A desk is identified by its room and its number: nested. */
 	NSString *deskNr = [_editor.objectTypeEditor addValueTypeNamed:@"DeskNr" dataType:nil onDiagram:diagram

@@ -159,6 +159,16 @@ type's or object type's population as a table, a column for each role
     reads it back;
   - a subtype's, through its supertype.
 - `setPlayer:ofRole:inFact:` names a player anew, replacing the fact.
+- `renameInstance:to:` (and `role:to:`, for one part) renames an instance:
+  - a value in place;
+  - an entity by the value or values identifying it. The instance keeps its
+    facts and is identified by the new value, found or made. A value that
+    then identifies nothing is removed.
+- **What the model has already is refused, with why.** This covers an
+  instance named as one it has ("There is already a Person 1."), a fact
+  with the same players, a player edit that makes a fact another's twin,
+  and a rename to another instance's name. A refused new row stays, as
+  typed, to be put right or removed.
 - `removeFact:` removes a fact. It is refused while an objectifying instance
   is that fact.
 - `addInstanceOf:named:` and `removeInstance:` add and remove an object
@@ -169,8 +179,6 @@ type's or object type's population as a table, a column for each role
 
 ## Not done yet
 
-- **Editing a value in place**, rather than a fact's player, or renaming an
-  entity instance.
 - **An objectifying type's instances** by hand: such an instance is the
   fact it objectifies, and the table refuses it by name.
 - **The generator's limits:**

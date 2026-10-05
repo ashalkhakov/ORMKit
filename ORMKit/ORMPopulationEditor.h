@@ -72,16 +72,26 @@
  * an objectifying type is the fact. */
 - (BOOL)removeFact:(NSString *)factInstanceId reason:(NSString **)reason;
 /* The fact with the role's player named anew: the fact replaced, the
- * others' players kept. The new fact's id. */
+ * others' players kept. The new fact's id; the fact's own when it is named
+ * as it was. Refused when another fact is the one it would be. */
 - (NSString *)setPlayer:(NSString *)text ofRole:(NSString *)roleId inFact:(NSString *)factInstanceId
                  reason:(NSString **)reason;
-/* An instance of the object type, named so. Its id. */
+/* An instance of the object type, named so. Its id. Refused when the
+ * model has it already, as a fact the model has is. */
 - (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason;
 /* An instance of an entity type identified by several values, each named
  * by the role of its preferred identifier it plays (by id). Its id. */
 - (NSString *)addInstanceOf:(NSString *)objectTypeId
                 namedByRole:(NSDictionary<NSString *, NSString *> *)textsByRole
                      reason:(NSString **)reason;
+/* The instance named anew, one change: a value's value; an entity's
+ * identifying value, or values as its name has them, the instance then
+ * identified by those (found or made), and a value that identified it and
+ * nothing else removed; a subtype's, its supertype's. Refused when another
+ * instance is named so. */
+- (BOOL)renameInstance:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason;
+/* The same for one of the values identifying it, by the role it plays. */
+- (BOOL)renameInstance:(NSString *)instanceId role:(NSString *)roleId to:(NSString *)text reason:(NSString **)reason;
 /* The roles an instance of the entity type is named by when more than
  * one value identifies it: its preferred identifier's (its supertype's,
  * for a subtype identified as that is), in order; empty otherwise. */

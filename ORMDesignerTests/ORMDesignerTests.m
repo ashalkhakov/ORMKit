@@ -331,6 +331,28 @@
 	[[table window] makeFirstResponder:nil];
 	XCTAssertEqual([[[_document.editor.model objectTypeNamed:@"Person"] instances] count], 1u);
 	XCTAssertEqualObjects([population textAtRow:0 column:0], @"1");
+
+	/* The same again: refused, and said why. */
+	[population addRow:nil];
+	[[table currentEditor] setString:@"1"];
+	[[table window] makeFirstResponder:nil];
+	XCTAssertEqual([[[_document.editor.model objectTypeNamed:@"Person"] instances] count], 1u);
+	XCTAssertEqualObjects([population.status stringValue], @"There is already a Person 1.");
+
+	/* The refused row stays, as typed, to put right or remove. */
+	XCTAssertEqual([table numberOfRows], 2);
+	XCTAssertEqualObjects([population textAtRow:1 column:0], @"1");
+	[table selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+	[population removeRows:nil];
+	XCTAssertEqual([table numberOfRows], 1);
+
+	/* An existing row edited: Person 1 is Person 5. */
+	[table editColumn:0 row:0 withEvent:nil select:YES];
+	XCTAssertEqual([table editedRow], 0);
+	[[table currentEditor] setString:@"5"];
+	[[table window] makeFirstResponder:nil];
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"5");
+	XCTAssertEqual([[[_document.editor.model objectTypeNamed:@"Person"] instances] count], 1u);
 }
 
 /* An object type identified by several values has a column for each: a

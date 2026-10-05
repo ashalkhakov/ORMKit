@@ -187,8 +187,7 @@
 {
 	(void)tableView;
 	(void)column;
-	/* An instance is renamed by its facts, not here: only a new one is. */
-	return _fact != nil || (NSUInteger)row >= [_rows count];
+	return _fact != nil || _type != nil || (NSUInteger)row >= [_rows count];
 }
 
 - (void)tableView:(NSTableView *)tableView setObjectValue:(id)value forTableColumn:(NSTableColumn *)column row:(NSInteger)row
@@ -242,7 +241,23 @@
 		[self reload];
 		return;
 	}
-	if (_fact == nil || [named isEqualToString:[self textAtRow:row column:column]]) {
+	if ([named isEqualToString:[self textAtRow:row column:column]]) {
+		return;
+	}
+	if (_fact == nil) {
+		/* An instance renamed: the value, or what identifies it. */
+		ORMInstance *instance = [_rows objectAtIndex:(NSUInteger)row];
+		NSString *reason = nil;
+		BOOL renamed = [_parts count] > 0
+		                   ? [self.editor.populationEditor renameInstance:instance.identifier
+		                                                             role:[[_parts objectAtIndex:(NSUInteger)column] identifier]
+		                                                               to:named
+		                                                           reason:&reason]
+		                   : [self.editor.populationEditor renameInstance:instance.identifier to:named reason:&reason];
+		if (!renamed) {
+			[self refuse:reason];
+		}
+		[self reload];
 		return;
 	}
 	ORMFactInstance *fact = [_rows objectAtIndex:(NSUInteger)row];
