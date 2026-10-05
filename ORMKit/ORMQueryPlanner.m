@@ -283,6 +283,41 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		}
 		[sorts addObject:[ORMPlanSort sortBy:path ascending:node.sortOrder == ORMQueryAscending]];
 	}
+	if ([sorts count] == 0) {
+		[sorts addObjectsFromArray:[self defaultSorts]];
+	}
+	return sorts;
+}
+
+/* With no node sorted, the rows in their own order, as D4 reads a table
+ * by its key: by each column, a value or an object by its identifier,
+ * where each is reached from the object read through to-ones and the
+ * object read is not listed itself (its key orders it anyway). Else none:
+ * a backend orders by the key. */
+- (NSArray<ORMPlanSort *> *)defaultSorts
+{
+	NSMutableArray *sorts = [NSMutableArray array];
+	NSMutableArray *paths = [NSMutableArray array];
+	for (NSArray *column in _columns) {
+		ORMPlannerPlace *place = [column objectAtIndex:1];
+		id identifier = [column lastObject];
+		if ([place isRead] || place.path.variable != nil || (place.entity != nil && identifier == [NSNull null])) {
+			return @[];
+		}
+		for (ORMCDProperty *property in place.trail) {
+			if ([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany) {
+				return @[];
+			}
+		}
+		ORMPlanPath *path = [place pathFromRead];
+		if (place.entity != nil) {
+			path = [path pathByAddingKey:[identifier name]];
+		}
+		if (![paths containsObject:path.keys]) {
+			[paths addObject:path.keys];
+			[sorts addObject:[ORMPlanSort sortBy:path ascending:YES]];
+		}
+	}
 	return sorts;
 }
 

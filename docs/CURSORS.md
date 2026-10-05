@@ -201,11 +201,20 @@ run underneath does.
    object read (`-[ORMQueryPlan listsTheObjectRead]`).
    - The Page reader's `objectsApart` then compares an object's rows with
      its own only, and keeps nothing from one object to the next.
-   - Where the rows come in their own order (`-[ORMQueryPlan
-     ordersItsRows]`), `rowsInOrder` keeps only the last object's rows:
-     equal rows are of objects one after another. That holds when every
-     column is a value of the object read (no variable's), and the plan's
-     first sorts are by exactly those columns.
+   - Where the rows come in their own order, `rowsInOrder` keeps only the
+     last object's rows: equal rows are of objects one after another.
+     - Each backend asks `-[ORMQueryPlan rowsFollowOrder:key:]` of the order
+       its scan really reads in: the sorts and then the key, or the sorts
+       alone by offset.
+     - The test is that a prefix of the order determines the rows and they
+       determine it. Every column must be a value of the object read (no
+       variable's). A listed object's identifier determines what is reached
+       from it through to-ones, and the whole key determines everything.
+       This is order optimization with functional dependencies (Simmen,
+       Shekita and Malkemus, 1996).
+   - A plan with no sorts of its own that lists only such values (not the
+     object read) is sorted by them by the planner, as D4 reads a table by
+     its key. Its rows then always come in their own order.
    - Otherwise it keeps every row given, as before.
 5. **Done: the interpreter's probes as BindJoins.**
    - A join the checks would probe object by object is read once for each
@@ -243,6 +252,8 @@ run underneath does.
 - T. Neumann, A. Kemper, "Unnesting Arbitrary Queries", BTW 2015.
 - T. Grust, "Monad Comprehensions: A Versatile Representation for
   Queries", 2003.
+- D. Simmen, E. Shekita, T. Malkemus, "Fundamental Techniques for Order
+  Optimization", SIGMOD 1996.
 - M. Winand, *Use The Index, Luke*: "Paging Through Results" (the seek
   method).
 - Reactive Streams, the `request(n)` protocol.

@@ -645,24 +645,92 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 
 @implementation ORMQueryPlan
 
-- (BOOL)ordersItsRows
+/* Each column's value as a key path from the object read; nil where one
+ * is a variable's. */
+- (NSArray<NSArray<NSString *> *> *)listedPaths
 {
-	NSMutableSet *listed = [NSMutableSet set];
+	NSMutableArray *listed = [NSMutableArray array];
 	for (ORMPlanColumn *column in self.columns) {
 		if (column.path.variable != nil) {
-			return NO;
+			return nil;
 		}
 		NSArray *keys = column.trail ?: @[];
-		[listed addObject:column.identifierKey != nil ? [keys arrayByAddingObject:column.identifierKey] : keys];
+		NSArray *path = column.identifierKey != nil ? [keys arrayByAddingObject:column.identifierKey] : keys;
+		if (![listed containsObject:path]) {
+			[listed addObject:path];
+		}
 	}
-	if ([listed count] == 0 || [self.sorts count] < [listed count]) {
+	return listed;
+}
+
+static BOOL
+ORMHasPrefix(NSArray *path, NSArray *prefix)
+{
+	return [path count] >= [prefix count] && [[path subarrayWithRange:NSMakeRange(0, [prefix count])] isEqualToArray:prefix];
+}
+
+- (BOOL)rowsFollowOrder:(NSArray<NSArray<NSString *> *> *)order key:(NSArray<NSString *> *)key
+{
+	NSArray *listed = [self listedPaths];
+	if ([listed count] == 0) {
 		return NO;
 	}
-	NSMutableSet *sorted = [NSMutableSet set];
-	for (NSUInteger i = 0; i < [listed count]; i++) {
-		[sorted addObject:[[self.sorts objectAtIndex:i] path].keys];
+	/* The objects the rows list by their identifiers: @[ trail, identifier ]. */
+	NSMutableArray *identified = [NSMutableArray array];
+	for (ORMPlanColumn *column in self.columns) {
+		if (column.identifierKey != nil) {
+			[identified addObject:@[ column.trail ?: @[], column.identifierKey ]];
+		}
 	}
-	return [sorted isEqualToSet:listed];
+	/* Whether a path is a function of the rows: listed, or reached from a
+	 * listed object through to-ones. */
+	BOOL (^byRows)(NSArray *) = ^BOOL(NSArray *path) {
+		if ([listed containsObject:path]) {
+			return YES;
+		}
+		for (NSArray *object in identified) {
+			if (ORMHasPrefix(path, [object firstObject]) && [path count] > [[object firstObject] count]) {
+				return YES;
+			}
+		}
+		return NO;
+	};
+	NSMutableArray *prefix = [NSMutableArray array];
+	for (NSArray *part in order) {
+		if (!byRows(part)) {
+			/* The rows do not say where they are in the order. */
+			return NO;
+		}
+		[prefix addObject:part];
+		/* Whether the prefix determines every column: each in it, reached
+		 * from an object it identifies, or the whole key in it. */
+		BOOL whole = [key count] > 0;
+		for (NSString *each in key) {
+			whole = whole && [prefix containsObject:@[ each ]];
+		}
+		BOOL determined = YES;
+		for (NSArray *path in listed) {
+			BOOL one = whole || [prefix containsObject:path];
+			for (NSArray *object in identified) {
+				NSArray *identifier = [[object firstObject] arrayByAddingObject:[object lastObject]];
+				one = one || ([prefix containsObject:identifier] && ORMHasPrefix(path, [object firstObject]));
+			}
+			determined = determined && one;
+		}
+		if (determined) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+- (BOOL)ordersItsRows
+{
+	NSMutableArray *order = [NSMutableArray array];
+	for (ORMPlanSort *sort in self.sorts) {
+		[order addObject:sort.path.keys];
+	}
+	return [self rowsFollowOrder:order key:nil];
 }
 
 - (BOOL)listsTheObjectRead

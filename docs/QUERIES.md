@@ -293,6 +293,7 @@ Its text (`-[ORMQueryPlan text]`):
 | a step through an absorbed object type to an entity that absorbs it too | `... in join1`, a set the plan defines: `let join1 = read Branch where nr = 52` (below) |
 | the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier |
 | a sorted listed node | `order by nr descending`, through to-ones |
+| nothing sorted, only values of the object read listed (not it) | ordered by them, as D4 reads a table by its key: `order by country.name`, so equal rows come together |
 
 ### Aggregates of a bag
 
@@ -525,8 +526,11 @@ population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
   exceptions ([CURSORS.md](CURSORS.md)):
   - when the rows list the object read: no row of one object can be
     another's, and nothing is kept between objects;
-  - when the rows are sorted by all they list: equal rows come together, and
-    only the last is kept.
+  - when the rows come in their own order: equal rows come together, and
+    only the last is kept. They do when a prefix of the order says what the
+    rows are, and the rows say it. A listed object's identifier says what
+    is reached from it through to-ones. A plan with no sorts of its own
+    is ordered by what it lists, where it can be.
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point

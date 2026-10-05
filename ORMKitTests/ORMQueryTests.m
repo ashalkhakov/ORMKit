@@ -928,6 +928,100 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* Every row of the plan from the store and from the service, read two
+ * objects at a time. */
+- (NSArray *)rowsOf:(ORMQueryPlan *)plan planner:(ORMQueryPlanner *)planner twoAtATimeIn:(NSManagedObjectContext *)context
+           service:(NSArray **)served
+{
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:context error:NULL];
+	NSMutableArray *rows = [NSMutableArray array];
+	[context performBlockAndWait:^{
+		while (![cursor atEnd]) {
+			[rows addObjectsFromArray:[cursor nextPage:2 error:NULL].rows];
+		}
+	}];
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	ORMQueryODataCursor *service = [odata cursorWithTransport:[self countedServiceOver:context]
+	                                              serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	NSMutableArray *servedRows = [NSMutableArray array];
+	for (NSUInteger guard = 0; guard < 10 && ![service atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		[service nextPage:2 completion:^(ORMQueryResult *result, NSError *failed) {
+			XCTAssertNotNil(result, @"%@", failed);
+			[servedRows addObjectsFromArray:result.rows ?: @[]];
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
+	}
+	*served = servedRows;
+	return rows;
+}
+
+/* Sorted by nothing, a query of the countries employees were born in is
+ * read in its rows' order, as D4 reads a table by its key: by the country,
+ * then the employee's key. Each country once, only the last kept. */
+- (void)testUnsortedRowsAreReadInTheirOwnOrder
+{
+	NSString *q = [[self queries] addQueryNamed:@"Birthplaces" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	[[self queries] setProjected:NO ofNode:root];
+	ORMQueryNode *country = [self from:root through:[self role:@"bornIn" at:0] in:q];
+	[[self queries] setProjected:YES ofNode:country.identifier];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqualObjects([plan.sorts valueForKey:@"description"], @[ @"country.name ascending" ], @"%@", [plan text]);
+	XCTAssertTrue([plan ordersItsRows], @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	XCTAssertTrue([[odata queryText] rangeOfString:@"$orderby=Country/Name"].location != NSNotFound, @"%@", [odata queryText]);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	NSArray *served = nil;
+	NSArray *countries = @[ @[ @"Australia" ], @[ @"UK" ], @[ @"USA" ] ];
+	XCTAssertEqualObjects([self rowsOf:plan planner:planner twoAtATimeIn:context service:&served], countries);
+	XCTAssertEqualObjects(served, countries);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* Branches and their heads, sorted by branch only: the branch, by its
+ * identifier, says who heads it, so the rows still come in their own
+ * order, and each branch once with its head. */
+- (void)testRowsAnObjectInTheOrderDeterminesFollowIt
+{
+	NSString *q = [[self queries] addQueryNamed:@"Heads" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	[[self queries] setProjected:NO ofNode:root];
+	ORMQueryNode *branch = [self from:root through:[self role:@"worksFor" at:0] in:q];
+	[[self queries] setProjected:YES ofNode:branch.identifier];
+	[[self queries] setSortOrder:ORMQueryAscending ofNode:branch.identifier];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
+	[[self queries] setProjected:YES ofNode:head.identifier];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqualObjects([plan.sorts valueForKey:@"description"], @[ @"branch.nr ascending" ], @"%@", [plan text]);
+	XCTAssertTrue([plan ordersItsRows], @"%@", [plan text]);
+	/* Read by the employee's name first: the rows do not say where they
+	 * are in that order. */
+	XCTAssertFalse([plan rowsFollowOrder:(@[ @[ @"employeeName" ], @[ @"branch", @"nr" ] ]) key:nil]);
+	/* The whole key of the object read determines everything, but the rows
+	 * do not determine it. */
+	XCTAssertFalse([plan rowsFollowOrder:(@[ @[ @"nr" ] ]) key:(@[ @"nr" ])]);
+	/* Sorted by the head after the branch, the branch already decides. */
+	XCTAssertTrue([plan rowsFollowOrder:(@[ @[ @"branch", @"nr" ], @[ @"branch", @"employee", @"nr" ] ]) key:nil]);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	NSArray *served = nil;
+	NSArray *heads = @[ @[ @7, @2 ], @[ @52, @1 ], @[ @101, @4 ], @[ @102, @5 ] ];
+	XCTAssertEqualObjects([self rowsOf:plan planner:planner twoAtATimeIn:context service:&served], heads);
+	XCTAssertEqualObjects(served, heads);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* An employee like the first, numbered to come before everyone, saved. */
 - (void)hire:(int)nr inContext:(NSManagedObjectContext *)context
 {

@@ -199,6 +199,7 @@ ORMCompare(id left, NSString *comparison, id right)
 /* The order its fetch reads in, and how a batch starts after the last:
  * nil where the entity read has no key. */
 - (ORMSeek *)seek;
+- (BOOL)rowsInOrder;
 /* Up to count more objects, read through its cursor at once; the answers
  * of the last batch read kept. */
 - (NSArray *)next:(NSUInteger)count;
@@ -422,8 +423,31 @@ ORMBagKey(ORMPlanValue *value)
 	for (ORMPlanSort *sort in self.plan.sorts) {
 		[sorts addObject:@[ sort.path.keys, @(sort.ascending) ]];
 	}
+	return [ORMSeek seekWithSorts:sorts key:[self keyNames]];
+}
+
+/* The entity read's key, by its attributes' names. */
+- (NSArray<NSString *> *)keyNames
+{
 	NSArray *key = [[[[ODataPropertyMapper alloc] init] keyAttributesForEntity:self.read] valueForKey:@"name"];
-	return [ORMSeek seekWithSorts:sorts key:[key sortedArrayUsingSelector:@selector(compare:)]];
+	return [key sortedArrayUsingSelector:@selector(compare:)];
+}
+
+/* Whether equal rows come one after another, in the order the fetch
+ * reads in. */
+- (BOOL)rowsInOrder
+{
+	ORMSeek *seek = [self seek];
+	NSMutableArray *order = [NSMutableArray array];
+	for (NSArray *part in seek != nil ? seek.order : @[]) {
+		[order addObject:[part firstObject]];
+	}
+	if (seek == nil) {
+		for (ORMPlanSort *sort in self.plan.sorts) {
+			[order addObject:sort.path.keys];
+		}
+	}
+	return [self.plan rowsFollowOrder:order key:seek != nil ? [self keyNames] : nil];
 }
 
 - (BOOL)keeps:(id)object
@@ -1406,7 +1430,7 @@ ORMBagKey(ORMPlanValue *value)
 		self.reader = [[ORMPageReader alloc] initWithInput:[self.run cursor] evaluator:self.run
 		                                      columnTitles:[self.run.plan.columns valueForKey:@"title"]];
 		self.reader.objectsApart = [self.run.plan listsTheObjectRead];
-		self.reader.rowsInOrder = [self.run.plan ordersItsRows];
+		self.reader.rowsInOrder = [self.run rowsInOrder];
 	}
 	__block ORMQueryResult *page = nil;
 	__block NSError *failed = nil;

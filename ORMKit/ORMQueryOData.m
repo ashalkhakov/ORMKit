@@ -738,6 +738,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
  * by offset); each part's wire path. */
 - (ORMSeek *)seek;
 - (NSArray<NSArray<NSString *> *> *)seekWire;
+- (BOOL)rowsInOrder;
 - (ODataExpression *)join:(ORMQueryODataJoin *)join filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
 - (ODataExpression *)bag:(NSString *)name filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
 @end
@@ -1053,8 +1054,30 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	for (ORMPlanSort *sort in _plan.sorts) {
 		[sorts addObject:@[ sort.path.keys, @(sort.ascending) ]];
 	}
+	return [ORMSeek seekWithSorts:sorts key:[self keyNames]];
+}
+
+- (NSArray<NSString *> *)keyNames
+{
 	NSArray *key = [[_mapper keyAttributesForEntity:_read] valueForKey:@"name"];
-	return [ORMSeek seekWithSorts:sorts key:[key sortedArrayUsingSelector:@selector(compare:)]];
+	return [key sortedArrayUsingSelector:@selector(compare:)];
+}
+
+/* Whether equal rows come one after another, in the order pages are
+ * read in. */
+- (BOOL)rowsInOrder
+{
+	ORMSeek *seek = [self seek];
+	NSMutableArray *order = [NSMutableArray array];
+	for (NSArray *part in seek != nil ? seek.order : @[]) {
+		[order addObject:[part firstObject]];
+	}
+	if (seek == nil) {
+		for (ORMPlanSort *sort in _plan.sorts) {
+			[order addObject:sort.path.keys];
+		}
+	}
+	return [_plan rowsFollowOrder:order key:seek != nil ? [self keyNames] : nil];
 }
 
 - (ORMSeek *)seek
@@ -2700,7 +2723,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		_reader = [[ORMPageReader alloc] initWithInput:[self cursor] evaluator:_request
 		                                  columnTitles:[_request.plan.columns valueForKey:@"title"]];
 		_reader.objectsApart = [_request.plan listsTheObjectRead];
-		_reader.rowsInOrder = [_request.plan ordersItsRows];
+		_reader.rowsInOrder = [_request rowsInOrder];
 	}
 	[_reader nextPage:size completion:completion];
 }
