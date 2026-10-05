@@ -201,7 +201,7 @@
 	XCTAssertNotNil(fact, @"%@", reason);
 	ORMObjectType *objectifying = [(ORMFactType *)[_editor.model elementWithId:_born] objectifyingType];
 	XCTAssertEqual([[objectifying instances] count], 1u);
-	XCTAssertEqual([[[[objectifying instances] firstObject] objectifiedInstance] identifier], fact);
+	XCTAssertEqualObjects([[[[objectifying instances] firstObject] objectifiedInstance] identifier], fact);
 	XCTAssertTrue([[[ORMPopulationChecker alloc] initWithModel:_editor.model].violations count] == 0,
 	              @"%@", [[[ORMPopulationChecker alloc] initWithModel:_editor.model].violations valueForKey:@"text"]);
 

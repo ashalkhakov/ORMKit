@@ -930,8 +930,10 @@
 	__weak id run = nil;
 	@autoreleasepool {
 		ORMQueryCursor *again = [interpreter cursorForPlan:plan inContext:context error:NULL];
+		/* Weakly: a context may keep the block it ran. */
+		__weak ORMQueryCursor *reading = again;
 		[context performBlockAndWait:^{
-			[again nextPage:2 error:NULL];
+			[reading nextPage:2 error:NULL];
 		}];
 		run = [again valueForKey:@"run"];
 		XCTAssertNotNil(run);
