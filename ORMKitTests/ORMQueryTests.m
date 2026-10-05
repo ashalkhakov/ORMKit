@@ -1378,6 +1378,53 @@
 	XCTAssertEqual([self query:q].kind, ORMQueryCalculation);
 }
 
+/* A rule no graphical constraint says: no employee lives in another city
+ * than their branch is in. Its rows are what breaks it: in the paper's
+ * company, Gus (21) lives in Perth and works for branch 7, in Sydney. */
+- (NSString *)livesNearWork
+{
+	NSString *q = [[self queries] addQueryNamed:@"Lives near work" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *home = [self from:root through:[self role:@"livesIn" at:0] in:q];
+	ORMQueryNode *branch = [self from:root through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *work = [self from:branch.identifier through:[self role:@"locatedIn" at:0] in:q];
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setCondition:@"<>" toNode:home.identifier ofNode:work.identifier reason:&reason], @"%@",
+	              reason);
+	XCTAssertTrue([[self queries] setKind:ORMQueryConstraint ofQuery:q reason:NULL]);
+	return q;
+}
+
+/* The rules are checked against the sample population, beside the
+ * graphical constraints, and against a store of a mapping. */
+- (void)testRulesAreChecked
+{
+	NSString *q = [self livesNearWork];
+	[self addCompanyPopulation];
+	NSMutableArray *found = [NSMutableArray array];
+	for (ORMPopulationViolation *violation in [[[ORMPopulationChecker alloc] initWithModel:_editor.model] violations]) {
+		if (violation.rule != nil) {
+			XCTAssertEqualObjects(violation.rule.identifier, q);
+			[found addObject:violation.text];
+		}
+	}
+	XCTAssertEqualObjects(found, @[ @"Lives near work: Employee 21." ]);
+	/* Against a store of the mapping that keeps City an entity. */
+	ORMRuleChecker *checker = [[ORMRuleChecker alloc] initWithModel:_editor.model mapping:[self mapping]];
+	XCTAssertEqual([checker.rules count], 1u);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[checker.coreData managedObjectModel]];
+	NSError *error = nil;
+	NSArray *violations = [checker violationsInContext:context limit:10 error:&error];
+	XCTAssertEqualObjects([violations valueForKey:@"text"], @[ @"Lives near work: Employee 21." ], @"%@", error);
+	XCTAssertEqualObjects([checker unchecked], @[]);
+	/* A list is no rule. */
+	[[self queries] setKind:ORMQueryList ofQuery:q reason:NULL];
+	XCTAssertEqual([[[ORMRuleChecker alloc] initWithModel:_editor.model mapping:nil].rules count], 0u);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* Queries are in the document: saved, undone, and left out of what is
  * written for NORMA. */
 - (void)testQueriesAreInTheDocument

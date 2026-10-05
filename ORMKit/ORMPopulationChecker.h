@@ -1,10 +1,15 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMModel.h"
 
+@class ORMQuery;
+
 /* What a sample population breaks: a constraint, and how. */
 @interface ORMPopulationViolation : NSObject
-/* The constraint broken; nil for a fact that lacks a role's player. */
+/* The constraint broken; nil for a fact that lacks a role's player, or a
+ * rule's violation. */
 @property (nonatomic, readonly, strong) ORMConstraint *constraint;
+/* The constraint query broken (docs/RULES.md), for a rule's violation. */
+@property (nonatomic, readonly, strong) ORMQuery *rule;
 /* The fact type it is about: the incomplete fact's, or the constraint's
  * first. */
 @property (nonatomic, readonly, strong) ORMFactType *factType;
@@ -19,7 +24,11 @@
  * sequences each in one fact type; the values a value constraint allows.
  * The facts that identify an entity instance count as facts of their fact
  * types. What it cannot check (a value comparison, a sequence across fact
- * types) is in -unchecked. */
+ * types) is in -unchecked.
+ *
+ * The model's constraint queries are checked too: run against a store of
+ * the population (ORMPopulationStore), of the document's first mapping or
+ * the defaults, each row a violation (ORMRuleChecker). */
 @interface ORMPopulationChecker : NSObject
 - (instancetype)initWithModel:(ORMModel *)model;
 @property (nonatomic, readonly, strong) ORMModel *model;

@@ -204,7 +204,14 @@
 		XCTAssertTrue([editor.populationEditor addPopulation:[generator population] reason:&reason], @"%@: %@", name,
 		              reason);
 		ORMPopulationChecker *checker = [[ORMPopulationChecker alloc] initWithModel:editor.model];
-		NSArray *violations = [[checker violations] valueForKey:@"text"];
+		/* The graphical constraints: a rule (a constraint query) is no
+		 * generator's to meet. */
+		NSMutableArray *violations = [NSMutableArray array];
+		for (ORMPopulationViolation *violation in [checker violations]) {
+			if (violation.rule == nil) {
+				[violations addObject:violation.text];
+			}
+		}
 		if ([violations count] > 0) {
 			[broken addObject:name];
 			XCTAssertTrue([generator.notes count] > 0, @"%@ says why it is not whole", name);
@@ -228,7 +235,8 @@
 {
 	NSDictionary *expected = @{
 		@"Company.orm": @{ @"Q1": @[ @1, @3 ], @"Q2": @[ @1, @3, @4 ], @"Q3": @[ @102 ], @"Q4": @[ @2 ],
-		                   @"Q5": @[ @1, @4 ], @"Payroll": @[ @52, @7 ], @"Polyglots": @[ @1 ] },
+		                   @"Q5": @[ @1, @4 ], @"Payroll": @[ @52, @7 ], @"Polyglots": @[ @1 ],
+		                   @"Lives near work": @[ @21 ] },
 		@"University.orm": @{ @"Q1": @[ @430, @715, @720 ], @"Q2": @[ @720 ], @"Q3": @[ @430, @503, @651, @715, @720 ] },
 		@"UMLandORM.orm": @{ @"Rooms lacking a facility": @[], @"Coauthored papers": @[ @1 ] },
 	};
@@ -238,7 +246,14 @@
 			continue;
 		}
 		ORMModel *model = [ORMModel modelOfDocument:ORMParseDocument([NSData dataWithContentsOfFile:path], NULL) reason:NULL];
-		XCTAssertEqualObjects([[[[ORMPopulationChecker alloc] initWithModel:model] violations] valueForKey:@"text"], @[]);
+		/* What breaks a deontic rule is to be told of; nothing alethic. */
+		NSMutableArray *alethic = [NSMutableArray array];
+		for (ORMPopulationViolation *violation in [[[ORMPopulationChecker alloc] initWithModel:model] violations]) {
+			if (!(violation.rule != nil ? violation.rule.isDeontic : violation.constraint.modality == ORMDeontic)) {
+				[alethic addObject:violation.text];
+			}
+		}
+		XCTAssertEqualObjects(alethic, @[], @"%@", [path lastPathComponent]);
 		/* As the designer runs them: by the document's first mapping. */
 		ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:model.document] firstObject];
 		ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:mapping];

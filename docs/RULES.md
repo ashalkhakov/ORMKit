@@ -9,7 +9,7 @@ Both are said in the model's terms, verbalized, checked against sample
 populations, and run against a store or a service. Constraints also become
 validation code.
 
-This is a design, being built: steps 1 and 2 are done ([Steps](#steps)).
+This is a design, being built: steps 1 to 3 are done ([Steps](#steps)).
 
 ## Why
 
@@ -174,10 +174,18 @@ which objects the rule depends on. The notes call such a constraint
    - A calculation is "The TotalSalary of each Branch is the total of Salary
      where ...": the function in the words step aggregates already use,
      then the formula with the root and its node named.
-3. **Constraints checked:** `ORMPopulationChecker` over the population
-   store, `ORMRuleChecker` for a store, and `ormtool check`. A sample's
-   constraint goes in `Samples/` with a population that breaks it and one
-   that does not.
+3. **Done: constraints checked.**
+   - `ORMRuleChecker` plans each constraint query against a mapping and runs
+     it in a context, each row a violation ("Lives near work: Employee 21,
+     EmployeeName Gus."). A rule whose plan has notes is listed as
+     unchecked, not run.
+   - `ORMPopulationChecker` runs the rules against its population's store,
+     of the document's first mapping or the defaults. Its violations have
+     `rule` set.
+   - `ormtool check` prints the population's violations and what it did not
+     check. It exits with 1 when an alethic constraint or rule is broken.
+   - The Company sample has a deontic rule, "Lives near work", that Gus
+     breaks. The fixture builder rejects only alethic violations.
 4. **Calculations computed:** computed plan columns, in both evaluators and
    both backends, and in `ormtool query`.
 5. **The designer:** Kind, Modality, Function and Of in the Queries window;

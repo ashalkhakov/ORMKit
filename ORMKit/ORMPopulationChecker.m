@@ -1,9 +1,13 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMPopulationChecker.h"
 #import "ORMPath.h"
+#import "ORMPopulationStore.h"
+#import "ORMRuleChecker.h"
+#import <CoreData/CoreData.h>
 
 @interface ORMPopulationViolation ()
 @property (nonatomic, readwrite, strong) ORMConstraint *constraint;
+@property (nonatomic, readwrite, strong) ORMQuery *rule;
 @property (nonatomic, readwrite, strong) ORMFactType *factType;
 @property (nonatomic, readwrite, copy) NSString *text;
 @end
@@ -247,7 +251,34 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 		}
 	}
 	[self checkValues];
+	[self checkRules];
 	return _violations;
+}
+
+/* The constraint queries, run against the population in a store. */
+- (void)checkRules
+{
+	NSXMLDocument *document = [_model.modelElement rootDocument];
+	ORMCoreDataMapping *mapping = document != nil ? [[ORMCoreDataMapping mappingsOfDocument:document] firstObject] : nil;
+	ORMRuleChecker *rules = [[ORMRuleChecker alloc] initWithModel:_model mapping:mapping];
+	if ([rules.rules count] == 0) {
+		return;
+	}
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_model coreData:rules.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	NSArray *found = context != nil ? [rules violationsInContext:context limit:100 error:&error] : nil;
+	if (found == nil) {
+		[_unchecked addObject:[NSString stringWithFormat:@"The constraint queries: %@", error.localizedDescription ?: @"?"]];
+		return;
+	}
+	for (ORMRuleViolation *each in found) {
+		ORMPopulationViolation *violation = [[ORMPopulationViolation alloc] init];
+		violation.rule = each.rule;
+		violation.text = each.text;
+		[_violations addObject:violation];
+	}
+	[_unchecked addObjectsFromArray:rules.unchecked];
 }
 
 - (void)checkUniqueness:(ORMConstraint *)constraint

@@ -10,7 +10,10 @@
 /* ORMKit from the command line: what CI smoke-tests, and what scripts use.
  *
  *   ormtool verbalize [--html] model.orm     the model as FORML sentences
- *   ormtool check model.orm                  what the model holds, and whether it reads
+ *   ormtool check model.orm                  what the model holds, and whether it reads;
+ *                                            its sample population against its
+ *                                            constraints and constraint queries
+ *                                            (1 when it breaks an alethic one)
  *   ormtool normalize model.orm [out.orm]    NORMA's derived data brought up to date
  *   ormtool coredata model.orm Out.xcdatamodeld [mapping name]
  *                                            the model mapped to Core Data, with the mapping's report;
@@ -43,7 +46,7 @@ static int
 ORMUsage(void)
 {
 	fputs("usage: ormtool verbalize [--html] model.orm\n"
-	      "       ormtool check model.orm\n"
+	      "       ormtool check model.orm      (1 when the sample population breaks an alethic constraint)\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
 	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n"
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
@@ -182,7 +185,20 @@ main(int argc, const char *argv[])
 			          model.name, (unsigned long)[[model visibleObjectTypes] count],
 			          (unsigned long)[[model ordinaryFactTypes] count], (unsigned long)[model.constraints count],
 			          (unsigned long)[model.diagrams count], (unsigned long)shapes]);
-			return 0;
+			/* The sample population against the constraints and the rules. */
+			ORMPopulationChecker *checker = [[ORMPopulationChecker alloc] initWithModel:model];
+			NSUInteger broken = 0;
+			for (ORMPopulationViolation *violation in [checker violations]) {
+				BOOL deontic = violation.rule != nil ? violation.rule.isDeontic
+				                                     : violation.constraint.modality == ORMDeontic;
+				broken += deontic ? 0 : 1;
+				ORMPrint([NSString stringWithFormat:@"%@: %@\n", deontic ? @"breaks (deontic)" : @"breaks",
+				                                    violation.text]);
+			}
+			for (NSString *note in [checker unchecked]) {
+				ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
+			}
+			return broken > 0 ? 1 : 0;
 		}
 		if ([command isEqualToString:@"normalize"]) {
 			[editor group:@"Normalize" with:^{

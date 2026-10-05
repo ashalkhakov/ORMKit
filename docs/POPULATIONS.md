@@ -55,6 +55,11 @@ to itself.
 - values outside a value constraint, the type's own or a role's;
 - an objectified fact without its objectifying instance.
 
+It also runs the model's constraint queries against the population, in a
+store of the document's first mapping, each row a violation
+([RULES.md](RULES.md)). The generator knows nothing of them: a generated
+population meets the graphical constraints, not necessarily the rules.
+
 The structural constraints of subtype and link fact types are not checked.
 Value comparisons, and sequences that span fact types, are listed as
 unchecked.

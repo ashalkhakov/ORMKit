@@ -365,9 +365,11 @@ check(BOOL ok, const char *what)
 	for (ORMDiagram *diagram in _editor.model.diagrams) {
 		[_editor.diagramEditor arrangeDiagram:diagram.identifier];
 	}
-	/* A sample's population keeps its constraints. */
+	/* A sample's population keeps its constraints: the alethic ones. A
+	 * deontic rule may be broken, to be told of. */
 	for (ORMPopulationViolation *violation in [[[ORMPopulationChecker alloc] initWithModel:_editor.model] violations]) {
-		check(NO, [[NSString stringWithFormat:@"%@: %@", [path lastPathComponent], violation.text] UTF8String]);
+		BOOL deontic = violation.rule != nil ? violation.rule.isDeontic : violation.constraint.modality == ORMDeontic;
+		check(deontic, [[NSString stringWithFormat:@"%@: %@", [path lastPathComponent], violation.text] UTF8String]);
 	}
 	[[_editor dataForSaving] writeToFile:path atomically:YES];
 	NSLog(@"wrote %@: %lu object types, %lu fact types, %lu queries", path,
@@ -590,6 +592,17 @@ check(BOOL ok, const char *what)
 	[self from:[self root:polyglots].identifier through:[self role:@"speaks" at:0] in:polyglots step:&speaks];
 	[[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL];
 	[self name:[self root:polyglots].identifier through:@"hasName" in:polyglots];
+	/* A rule no graphical constraint says, and Gus breaks: no employee
+	 * should live in another city than their branch is in (docs/RULES.md). */
+	NSString *near = [[self queries] addQueryNamed:@"Lives near work" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *who = [self root:near].identifier;
+	ORMQueryNode *home = [self from:who through:[self role:@"livesIn" at:0] in:near];
+	ORMQueryNode *branch = [self from:who through:[self role:@"worksFor" at:0] in:near];
+	ORMQueryNode *work = [self from:branch.identifier through:[self role:@"locatedIn" at:0] in:near];
+	check([[self queries] setCondition:@"<>" toNode:home.identifier ofNode:work.identifier reason:NULL], "a rule's condition");
+	check([[self queries] setKind:ORMQueryConstraint ofQuery:near reason:NULL], "a rule");
+	check([[self queries] setDeontic:YES ofQuery:near reason:NULL], "a deontic rule");
+	[self name:who through:@"hasName" in:near];
 	/* Q4's: and whom they supervise. */
 	for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
 		if ([query.name isEqualToString:@"Q4"]) {

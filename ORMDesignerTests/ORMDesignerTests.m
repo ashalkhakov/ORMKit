@@ -131,7 +131,7 @@
 	XCTAssertNil([document fileURL]);
 	XCTAssertEqualObjects([document displayName], @"Company");
 	XCTAssertFalse([document isDocumentEdited]);
-	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)7);
+	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)8);
 	ORMWindowController *controller = [[document windowControllers] firstObject];
 	XCTAssertEqualObjects([[controller.canvas diagram] name], @"Company");
 	[document close];

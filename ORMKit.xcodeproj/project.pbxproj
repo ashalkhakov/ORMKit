@@ -333,6 +333,10 @@
 			isa = PBXBuildFile;
 			fileRef = EE92F2F1B230E68A1AE763F4 /* ORMAppDelegate.m */;
 		};
+		70DD29657B0D9D37324033F6 /* ORMRuleChecker.m */ = {
+			isa = PBXBuildFile;
+			fileRef = F4054CBEDBC724A47BC71475 /* ORMRuleChecker.m */;
+		};
 		7134F2EFEFA4B5DC0CFBCBAC /* ORMEditorPriv.h */ = {
 			isa = PBXBuildFile;
 			fileRef = CA2CD837DD6221689FAD77C4 /* ORMEditorPriv.h */;
@@ -548,6 +552,11 @@
 		C47B76D67D60EC68DADA01CB /* ORMQueryPlan.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 40CD4721407D2E4FBAA65ACF /* ORMQueryPlan.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
+		C7A010EF163E795053DA2D55 /* ORMRuleChecker.h */ = {
+			isa = PBXBuildFile;
+			fileRef = F78ABCDC6C55F4685C4F566E /* ORMRuleChecker.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
 		CA487547267B63669045A97A /* ORMCoreDataValidation.h */ = {
@@ -1579,6 +1588,12 @@
 			path = ODataKit.framework;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
+		F4054CBEDBC724A47BC71475 /* ORMRuleChecker.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMRuleChecker.m;
+			sourceTree = "<group>";
+		};
 		F466A87CF7B26B0B27D334C7 /* ORMQueryPlaces.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -1589,6 +1604,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMXML.m;
+			sourceTree = "<group>";
+		};
+		F78ABCDC6C55F4685C4F566E /* ORMRuleChecker.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMRuleChecker.h;
 			sourceTree = "<group>";
 		};
 		FAEC6D9C026AE82C4B58B9DB /* main.m */ = {
@@ -1812,6 +1833,8 @@
 				062FF68896E2CA759A15C8DC /* ORMQueryPlanner.m */,
 				DEF5F79B259D6372509D1141 /* ORMReadingText.h */,
 				2FEE1243254FC55B16E53D18 /* ORMReadingText.m */,
+				F78ABCDC6C55F4685C4F566E /* ORMRuleChecker.h */,
+				F4054CBEDBC724A47BC71475 /* ORMRuleChecker.m */,
 				7E9BAE9D033FFE9ADBCAAE5E /* ORMSVGSurface.h */,
 				5D55BAF9088DA59E042DE3C3 /* ORMSVGSurface.m */,
 				A2912B87D083B2C60E070A76 /* ORMSentenceEditor.h */,
@@ -1929,6 +1952,7 @@
 				49788B968A1E983F35C8B6ED /* ORMQueryInterpreter.h */,
 				2E8F99B003563CDF00627DF2 /* ORMQueryOData.h */,
 				32CBA748C93454C47B934704 /* ORMCursor.h */,
+				C7A010EF163E795053DA2D55 /* ORMRuleChecker.h */,
 				7134F2EFEFA4B5DC0CFBCBAC /* ORMEditorPriv.h */,
 				7BC2CBB880964CE43801F057 /* ORMModelPriv.h */,
 				37051412F484C4BD0F09323D /* ORMQueryPlaces.h */,
@@ -2131,6 +2155,7 @@
 				15AC1BF82DE37E05E043F416 /* ORMQueryPlanner.m */,
 				82DC0DC75723740B73101421 /* ORMQueryInterpreter.m */,
 				72FDDB5B1C744239D4CF5DB8 /* ORMCursor.m */,
+				70DD29657B0D9D37324033F6 /* ORMRuleChecker.m */,
 				A2CE76FECBD080EA6023129B /* ORMQueryOData.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

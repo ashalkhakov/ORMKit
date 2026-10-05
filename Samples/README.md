@@ -13,6 +13,8 @@ by hand.
   - Q1 to Q5: the papers' queries.
   - Payroll: a total over a branch's employees.
   - Polyglots: a count.
+  - Lives near work: a deontic rule, not a list (see [RULES.md](../docs/RULES.md)).
+    No employee should live in another city than their branch is in.
 - `University.orm`, after Bloesch and Halpin, "Conceptual Queries using
   ConQuer-II" (ER '97), figure 2: academics, professors and chairs, and
   degrees awarded by universities. It adds "Academic has AcademicName",
@@ -54,6 +56,7 @@ only the identifiers. That makes a row easy to check against the data.
   | Q5 | employees 1 and 4 |
   | Payroll | branches 52 and 7 |
   | Polyglots | employee 1 |
+  | Lives near work | employee 21, Gus, who lives in Perth and works in Sydney: the rule's violation. `ormtool check Samples/Company.orm` reports it, and still succeeds, since the rule is deontic |
 
   Its Core Data mapping keeps City an entity of its own. Under the default
   mapping City is absorbed into Employee and Branch as its name, state and
