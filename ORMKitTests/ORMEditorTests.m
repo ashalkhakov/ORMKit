@@ -191,6 +191,53 @@
 	XCTAssertEqual([[editor.model elementWithId:frequency] maxFrequency], (NSUInteger)3);
 }
 
+/* A constraint drawn as a shape of its own is shown, as it is added, on the
+ * diagrams that show its fact types, as NORMA shows one: in the same
+ * change, so one undo takes both. A fact type no diagram shows, none. */
+- (void)testAddedConstraintsAreShownWhereTheirFactTypesAre
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *name = [editor.objectTypeEditor addValueTypeNamed:@"Name" dataType:@"VariableLengthTextDataType" onDiagram:nil
+	                                        at:NSZeroPoint reason:NULL];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *namedId = [self fact:@[ person, name ] reading:@"{0} has {1}" in:editor];
+	NSString *bornId = [self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor];
+	NSArray *named = [[editor.model elementWithId:namedId] roles];
+	NSArray *born = [[editor.model elementWithId:bornId] roles];
+	NSString *reason = nil;
+	NSString *external = [editor.constraintEditor addUniquenessConstraintOverRoles:@[ [named[1] identifier], [born[1] identifier] ]
+	                                                                        reason:&reason];
+	XCTAssertNotNil(external, @"%@", reason);
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	XCTAssertNotNil([diagram shapeForSubject:external]);
+	NSString *exclusion = [editor.constraintEditor addSetComparisonConstraint:ORMExclusionConstraint
+	                                                                sequences:@[ @[ [named[0] identifier] ], @[ [born[0] identifier] ] ]
+	                                                                   reason:&reason];
+	XCTAssertNotNil([[editor.model.diagrams firstObject] shapeForSubject:exclusion], @"%@", reason);
+	/* One step: the constraint and its shape. */
+	[self.undoManager undo];
+	XCTAssertNil([editor.model elementWithId:exclusion]);
+	XCTAssertNil([[editor.model.diagrams firstObject] shapeForSubject:exclusion]);
+	XCTAssertNotNil([[editor.model.diagrams firstObject] shapeForSubject:external]);
+	/* A ring, a shape of its own too. */
+	NSString *knowsId = [self fact:@[ person, person ] reading:@"{0} knows {1}" in:editor];
+	NSArray *knows = [[editor.model elementWithId:knowsId] roles];
+	NSString *ring = [editor.constraintEditor addRingConstraint:ORMRingIrreflexive
+	                                                  overRoles:@[ [knows[0] identifier], [knows[1] identifier] ]
+	                                                     reason:&reason];
+	XCTAssertNotNil([[editor.model.diagrams firstObject] shapeForSubject:ring], @"%@", reason);
+	/* Over a fact type no diagram shows: no shape. */
+	NSString *likedId = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, person ] reading:@"{0} likes {1}" onDiagram:nil
+	                                                               at:NSZeroPoint reason:&reason];
+	NSArray *likes = [[editor.model elementWithId:likedId] roles];
+	NSString *hidden = [editor.constraintEditor addRingConstraint:ORMRingIrreflexive
+	                                                    overRoles:@[ [likes[0] identifier], [likes[1] identifier] ]
+	                                                       reason:&reason];
+	XCTAssertNotNil(hidden, @"%@", reason);
+	XCTAssertNil([[editor.model.diagrams firstObject] shapeForSubject:hidden]);
+}
+
 - (void)testSubtypingRefusesCycles
 {
 	ORMEditor *editor = [self newEditor];
