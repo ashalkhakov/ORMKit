@@ -370,14 +370,18 @@ the caller asks. `-executePlan:inContext:error:` reads every page.
   - it finds few objects (`joinPrefetchLimit`, 1000).
 
   Then they are fetched once, and their values put in its place, wherever the
-  join is, inside a `not`, an `or` or a subquery too. Otherwise each object
-  is probed: the joined plan is run with that object's values, and stops at
-  the first object found. A join over a large table never loads the table.
+  join is, inside a `not`, an `or` or a subquery too. Otherwise, where the
+  join's parts are the object read's, the joined objects with a batch's
+  parts are read once for the batch, and each object is checked against
+  them. Else each object is probed: the joined plan is run with that
+  object's values, and stops at the first object found. A join over a
+  large table never loads the table.
 - **Correlated joins:** a joined plan may name what the plan it is in reached:
   - its object read, as a parameter (`o1`) the join binds;
   - the variables bound where the join is.
 
-  Such a join is probed for each object, with those bound.
+  Such a join is read for each batch without what depends on them, and what
+  does is asked of each object, with those bound.
 
 Values go into predicates as arguments, never as text. `-programForPlan:error:`
 says what it will do:
@@ -425,7 +429,8 @@ read Employee
 where cityCityname = cityCityname, ... in join1 (o1 is this)
 ```
 
-The interpreter probes each employee, with `o1` bound to it. ODataKit's service has no `$root`, so the OData backend
+For each batch of employees, the interpreter reads the branches in their
+cities once, and asks which one each employee heads, with `o1` bound to it. ODataKit's service has no `$root`, so the OData backend
 also makes the join a request of its own. The query is the same however City
 is mapped. As an entity it is a relationship and one fetch; absorbed, it is
 two. This is ConQuer's semantic stability.

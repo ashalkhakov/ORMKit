@@ -180,7 +180,8 @@ ORMCompare(id left, NSString *comparison, id right)
 @property (nonatomic, strong) NSManagedObjectContext *context;
 @property (nonatomic, copy) NSDictionary<NSString *, id> *bindings;
 /* @[ their path, a value ]: what a probe asks of the objects read; with
- * an array of values, one of them. */
+ * an array of values, one of them. @[ their paths, tuples ]: theirs one of
+ * the tuples. */
 @property (nonatomic, copy) NSArray<NSArray *> *equalities;
 @property (nonatomic, strong) NSEntityDescription *read;
 @property (nonatomic, strong) NSPredicate *storePredicate;
@@ -222,7 +223,77 @@ ORMCompare(id left, NSString *comparison, id right)
 	 * no batch answers them. */
 	NSMutableDictionary<NSString *, NSMapTable *> *_bags;
 	NSArray<ORMPlanValue *> *_bagValues;
+	/* The joins (matches) the checks probe. */
+	NSArray<ORMPlanCondition *> *_probes;
 	id<ORMCursor> _cursor;
+}
+
+/* The joins in the condition, each once. */
+- (void)collectProbes:(ORMPlanCondition *)condition into:(NSMutableArray *)probes
+{
+	if (condition == nil) {
+		return;
+	}
+	if (condition.kind == ORMPlanMatches && condition.definition.name != nil
+	    && ![[probes valueForKeyPath:@"definition.name"] containsObject:condition.definition.name]) {
+		[probes addObject:condition];
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		[self collectProbes:operand into:probes];
+	}
+	[self collectProbes:condition.operand into:probes];
+}
+
+/* Whether a batch's objects say the join's pairs' values: they are the
+ * object read's, not a some's member's. */
+- (BOOL)batches:(ORMPlanCondition *)join
+{
+	if ([join.pairs count] == 0) {
+		return NO;
+	}
+	for (NSArray<ORMPlanPath *> *pair in join.pairs) {
+		if ([pair firstObject].variable != nil) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
+/* The join's objects that could match the batch's: its plan's conditions
+ * that depend on nothing outside it, and its parts one of the batch's
+ * tuples. What depends on each object is asked of them in -holds:. */
+- (NSArray *)candidatesOf:(ORMPlanCondition *)join among:(NSArray *)tuples
+{
+	if ([tuples count] == 0) {
+		return @[];
+	}
+	ORMPlanCondition *joined = join.plan.condition;
+	NSArray *conjuncts = joined == nil ? @[] : (joined.kind == ORMPlanAnd ? joined.operands : @[ joined ]);
+	NSMutableArray *own = [NSMutableArray array];
+	for (ORMPlanCondition *conjunct in conjuncts) {
+		if ([[conjunct freeVariables] count] == 0) {
+			[own addObject:conjunct];
+		}
+	}
+	ORMPlanCondition *reduced = [own count] == 0 ? nil : ([own count] == 1 ? [own firstObject] : [ORMPlanCondition all:own]);
+	NSMutableArray *theirs = [NSMutableArray array];
+	for (NSArray<ORMPlanPath *> *pair in join.pairs) {
+		[theirs addObject:[pair lastObject]];
+	}
+	NSError *error = nil;
+	ORMPlanRun *run = [self.interpreter runOf:[ORMQueryPlan planReading:join.plan.entityName where:reduced columns:@[]
+	                                                             sorts:@[] notes:@[]]
+	                                 bindings:@{} equal:@[ @[ theirs, tuples ] ] inContext:self.context error:&error];
+	NSMutableArray *found = [NSMutableArray array];
+	while (run != nil && !run.atEnd && run.error == nil) {
+		[found addObjectsFromArray:[run next:256]];
+	}
+	if (run == nil || run.error != nil) {
+		[self fail:[NSString stringWithFormat:@"%@ could not be read: %@", join.definition.name,
+		                                      (run.error ?: error).localizedDescription]];
+		return nil;
+	}
+	return found;
 }
 
 /* The aggregates of bags in the condition, each bag and group once. */
@@ -303,6 +374,39 @@ ORMBagKey(ORMPlanValue *value)
 			                                             ORMPlanRun *run = weakSelf;
 			                                             NSMapTable *groups = [run groupsOf:value among:among];
 			                                             done(groups, run.error);
+		                                             }];
+	}
+	for (ORMPlanCondition *join in _probes) {
+		if (![self batches:join]) {
+			continue;
+		}
+		/* For each batch, the joined objects with its tuples' parts. */
+		cursor = [[ORMBindJoinCursor alloc] initWithInput:cursor name:join.definition.name
+		                                            scope:^NSArray *(ORMBatch *batch) {
+			                                            ORMPlanRun *run = weakSelf;
+			                                            NSMutableOrderedSet *tuples = [NSMutableOrderedSet orderedSet];
+			                                            for (id object in batch.objects) {
+				                                            NSMutableArray *tuple = [NSMutableArray array];
+				                                            for (NSArray<ORMPlanPath *> *pair in join.pairs) {
+					                                            id value = [run valueOf:[pair firstObject] object:object
+					                                                           bindings:run.bindings];
+					                                            if (value == nil || value == [NSNull null]) {
+						                                            /* Equal to none. */
+						                                            tuple = nil;
+						                                            break;
+					                                            }
+					                                            [tuple addObject:value];
+				                                            }
+				                                            if (tuple != nil) {
+					                                            [tuples addObject:tuple];
+				                                            }
+			                                            }
+			                                            return [tuples array];
+		                                            }
+		                                             read:^(NSArray *tuples, void (^done)(id, NSError *)) {
+			                                             ORMPlanRun *run = weakSelf;
+			                                             NSArray *candidates = [run candidatesOf:join among:tuples];
+			                                             done(candidates, run.error);
 		                                             }];
 	}
 	_cursor = [[ORMFilterCursor alloc] initWithInput:cursor evaluator:self];
@@ -902,12 +1006,33 @@ ORMBagKey(ORMPlanValue *value)
 	case ORMPlanMaybe:
 		return YES;
 	case ORMPlanMatches: {
-		/* A probe: the joined plan, its parts equal to this object's, the
-		 * objects it names bound; one object found is enough. */
 		NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
 		if (condition.variable != nil && object != nil) {
 			[inner setObject:object forKey:condition.variable];
 		}
+		NSArray *candidates = condition.definition.name != nil ? [self.answers objectForKey:condition.definition.name] : nil;
+		if (candidates != nil) {
+			/* Read for the batch: one with this object's parts that meets
+			 * the joined plan, this object bound. */
+			NSMutableArray *ours = [NSMutableArray array];
+			for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+				[ours addObject:[self valueOf:[pair firstObject] object:object bindings:bindings] ?: [NSNull null]];
+			}
+			for (id candidate in candidates) {
+				BOOL equal = YES;
+				for (NSUInteger i = 0; i < [ours count] && equal; i++) {
+					id theirs = [self valueOf:[[condition.pairs objectAtIndex:i] lastObject] object:candidate bindings:@{}];
+					equal = [[ours objectAtIndex:i] isEqual:theirs ?: [NSNull null]];
+				}
+				if (equal && (condition.plan.condition == nil
+				              || [self holds:condition.plan.condition object:candidate bindings:inner])) {
+					return YES;
+				}
+			}
+			return NO;
+		}
+		/* A probe: the joined plan, its parts equal to this object's, the
+		 * objects it names bound; one object found is enough. */
 		NSMutableArray *equalities = [NSMutableArray array];
 		for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
 			[equalities addObject:@[ [pair lastObject],
@@ -1066,6 +1191,25 @@ ORMBagKey(ORMPlanValue *value)
 	}
 	/* What a probe asks of the objects read. */
 	for (NSArray *equality in self.equalities) {
+		if ([[equality firstObject] isKindOfClass:[NSArray class]]) {
+			/* One of the tuples: (a == x AND b == y) OR ... */
+			NSArray *paths = [equality firstObject];
+			NSMutableArray *alternatives = [NSMutableArray array];
+			NSMutableArray *arguments = [NSMutableArray array];
+			for (NSArray *tuple in [equality lastObject]) {
+				NSMutableArray *parts = [NSMutableArray array];
+				for (NSUInteger i = 0; i < [paths count]; i++) {
+					[parts addObject:[NSString stringWithFormat:@"%@ == %%@", [[[paths objectAtIndex:i] keys]
+					                                                              componentsJoinedByString:@"."]]];
+					[arguments addObject:[tuple objectAtIndex:i]];
+				}
+				[alternatives addObject:[NSString stringWithFormat:@"(%@)", [parts componentsJoinedByString:@" AND "]]];
+			}
+			[inStore addObject:[ORMPredicatePart format:[alternatives count] > 0 ? [alternatives componentsJoinedByString:@" OR "]
+			                                                                     : @"FALSEPREDICATE"
+			                                  arguments:arguments inStore:YES]];
+			continue;
+		}
 		NSString *theirs = [[[equality firstObject] keys] componentsJoinedByString:@"."];
 		BOOL among = [[equality lastObject] isKindOfClass:[NSArray class]];
 		[inStore addObject:[ORMPredicatePart format:[NSString stringWithFormat:among ? @"%@ IN %%@" : @"%@ == %%@", theirs]
@@ -1079,6 +1223,20 @@ ORMBagKey(ORMPlanValue *value)
 		[self collectBags:check into:bags];
 	}
 	_bagValues = bags;
+	/* The joins the checks probe, each read for a batch where the batch's
+	 * objects say the values its pairs need. */
+	NSMutableArray *probed = [NSMutableArray array];
+	for (ORMPlanCondition *check in checked) {
+		[self collectProbes:check into:probed];
+	}
+	_probes = probed;
+	for (ORMPlanCondition *join in probed) {
+		[self.joinLines addObject:[self batches:join]
+		                              ? [NSString stringWithFormat:@"%@: read for each batch, where its parts are the batch's; "
+		                                                           @"the rest checked object by object",
+		                                                           join.definition.name]
+		                              : [NSString stringWithFormat:@"%@: probed object by object", join.definition.name]];
+	}
 	for (ORMPlanValue *value in bags) {
 		ORMPlanColumn *group = [self groupColumnOf:value];
 		[self.joinLines addObject:[self scopes:value]

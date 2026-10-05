@@ -1613,8 +1613,9 @@
 
 /* Who heads a branch in the city they live in? Employee1 is met again in
  * the join, so the branches depend on each employee: o1 in the joined
- * plan, and each employee probed. */
-- (void)testACorrelatedJoinProbesEachObject
+ * plan. The branches in a batch's cities are read once for the batch, and
+ * which one each employee heads is asked of them. */
+- (void)testACorrelatedJoinIsReadForEachBatch
 {
 	NSString *q = [[self queries] addQueryNamed:@"Heads at home" from:[self typeId:@"Employee"] reason:NULL];
 	NSString *root = [self root:q].identifier;
@@ -1637,6 +1638,8 @@
 	NSString *program = [interpreter programForPlan:plan error:NULL];
 	XCTAssertTrue([program hasPrefix:@"join1, for each (o1 is this): fetch Branch where employee == o1"], @"%@", program);
 	XCTAssertTrue([program rangeOfString:@"keep those where"].location != NSNotFound, @"%@", program);
+	XCTAssertTrue([program rangeOfString:@"join1: read for each batch, where its parts are the batch's"].location
+	                  != NSNotFound, @"%@", program);
 	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
 	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
 	NSManagedObjectContext *context = [self absorbedCompanyIn:directory model:model];

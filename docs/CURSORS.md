@@ -7,7 +7,7 @@ backends share the tree. Core Data (`ORMQueryInterpreter`) and OData
 condition on its own objects. [QUERIES.md](QUERIES.md) has the plans,
 [ODATA.md](ODATA.md) the requests.
 
-Steps 1 to 4 below are built (`ORMCursor.h`). "Today" in the tables is
+Steps 1 to 5 below are built (`ORMCursor.h`). "Today" in the tables is
 what the code did before them; [Steps](#steps) says what is still to come.
 
 ## Why
@@ -82,7 +82,7 @@ answers belong to a batch, not to the cursor.
 |---|---|---|
 | **Scan** (request, order, resume) | reads the entity's objects the request filters, in order, a batch at a time. The only leaf, and the only node a backend builds alone | the fetch in slices (`ORMPlanRun -next:`); the OData GET with `$top`/`$skip` |
 | **Prefetch** (inner plan) → Scan's arguments | reads an uncorrelated join once, before the first batch; its values become arguments of the Scan's filter | `joinPrefetchLimit` fetch; OData `joins` / `-filterJoining:` |
-| **BindJoin** (input, inner plan, scope) | for each batch of the input, reads the inner plan once, narrowed to the batch's values (the scope), and puts what it found in the batch's answers. Without a scope, the inner plan is read once, whole, and every batch shares it | bags per slice / page; page joins; narrowed `wholeJoins`; the interpreter's probe per object |
+| **BindJoin** (input, inner plan, scope) | for each batch of the input, reads the inner plan once, narrowed to the batch's values (the scope), and puts what it found in the batch's answers. Without a scope, the inner plan is read once, whole, and every batch shares it | bags per slice / page; page joins; narrowed `wholeJoins`; the interpreter's probe per object (now per batch) |
 | **SemiJoin** (input, BindJoin's answer, pairs) | keeps the batch's objects whose values the answer has | OData page joins without a check (`groupby`) |
 | **Filter** (checks) | keeps the objects meeting the conditions the request could not say, evaluated on the batch with its answers | `checks`; `_checks` / `-keeps:` |
 | **Rows** (columns) | turns a batch's objects into tuples, a tuple per way the conditions bind, evaluated with its answers | `-rowsOf:` in both |
@@ -182,11 +182,7 @@ run underneath does.
    joins are `ORMODataSemiJoin`, and bags and correlated joins are
    BindJoins, scoped or whole. The two cursors' copies of the batch logic
    are gone.
-   - Two things are not operators yet. Prefetch is still inside each leaf:
-     the joins made first are in the OData scan's preparation and in the
-     interpreter's predicate.
-   - The interpreter still probes a correlated join object by object,
-     during the Filter, rather than once per batch as a BindJoin.
+   - Prefetch stays inside each leaf, by design (step 5).
 3. **Done: resumable Scans.** `ORMSeek` orders by the plan's sorts and then
    the entity's key (ODataKit's property mapper says which attributes it
    is). A batch starts after the last one's values.
@@ -207,8 +203,23 @@ run underneath does.
      its own only, and keeps nothing from one object to the next.
    - Otherwise it keeps every row given, as before.
    - The ordered case (equal tuples adjacent) is not done.
-5. **The interpreter's probes as BindJoins,** and Prefetch as an operator
-   of its own.
+5. **Done: the interpreter's probes as BindJoins.**
+   - A join the checks would probe object by object is read once for each
+     batch, when its pairs' values are the object read's. Only its plan's
+     conditions that depend on nothing outside it are read, with its parts
+     one of the batch's tuples.
+   - Each object is then checked against those candidates in memory, with
+     itself bound. `testACorrelatedJoinIsReadForEachBatch` covers this.
+   - A join whose pairs come from a `some`'s member is still probed for each
+     object.
+
+   **Prefetch stays in the leaves.** The joins made first are resolved
+   before the first batch anyway: in the OData scan's preparation, and in
+   the interpreter's predicate lowering. For Core Data, whether a join is
+   fetched first at all depends on counting it. Its values become part of
+   the predicate, an `OR` of `AND`s that substitution variables cannot say.
+   An operator of its own would rearrange the lowering and change nothing a
+   caller sees.
 
 ## Reading
 

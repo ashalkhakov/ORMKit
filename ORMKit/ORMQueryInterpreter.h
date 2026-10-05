@@ -40,9 +40,12 @@
  * - A join (matches) is said in the predicate when its plan is the store's
  *   to say entirely, reads from nothing of this one, and finds few objects
  *   (joinPrefetchLimit): they are fetched once, and their values put in
- *   its place. Otherwise each object is probed: the joined plan run with
- *   that object's values, and the objects it names bound (a correlated
- *   join), until one is found.
+ *   its place. Otherwise, where the join's parts are the object read's, the
+ *   joined objects with a batch's parts are read once for the batch (what
+ *   depends on each object left out), and which of them each object
+ *   matches is asked of them with it bound (a correlated join). Else each
+ *   object is probed: the joined plan run with its values, until one is
+ *   found.
  *
  *   the plan                              Core Data
  *   a path                                a key path; from a variable: $x1.city
@@ -53,12 +56,13 @@
  *   is (the same object)                  ==
  *   is among a trail                      ANY $x2.inverse... == SELF, back along the
  *                                         inverses (what the store says in SQL)
- *   ... match [read Branch ...]           Branch fetched first, or probed for each */
+ *   ... match [read Branch ...]           Branch fetched first, or read for each
+ *                                         batch, or probed for each object */
 @interface ORMQueryInterpreter : NSObject
 - (instancetype)initWithModel:(NSManagedObjectModel *)model;
 @property (nonatomic, readonly, strong) NSManagedObjectModel *model;
 /* The most objects an uncorrelated join is fetched for, to be said in the
- * predicate; more, and each object is probed instead. 1000 by default. */
+ * predicate; more, and it is read for each batch instead. 1000 by default. */
 @property (nonatomic) NSUInteger joinPrefetchLimit;
 
 /* The plan read in the context, a page at a time: nil, and why, when the
