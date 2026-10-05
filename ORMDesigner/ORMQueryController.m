@@ -127,10 +127,13 @@ static const NSUInteger ORMResultsPage = 200;
 		self.queryId = [[queries firstObject] identifier];
 	}
 	[_queryPopUp removeAllItems];
+	NSSet *broken = [self brokenRules];
 	for (ORMQuery *query in queries) {
-		/* A rule or a calculation says so beside its name. */
-		NSString *kind = query.kind == ORMQueryConstraint ? @" (rule)"
-			: (query.kind == ORMQueryCalculation ? @" (calculation)" : @"");
+		/* A rule or a calculation says so beside its name, and whether the
+		 * sample population breaks it. */
+		BOOL breaks = [broken containsObject:query.identifier];
+		NSString *kind = query.kind == ORMQueryConstraint ? (breaks ? @" (rule, broken)" : @" (rule)")
+			: (query.kind == ORMQueryCalculation ? (breaks ? @" (calculation, broken)" : @" (calculation)") : @"");
 		[_queryPopUp addItemWithTitle:[query.name stringByAppendingString:kind]];
 		[[_queryPopUp lastItem] setRepresentedObject:query.identifier];
 		if ([query.identifier isEqualToString:self.queryId]) {
@@ -272,6 +275,34 @@ static const NSUInteger ORMResultsPage = 200;
 	return NO;
 }
 
+/* The sample population in a store of the mapped model, made once for the
+ * model as it is. */
+- (NSManagedObjectContext *)populationContext:(ORMCDModel *)coreData error:(NSError **)error
+{
+	if (_context == nil) {
+		_store = [[ORMPopulationStore alloc] initWithModel:self.editor.model coreData:coreData];
+		_context = [_store newContextWithError:error];
+	}
+	return _context;
+}
+
+/* The rules and value calculations the sample population breaks, by id:
+ * marked in the list. */
+- (NSSet<NSString *> *)brokenRules
+{
+	if (![self hasPopulation]) {
+		return [NSSet set];
+	}
+	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMRuleChecker *checker = [[ORMRuleChecker alloc] initWithModel:self.editor.model mapping:mapping];
+	if ([checker.rules count] == 0 && [checker.valueCalculations count] == 0) {
+		return [NSSet set];
+	}
+	NSManagedObjectContext *context = [self populationContext:checker.coreData error:NULL];
+	NSArray *violations = context != nil ? [checker violationsInContext:context limit:1 error:NULL] : nil;
+	return [NSSet setWithArray:[violations valueForKeyPath:@"rule.identifier"] ?: @[]];
+}
+
 - (ORMQueryResult *)result
 {
 	if (_result != nil || _query == nil) {
@@ -285,14 +316,9 @@ static const NSUInteger ORMResultsPage = 200;
 	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
 	NSError *error = nil;
-	if (_context == nil) {
-		_store = [[ORMPopulationStore alloc] initWithModel:self.editor.model coreData:planner.coreData];
-		_context = [_store newContextWithError:&error];
-		if (_context == nil) {
-			_resultsNote = [NSString stringWithFormat:@"The population cannot be put in a store: %@",
-			                                          [error localizedDescription]];
-			return nil;
-		}
+	if ([self populationContext:planner.coreData error:&error] == nil) {
+		_resultsNote = [NSString stringWithFormat:@"The population cannot be put in a store: %@", [error localizedDescription]];
+		return nil;
 	}
 	ORMQueryPlan *plan = [planner planForQuery:_query];
 	if (plan.entityName == nil) {

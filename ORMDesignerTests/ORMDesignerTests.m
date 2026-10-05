@@ -537,7 +537,8 @@
 		}
 	}
 	[queries modelDidChange];
-	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:@"Lives near work (rule)"]);
+	/* Gus breaks it. */
+	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:@"Lives near work (rule, broken)"]);
 	XCTAssertEqual([[queries valueForKey:@"kindPopUp"] indexOfSelectedItem], (NSInteger)ORMQueryConstraint);
 	XCTAssertEqual([[queries valueForKey:@"modalityPopUp"] indexOfSelectedItem], 1);
 	XCTAssertFalse([[queries valueForKey:@"functionPopUp"] isEnabled]);

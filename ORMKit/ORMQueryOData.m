@@ -550,6 +550,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			/* The one value; none where there is none, or more than one. */
 			return [distinct count] == 1 ? [distinct anyObject] : nil;
 		}
+		if ([value.function isEqualToString:@"distinct"]) {
+			return @([distinct count]);
+		}
 		if ([values count] == 0) {
 			return [value.function isEqualToString:@"sum"] ? @0 : nil;
 		}

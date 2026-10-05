@@ -71,7 +71,8 @@
 @interface ORMPlanValue : NSObject <NSCopying>
 + (instancetype)valueAtPath:(ORMPlanPath *)path;
 + (instancetype)constant:(NSString *)text type:(NSString *)attributeType;
-/* An aggregate of a bag the plan defines, as ConQuer-II's are: the bag a
+/* An aggregate of a bag the plan defines, as ConQuer-II's are (also
+ * "value", the one value, and "distinct", how many values there are): the bag a
  * set whose rows are its tuples (the whole query, its aggregates left out,
  * listing the group node and the nodes from it down to the one aggregated;
  * each way they are bound once), function ("count", "sum", "average",

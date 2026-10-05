@@ -28,7 +28,8 @@
  *
  * The model's constraint queries are checked too: run against a store of
  * the population (ORMPopulationStore), of the document's first mapping or
- * the defaults, each row a violation (ORMRuleChecker). */
+ * the defaults, each row a violation (ORMRuleChecker); and its value
+ * calculations, an object with more than one value a violation. */
 @interface ORMPopulationChecker : NSObject
 - (instancetype)initWithModel:(ORMModel *)model;
 @property (nonatomic, readonly, strong) ORMModel *model;

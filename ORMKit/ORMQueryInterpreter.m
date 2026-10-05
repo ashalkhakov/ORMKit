@@ -877,6 +877,10 @@ ORMBagKey(ORMPlanValue *value)
 		NSSet *distinct = [NSSet setWithArray:values];
 		return [distinct count] == 1 ? [distinct anyObject] : nil;
 	}
+	if ([value.function isEqualToString:@"distinct"]) {
+		/* How many values: a value calculation checked. */
+		return @([[NSSet setWithArray:values] count]);
+	}
 	if ([values count] == 0) {
 		return [value.function isEqualToString:@"sum"] ? @0 : nil;
 	}

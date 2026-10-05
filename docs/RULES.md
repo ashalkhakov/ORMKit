@@ -198,9 +198,11 @@ which objects the rule depends on. The notes call such a constraint
    - `testCalculationsAreComputed` covers each branch's total salary and
      head's name, and each country's total. A salary two of its employees
      share counts for each.
-   - Not yet done: reporting a `Value` calculation with more than one value
-     (the table above says the population check does). Today it is only
-     empty.
+   - A `Value` calculation is checked as a rule is. `ORMRuleChecker` runs
+     its plan with the column counting the values ("distinct"), and each
+     object with more than one is a violation ("Staff: Branch 7 has 3
+     values."). It is reported in the population check and by
+     `ormtool check`.
 5. **Done: the designer.**
    - The Queries window has **Kind** (List, Constraint, Calculation),
      **Modality** for a constraint, and the **Function** and **of** node for
@@ -208,8 +210,8 @@ which objects the rule depends on. The notes call such a constraint
    - The query list marks a rule "(rule)" and a calculation "(calculation)".
    - A rule's Results tab says how many violations the sample population
      has. A calculation's lists each object and its value.
-   - Not done: the list does not yet mark which rules are broken, as the
-     table above says it would.
+   - The list marks a rule or value calculation the sample population breaks:
+     "(rule, broken)".
 6. **Done: validation code.**
    - `-[ORMQueryInterpreter predicateForPlan:reason:]` gives a plan's
      condition as one predicate needing no store, or says why it cannot.

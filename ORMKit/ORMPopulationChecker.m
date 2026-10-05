@@ -261,7 +261,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	NSXMLDocument *document = [_model.modelElement rootDocument];
 	ORMCoreDataMapping *mapping = document != nil ? [[ORMCoreDataMapping mappingsOfDocument:document] firstObject] : nil;
 	ORMRuleChecker *rules = [[ORMRuleChecker alloc] initWithModel:_model mapping:mapping];
-	if ([rules.rules count] == 0) {
+	if ([rules.rules count] == 0 && [rules.valueCalculations count] == 0) {
 		return;
 	}
 	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_model coreData:rules.coreData];

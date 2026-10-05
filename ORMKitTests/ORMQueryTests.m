@@ -1475,6 +1475,41 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* A value calculation an object has more than one value of is broken: a
+ * branch's employee, where 52 has two and 7 three; a branch's head, which
+ * each has one of, is not. */
+- (void)testAValueCalculationWithMoreThanOneValueIsReported
+{
+	NSString *staff = [[self queries] addQueryNamed:@"Staff" from:[self typeId:@"Branch"] reason:NULL];
+	ORMQueryNode *employee = [self from:[self root:staff].identifier through:[self role:@"worksFor" at:1] in:staff];
+	XCTAssertTrue([[self queries] setKind:ORMQueryCalculation ofQuery:staff reason:NULL]);
+	XCTAssertTrue([[self queries] setCalculation:ORMCalculationValue ofNode:employee.identifier inQuery:staff reason:NULL]);
+	NSString *head = [[self queries] addQueryNamed:@"Head" from:[self typeId:@"Branch"] reason:NULL];
+	ORMQueryNode *heads = [self from:[self root:head].identifier through:[self role:@"heads" at:1] in:head];
+	XCTAssertTrue([[self queries] setKind:ORMQueryCalculation ofQuery:head reason:NULL]);
+	XCTAssertTrue([[self queries] setCalculation:ORMCalculationValue ofNode:heads.identifier inQuery:head reason:NULL]);
+	ORMRuleChecker *checker = [[ORMRuleChecker alloc] initWithModel:_editor.model mapping:[self mapping]];
+	XCTAssertEqual([checker.valueCalculations count], 2u);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[checker.coreData managedObjectModel]];
+	NSError *error = nil;
+	NSArray *violations = [checker violationsInContext:context limit:10 error:&error];
+	XCTAssertEqualObjects([violations valueForKey:@"text"],
+	                      (@[ @"Staff: Branch 7 has 3 values.", @"Staff: Branch 52 has 2 values." ]), @"%@", error);
+	XCTAssertEqualObjects([checker unchecked], @[]);
+	/* And in the population's check. */
+	[self addCompanyPopulation];
+	NSMutableArray *found = [NSMutableArray array];
+	for (ORMPopulationViolation *violation in [[[ORMPopulationChecker alloc] initWithModel:_editor.model] violations]) {
+		if (violation.rule != nil) {
+			[found addObject:violation.text];
+		}
+	}
+	XCTAssertEqual([found count], 2u, @"%@", found);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* A rule as validation code: its plan one predicate, asked of each
  * Employee by itself; true of Gus, so he is not valid, and of no one else.
  * A rule whose aggregate needs a bag is no one predicate: noted. */
