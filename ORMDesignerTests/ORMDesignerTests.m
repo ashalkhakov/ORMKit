@@ -1027,6 +1027,9 @@
 	XCTAssertNil([ORMQuery queryWithId:query inModel:editor.model].calculatedNode);
 	[[_document undoManager] undo];
 	XCTAssertEqual([ORMQuery queryWithId:query inModel:editor.model].kind, ORMQueryList);
+	/* Shown, it is closed: an open window outlives the test (and on GNUstep
+	 * the next main menu does not load). */
+	[queries close];
 }
 
 /* Building a query from the diagram, as NORMA builds paths: each role box
