@@ -137,7 +137,16 @@ ORMRowsText(ORMModel *model, ORMQueryPlanner *planner, ORMQueryPlan *plan)
 	for (NSArray *row in result.rows) {
 		NSMutableArray *cells = [NSMutableArray array];
 		for (id value in row) {
-			[cells addObject:value == [NSNull null] ? @"-" : [value description]];
+			/* An object identified by several values: "BSc, UQ". */
+			id shown = value;
+			if ([value isKindOfClass:[NSArray class]]) {
+				NSMutableArray *parts = [NSMutableArray array];
+				for (id part in value) {
+					[parts addObject:part == [NSNull null] ? @"-" : [part description]];
+				}
+				shown = [parts componentsJoinedByString:@", "];
+			}
+			[cells addObject:shown == [NSNull null] ? @"-" : [shown description]];
 		}
 		[lines addObject:[cells componentsJoinedByString:@" | "]];
 	}

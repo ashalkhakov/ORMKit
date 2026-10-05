@@ -23,6 +23,12 @@
 - (NSArray<NSString *> *)namesOf:(ORMCDEntity *)entity;
 /* An entity's simple identifier attribute: its reference mode's value. */
 - (ORMCDAttribute *)identifierOf:(ORMObjectType *)type on:(ORMCDEntity *)entity;
+/* What identifies an object of the entity when no one attribute does: the
+ * key paths to the values of its preferred identifier's parts, in order,
+ * through the to-ones to a part that is an entity ("degreecode",
+ * "university.code"). nil where one attribute does, or a part is not
+ * found. */
+- (NSArray<NSArray<NSString *> *> *)identifyingPartsOf:(ORMObjectType *)type on:(ORMCDEntity *)entity;
 /* The properties an absorbed object type's parts are on the entity: @[ the
  * trace below the base ("/role/role"), the property ], its own and its
  * ancestors'. */

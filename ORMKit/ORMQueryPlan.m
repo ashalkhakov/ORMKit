@@ -619,10 +619,29 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	return _identifierKey != nil ? [_path pathByAddingKey:_identifierKey] : _path;
 }
 
+- (id)valueOf:(id)object at:(id (^)(id object, NSArray<NSString *> *keys))valueAt
+{
+	if ([_identifierParts count] == 0 || object == nil || object == [NSNull null]) {
+		return object;
+	}
+	NSMutableArray *values = [NSMutableArray array];
+	for (NSArray *keys in _identifierParts) {
+		[values addObject:valueAt(object, keys) ?: [NSNull null]];
+	}
+	return values;
+}
+
 - (NSString *)description
 {
 	if (_value != nil) {
 		return [_value description];
+	}
+	if ([_identifierParts count] > 0) {
+		NSMutableArray *parts = [NSMutableArray array];
+		for (NSArray *keys in _identifierParts) {
+			[parts addObject:[keys componentsJoinedByString:@"."]];
+		}
+		return [NSString stringWithFormat:@"%@ (%@)", _path, [parts componentsJoinedByString:@", "]];
 	}
 	return _identifierKey != nil ? [NSString stringWithFormat:@"%@ (%@)", _path, _identifierKey] : [_path description];
 }
@@ -947,6 +966,9 @@ ORMConditionList(ORMPlanCondition *condition)
 		if (column.identifierKey != nil) {
 			[item setObject:column.identifierKey forKey:@"identifier"];
 		}
+		if ([column.identifierParts count] > 0) {
+			[item setObject:column.identifierParts forKey:@"identifierParts"];
+		}
 		[columns addObject:item];
 	}
 	[list setObject:columns forKey:@"columns"];
@@ -1244,9 +1266,20 @@ ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined
 				return nil;
 			}
 		}
-		[columns addObject:[ORMPlanColumn columnTitled:[item objectForKey:@"title"] node:[item objectForKey:@"node"] path:path
-		                                         trail:[trail isKindOfClass:[NSArray class]] ? trail : nil
-		                                    identifier:identifier]];
+		ORMPlanColumn *read = [ORMPlanColumn columnTitled:[item objectForKey:@"title"] node:[item objectForKey:@"node"] path:path
+		                                            trail:[trail isKindOfClass:[NSArray class]] ? trail : nil
+		                                       identifier:identifier];
+		id parts = [item objectForKey:@"identifierParts"];
+		for (id keys in [parts isKindOfClass:[NSArray class]] ? parts : @[]) {
+			for (id key in [keys isKindOfClass:[NSArray class]] ? keys : @[ [NSNull null] ]) {
+				if (!ORMPlanIsName(key)) {
+					*reason = ORMPlanError(@"a column's identifying parts are key paths of names.");
+					return nil;
+				}
+			}
+		}
+		read.identifierParts = [parts isKindOfClass:[NSArray class]] ? parts : nil;
+		[columns addObject:read];
 	}
 	NSMutableArray *sorts = [NSMutableArray array];
 	for (id item in [list objectForKey:@"sorts"] ?: @[]) {

@@ -774,8 +774,11 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			                                      : [self valuesAt:[column valuePath] object:read bindings:way];
 			for (NSArray *tuple in tuples) {
 				for (id value in values) {
-					[next addObject:[tuple arrayByAddingObject:[value isKindOfClass:[ORMODataObject class]]
-					                                               ? ((ORMODataObject *)value).json : value]];
+					id listed = [column valueOf:value at:^id(id each, NSArray *keys) {
+						return [[self valuesAt:[ORMPlanPath pathFrom:nil keys:keys] object:each bindings:@{}] firstObject];
+					}];
+					[next addObject:[tuple arrayByAddingObject:[listed isKindOfClass:[ORMODataObject class]]
+					                                               ? ((ORMODataObject *)listed).json : listed]];
 				}
 			}
 			tuples = next;
@@ -2064,8 +2067,14 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		}
 		[_columnWire addObject:wire];
 	}
-	/* What the page joins compare and check, and what the rows look at. */
+	/* What the page joins compare and check, and what the rows look at:
+	 * an object's identifying parts too. */
 	NSMutableArray *read = [NSMutableArray arrayWithArray:[_rows neededPaths]];
+	for (ORMPlanColumn *column in _plan.columns) {
+		for (NSArray *keys in column.identifierParts ?: @[]) {
+			[read addObject:[(column.trail ?: @[]) arrayByAddingObjectsFromArray:keys]];
+		}
+	}
 	[read addObjectsFromArray:computed];
 	for (ORMPlanCondition *check in _checks) {
 		[read addObjectsFromArray:[_rows pathsOf:check from:nil]];

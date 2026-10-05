@@ -402,6 +402,14 @@ ORMCellText(id value)
 	if (value == nil || value == [NSNull null]) {
 		return @"—";
 	}
+	if ([value isKindOfClass:[NSArray class]]) {
+		/* An object by the values identifying it: "BSc, U1". */
+		NSMutableArray *parts = [NSMutableArray array];
+		for (id part in value) {
+			[parts addObject:ORMCellText(part)];
+		}
+		return [parts componentsJoinedByString:@", "];
+	}
 	if ([value isKindOfClass:[NSDate class]]) {
 		NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
 		[formatter setDateFormat:@"yyyy-MM-dd HH:mm"];

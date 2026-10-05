@@ -103,6 +103,44 @@
 	return nil;
 }
 
+- (NSArray<NSArray<NSString *> *> *)identifyingPartsOf:(ORMObjectType *)type on:(ORMCDEntity *)entity
+{
+	if (type == nil || entity == nil || [self identifierOf:type on:entity] != nil) {
+		return nil;
+	}
+	ORMObjectType *identified = type;
+	while (identified.preferredIdentifier == nil && [identified.supertypes count] > 0) {
+		identified = [identified identifyingSupertype];
+	}
+	NSArray *roles = [identified.preferredIdentifier allRoles];
+	if ([roles count] == 0) {
+		return nil;
+	}
+	NSMutableArray *parts = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		ORMCDProperty *property = [self propertyOf:entity source:role.identifier];
+		if ([property isKindOfClass:[ORMCDAttribute class]]) {
+			[parts addObject:@[ property.name ]];
+			continue;
+		}
+		ORMCDRelationship *relationship = [property isKindOfClass:[ORMCDRelationship class]] ? (ORMCDRelationship *)property : nil;
+		ORMCDEntity *destination = relationship != nil && !relationship.toMany ? [_coreData entityNamed:relationship.destination] : nil;
+		if (destination == nil) {
+			return nil;
+		}
+		/* A part that is an entity: by its identifier, or its own parts. */
+		ORMCDAttribute *identifier = [self identifierOf:role.player on:destination];
+		NSArray *inner = identifier != nil ? @[ @[ identifier.name ] ] : [self identifyingPartsOf:role.player on:destination];
+		if (inner == nil) {
+			return nil;
+		}
+		for (NSArray *keys in inner) {
+			[parts addObject:[@[ relationship.name ] arrayByAddingObjectsFromArray:keys]];
+		}
+	}
+	return parts;
+}
+
 - (NSArray<NSArray *> *)absorbedParts:(NSString *)base on:(ORMCDEntity *)entity
 {
 	NSMutableArray *parts = [NSMutableArray array];

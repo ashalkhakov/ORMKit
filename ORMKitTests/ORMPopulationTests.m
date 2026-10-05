@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
 #import <CoreData/CoreData.h>
+#import <ODataService/ODataService.h>
 
 /* Sample populations: written as NORMA writes them, read back, and put in
  * a Core Data store of the mapping. */
@@ -573,6 +574,34 @@
 				}
 				XCTAssertEqual([result.rows count], 7u, @"%@", result.rows);
 				XCTAssertEqual(empty, 2u, @"%@", result.rows);
+				/* A degree is identified by its code and its university's: the
+				 * row has those, not the object. */
+				NSMutableSet *degrees = [NSMutableSet set];
+				for (NSArray *row in result.rows) {
+					if ([row objectAtIndex:1] != [NSNull null]) {
+						[degrees addObject:[row objectAtIndex:1]];
+					}
+				}
+				XCTAssertTrue([degrees containsObject:(@[ @"BSc", @"UQ" ])], @"%@", degrees);
+				XCTAssertTrue([degrees containsObject:(@[ @"PhD", @"MIT" ])], @"%@", degrees);
+				/* The service's rows are the same. */
+				ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+				XCTAssertNotNil(odata, @"%@", error);
+				ORMQueryODataCursor *cursor = [odata
+					cursorWithTransport:[[ODataService alloc] initWithPersistentStoreCoordinator:context.persistentStoreCoordinator
+					                                                                 serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]]
+					        serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+				NSMutableArray *served = [NSMutableArray array];
+				for (NSUInteger guard = 0; guard < 20 && ![cursor atEnd]; guard++) {
+					dispatch_semaphore_t done = dispatch_semaphore_create(0);
+					[cursor nextPage:3 completion:^(ORMQueryResult *page, NSError *failed) {
+						XCTAssertNotNil(page, @"%@", failed);
+						[served addObjectsFromArray:page.rows ?: @[]];
+						dispatch_semaphore_signal(done);
+					}];
+					dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC)));
+				}
+				XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:result.rows], @"%@", [odata requestText]);
 			}
 		}
 	}

@@ -233,9 +233,14 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		if ([titles countForObject:title] > 1 && above != nil) {
 			title = [NSString stringWithFormat:@"%@ of %@", title, [above designation]];
 		}
-		[columns addObject:[ORMPlanColumn columnTitled:title node:node.identifier path:place.path
-		                                         trail:[place.trail valueForKey:@"name"]
-		                                    identifier:identifier != [NSNull null] ? [identifier name] : nil]];
+		ORMPlanColumn *planned = [ORMPlanColumn columnTitled:title node:node.identifier path:place.path
+		                                               trail:[place.trail valueForKey:@"name"]
+		                                          identifier:identifier != [NSNull null] ? [identifier name] : nil];
+		/* An object no one attribute identifies: by the values that do. */
+		if (identifier == [NSNull null] && place.entity != nil) {
+			planned.identifierParts = [_places identifyingPartsOf:node.objectType on:place.entity];
+		}
+		[columns addObject:planned];
 	}
 	if (_bagNodes != nil) {
 		/* The sets it uses are the query's, defined before it. */

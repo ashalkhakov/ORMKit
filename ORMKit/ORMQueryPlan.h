@@ -217,6 +217,14 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *trail;
 @property (nonatomic, readonly, copy) NSString *identifierKey;
+/* An entity's column where no one attribute identifies it: the key paths,
+ * from the column's object, to the values that do, in its reference
+ * scheme's order. A row then has those values, as a list, not the object.
+ * Set once, as the planner makes the column. */
+@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *identifierParts;
+/* The column's value from the object at its value path: the object, or the
+ * list of its identifying parts' values (NSNull where one is missing). */
+- (id)valueOf:(id)object at:(id (^)(id object, NSArray<NSString *> *keys))valueAt;
 /* The path to the column's value: the path, and the identifier's key; nil
  * for a computed column. */
 - (ORMPlanPath *)valuePath;

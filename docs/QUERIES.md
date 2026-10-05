@@ -291,7 +291,7 @@ Its text (`-[ORMQueryPlan text]`):
 | a node compared with another | `not (x1.country is country)` |
 | a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname` |
 | a step through an absorbed object type to an entity that absorbs it too | `... in join1`, a set the plan defines: `let join1 = read Branch where nr = 52` (below) |
-| the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier |
+| the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier; one identified by several values by those, in its reference scheme's order, as a list in the row: `x1.degree (degreecode, university.code)` gives `BSc, UQ` |
 | a sorted listed node | `order by nr descending`, through to-ones |
 | nothing sorted, only values of the object read listed (not it) | ordered by them, as D4 reads a table by its key: `order by country.name`, so equal rows come together |
 

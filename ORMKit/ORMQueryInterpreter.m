@@ -1196,7 +1196,9 @@ ORMBagKey(ORMPlanValue *value)
 			NSMutableArray *next = [NSMutableArray array];
 			for (NSArray *tuple in tuples) {
 				for (id value in values) {
-					[next addObject:[tuple arrayByAddingObject:value]];
+					[next addObject:[tuple arrayByAddingObject:[column valueOf:value at:^id(id each, NSArray *keys) {
+						return [each valueForKeyPath:[keys componentsJoinedByString:@"."]];
+					}]]];
 				}
 			}
 			tuples = next;
