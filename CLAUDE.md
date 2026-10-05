@@ -6,6 +6,7 @@ reads, edits, verbalizes and maps NORMA's `.orm` files to Core Data, a tool
 the design and what is not done; [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPING.md) the mapping;
 [docs/VERBALIZATION.md](docs/VERBALIZATION.md) the FORML templates; [docs/QUERIES.md](docs/QUERIES.md) the conceptual
 queries; [docs/CURSORS.md](docs/CURSORS.md) how a plan is read, as a tree of cursors;
+[docs/RULES.md](docs/RULES.md) queries as constraints and calculations;
 [docs/POPULATIONS.md](docs/POPULATIONS.md) the sample populations they run on.
 
 ## The XML document is the model
