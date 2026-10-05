@@ -192,6 +192,9 @@ ORMCompare(id left, NSString *comparison, id right)
 @property (nonatomic, strong) NSError *error;
 /* The answers of the batch being evaluated (ORMCursor.h). */
 @property (nonatomic, copy) NSDictionary<NSString *, id> *answers;
+/* Lowered for one predicate, with no store: what needs one (a join) is
+ * left to the checks. */
+@property (nonatomic) BOOL predicateOnly;
 - (BOOL)prepare;
 /* The cursors reading it: its fetch, the bags read for each batch, and
  * its checks (docs/CURSORS.md). */
@@ -478,7 +481,7 @@ ORMBagKey(ORMPlanValue *value)
 
 - (BOOL)describing
 {
-	return self.context == nil;
+	return self.context == nil && !self.predicateOnly;
 }
 
 #pragma mark Values
@@ -764,6 +767,11 @@ ORMBagKey(ORMPlanValue *value)
  * object is probed. */
 - (ORMPredicatePart *)matches:(ORMPlanCondition *)condition
 {
+	if (self.predicateOnly) {
+		/* Fetched or probed: no one predicate. */
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"probe %@", condition.definition.name ?: @"a join"]
+		                      arguments:nil inStore:NO];
+	}
 	_joins++;
 	NSString *name = condition.definition.name ?: [NSString stringWithFormat:@"join%lu", (unsigned long)_joins];
 	NSMutableSet *free = [NSMutableSet setWithSet:[condition.plan.condition freeVariables] ?: [NSSet set]];
@@ -1542,6 +1550,99 @@ ORMBagKey(ORMPlanValue *value)
 {
 	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:nil error:error];
 	return run != nil ? [run programText] : nil;
+}
+
+/* A value as the predicate language writes it. */
+static NSString *
+ORMPredicateLiteral(id value)
+{
+	if (value == nil || value == [NSNull null]) {
+		return @"nil";
+	}
+	if ([value isKindOfClass:[NSString class]]) {
+		NSString *escaped = [[value stringByReplacingOccurrencesOfString:@"\\" withString:@"\\\\"]
+			stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+		return [NSString stringWithFormat:@"\"%@\"", escaped];
+	}
+	if ([value isKindOfClass:[NSDate class]]) {
+		return [NSString stringWithFormat:@"CAST(%.17g, \"NSDate\")", [(NSDate *)value timeIntervalSinceReferenceDate]];
+	}
+	if ([value isKindOfClass:[NSNumber class]] && strcmp([(NSNumber *)value objCType], @encode(BOOL)) == 0
+	    && ![value isKindOfClass:[NSDecimalNumber class]]) {
+		return [value boolValue] ? @"YES" : @"NO";
+	}
+	if ([value isKindOfClass:[NSArray class]]) {
+		NSMutableArray *items = [NSMutableArray array];
+		for (id item in value) {
+			[items addObject:ORMPredicateLiteral(item)];
+		}
+		return [NSString stringWithFormat:@"{%@}", [items componentsJoinedByString:@", "]];
+	}
+	return [value description];
+}
+
+- (NSString *)predicateTextForPlan:(ORMQueryPlan *)plan reason:(NSString **)reason
+{
+	ORMPlanRun *run = [[ORMPlanRun alloc] init];
+	run.interpreter = self;
+	run.plan = plan;
+	run.bindings = @{};
+	run.equalities = @[];
+	run.predicateOnly = YES;
+	if (![run prepare] || [run.checks count] > 0) {
+		if (reason != NULL) {
+			*reason = run.error != nil ? [run.error localizedDescription]
+			                           : [NSString stringWithFormat:@"it asks what one predicate cannot say: %@",
+			                                                        [run.checkPart format] ?: @"?"];
+		}
+		return nil;
+	}
+	if (run.storePart == nil) {
+		return @"TRUEPREDICATE";
+	}
+	/* Each %@ its argument, written; %% a percent sign. */
+	NSString *format = run.storePart.format;
+	NSArray *arguments = run.storePart.arguments;
+	NSMutableString *text = [NSMutableString string];
+	NSUInteger next = 0;
+	for (NSUInteger i = 0; i < [format length]; i++) {
+		unichar c = [format characterAtIndex:i];
+		if (c == '%' && i + 1 < [format length]) {
+			unichar d = [format characterAtIndex:i + 1];
+			if (d == '@') {
+				[text appendString:ORMPredicateLiteral(next < [arguments count] ? [arguments objectAtIndex:next] : nil)];
+				next++;
+				i++;
+				continue;
+			}
+			if (d == '%') {
+				[text appendString:@"%"];
+				i++;
+				continue;
+			}
+		}
+		[text appendFormat:@"%C", c];
+	}
+	return text;
+}
+
+- (NSPredicate *)predicateForPlan:(ORMQueryPlan *)plan reason:(NSString **)reason
+{
+	ORMPlanRun *run = [[ORMPlanRun alloc] init];
+	run.interpreter = self;
+	run.plan = plan;
+	run.bindings = @{};
+	run.equalities = @[];
+	run.predicateOnly = YES;
+	if (![run prepare] || [run.checks count] > 0) {
+		if (reason != NULL) {
+			*reason = run.error != nil ? [run.error localizedDescription]
+			                           : [NSString stringWithFormat:@"it asks what one predicate cannot say: %@",
+			                                                        [run.checkPart format] ?: @"?"];
+		}
+		return nil;
+	}
+	return run.storePredicate ?: [NSPredicate predicateWithValue:YES];
 }
 
 @end

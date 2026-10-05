@@ -26,6 +26,9 @@
  *   value comparison                     the two values compared, when both set
  *   value constraint Core Data cannot    the value within one of the ranges
  *   hold (several ranges, open bounds)
+ *   a constraint query (docs/RULES.md)   its plan's condition, one predicate,
+ *                                        not met by self: checked from the
+ *                                        entity it reads only
  *
  * Alethic constraints make orm_validateConstraints: fail; deontic ones,
  * rules to be told of rather than enforced, are what orm_deonticViolations

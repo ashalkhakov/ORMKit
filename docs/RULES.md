@@ -9,7 +9,8 @@ Both are said in the model's terms, verbalized, checked against sample
 populations, and run against a store or a service. Constraints also become
 validation code.
 
-This is a design, being built: steps 1 to 5 are done ([Steps](#steps)).
+Steps 1 to 6 are built ([Steps](#steps)); what is left is listed there and
+under [Not here, for later](#not-here-for-later).
 
 ## Why
 
@@ -209,7 +210,17 @@ which objects the rule depends on. The notes call such a constraint
      has. A calculation's lists each object and its value.
    - Not done: the list does not yet mark which rules are broken, as the
      table above says it would.
-6. **Validation code** for constraints whose condition the store can say.
+6. **Done: validation code.**
+   - `-[ORMQueryInterpreter predicateForPlan:reason:]` gives a plan's
+     condition as one predicate needing no store, or says why it cannot.
+     A bag's aggregate, a join, or what the interpreter checks in memory
+     cannot be one predicate.
+   - `ORMValidationGenerator` adds a check to the rule's root entity: the
+     predicate, as text, not met by `self`. The check's comment says it is
+     checked from that entity only.
+   - A rule that is no one predicate is in the notes, with why.
+   - `testRulesBecomeValidationCode` covers the predicate parsed back from
+     its text, which holds of Gus and of no one else.
 
 ## Not here, for later
 

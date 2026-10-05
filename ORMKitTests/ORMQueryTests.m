@@ -1475,6 +1475,62 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* A rule as validation code: its plan one predicate, asked of each
+ * Employee by itself; true of Gus, so he is not valid, and of no one else.
+ * A rule whose aggregate needs a bag is no one predicate: noted. */
+- (void)testRulesBecomeValidationCode
+{
+	NSString *q = [self livesNearWork];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	NSString *reason = nil;
+	NSPredicate *predicate = [interpreter predicateForPlan:[planner planForQuery:[self query:q]] reason:&reason];
+	XCTAssertNotNil(predicate, @"%@", reason);
+	/* As the generated code has it: its text, parsed. */
+	NSString *text = [interpreter predicateTextForPlan:[planner planForQuery:[self query:q]] reason:&reason];
+	XCTAssertTrue([text rangeOfString:@"<null>"].location == NSNotFound, @"%@", text);
+	NSPredicate *written = [NSPredicate predicateWithFormat:text];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	__block NSArray *broken = nil;
+	[context performBlockAndWait:^{
+		NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Employee"];
+		NSMutableArray *found = [NSMutableArray array];
+		for (NSManagedObject *employee in [context executeFetchRequest:fetch error:NULL]) {
+			if ([written evaluateWithObject:employee]) {
+				[found addObject:[employee valueForKey:@"nr"]];
+			}
+		}
+		broken = found;
+	}];
+	XCTAssertEqualObjects(broken, @[ @21 ], @"%@", text);
+
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model
+	                                                                         mapping:[self mapping]
+	                                                                            name:@"Company"];
+	NSString *code = [[generator files] objectForKey:@"CompanyValidation.m"];
+	XCTAssertTrue([code rangeOfString:@"evaluateWithObject:self]"].location != NSNotFound, @"%@", code);
+	XCTAssertTrue([code rangeOfString:@"Lives near work"].location != NSNotFound);
+	XCTAssertTrue([code rangeOfString:@"Checked from Employee only"].location != NSNotFound, @"%@", code);
+	NSString *notes = [generator.notes componentsJoinedByString:@"\n"];
+	XCTAssertTrue([notes rangeOfString:@"Lives near work"].location == NSNotFound, @"%@", notes);
+
+	/* Many tongues for a branch: a bag's aggregate, no one predicate. */
+	NSString *tongues = [[self queries] addQueryNamed:@"Many tongues" from:[self typeId:@"Branch"] reason:NULL];
+	ORMQueryNode *employee = [self from:[self root:tongues].identifier through:[self role:@"worksFor" at:1] in:tongues];
+	NSString *speaks = nil;
+	[self from:employee.identifier through:[self role:@"speaks" at:0] in:tongues step:&speaks];
+	XCTAssertTrue([[self queries] setCount:@">" value:1 ofStep:speaks reason:NULL]);
+	XCTAssertTrue([[self queries] setGroupNode:[self root:tongues].identifier ofStep:speaks reason:NULL]);
+	XCTAssertTrue([[self queries] setKind:ORMQueryConstraint ofQuery:tongues reason:NULL]);
+	generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping] name:@"Company"];
+	notes = [generator.notes componentsJoinedByString:@"\n"];
+	XCTAssertTrue([notes rangeOfString:@"Many tongues: it asks what one predicate cannot say"].location != NSNotFound,
+	              @"%@", notes);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* Queries are in the document: saved, undone, and left out of what is
  * written for NORMA. */
 - (void)testQueriesAreInTheDocument

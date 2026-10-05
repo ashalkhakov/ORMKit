@@ -73,4 +73,15 @@
 /* What reading it does, to read: each fetch, and what is checked of what
  * it returns; nil, and why, for a plan the model cannot run. */
 - (NSString *)programForPlan:(ORMQueryPlan *)plan error:(NSError **)error;
+/* The plan's condition as one predicate over the object read, needing no
+ * store: what an object can be asked in memory (-evaluateWithObject:), as
+ * validation code asks it of itself. TRUEPREDICATE for no condition. nil,
+ * and why, where part of it is no predicate: an aggregate of a bag, a join
+ * fetched or probed, a subquery the interpreter checks in memory. */
+- (NSPredicate *)predicateForPlan:(ORMQueryPlan *)plan reason:(NSString **)reason;
+/* The same as predicate format text, its values written in as literals
+ * ("nr == 52 AND name == \"Ann\"", nil as nil): what generated code parses
+ * with +predicateWithFormat:, on any platform, without printing a predicate
+ * (GNUstep prints nil as <null>, which it does not read back). */
+- (NSString *)predicateTextForPlan:(ORMQueryPlan *)plan reason:(NSString **)reason;
 @end

@@ -1,6 +1,9 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCoreDataValidation.h"
 #import "ORMVerbalizer.h"
+#import "ORMQueryPlanner.h"
+#import "ORMQueryInterpreter.h"
+#import "ORMCDModel+CoreData.h"
 
 /* One check: a condition that holds of a valid object, said in Objective-C
  * over self, with what to say when it does not. */
@@ -10,6 +13,8 @@
 @property (nonatomic, copy) NSString *condition;
 @property (nonatomic, copy) NSArray<NSString *> *keys;
 @property (nonatomic) BOOL deontic;
+/* What the code's comment says besides: how far the check sees. */
+@property (nonatomic, copy) NSString *remark;
 @end
 
 @implementation ORMValidationRule
@@ -581,6 +586,53 @@ ORMNumberLiteral(NSString *value)
 			break;
 		}
 	}
+	[self rules];
+}
+
+/* The constraint queries (docs/RULES.md): each a predicate its root's
+ * objects must not meet, asked of self. Checked from that entity only: a
+ * change elsewhere on the rule's paths is seen when it is saved again, as
+ * the check's comment says. */
+- (void)rules
+{
+	ORMQueryPlanner *planner = nil;
+	ORMQueryInterpreter *interpreter = nil;
+	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
+		if (query.kind != ORMQueryConstraint) {
+			continue;
+		}
+		if (planner == nil) {
+			planner = [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
+			interpreter = [[ORMQueryInterpreter alloc] initWithModel:[_coreData managedObjectModel]];
+		}
+		NSArray *sentences = [[[ORMVerbalizer alloc] initWithModel:_model] sentencesForQuery:query];
+		NSString *text = [sentences count] > 0 ? [[sentences valueForKey:@"text"] componentsJoinedByString:@" "] : query.name;
+		ORMQueryPlan *plan = [planner planForQuery:query];
+		ORMCDEntity *entity = plan.entityName != nil ? [_coreData entityNamed:plan.entityName] : nil;
+		NSString *why = nil;
+		NSString *predicate = nil;
+		if (entity == nil || [plan.notes count] > 0) {
+			why = entity == nil ? @"it reads no entity" : [plan.notes componentsJoinedByString:@" "];
+		} else {
+			predicate = [interpreter predicateTextForPlan:plan reason:&why];
+		}
+		if (predicate == nil) {
+			[_skipped addObject:[NSString stringWithFormat:@"%@: %@", query.name, text]];
+			[_notes addObject:[NSString stringWithFormat:@"%@: %@ (%@)", query.name, why ?: @"?", text]];
+			continue;
+		}
+		[self add:[NSString stringWithFormat:@"![[NSPredicate predicateWithFormat:%@] evaluateWithObject:self]",
+		                                     ORMLiteral(predicate)]
+		       to:entity
+		    named:query.name
+		     text:text
+		     keys:@[]
+		  deontic:query.isDeontic];
+		[[[_rules objectForKey:entity.name] lastObject]
+			setRemark:[NSString stringWithFormat:@"Checked from %@ only: a change to the objects it reaches is seen when "
+			                                     @"%@ is saved again.",
+			                                     entity.name, entity.name]];
+	}
 }
 
 #pragma mark Writing
@@ -945,7 +997,9 @@ ORMNumberLiteral(NSString *value)
 				                  @"\t\t\t                                  %@,\n"
 				                  @"\t\t\t                                  @[ %@ ])];\n"
 				                  @"\t\t}\n",
-				                  ORMCommentText(rule.text), rule.condition, _prefix, ORMLiteral(rule.constraint),
+				                  ORMCommentText(rule.remark != nil ? [NSString stringWithFormat:@"%@ %@", rule.text, rule.remark]
+				                                                    : rule.text),
+				                  rule.condition, _prefix, ORMLiteral(rule.constraint),
 				                  ORMLiteral(rule.text), [keys componentsJoinedByString:@", "]];
 			}
 			[out appendString:@"\t}\n"];
