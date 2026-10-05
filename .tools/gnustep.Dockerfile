@@ -40,7 +40,7 @@ RUN apt-get -q -y install \
       libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev libssl-dev \
       libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev libgmp-dev \
       libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
-      libpthread-workqueue-dev libsqlite3-dev \
+      libpthread-workqueue-dev libsqlite3-dev libavahi-compat-libdnssd-dev libqrencode-dev \
       libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
     && rm -rf /var/lib/apt/lists/*
 

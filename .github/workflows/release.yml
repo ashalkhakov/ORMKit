@@ -30,8 +30,8 @@ jobs:
       # patched differently. Name a commit here to pin the build exactly.
       GNUSTEP_PATCHES_REF: 00a9c890134abe3e752d49545556a228cb8b7122
       # ODataKit, and FreeCoreData under it: the pins ci.yml has.
-      FREECOREDATA_REF: b612b0a90fcae0b0fabcd1ff71442988eb67b518
-      ODATAKIT_REF: 771721232130b67c5bc79d9f25679b3db5def0dc
+      FREECOREDATA_REF: 1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
+      ODATAKIT_REF: 712effb6d61229c112d7a4b05b508d83ff2f4618
       # See the note in ci.yml: the gnustep layout does not treat the prefix's
       # plain lib/ as a library root, but libobjc2 and libdispatch live there.
       LD_LIBRARY_PATH: ${{ github.workspace }}/build/lib
@@ -71,7 +71,7 @@ jobs:
             pkg-config libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev \
             libssl-dev libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev \
             libgmp-dev libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
-            libpthread-workqueue-dev libsqlite3-dev \
+            libpthread-workqueue-dev libsqlite3-dev libavahi-compat-libdnssd-dev libqrencode-dev \
             libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
             fuse libfuse2 desktop-file-utils \
             fonts-dejavu fonts-liberation
@@ -148,7 +148,7 @@ jobs:
     # ships an unsigned build, saying so and passing.
     environment: production
     env:
-      ODATAKIT_REF: 771721232130b67c5bc79d9f25679b3db5def0dc
+      ODATAKIT_REF: 712effb6d61229c112d7a4b05b508d83ff2f4618
     # Beside ODataKit's checkout, as ORMKit.xcworkspace finds it.
     defaults:
       run:

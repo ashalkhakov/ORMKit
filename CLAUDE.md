@@ -80,4 +80,6 @@ image's was rebuilt in `/deps/libobjc2/build` the same way. FreeCoreData and
 ODataKit are installed in the image the same way: `git archive` of
 `../gnustep-coredata` and `../ODataKit` at the pinned commits into `/deps`,
 `make && make install` (FreeCoreData's `Tools/momc` too), `docker commit`.
-apt did work on 2026-10-04 (`libsqlite3-dev`).
+apt did work on 2026-10-04 (`libsqlite3-dev`) and 2026-10-05
+(`libavahi-compat-libdnssd-dev`, `libqrencode-dev`, which ODataKit's
+ODataSync needs to build).
