@@ -41,6 +41,7 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSPopUpButton *modalityPopUp;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *functionPopUp;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *ofPopUp;
+@property (nonatomic, strong) IBOutlet NSButton *buildCheck;
 @end
 
 /* The most rows the Results tab reads: a page of the plan's objects. */
@@ -641,6 +642,52 @@ ORMCellText(id value)
 	_selectedId = step;
 	[self modelDidChange];
 	return step;
+}
+
+- (BOOL)buildsFromDiagram
+{
+	return [_buildCheck state] == NSControlStateValueOn;
+}
+
+- (NSString *)followRole:(ORMRole *)role
+{
+	ORMQueryNode *node = [self selectedNode];
+	if (node == nil) {
+		[self say:@"Select the node to go on from."];
+		return nil;
+	}
+	/* The role it enters by: one the node's object type plays, the role
+	 * clicked the far end where it can be. By id: the role may be another
+	 * projection's. */
+	role = [_model elementWithId:role.identifier] ?: role;
+	NSArray *playable = [[ORMQuery rolesFrom:node.objectType] valueForKey:@"identifier"];
+	ORMRole *entry = nil;
+	for (ORMRole *each in role.factType.roles) {
+		if ([playable containsObject:each.identifier] && (entry == nil || entry == role)) {
+			entry = each;
+		}
+	}
+	if (entry == nil) {
+		NSBeep();
+		[self say:[NSString stringWithFormat:@"%@ plays no role of \"%@\".", node.objectType.name,
+		                                     [[role.factType primaryReading] expandedText] ?: role.factType.name]];
+		return nil;
+	}
+	NSString *step = [self addStepThrough:entry];
+	if (step == nil) {
+		return nil;
+	}
+	ORMQueryStep *added = [_items objectForKey:step];
+	ORMQueryNode *reached = [added.nodes firstObject];
+	for (ORMQueryNode *each in added.nodes) {
+		if ([each.role.identifier isEqualToString:role.identifier]) {
+			reached = each;
+		}
+	}
+	if (reached != nil) {
+		[self selectElement:reached.identifier];
+	}
+	return reached.identifier ?: step;
 }
 
 - (void)addStep:(id)sender

@@ -487,6 +487,20 @@ static const double ORMFactBarHeight = 30;
 
 - (void)canvasSelectionDidChange:(ORMCanvasView *)canvas
 {
+	/* The Queries window building from the diagram: a role box clicked
+	 * extends the query; an object type, with no query yet, starts one. */
+	if (_queries != nil && [[_queries window] isVisible] && _queries.buildsFromDiagram) {
+		NSString *roleId = [canvas.selectedRoles lastObject];
+		ORMRole *role = roleId != nil ? [[self editor].model elementWithId:roleId] : nil;
+		if ([role isKindOfClass:[ORMRole class]]) {
+			[_queries followRole:role];
+		} else if (_queries.queryId == nil && [[canvas selectedElements] count] == 1) {
+			id element = [[self editor].model elementWithId:[[canvas selectedElements] firstObject]];
+			if ([element isKindOfClass:[ORMObjectType class]]) {
+				[_queries addQueryFrom:[element identifier]];
+			}
+		}
+	}
 	NSArray *elements = [canvas selectedElements];
 	_inspector.elementId = [elements firstObject];
 	[self showVerbalization];

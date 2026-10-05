@@ -105,5 +105,5 @@ on 2026-10-05, and the steps to get there. It follows RDLDesigner's window
    - What it refuses, or the checker's violations for that fact type, show
      under the table. Each edit is one `ORMPopulationEditor` change.
 
-Then **paths by clicking role boxes** on the canvas, for the Queries window:
-see [QUERIES.md](QUERIES.md).
+Then **paths by clicking role boxes** on the canvas, for the Queries window.
+This is done: see **Build from the diagram** in [QUERIES.md](QUERIES.md).

@@ -240,6 +240,19 @@ static const double ORMCanvasMargin = 240.0;
 	return elements;
 }
 
+- (void)selectRole:(NSString *)roleId
+{
+	ORMRole *role = [self.editor.model elementWithId:roleId];
+	ORMShape *shape = [role isKindOfClass:[ORMRole class]] ? [[self diagram] shapeForSubject:role.factType.identifier] : nil;
+	[_selectedShapes removeAllObjects];
+	[_selectedRoles removeAllObjects];
+	if (shape != nil) {
+		[_selectedShapes addObject:shape.identifier];
+		[_selectedRoles addObject:roleId];
+	}
+	[self selectionChanged];
+}
+
 - (void)selectionChanged
 {
 	[self setNeedsDisplay:YES];

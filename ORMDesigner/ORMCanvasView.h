@@ -56,6 +56,8 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
 - (NSArray<NSString *> *)selectedElements;
 /* Selects the shapes on this diagram for the elements. */
 - (void)selectElements:(NSArray<NSString *> *)elementIds;
+/* A role box selected, as a click on it selects it. */
+- (void)selectRole:(NSString *)roleId;
 - (void)clearSelection;
 
 /* After the editor changed the model: the projection is new. */

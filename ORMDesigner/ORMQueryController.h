@@ -31,6 +31,14 @@
  * through one of them. */
 - (NSArray<ORMRole *> *)availableRoles;
 - (NSString *)addStepThrough:(ORMRole *)role;
+/* Building from the diagram: a role box clicked there adds a step from the
+ * node selected through its fact type, entered by a role the node's object
+ * type plays, and selects the node of the role clicked; the next click
+ * goes on from there. Its id; nil, and why in the status line, when the
+ * node plays no role of that fact type. */
+- (NSString *)followRole:(ORMRole *)role;
+/* Whether role boxes clicked on the diagram build the query. */
+@property (nonatomic, readonly) BOOL buildsFromDiagram;
 /* The FORML, as shown. */
 - (NSString *)verbalizationText;
 /* The OData request, and the plan with how the interpreter runs it against a

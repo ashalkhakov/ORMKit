@@ -709,6 +709,56 @@
 	XCTAssertEqual([ORMQuery queryWithId:query inModel:editor.model].kind, ORMQueryList);
 }
 
+/* Building a query from the diagram, as NORMA builds paths: each role box
+ * clicked adds a step from the node selected through its fact type, and
+ * goes on from the node of the role clicked. */
+- (void)testAQueryIsBuiltByClickingRoleBoxes
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	[_controller window];
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMModel *model = _document.editor.model;
+	ORMRole *(^roleOf)(NSString *, NSString *) = ^ORMRole *(NSString *reading, NSString *player) {
+		for (ORMFactType *fact in [model ordinaryFactTypes]) {
+			if ([[[fact primaryReading] expandedText] isEqualToString:reading]) {
+				for (ORMRole *role in fact.roles) {
+					if ([role.player.name isEqualToString:player]) {
+						return role;
+					}
+				}
+			}
+		}
+		return nil;
+	};
+	[_controller showQueries:nil];
+	ORMQueryController *queries = [_controller valueForKey:@"queryController"];
+	NSString *query = [queries addQueryFrom:[[model objectTypeNamed:@"Employee"] identifier]];
+	XCTAssertNotNil(query);
+	/* Branch's role of "Employee works for Branch": to the branch. */
+	NSString *branch = [queries followRole:roleOf(@"Employee works for Branch", @"Branch")];
+	XCTAssertEqualObjects([[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText],
+	                      @"✓Employee\n  + works for Branch\n");
+	XCTAssertEqualObjects(queries.selectedId, branch);
+	/* Then City's role of "Branch is located in City", from the branch. */
+	[queries followRole:roleOf(@"Branch is located in City", @"City")];
+	XCTAssertEqualObjects([[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText],
+	                      @"✓Employee\n  + works for Branch\n    + is located in City\n");
+	/* A role the node's object type cannot reach from there: refused. */
+	XCTAssertNil([queries followRole:roleOf(@"Car is of CarModel", @"CarModel")]);
+	/* From the canvas, the checkbox on. */
+	[(NSButton *)[queries valueForKey:@"buildCheck"] setState:NSControlStateValueOn];
+	[queries selectElement:[[ORMQuery queryWithId:query inModel:_document.editor.model].root identifier]];
+	[_controller.canvas selectRole:[roleOf(@"Employee speaks Language", @"Language") identifier]];
+	XCTAssertTrue([[[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText]
+	                  rangeOfString:@"  + speaks Language\n"].location != NSNotFound,
+	              @"%@", [[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText]);
+}
+
 - (void)testEveryMenuItemHasSomewhereToGo
 {
 	[self open:@"StockMate.orm"];

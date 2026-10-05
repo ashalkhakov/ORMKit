@@ -34,6 +34,7 @@
                 <outlet property="tabs" destination="tabs" id="tabsOutlet"/>
                 <outlet property="resultsTable" destination="resultsTable" id="resultsTableOutlet"/>
                 <outlet property="resultsLabel" destination="resultsLabel" id="resultsLabelOutlet"/>
+                <outlet property="buildCheck" destination="buildCheck" id="buildCheckOutlet"/>
                 <outlet property="kindPopUp" destination="kindPopUp" id="kindPopUpOutlet"/>
                 <outlet property="modalityPopUp" destination="modalityPopUp" id="modalityPopUpOutlet"/>
                 <outlet property="functionPopUp" destination="functionPopUp" id="functionPopUpOutlet"/>
@@ -270,15 +271,23 @@
                             <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
+                    <button toolTip="Click role boxes on the diagram: each adds a step from the selected node through its fact type" id="buildCheck">
+                        <rect key="frame" x="612" y="590" width="296" height="18"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMinY="YES" flexibleMinX="YES"/>
+                        <buttonCell key="cell" type="check" title="Build from the diagram" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="buildCheckCell">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                    </button>
                     <scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="rolesScroll">
-                        <rect key="frame" x="612" y="316" width="300" height="278"/>
+                        <rect key="frame" x="612" y="316" width="300" height="270"/>
                         <autoresizingMask key="autoresizingMask" heightSizable="YES" flexibleMinX="YES"/>
                         <clipView key="contentView" copiesOnScroll="NO" id="rolesClip">
-                            <rect key="frame" x="1" y="1" width="283" height="276"/>
+                            <rect key="frame" x="1" y="1" width="283" height="268"/>
                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                             <subviews>
                                 <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="rolesHeader" id="roles">
-                                    <rect key="frame" x="0" y="0" width="283" height="253"/>
+                                    <rect key="frame" x="0" y="0" width="283" height="245"/>
                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                     <size key="intercellSpacing" width="3" height="2"/>
                                     <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
@@ -304,11 +313,11 @@
                             </subviews>
                         </clipView>
                         <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="rolesHScroller">
-                            <rect key="frame" x="1" y="262" width="283" height="15"/>
+                            <rect key="frame" x="1" y="254" width="283" height="15"/>
                             <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         </scroller>
                         <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="rolesVScroller">
-                            <rect key="frame" x="284" y="1" width="15" height="276"/>
+                            <rect key="frame" x="284" y="1" width="15" height="268"/>
                             <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
                         </scroller>
                         <tableHeaderView key="headerView" wantsLayer="YES" id="rolesHeader">

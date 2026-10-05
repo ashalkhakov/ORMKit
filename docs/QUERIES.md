@@ -516,6 +516,12 @@ store of the mapping, and shows its rows. **Make Up a Population** (or
 **Query ▸ Make Up a Sample Population**) gives a model without one a
 population that meets its constraints ([POPULATIONS.md](POPULATIONS.md)).
 
+**Build from the diagram** builds paths as NORMA does, by clicking role
+boxes on the canvas. Each role box clicked adds a step from the node
+selected through its fact type. It enters by a role the node's object type
+plays, and selects the node of the role clicked, so the next click goes on
+from there. With no query yet, clicking an object type starts one from it.
+
 **Kind** makes the query a constraint, whose rows are its violations, or a
 calculation of a node's values for each object of its root type, with its
 **Function** and the node it is **of** ([RULES.md](RULES.md)).
@@ -542,4 +548,4 @@ calculation of a node's values for each object of its root type, with its
 - **Queries as derived fact types** that other queries use (ConQuer-II's
   macros); **reading a query back from its outline text**; inferring the path
   between two object types picked at once (ActiveQuery's point-to-point
-  queries).
+  queries), rather than clicking each role on the way.
