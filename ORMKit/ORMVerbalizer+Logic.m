@@ -803,6 +803,38 @@ ORMDerivationMark(ORMDerivationRule *rule)
 	ORMPhrase *phrase = [self phrase];
 	[phrase numberFormulas:@[ relation.formula ] columns:relation.columns];
 	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+	if (query.kind == ORMQueryConstraint) {
+		/* Its rows must not be: "It is impossible that some Employee ...",
+		 * each node introduced by "some" (docs/RULES.md). */
+		[b keyword:query.isDeontic ? @"It is forbidden that " : @"It is impossible that "];
+		[phrase say:relation.formula from:root relative:NO into:b];
+		/* The modality is in the words already. */
+		[self emit:b];
+		return;
+	}
+	if (query.kind == ORMQueryCalculation) {
+		/* "The TotalSalary of each Branch is the total of Salary where that
+		 * Branch employs some Employee and that Employee earns that Salary." */
+		ORMVariable *of = query.calculatedNode != nil ? [variables objectForKey:query.calculatedNode.identifier] : nil;
+		[b keyword:@"The "];
+		[b plain:query.name ?: @"value"];
+		[b keyword:@" of each "];
+		[phrase list:@[ root ] into:b];
+		if (of == nil) {
+			[b keyword:@" is not said yet"];
+			[self emit:b];
+			return;
+		}
+		NSArray *words = @[ @"the ", @"the number of ", @"the total of ", @"the average of ", @"the maximum of ",
+		                    @"the minimum of " ];
+		[b keyword:@" is "];
+		[b keyword:[words objectAtIndex:(NSUInteger)query.calculationFunction]];
+		[phrase list:@[ of ] into:b];
+		[b keyword:@" where "];
+		[phrase say:relation.formula from:root relative:NO into:b];
+		[self emit:b];
+		return;
+	}
 	[b keyword:@"List each "];
 	[phrase list:relation.columns into:b];
 	if ([query.root.steps count] > 0 || query.root.comparison != nil) {

@@ -48,6 +48,26 @@ typedef NS_ENUM(NSInteger, ORMQueryAggregate) {
 	ORMQueryMinimum,
 };
 
+/* What a query is for (docs/RULES.md): listing what it finds; a rule,
+ * every row it finds a violation; or a value of each object of its root
+ * type, computed from a node over its rows for that object. */
+typedef NS_ENUM(NSInteger, ORMQueryKind) {
+	ORMQueryList,
+	ORMQueryConstraint,
+	ORMQueryCalculation,
+};
+
+/* What a calculation computes of its node's values: the one value, or an
+ * aggregate of them. */
+typedef NS_ENUM(NSInteger, ORMQueryCalculationFunction) {
+	ORMCalculationValue,
+	ORMCalculationCount,
+	ORMCalculationTotal,
+	ORMCalculationAverage,
+	ORMCalculationMaximum,
+	ORMCalculationMinimum,
+};
+
 typedef NS_ENUM(NSInteger, ORMQuerySort) {
 	ORMQueryUnsorted,
 	ORMQueryAscending,
@@ -125,6 +145,16 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* NO when something it went through is no longer in the model: the steps
  * that did are left out. */
 @property (nonatomic, readonly) BOOL isComplete;
+/* What it is for. A constraint's rows are its violations: alethic, or
+ * deontic (a rule to be told of, not enforced). A calculation's value for
+ * each object of the root's type is the function of calculatedNode's
+ * values over its rows for that object (nil node: none yet). */
+@property (nonatomic, readonly) ORMQueryKind kind;
+@property (nonatomic, readonly) BOOL isDeontic;
+@property (nonatomic, readonly) ORMQueryCalculationFunction calculationFunction;
+@property (nonatomic, readonly, weak) ORMQueryNode *calculatedNode;
+/* "value", "count", "total", "avg", "max", "min". */
++ (NSString *)nameOfCalculationFunction:(ORMQueryCalculationFunction)function;
 
 /* The model's queries, read from its document. */
 + (NSArray<ORMQuery *> *)queriesInModel:(ORMModel *)model;
@@ -165,6 +195,17 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 - (NSString *)addQueryNamed:(NSString *)name from:(NSString *)objectTypeId reason:(NSString **)reason;
 - (void)removeQuery:(NSString *)queryId;
 - (BOOL)renameQuery:(NSString *)queryId to:(NSString *)name reason:(NSString **)reason;
+/* What the query is for. Leaving a kind drops what was only its (a
+ * constraint's modality, a calculation's function and node). */
+- (BOOL)setKind:(ORMQueryKind)kind ofQuery:(NSString *)queryId reason:(NSString **)reason;
+/* A constraint's modality; NO for a query of another kind. */
+- (BOOL)setDeontic:(BOOL)deontic ofQuery:(NSString *)queryId reason:(NSString **)reason;
+/* A calculation's function, of a node of the query below its root; NO for
+ * a query of another kind or a node not below the root. */
+- (BOOL)setCalculation:(ORMQueryCalculationFunction)function
+                ofNode:(NSString *)nodeId
+               inQuery:(NSString *)queryId
+                reason:(NSString **)reason;
 /* A step from the node through the role its object type (or a supertype)
  * plays, with a node for each other role. Its id. */
 - (NSString *)addStepTo:(NSString *)nodeId through:(NSString *)roleId reason:(NSString **)reason;

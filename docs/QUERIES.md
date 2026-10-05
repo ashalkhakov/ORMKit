@@ -481,6 +481,10 @@ a query is undone with the model. **Save a Copy for NORMA** leaves them out:
           <ormq:Step ... Operator="Not" Count=">" CountValue="1"> ...
 ```
 
+A query may be a constraint or a calculation instead of a list
+(`Kind="Constraint"`, `Kind="Calculation" Function="Total" Of="_node"`):
+see [RULES.md](RULES.md).
+
 If a fact type the query uses is deleted, the query is incomplete: the steps
 through it are left out, and the plan notes it.
 

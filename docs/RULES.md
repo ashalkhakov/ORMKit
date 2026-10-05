@@ -9,7 +9,7 @@ Both are said in the model's terms, verbalized, checked against sample
 populations, and run against a store or a service. Constraints also become
 validation code.
 
-This is a design. Nothing in it is built yet.
+This is a design, being built: steps 1 and 2 are done ([Steps](#steps)).
 
 ## Why
 
@@ -89,8 +89,9 @@ planner now.
 does for the negative forms of constraints ([VERBALIZATION.md](VERBALIZATION.md)):
 
 - *It is impossible that some Employee earns some Salary1 and works for
-  some Branch that is headed by some Employee who earns some Salary2 where
-  Salary1 is greater than Salary2.*
+  some Branch that is headed by some Employee that earns some Salary2
+  where Salary1 is greater than Salary2.* (Each node is introduced by
+  "some"; the exact words are the phrase engine's, as for any query.)
 - Deontic: *It is forbidden that ...*.
 
 ### A calculation
@@ -108,10 +109,10 @@ node's values over the query's rows with the root bound to x.
 
 **FORML**:
 
-- *The TotalSalary of each Branch is the total of the Salaries that are
-  earned by some Employee who works for that Branch.*
-- `Value`: *The HeadName of each Branch is the EmployeeName of the
-  Employee who heads that Branch.*
+- *The TotalSalary of each Branch is the total of Salary where that Branch
+  employs some Employee that earns that Salary.*
+- `Value`: *The HeadName of each Branch is the EmployeeName where that
+  Branch is headed by some Employee that has that EmployeeName.*
 
 ## Planning and running
 
@@ -158,12 +159,21 @@ which objects the rule depends on. The notes call such a constraint
 
 ## Steps
 
-1. **Kinds in the file and the model:** `Kind`, `Modality`, `Function`, `Of`;
-   `ORMQuery` properties; editor setters with undo; the outline text says
-   them; the XML round-trips.
-2. **Verbalization:** "It is impossible / forbidden that ..." for
-   constraints, and "The ... of each ... is ..." for calculations, with tests
-   against the FORML forms above.
+1. **Done: kinds in the file and the model.**
+   - The file has `Kind`, `Modality`, `Function` and `Of`.
+   - `ORMQuery` has `kind`, `isDeontic`, `calculationFunction` and
+     `calculatedNode`.
+   - `ORMQueryEditor` has `setKind:`, `setDeontic:` and `setCalculation:`.
+     Leaving a kind drops what only it had, and a calculation whose node a
+     step takes away is of none.
+   - The outline's first line says what the query is for: "It is impossible
+     that:", or "TotalSalary of each Branch is total(Salary) of:".
+2. **Done: verbalization.**
+   - A constraint is "It is impossible that" (or "It is forbidden that") and
+     the query's formula, each node introduced by "some".
+   - A calculation is "The TotalSalary of each Branch is the total of Salary
+     where ...": the function in the words step aggregates already use,
+     then the formula with the root and its node named.
 3. **Constraints checked:** `ORMPopulationChecker` over the population
    store, `ORMRuleChecker` for a store, and `ormtool check`. A sample's
    constraint goes in `Samples/` with a population that breaks it and one

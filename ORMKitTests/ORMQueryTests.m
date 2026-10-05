@@ -1320,6 +1320,64 @@
 	XCTAssertFalse([[self queries] setCondition:@"~" value:@"x" ofNode:[self root:q].identifier reason:&reason]);
 }
 
+/* What a query is for (docs/RULES.md): a constraint, alethic or deontic,
+ * whose rows are its violations; a calculation of a node's values for each
+ * object of its root type. Saved with the query, undone with the model,
+ * and what only one kind has dropped when the kind changes. */
+- (void)testQueriesAreConstraintsOrCalculations
+{
+	NSString *q = [[self queries] addQueryNamed:@"TotalSalary" from:[self typeId:@"Branch"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *employee = [self from:root through:[self role:@"worksFor" at:1] in:q];
+	NSString *earns = nil;
+	ORMQueryNode *salary = [[self from:employee.identifier through:[self role:@"earns" at:0] in:q step:&earns] firstObject];
+	XCTAssertEqual([self query:q].kind, ORMQueryList);
+	NSString *reason = nil;
+	XCTAssertFalse([[self queries] setDeontic:YES ofQuery:q reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Only a constraint is alethic or deontic.");
+
+	XCTAssertTrue([[self queries] setKind:ORMQueryConstraint ofQuery:q reason:NULL]);
+	XCTAssertTrue([[self queries] setDeontic:YES ofQuery:q reason:NULL]);
+	XCTAssertEqual([self query:q].kind, ORMQueryConstraint);
+	XCTAssertTrue([self query:q].isDeontic);
+	XCTAssertTrue([[[self query:q] outlineText] hasPrefix:@"It is forbidden that:\n✓Branch\n"], @"%@",
+	              [[self query:q] outlineText]);
+	XCTAssertEqualObjects([self english:q],
+	                      @"It is forbidden that some Branch employs some Employee that earns some Salary.");
+	XCTAssertTrue([[self queries] setDeontic:NO ofQuery:q reason:NULL]);
+	XCTAssertEqualObjects([self english:q],
+	                      @"It is impossible that some Branch employs some Employee that earns some Salary.");
+
+	XCTAssertTrue([[self queries] setKind:ORMQueryCalculation ofQuery:q reason:NULL]);
+	XCTAssertFalse([self query:q].isDeontic);
+	XCTAssertFalse([[self queries] setCalculation:ORMCalculationTotal ofNode:root inQuery:q reason:&reason]);
+	XCTAssertEqualObjects(reason, @"A calculation is of a node below its object type.");
+	XCTAssertTrue([[self queries] setCalculation:ORMCalculationTotal ofNode:salary.identifier inQuery:q reason:NULL]);
+	ORMQuery *query = [self query:q];
+	XCTAssertEqual(query.calculationFunction, ORMCalculationTotal);
+	XCTAssertEqualObjects(query.calculatedNode.identifier, salary.identifier);
+	XCTAssertTrue([[query outlineText] hasPrefix:@"TotalSalary of each Branch is total(Salary) of:\n"], @"%@",
+	              [query outlineText]);
+	XCTAssertEqualObjects([self english:q], @"The TotalSalary of each Branch is the total of Salary where that Branch "
+	                                        @"employs some Employee that earns that Salary.");
+	NSString *saved = [[NSString alloc] initWithData:[_editor dataForSaving] encoding:NSUTF8StringEncoding];
+	XCTAssertTrue([saved rangeOfString:@"Kind=\"Calculation\""].location != NSNotFound);
+	XCTAssertTrue([saved rangeOfString:@"Function=\"Total\""].location != NSNotFound);
+	XCTAssertTrue([saved rangeOfString:@"Modality="].location == NSNotFound);
+
+	/* Its node taken away, the calculation is of none; undone, of it again. */
+	[[self queries] removeStep:earns];
+	XCTAssertNil([self query:q].calculatedNode);
+	[self.undoManager undo];
+	XCTAssertEqualObjects([self query:q].calculatedNode.identifier, salary.identifier);
+	/* A list again: no function, no node. */
+	XCTAssertTrue([[self queries] setKind:ORMQueryList ofQuery:q reason:NULL]);
+	XCTAssertNil([self query:q].calculatedNode);
+	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch\n  + employs Employee\n    + earns Salary\n");
+	[self.undoManager undo];
+	XCTAssertEqual([self query:q].kind, ORMQueryCalculation);
+}
+
 /* Queries are in the document: saved, undone, and left out of what is
  * written for NORMA. */
 - (void)testQueriesAreInTheDocument
