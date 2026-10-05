@@ -151,7 +151,13 @@ jobs:
   ########################### GNUstep / Linux ###########################
   gnustep:
     name: Ubuntu (GNUstep, clang, gnustep-2.0)
-    runs-on: ubuntu-latest
+    # Built on the oldest Ubuntu LTS still in support, not ubuntu-latest:
+    # an AppImage carries its own libraries but not glibc, so it runs only
+    # on a system at least as new as the one it was linked on. Built on a
+    # current runner it fails to start on that LTS, which is what
+    # appimage.github.io tests with. Raise this only when that release
+    # leaves support. (As FreeCoreData's f4e7caf.)
+    runs-on: ubuntu-22.04
     # The dependency build is the long pole; everything after it is minutes.
     timeout-minutes: 90
     env:
@@ -260,7 +266,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+          key: gnustep-v3-ubuntu-22.04-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       - name: Build GNUstep
         if: steps.gnustep-cache.outputs.cache-hit != 'true'
@@ -271,7 +277,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+          key: gnustep-v3-ubuntu-22.04-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       # Built after the stack is restored, so neither is in the cached
       # prefix: their pins move without rebuilding GNUstep.
@@ -363,12 +369,12 @@ jobs:
       # find its own runtime fails here rather than for whoever downloads it.
       - name: Smoke-test the AppImage
         run: |
-          image=$(ls ORMKit-Linux-*.AppImage)
+          image=$(ls ORMKit-*.AppImage)
           chmod +x "$image"
           timeout 120 ./"$image" ormtool check ORMKitTests/Fixtures/StockMate.orm
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ORMKit-Linux-${{ github.sha }}
-          path: ${{ env.SRC_PATH }}/ORMKit-Linux-*.AppImage
+          name: ORMKit-${{ github.sha }}
+          path: ${{ env.SRC_PATH }}/ORMKit-*.AppImage
           retention-days: 14

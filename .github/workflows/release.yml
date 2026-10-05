@@ -14,7 +14,13 @@ jobs:
   ############################ Linux AppImage ############################
   appimage:
     name: Linux AppImage
-    runs-on: ubuntu-latest
+    # Built on the oldest Ubuntu LTS still in support, not ubuntu-latest:
+    # an AppImage carries its own libraries but not glibc, so it runs only
+    # on a system at least as new as the one it was linked on. Built on a
+    # current runner it fails to start on that LTS, which is what
+    # appimage.github.io tests with. Raise this only when that release
+    # leaves support. (As FreeCoreData's f4e7caf.)
+    runs-on: ubuntu-22.04
     timeout-minutes: 120
     env:
       SRC_PATH: ${{ github.workspace }}/source
@@ -91,7 +97,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.INSTALL_PATH }}
-          key: gnustep-v2-${{ runner.os }}-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
+          key: gnustep-v3-ubuntu-22.04-${{ hashFiles('source/.github/scripts/dependencies.sh') }}-${{ env.GNUSTEP_PATCHES_REF }}
 
       - name: Build GNUstep
         if: steps.gnustep-cache.outputs.cache-hit != 'true'
@@ -122,20 +128,20 @@ jobs:
       # here rather than for whoever downloads it.
       - name: Smoke-test the AppImage
         run: |
-          image=$(ls ORMKit-Linux-*.AppImage)
+          image=$(ls ORMKit-*.AppImage)
           chmod +x "$image"
           ./"$image" ormtool check ORMKitTests/Fixtures/StockMate.orm
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ORMKit-Linux-${{ env.APP_VERSION }}
-          path: ${{ env.SRC_PATH }}/ORMKit-Linux-*.AppImage
+          name: ORMKit-${{ env.APP_VERSION }}
+          path: ${{ env.SRC_PATH }}/ORMKit-*.AppImage
 
       - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.SRC_PATH }}/ORMKit-Linux-*.AppImage
+          files: ${{ env.SRC_PATH }}/ORMKit-*.AppImage
 
   ############################ macOS ############################
   macos:
