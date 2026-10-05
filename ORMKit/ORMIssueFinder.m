@@ -3,6 +3,8 @@
 #import "ORMCoreDataMapper.h"
 #import "ORMPopulationChecker.h"
 #import "ORMQuery.h"
+#import "ORMReadingText.h"
+#import "ORMXML.h"
 
 @interface ORMIssue ()
 @property (nonatomic, readwrite) ORMIssueSeverity severity;
@@ -50,6 +52,7 @@
 {
 	_issues = [NSMutableArray array];
 	[self modelErrors];
+	[self readings];
 	[self population];
 	[self mapping];
 	/* Errors, then warnings, then notes; each kind as found. */
@@ -88,6 +91,82 @@
 			    about:fact.identifier];
 		}
 	}
+}
+
+/* Readings that do not read, as NORMA finds them: placeholders that are
+ * not the roles' (TooFew/TooManyReadingRoles), an order that is not the
+ * fact type's roles, two fact types read the same way
+ * (DuplicateReadingSignature); and, a warning, no words but the players. */
+- (void)readings
+{
+	NSMutableDictionary<NSString *, ORMFactType *> *signatures = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [_model ordinaryFactTypes]) {
+		NSString *name = [[fact primaryReading] expandedText] ?: fact.name;
+		NSSet *roles = [NSSet setWithArray:fact.roles];
+		for (ORMReadingOrder *order in fact.readingOrders) {
+			/* A role the file names that is not there is dropped from order.roles. */
+			NSXMLElement *sequence = ORMChild(order.element, ORMCoreNamespace, @"RoleSequence");
+			NSUInteger named = [ORMChildren(sequence, ORMCoreNamespace, @"Role") count];
+			NSSet *placed = [NSSet setWithArray:order.roles];
+			BOOL covers = [placed isSubsetOfSet:roles] && [[NSSet setWithArray:[fact visibleRoles]] isSubsetOfSet:placed]
+			              && named == [order.roles count];
+			if (!covers) {
+				[self add:ORMIssueError area:@"Model"
+				     text:[NSString stringWithFormat:@"A reading order of \"%@\" does not place its roles: one is missing or not the fact type's.", name]
+				    about:fact.identifier];
+				continue;
+			}
+			for (ORMReading *reading in order.readings) {
+				NSString *why = nil;
+				if ([ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:&why] == nil) {
+					[self add:ORMIssueError area:@"Model"
+					     text:[NSString stringWithFormat:@"The reading \"%@\" of \"%@\" does not read: %@", reading.text, name, why]
+					    about:fact.identifier];
+					continue;
+				}
+				if (![self hasWords:reading.text]) {
+					[self add:ORMIssueWarning area:@"Model"
+					     text:[NSString stringWithFormat:@"The reading \"%@\" has no words but its object types.", [reading expandedText]]
+					    about:fact.identifier];
+				}
+				NSString *signature = [self signatureOf:reading];
+				ORMFactType *other = signatures[signature];
+				if (other == nil) {
+					signatures[signature] = fact;
+				} else if (other != fact) {
+					[self add:ORMIssueError area:@"Model"
+					     text:[NSString stringWithFormat:@"\"%@\" reads the same as \"%@\", another fact type.",
+					                                     [reading expandedText], [[other primaryReading] expandedText] ?: other.name]
+					    about:fact.identifier];
+				}
+			}
+		}
+	}
+}
+
+/* Whether a reading has words besides its placeholders. */
+- (BOOL)hasWords:(NSString *)text
+{
+	NSMutableString *words = [text mutableCopy];
+	NSRegularExpression *placeholder = [NSRegularExpression regularExpressionWithPattern:@"\\{[0-9]+\\}" options:0 error:NULL];
+	[placeholder replaceMatchesInString:words options:0 range:NSMakeRange(0, [words length]) withTemplate:@""];
+	return [[words stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] length] > 0;
+}
+
+/* What a reading says, whatever fact type it is of: its words, spaced and
+ * cased alike, with each placeholder its role's player. */
+- (NSString *)signatureOf:(ORMReading *)reading
+{
+	NSMutableString *text = [[reading.text lowercaseString] mutableCopy];
+	NSArray *roles = reading.readingOrder.roles;
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		NSString *player = [[roles[i] player] identifier] ?: @"?";
+		[text replaceOccurrencesOfString:[NSString stringWithFormat:@"{%lu}", (unsigned long)i]
+		                      withString:[NSString stringWithFormat:@"{%@}", player]
+		                         options:0 range:NSMakeRange(0, [text length])];
+	}
+	return [[[text componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+		filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]] componentsJoinedByString:@" "];
 }
 
 /* What the sample population breaks, its rules too. */

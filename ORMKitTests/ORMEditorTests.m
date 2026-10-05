@@ -278,6 +278,59 @@
 	}
 }
 
+/* Readings that do not read, as NORMA finds them in a file: the wrong
+ * placeholders, an order missing a role, two fact types read the same way;
+ * and a reading with no words but its players, a warning. */
+- (void)testReadingsThatDoNotReadAreIssues
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *thing = [self entity:@"Thing" mode:@"code" in:editor];
+	NSString *likes = [self fact:@[ person, thing ] reading:@"{0} likes {1}" in:editor];
+	NSString *twice = [self fact:@[ person, thing ] reading:@"{0} likes  {1}" in:editor];
+	NSString *hates = [self fact:@[ person, thing ] reading:@"{0} hates {1}" in:editor];
+	NSString *owns = [self fact:@[ person, thing ] reading:@"{0} owns {1}" in:editor];
+	NSString *bare = [self fact:@[ person, thing ] reading:@"{0} is near {1}" in:editor];
+	NSArray *before = [[[[ORMIssueFinder alloc] initWithModel:editor.model mapping:nil] issues] valueForKey:@"text"];
+	XCTAssertTrue([before containsObject:@"\"Person likes  Thing\" reads the same as \"Person likes Thing\", another fact type."],
+	              @"%@", before);
+
+	/* What the editor would not write, written into a copy of the file. */
+	NSXMLDocument *document = [editor.document copy];
+	ORMModel *model = [ORMModel modelOfDocument:document reason:NULL];
+	NSXMLElement *(^data)(NSString *) = ^NSXMLElement *(NSString *factId) {
+		ORMReading *reading = [[model elementWithId:factId] primaryReading];
+		return ORMChild(reading.element, ORMCoreNamespace, @"Data");
+	};
+	[data(hates) setStringValue:@"{0} hates {2}"];
+	[data(bare) setStringValue:@"{0} {1}"];
+	ORMReadingOrder *order = [[[model elementWithId:owns] readingOrders] firstObject];
+	NSXMLElement *sequence = ORMChild(order.element, ORMCoreNamespace, @"RoleSequence");
+	[sequence removeChildAtIndex:1];
+	model = [ORMModel modelOfDocument:document reason:NULL];
+	NSArray *issues = [[[ORMIssueFinder alloc] initWithModel:model mapping:nil] issues];
+	NSMutableDictionary *about = [NSMutableDictionary dictionary];
+	for (ORMIssue *issue in issues) {
+		if ([issue.text rangeOfString:@"read"].location != NSNotFound) {
+			about[issue.elementId] = issue;
+		}
+	}
+	XCTAssertEqual([about[hates] severity], ORMIssueError);
+	XCTAssertTrue([[about[hates] text] hasPrefix:@"The reading \"{0} hates {2}\" of"], @"%@", [about[hates] text]);
+	XCTAssertEqual([about[owns] severity], ORMIssueError, @"%@", [issues valueForKey:@"text"]);
+	XCTAssertTrue([[about[owns] text] rangeOfString:@"does not place its roles"].location != NSNotFound);
+	XCTAssertEqual([about[bare] severity], ORMIssueWarning, @"%@", [issues valueForKey:@"text"]);
+	XCTAssertEqual([about[twice] severity], ORMIssueError);
+	XCTAssertNil(about[likes]);
+
+	/* NORMA's own files read. */
+	ORMModel *stock = [ORMModel modelOfDocument:ORMParseDocument([NSData dataWithContentsOfFile:[self fixturePath:@"StockMate.orm"]], NULL)
+	                                     reason:NULL];
+	for (ORMIssue *issue in [[[ORMIssueFinder alloc] initWithModel:stock mapping:nil] issues]) {
+		XCTAssertTrue([issue.text rangeOfString:@"read"].location == NSNotFound, @"%@", issue.text);
+	}
+}
+
 /* NORMA's alignment: edges to the outermost, centres to the first,
  * spacing even between the outermost two; what a shape carries moves with
  * it; one change, one undo. */

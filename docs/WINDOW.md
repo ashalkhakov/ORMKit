@@ -76,6 +76,10 @@ on 2026-10-05, and the steps to get there. It follows RDLDesigner's window
    - `ORMIssueFinder` (ORMKit) lists, errors first:
      - NORMA's basic model errors: no reference scheme, no uniqueness
        constraint, no reading;
+     - readings that do not read, as NORMA finds them in a file: placeholders
+       that are not the roles', an order that leaves out a role or names
+       another fact type's, two fact types read the same way; and, as a
+       warning, a reading with no words but its players;
      - the population's violations, its rules too;
      - the first mapping's warnings and what Core Data does not enforce.
    - `ORMIssuesView` shows them, coloured by severity with a count under
@@ -83,7 +87,6 @@ on 2026-10-05, and the steps to get there. It follows RDLDesigner's window
    - `ORMSearchNavigator` searches the verbalization, grouped by element.
    - Choosing an issue or a sentence shows its element, on the page that
      shows it. A rule's id opens the Queries window on that rule.
-   - Not yet: readings that do not read; ORMKit has no checker for them.
 3. **Done: alignment.**
    - `-[ORMDiagramEditor alignShapes:as:reason:]` lines up the shapes
      selected, each moving with what it carries, as one change:

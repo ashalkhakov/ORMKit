@@ -22,7 +22,8 @@ typedef NS_ENUM(NSInteger, ORMIssueSeverity) {
 /* A model's issues, as an issue navigator lists them (docs/WINDOW.md):
  * - the model's own errors, as NORMA reports them: an entity type with no
  *   reference scheme, a fact type with no uniqueness constraint or with no
- *   reading;
+ *   reading; a reading that does not read: placeholders not the roles',
+ *   an order not the fact type's roles, two fact types read the same way;
  * - what its sample population breaks (ORMPopulationChecker): constraints
  *   and constraint queries, alethic ones errors and deontic ones warnings;
  * - what the mapping to Core Data warns of, or does not enforce.
