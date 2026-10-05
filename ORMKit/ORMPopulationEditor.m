@@ -159,9 +159,10 @@ ORMHasInvariantForm(ORMObjectType *type)
  * type, then the model's. */
 /* What the model has, by what makes it the one it is: a value by its
  * type and text, an entity by the instances identifying it, a subtype's
- * by its supertype's, a fact by its players. A sample population's item
- * so keyed is that instance, not another. */
-- (NSMutableDictionary<NSString *, NSString *> *)existingInstances
+ * by its supertype's; with facts, a fact by its players. A sample
+ * population's item so keyed is that instance, not another. Facts only
+ * when asked: reading every fact type's is slow, and adding needs none. */
+- (NSMutableDictionary<NSString *, NSString *> *)existingInstancesWithFacts:(BOOL)facts
 {
 	ORMModel *model = _editor.model;
 	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
@@ -188,7 +189,7 @@ ORMHasInvariantForm(ORMObjectType *type)
 			}
 		}
 	}
-	for (ORMFactType *fact in model.factTypes) {
+	for (ORMFactType *fact in facts ? model.factTypes : @[]) {
 		for (ORMFactInstance *instance in [fact instances]) {
 			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
 			for (NSString *roleId in instance.instancesByRole) {
@@ -208,7 +209,11 @@ ORMHasInvariantForm(ORMObjectType *type)
  * would find it; nil when it would be new. */
 - (NSString *)modelIdOf:(NSString *)sampleId in:(ORMSamplePopulation *)population
 {
-	NSDictionary *existing = [self existingInstances];
+	BOOL facts = NO;
+	for (ORMSampleItem *item in [population items]) {
+		facts = facts || item.kind == ORMSampleFact;
+	}
+	NSDictionary *existing = [self existingInstancesWithFacts:facts];
 	NSMutableDictionary *found = [NSMutableDictionary dictionary];
 	for (ORMSampleItem *item in [population items]) {
 		NSString *key = nil;
@@ -391,7 +396,7 @@ ORMHasInvariantForm(ORMObjectType *type)
 		return YES;
 	}
 	ORMModel *model = _editor.model;
-	NSMutableDictionary *existing = [self existingInstances];
+	NSMutableDictionary *existing = [self existingInstancesWithFacts:NO];
 	[_editor change:@"Add Sample Population" with:^{
 		NSXMLDocument *document = self->_editor.document;
 		NSMutableDictionary *renamed = [NSMutableDictionary dictionary];
@@ -936,7 +941,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 		known = known && had != nil;
 		[resolved setObject:had ?: part forKey:roleId];
 	}
-	NSString *same = known ? [[self existingInstances] objectForKey:ORMKeyOf(type.identifier, resolved)] : nil;
+	NSString *same = known ? [[self existingInstancesWithFacts:NO] objectForKey:ORMKeyOf(type.identifier, resolved)] : nil;
 	if ([same isEqualToString:instanceId]) {
 		return YES;
 	}

@@ -347,6 +347,8 @@
 	XCTAssertEqual([table numberOfRows], 1);
 
 	/* An existing row edited: Person 1 is Person 5. */
+	/* GNUstep edits only a selected row, as a double-click leaves it. */
+	[table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
 	[table editColumn:0 row:0 withEvent:nil select:YES];
 	XCTAssertEqual([table editedRow], 0);
 	[[table currentEditor] setString:@"5"];

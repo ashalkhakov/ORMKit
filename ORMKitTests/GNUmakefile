@@ -62,9 +62,10 @@ XCTEST ?= xctest
 # bundle, so they need no RESOURCE_FILES entry -- but the tests run from a
 # source tree, not an installed bundle. Bounded: a hang costs TEST_TIMEOUT
 # seconds, not the job's whole budget.
-# Twenty minutes: under AddressSanitizer the suite takes most of ten (the
-# constraint sentences and the import round trip are the slow ones).
-TEST_TIMEOUT ?= 1200
+# Forty minutes: under AddressSanitizer the suite takes over twenty (the
+# verbalizer's read-back, the query tests and the import round trip are
+# the slow ones); CI's job allows ninety.
+TEST_TIMEOUT ?= 2400
 
 .PHONY: run-tests
 run-tests: all
