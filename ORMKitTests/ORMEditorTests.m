@@ -238,6 +238,46 @@
 	XCTAssertNil([[editor.model.diagrams firstObject] shapeForSubject:hidden]);
 }
 
+/* The issues an issue navigator lists: the model's own errors, what its
+ * population breaks, what the mapping warns of; errors first. */
+- (void)testIssuesAreFound
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *thing = [self entity:@"Thing" mode:nil in:editor];
+	NSString *likes = [self fact:@[ person, thing ] reading:@"{0} likes {1}" in:editor];
+	NSArray *issues = [[[ORMIssueFinder alloc] initWithModel:editor.model mapping:nil] issues];
+	NSArray *texts = [issues valueForKey:@"text"];
+	XCTAssertTrue([texts containsObject:@"Thing has no reference scheme: nothing identifies it."], @"%@", texts);
+	XCTAssertTrue([texts containsObject:@"\"Person likes Thing\" has no uniqueness constraint."], @"%@", texts);
+	ORMIssue *first = [issues firstObject];
+	XCTAssertEqual(first.severity, ORMIssueError);
+	XCTAssertTrue(([@[ thing, likes ] containsObject:first.elementId]), @"%@", first.elementId);
+	NSArray *roles = [[editor.model elementWithId:likes] roles];
+	XCTAssertNotNil([editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[0] identifier] ] reason:NULL]);
+	texts = [[[[ORMIssueFinder alloc] initWithModel:editor.model mapping:nil] issues] valueForKey:@"text"];
+	XCTAssertFalse([texts containsObject:@"\"Person likes Thing\" has no uniqueness constraint."], @"%@", texts);
+
+	/* The Company sample: Gus breaks its deontic rule, a warning. */
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	NSString *path = [[root stringByAppendingPathComponent:@"Samples"] stringByAppendingPathComponent:@"Company.orm"];
+	ORMModel *company = [ORMModel modelOfDocument:ORMParseDocument([NSData dataWithContentsOfFile:path], NULL) reason:NULL];
+	NSArray *found = [[[ORMIssueFinder alloc] initWithModel:company mapping:nil] issues];
+	ORMIssue *gus = nil;
+	for (ORMIssue *issue in found) {
+		if ([issue.text hasPrefix:@"Lives near work:"]) {
+			gus = issue;
+		}
+	}
+	XCTAssertNotNil(gus, @"%@", [found valueForKey:@"text"]);
+	XCTAssertEqual(gus.severity, ORMIssueWarning);
+	XCTAssertEqualObjects(gus.area, @"Population");
+	for (ORMIssue *issue in found) {
+		XCTAssertNotEqual(issue.severity, ORMIssueError, @"%@", issue.text);
+	}
+}
+
 - (void)testSubtypingRefusesCycles
 {
 	ORMEditor *editor = [self newEditor];

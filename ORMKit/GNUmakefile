@@ -53,7 +53,8 @@ ORMKit_HEADER_FILES = \
   ORMQueryInterpreter.h \
   ORMQueryOData.h \
   ORMCursor.h \
-  ORMRuleChecker.h
+  ORMRuleChecker.h \
+  ORMIssueFinder.h
 ORMKit_OBJC_FILES = \
   ORMXML.m \
   ORMModel.m \
@@ -95,6 +96,7 @@ ORMKit_OBJC_FILES = \
   ORMQueryInterpreter.m \
   ORMCursor.m \
   ORMRuleChecker.m \
+  ORMIssueFinder.m \
   ORMQueryOData.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the

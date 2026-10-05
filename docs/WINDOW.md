@@ -72,7 +72,18 @@ on 2026-10-05, and the steps to get there. It follows RDLDesigner's window
      - An entity type, value type or note row dragged onto the canvas is
        placed where it is dropped, through `-placeTool:at:`.
    - The toolbar's tool buttons are gone; the menus' tool items stay.
-2. **Issues and Search.**
+2. **Done: Issues and Search.**
+   - `ORMIssueFinder` (ORMKit) lists, errors first:
+     - NORMA's basic model errors: no reference scheme, no uniqueness
+       constraint, no reading;
+     - the population's violations, its rules too;
+     - the first mapping's warnings and what Core Data does not enforce.
+   - `ORMIssuesView` shows them, coloured by severity with a count under
+     them. They are found again half a second after the last change.
+   - `ORMSearchNavigator` searches the verbalization, grouped by element.
+   - Choosing an issue or a sentence shows its element, on the page that
+     shows it. A rule's id opens the Queries window on that rule.
+   - Not yet: readings that do not read; ORMKit has no checker for them.
 3. **Alignment:** `-[ORMDiagramEditor alignShapes:how:]` and
    `distributeShapes:`, and their buttons.
 4. **The lower tabs:**

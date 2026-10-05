@@ -66,4 +66,6 @@
 - (IBAction)newQueryFromSelection:(id)sender;
 /* Query > Make Up a Sample Population. */
 - (IBAction)makeUpPopulation:(id)sender;
+/* The diagram shown on the canvas, its page chosen. */
+- (void)openDiagram:(NSString *)diagramId;
 @end

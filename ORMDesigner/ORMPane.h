@@ -14,3 +14,9 @@ BOOL ORMLoadPaneNib(NSView *pane, NSString *name);
 /* A tab bar's badge: the letters on a disc of the colour, as RDLDesigner's
  * and the XForms Designer's are (RDLTabBadge, XFDBadge). */
 NSImage *ORMTabBadge(NSString *letters, double red, double green, double blue);
+
+/* What a navigator pane tells of the element chosen in it: an element of
+ * the model, or a query's id. */
+@protocol ORMNavigatorDelegate <NSObject>
+- (void)navigatorDidChooseElement:(NSString *)elementId;
+@end

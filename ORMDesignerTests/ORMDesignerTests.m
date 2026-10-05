@@ -6,6 +6,8 @@
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
 #import "ORMInsertPalette.h"
+#import "ORMIssuesView.h"
+#import "ORMSearchNavigator.h"
 #import "ORMSampleMenu.h"
 #import "ORMWindowController.h"
 
@@ -183,7 +185,7 @@
 {
 	[self open:@"StockMate.orm"];
 	NSTabView *tabs = [_controller valueForKey:@"leftTabView"];
-	XCTAssertEqual([tabs numberOfTabViewItems], 2);
+	XCTAssertEqual([tabs numberOfTabViewItems], 4);
 	ORMInsertPalette *palette = [_controller valueForKey:@"insertPalette"];
 	XCTAssertNotNil(palette.table);
 	XCTAssertEqual([palette.table numberOfRows], (NSInteger)[[ORMInsertPalette items] count]);
@@ -202,6 +204,37 @@
 	ORMObjectType *added = [_document.editor.model objectTypeNamed:@"EntityType"];
 	XCTAssertNotNil([[_controller.canvas diagram] shapeForSubject:added.identifier]);
 	XCTAssertFalse([_controller.canvas placeTool:ORMToolFactType at:NSMakePoint(40, 40)]);
+}
+
+/* Search and Issues: a sentence found chosen shows what it says, on the
+ * page that shows it; an issue chosen, its element; a rule's, the Queries
+ * window on it. */
+- (void)testTheNavigatorSearchesAndListsIssues
+{
+	[self open:@"StockMate.orm"];
+	ORMSearchNavigator *search = [_controller valueForKey:@"searchNavigator"];
+	[search searchFor:@"barcode"];
+	XCTAssertTrue([search.found count] > 0);
+	[_controller openDiagram:[[_document.editor.model.diagrams lastObject] identifier]];
+	[search.outline selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+	NSString *chosen = [[search.found firstObject] firstObject];
+	XCTAssertNotNil([[_controller.canvas diagram] shapeForSubject:chosen] ?: _controller.inspector.elementId);
+	XCTAssertEqualObjects(_controller.inspector.elementId, chosen);
+
+	ORMIssuesView *issues = [_controller valueForKey:@"issuesView"];
+	issues.editor = _document.editor;
+	[issues reload];
+	XCTAssertTrue([issues.issues count] > 0);
+	XCTAssertTrue([[issues.summary stringValue] length] > 0);
+	NSUInteger row = 0;
+	for (NSUInteger i = 0; i < [issues.issues count]; i++) {
+		if ([_document.editor.model elementWithId:[[issues.issues objectAtIndex:i] elementId]] != nil) {
+			row = i;
+			break;
+		}
+	}
+	[issues.table selectRowIndexes:[NSIndexSet indexSetWithIndex:row] byExtendingSelection:NO];
+	XCTAssertEqualObjects(_controller.inspector.elementId, [[issues.issues objectAtIndex:row] elementId]);
 }
 
 - (void)testTheFactEditorAddsToTheDiagram

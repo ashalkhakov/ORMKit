@@ -4,12 +4,14 @@
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
 #import "ORMInsertPalette.h"
+#import "ORMIssuesView.h"
+#import "ORMSearchNavigator.h"
 #import "ORMPane.h"
 #import "ThirdParty/DMTabBar/DMTabBar.h"
 
 static const double ORMFactBarHeight = 30;
 
-@interface ORMWindowController () <ORMInsertPaletteDelegate>
+@interface ORMWindowController () <ORMInsertPaletteDelegate, ORMNavigatorDelegate>
 @property (nonatomic, readwrite, strong) IBOutlet ORMCanvasView *canvas;
 @property (nonatomic, readwrite, strong) IBOutlet ORMInspectorView *inspector;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextView *verbalization;
@@ -32,7 +34,11 @@ static const double ORMFactBarHeight = 30;
 @property (nonatomic, strong) IBOutlet NSView *leftTabBar;
 @property (nonatomic, strong) IBOutlet NSTabView *leftTabView;
 @property (nonatomic, strong) IBOutlet NSView *insertHost;
+@property (nonatomic, strong) IBOutlet NSView *searchHost;
+@property (nonatomic, strong) IBOutlet NSView *issuesHost;
 @property (nonatomic, strong) ORMInsertPalette *insertPalette;
+@property (nonatomic, strong) ORMSearchNavigator *searchNavigator;
+@property (nonatomic, strong) ORMIssuesView *issuesView;
 @end
 
 @implementation ORMWindowController
@@ -75,7 +81,8 @@ static const double ORMFactBarHeight = 30;
 	if ([bar isKindOfClass:[DMTabBar class]]) {
 		NSMutableArray *items = [NSMutableArray array];
 		NSUInteger tag = 0;
-		for (NSArray *page in @[ @[ @"O", @"Outline", @0.47, @0.53, @0.64 ], @[ @"I", @"Insert", @0.32, @0.60, @0.53 ] ]) {
+		for (NSArray *page in @[ @[ @"O", @"Outline", @0.47, @0.53, @0.64 ], @[ @"I", @"Insert", @0.32, @0.60, @0.53 ],
+		                         @[ @"S", @"Search", @0.36, @0.49, @0.72 ], @[ @"!", @"Issues", @0.72, @0.42, @0.40 ] ]) {
 			DMTabBarItem *item = [DMTabBarItem tabBarItemWithIcon:ORMTabBadge([page objectAtIndex:0],
 			                                                                  [[page objectAtIndex:2] doubleValue],
 			                                                                  [[page objectAtIndex:3] doubleValue],
@@ -91,6 +98,51 @@ static const double ORMFactBarHeight = 30;
 	self.insertPalette = [[ORMInsertPalette alloc] initWithFrame:[self.insertHost bounds]];
 	self.insertPalette.delegate = self;
 	ORMFillHost(self.insertHost, self.insertPalette);
+	self.searchNavigator = [[ORMSearchNavigator alloc] initWithFrame:[self.searchHost bounds]];
+	self.searchNavigator.delegate = self;
+	ORMFillHost(self.searchHost, self.searchNavigator);
+	self.issuesView = [[ORMIssuesView alloc] initWithFrame:[self.issuesHost bounds]];
+	self.issuesView.delegate = self;
+	ORMFillHost(self.issuesHost, self.issuesView);
+}
+
+/* The issues found again a moment after the model changes, as RDLDesigner's
+ * problems pane does: a burst of changes finds them once. */
+- (void)scheduleIssues
+{
+	[NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(findIssues) object:nil];
+	[self performSelector:@selector(findIssues) withObject:nil afterDelay:0.5];
+}
+
+- (void)findIssues
+{
+	self.issuesView.editor = [self editor];
+	[self.issuesView reload];
+}
+
+/* An element chosen in a navigator: shown, on a page that shows it; a
+ * query's id, the Queries window on it. */
+- (void)navigatorDidChooseElement:(NSString *)elementId
+{
+	ORMModel *model = [self editor].model;
+	if ([model elementWithId:elementId] == nil) {
+		if ([ORMQuery queryWithId:elementId inModel:model] != nil) {
+			ORMQueryController *queries = [self queryController];
+			queries.queryId = elementId;
+			[queries showWindow:self];
+			[queries modelDidChange];
+		}
+		return;
+	}
+	if ([[_canvas diagram] shapeForSubject:elementId] == nil) {
+		for (ORMDiagram *diagram in model.diagrams) {
+			if ([diagram shapeForSubject:elementId] != nil) {
+				[self openDiagram:diagram.identifier];
+				break;
+			}
+		}
+	}
+	[self showElement:elementId];
 }
 
 /* The bar's item chosen: its tab. The sender is the bar, not the item. */
@@ -314,6 +366,9 @@ static const double ORMFactBarHeight = 30;
 	_browser.editor = editor;
 	_coreData.editor = editor;
 	_queries.editor = editor;
+	self.searchNavigator.editor = editor;
+	[self.searchNavigator reload];
+	[self scheduleIssues];
 	if (_canvas.diagramId == nil || [editor.model elementWithId:_canvas.diagramId] == nil) {
 		_canvas.diagramId = [[editor.model.diagrams firstObject] identifier];
 	}
@@ -324,6 +379,8 @@ static const double ORMFactBarHeight = 30;
 - (void)modelChanged
 {
 	ORMModel *model = [self editor].model;
+	[self.searchNavigator reload];
+	[self scheduleIssues];
 	if ([model elementWithId:_canvas.diagramId] == nil) {
 		_canvas.diagramId = [[model.diagrams firstObject] identifier];
 	}

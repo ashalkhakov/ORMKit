@@ -26,6 +26,8 @@
                 <outlet property="leftTabBar" destination="leftTabBar" id="leftTabBarOutlet"/>
                 <outlet property="leftTabView" destination="leftTabView" id="leftTabViewOutlet"/>
                 <outlet property="insertHost" destination="insertHost" id="insertHostOutlet"/>
+                <outlet property="searchHost" destination="searchHost" id="searchHostOutlet"/>
+                <outlet property="issuesHost" destination="issuesHost" id="issuesHostOutlet"/>
                 <outlet property="window" destination="documentWindow" id="documentWindowOutlet15"/>
             </connections>
         </customObject>
@@ -201,6 +203,30 @@
                                                     <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                                     <subviews>
                                                         <customView id="insertHost">
+                                                            <rect key="frame" x="0" y="0" width="220" height="740"/>
+                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        </customView>
+                                                    </subviews>
+                                                </view>
+                                            </tabViewItem>
+                                            <tabViewItem label="Search" identifier="search" id="leftSearchItem">
+                                                <view key="view" id="leftSearchItemView">
+                                                    <rect key="frame" x="0" y="0" width="220" height="740"/>
+                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                    <subviews>
+                                                        <customView id="searchHost">
+                                                            <rect key="frame" x="0" y="0" width="220" height="740"/>
+                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                        </customView>
+                                                    </subviews>
+                                                </view>
+                                            </tabViewItem>
+                                            <tabViewItem label="Issues" identifier="issues" id="leftIssuesItem">
+                                                <view key="view" id="leftIssuesItemView">
+                                                    <rect key="frame" x="0" y="0" width="220" height="740"/>
+                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                    <subviews>
+                                                        <customView id="issuesHost">
                                                             <rect key="frame" x="0" y="0" width="220" height="740"/>
                                                             <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                                         </customView>
