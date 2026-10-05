@@ -2,7 +2,7 @@
 #import "ORMDiagram.h"
 
 /* Drawing an ORM2 diagram as NORMA draws it, onto any surface: the editor's
- * AppKit view, an SVG file. The notation and its geometry live here; a
+ * view, an SVG file. The notation and its geometry live here; a
  * surface only strokes and fills paths and sets text. Everything is in
  * diagram points, flipped: y grows downward, as NORMA's inches do.
  *

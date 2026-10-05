@@ -211,7 +211,9 @@ jobs:
             echo "::error::a macOS-only framework is imported; GNUstep has no such header"
             exit 1
           fi
-          if grep -rn "AppKit" --include="*.h" --include="*.m" ORMKit; then
+          # Imports only: a comment may name what ORMKit stays clear of.
+          if grep -rnE '^[[:space:]]*(#import|#include|@import)[[:space:]]*[<"]?AppKit' \
+               --include="*.h" --include="*.m" ORMKit; then
             echo "::error::ORMKit is Foundation only; what draws belongs in ORMDesigner"
             exit 1
           fi
