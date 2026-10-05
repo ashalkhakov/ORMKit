@@ -7,7 +7,8 @@ set -euo pipefail
 
 WORKSPACE_DIR=$(pwd)
 LOCAL_PREFIX="${GNUSTEP_PREFIX:-/opt/gnustep-prefix}"
-LINUXDEPLOY="${LINUXDEPLOY:-/usr/local/lib/linuxdeploy/AppRun}"
+# Where Scripts/install-linuxdeploy.sh puts it: somewhere the job can write.
+LINUXDEPLOY="${LINUXDEPLOY:-${LINUXDEPLOY_DIR:-${RUNNER_TEMP:-/tmp}/linuxdeploy}/AppRun}"
 
 # 1. Copy tracked AppImage metadata/runtime assets into AppDir.
 "${WORKSPACE_DIR}/Scripts/appimage/install-assets.sh" "${WORKSPACE_DIR}" "AppDir"
