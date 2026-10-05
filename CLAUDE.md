@@ -73,7 +73,10 @@ apply `../gnustep-patches/Scripts/apply-patches.sh` at the pinned ref to
 `/deps/libs-base` and `/deps/libs-gui`, then `make && make install` each.
 That is how SUBQUERY started parsing here (2026-10-03), and how
 `NSSortDescriptor` came to sort nil first (2026-10-05, gnustep-patches
-00a9c89). FreeCoreData and
+00a9c89). libobjc2 is patched too (`dependencies.sh` applies its fixes
+since 2026-10-05): without `stack-block-retain`, a completion block that
+captures another leaks with all it holds, every query run among them; the
+image's was rebuilt in `/deps/libobjc2/build` the same way. FreeCoreData and
 ODataKit are installed in the image the same way: `git archive` of
 `../gnustep-coredata` and `../ODataKit` at the pinned commits into `/deps`,
 `make && make install` (FreeCoreData's `Tools/momc` too), `docker commit`.

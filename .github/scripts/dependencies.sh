@@ -80,6 +80,10 @@ install_libobjc2() {
     cd "$DEPS_PATH"
     git clone -q --recursive https://github.com/gnustep/libobjc2.git
     cd libobjc2
+    # ARC's fixes: a stack block retained is not copied away and leaked
+    # with what it captured (every completion handler that captures
+    # another), and an autorelease taken back is the callee's own.
+    apply_gnustep_patches libobjc2
     mkdir -p build && cd build
     cmake -DTESTS=off \
           -DCMAKE_BUILD_TYPE=RelWithDebInfo \
