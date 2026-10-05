@@ -300,6 +300,66 @@
 	XCTAssertEqualObjects([[[_controller valueForKey:@"lowerTabView"] selectedTabViewItem] identifier], @"facts");
 }
 
+/* A mouse event at a point of the canvas, in diagram points. */
+- (NSEvent *)event:(NSEventType)type at:(NSPoint)point
+{
+	ORMCanvasView *canvas = _controller.canvas;
+	return [NSEvent mouseEventWithType:type location:[canvas convertPoint:point toView:nil] modifierFlags:0 timestamp:0
+	                      windowNumber:[[canvas window] windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+}
+
+/* As NORMA: the first click on a fact type's role box selects the fact type
+ * (its population shown), the next the role. What is selected is dragged
+ * together, a press on a fact type's role box among it too. */
+- (void)testClicksSelectFactTypesAndDragTheSelection
+{
+	[self open:@"StockMate.orm"];
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMModel *model = _document.editor.model;
+	ORMFactType *barcode = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:@"Product has Barcode"]) {
+			barcode = fact;
+		}
+	}
+	ORMCanvasView *canvas = _controller.canvas;
+	ORMShape *factShape = [[canvas diagram] shapeForSubject:barcode.identifier];
+	XCTAssertNotNil(factShape);
+	/* The first role box's middle. */
+	NSRect box = factShape.bounds;
+	NSPoint role = NSMakePoint(NSMinX(box) + NSWidth(box) / 4, NSMidY(box));
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqualObjects([canvas selectedElements], @[ barcode.identifier ]);
+	XCTAssertNotNil(canvas.clickedRole);
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	XCTAssertEqualObjects(population.elementId, barcode.identifier);
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqual([canvas.selectedRoles count], 1u);
+	/* A role selected still shows its fact type's population. */
+	[population reload];
+	XCTAssertEqual([population.table numberOfColumns], 2);
+
+	/* Product and the fact type selected; dragged by the fact type. */
+	NSString *product = [[model objectTypeNamed:@"Product"] identifier];
+	[canvas selectElements:@[ product, barcode.identifier ]];
+	NSRect productBefore = [[[canvas diagram] shapeForSubject:product] bounds];
+	NSRect factBefore = factShape.bounds;
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	XCTAssertEqual([canvas.selectedShapes count], 2u);
+	NSPoint to = NSMakePoint(role.x + 30, role.y + 20);
+	[canvas mouseDragged:[self event:NSEventTypeLeftMouseDragged at:to]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:to]];
+	NSRect productAfter = [[[canvas diagram] shapeForSubject:product] bounds];
+	NSRect factAfter = [[[canvas diagram] shapeForSubject:barcode.identifier] bounds];
+	XCTAssertEqualWithAccuracy(NSMinX(productAfter) - NSMinX(productBefore), 30.0, 0.5);
+	XCTAssertEqualWithAccuracy(NSMinY(productAfter) - NSMinY(productBefore), 20.0, 0.5);
+	XCTAssertEqualWithAccuracy(NSMinX(factAfter) - NSMinX(factBefore), 30.0, 0.5);
+	[[_document undoManager] undo];
+	XCTAssertEqual(NSMinX([[[canvas diagram] shapeForSubject:product] bounds]), NSMinX(productBefore));
+}
+
 - (void)testTheFactEditorAddsToTheDiagram
 {
 	[self open:@"StockMate.orm"];

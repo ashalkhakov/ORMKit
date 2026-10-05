@@ -250,6 +250,7 @@ static const double ORMCanvasMargin = 240.0;
 		[_selectedShapes addObject:shape.identifier];
 		[_selectedRoles addObject:roleId];
 	}
+	_clickedRole = [roleId copy];
 	[self selectionChanged];
 }
 
@@ -431,6 +432,7 @@ static const double ORMCanvasMargin = 240.0;
 	_at = point;
 	ORMHit *hit = [self hitAt:point];
 	_downHit = hit;
+	_clickedRole = [hit.role.identifier copy];
 	BOOL extend = ([event modifierFlags] & (NSEventModifierFlagShift | NSEventModifierFlagCommand)) != 0;
 	if ([event clickCount] == 2 && hit != nil) {
 		[self doubleClick:hit];
@@ -529,19 +531,26 @@ static const double ORMCanvasMargin = 240.0;
 	NSString *shapeId = hit.shape.identifier;
 	if (hit.role != nil) {
 		NSString *roleId = hit.role.identifier;
+		BOOL selected = [_selectedShapes containsObject:shapeId];
 		if (extend) {
 			if ([_selectedRoles containsObject:roleId]) {
 				[_selectedRoles removeObject:roleId];
 			} else {
 				[_selectedRoles addObject:roleId];
 			}
+			if (!selected) {
+				[_selectedShapes addObject:shapeId];
+			}
+		} else if (selected && [_selectedShapes count] > 1) {
+			/* Part of what is selected: the drag moves it all. */
+		} else if (!selected) {
+			/* As NORMA: the first click the fact type, the next a role. */
+			[_selectedShapes removeAllObjects];
+			[_selectedRoles removeAllObjects];
+			[_selectedShapes addObject:shapeId];
 		} else if (![_selectedRoles containsObject:roleId]) {
 			[_selectedRoles removeAllObjects];
 			[_selectedRoles addObject:roleId];
-			[_selectedShapes removeAllObjects];
-		}
-		if (![_selectedShapes containsObject:shapeId]) {
-			[_selectedShapes addObject:shapeId];
 		}
 		[self selectionChanged];
 		_gesture = ORMGestureMove;

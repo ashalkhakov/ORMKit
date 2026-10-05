@@ -74,6 +74,10 @@ ORMNameOf(ORMInstance *instance)
 {
 	_model = self.editor.model;
 	id element = _elementId != nil ? [_model elementWithId:_elementId] : nil;
+	if ([element isKindOfClass:[ORMRole class]]) {
+		/* A role selected: its fact type's population. */
+		element = [(ORMRole *)element factType];
+	}
 	_fact = [element isKindOfClass:[ORMFactType class]] && [(ORMFactType *)element kind] == ORMFactTypeOrdinary ? element : nil;
 	_type = [element isKindOfClass:[ORMObjectType class]] ? element : nil;
 	_rows = _fact != nil ? [_fact instances] : (_type != nil ? [_type instances] : @[]);

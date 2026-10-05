@@ -56,8 +56,11 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
 - (NSArray<NSString *> *)selectedElements;
 /* Selects the shapes on this diagram for the elements. */
 - (void)selectElements:(NSArray<NSString *> *)elementIds;
-/* A role box selected, as a click on it selects it. */
+/* A role box selected, as a second click on it selects it. */
 - (void)selectRole:(NSString *)roleId;
+/* The role box the last click was on, whatever it selected: the first
+ * click on a fact type selects the fact type, the next a role. */
+@property (nonatomic, readonly, copy) NSString *clickedRole;
 - (void)clearSelection;
 
 /* After the editor changed the model: the projection is new. */

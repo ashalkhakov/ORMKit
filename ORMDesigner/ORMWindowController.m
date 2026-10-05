@@ -490,7 +490,7 @@ static const double ORMFactBarHeight = 30;
 	/* The Queries window building from the diagram: a role box clicked
 	 * extends the query; an object type, with no query yet, starts one. */
 	if (_queries != nil && [[_queries window] isVisible] && _queries.buildsFromDiagram) {
-		NSString *roleId = [canvas.selectedRoles lastObject];
+		NSString *roleId = canvas.clickedRole;
 		ORMRole *role = roleId != nil ? [[self editor].model elementWithId:roleId] : nil;
 		if ([role isKindOfClass:[ORMRole class]]) {
 			[_queries followRole:role];
