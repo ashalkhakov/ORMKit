@@ -113,7 +113,7 @@ ORMODataError(NSString *text)
 - (void)scan:(NSUInteger)count
       offset:(NSUInteger)offset
        after:(NSArray *)last
-  completion:(void (^)(NSArray *values, NSError *error))completion;
+  completion:(void (^)(NSArray *values, BOOL more, NSError *error))completion;
 - (void)keep:(NSArray *)rows join:(ORMQueryODataJoin *)join completion:(void (^)(NSArray *kept, NSError *error))completion;
 @end
 
@@ -830,6 +830,28 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	}
 }
 
+/* Whether a request's objects are found by its filter alone: what a join
+ * takes of its plan is the filter and the options, so a join within it, a
+ * check on the answers or a bag would be lost. */
+- (BOOL)readByFilterAlone
+{
+	return [_joins count] == 0 && [_pageJoins count] == 0 && [_wholeJoins count] == 0 && [_checks count] == 0
+	       && [_bags count] == 0;
+}
+
+/* A join's request, refused (the request then not made) when its objects
+ * take more than its filter to find. */
+- (BOOL)takes:(ORMQueryOData *)joined
+{
+	if ([joined readByFilterAlone]) {
+		return YES;
+	}
+	[self fail:ORMODataError([NSString stringWithFormat:@"The join with %@ has a join, a bag or a condition of its own "
+	                                                    @"that its filter cannot say: not read over OData yet.",
+	                                                    joined->_read.name ?: @"another entity"])];
+	return NO;
+}
+
 - (void)note:(NSString *)text
 {
 	if (![_notes containsObject:text]) {
@@ -905,6 +927,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	                                             coreData:_coreData error:&error];
 	if (joined == nil || theirEntity == nil) {
 		[self fail:error];
+		return;
+	}
+	if (![self takes:joined]) {
 		return;
 	}
 	for (NSString *note in joined.notes) {
@@ -1067,7 +1092,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	for (ORMPlanSort *sort in _plan.sorts) {
 		[sorts addObject:@[ sort.path.keys, @(sort.ascending) ]];
 	}
-	return [ORMSeek seekWithSorts:sorts key:[self keyNames]];
+	return [ORMSeek seekWithSorts:sorts key:[self keyNames] entity:_read];
 }
 
 - (NSArray<NSString *> *)keyNames
@@ -1623,6 +1648,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		[self fail:error];
 		return nil;
 	}
+	if (![self takes:joined]) {
+		return nil;
+	}
 	for (NSString *note in joined.notes) {
 		[self note:note];
 	}
@@ -1748,6 +1776,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	                                             coreData:_coreData error:&error];
 	if (joined == nil) {
 		[self fail:error];
+		return NO;
+	}
+	if (![self takes:joined]) {
 		return NO;
 	}
 	for (NSString *note in joined.notes) {
@@ -2422,11 +2453,11 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 - (void)scan:(NSUInteger)count
       offset:(NSUInteger)offset
        after:(NSArray *)last
-  completion:(void (^)(NSArray *values, NSError *error))completion
+  completion:(void (^)(NSArray *values, BOOL more, NSError *error))completion
 {
 	[self prepare:^(NSError *unprepared) {
 		if (unprepared != nil) {
-			completion(nil, unprepared);
+			completion(nil, NO, unprepared);
 			return;
 		}
 		ODataMutableQueryOptions *options = [self->_options mutableCopy];
@@ -2443,7 +2474,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 				                                                             descending:![[[seek.order objectAtIndex:i] lastObject] boolValue]]
 				                                   : nil;
 				if (item == nil) {
-					completion(nil, error);
+					completion(nil, NO, error);
 					return;
 				}
 				[order addObject:item];
@@ -2462,7 +2493,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 						(void)stop;
 						return [[each firstObject] isEqualToArray:[part firstObject]];
 					}];
-					NSString *op = [@{ @"=": @"eq", @">": @"gt", @"<": @"lt" } objectForKey:[part objectAtIndex:1]];
+					NSString *op = [@{ @"=": @"eq", @"!=": @"ne", @">": @"gt", @"<": @"lt" } objectForKey:[part objectAtIndex:1]];
 					ODataExpression *path = [ODataExpression memberPath:[wires objectAtIndex:index] of:nil error:&error];
 					ODataExpression *compared = path != nil ? [ODataExpression binary:op left:path
 					                                                            right:[ODataExpression literalWithValue:[part lastObject]]
@@ -2471,20 +2502,20 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 					conjunction = compared == nil ? nil
 						: (conjunction != nil ? [ODataExpression binary:@"and" left:conjunction right:compared error:&error] : compared);
 					if (conjunction == nil) {
-						completion(nil, error);
+						completion(nil, NO, error);
 						return;
 					}
 				}
 				any = any != nil ? [ODataExpression binary:@"or" left:any right:conjunction error:&error] : conjunction;
 				if (any == nil) {
-					completion(nil, error);
+					completion(nil, NO, error);
 					return;
 				}
 			}
 			options.filter = options.filter != nil ? [ODataExpression binary:@"and" left:options.filter right:any error:&error]
 			                                       : any;
 			if (options.filter == nil) {
-				completion(nil, error);
+				completion(nil, NO, error);
 				return;
 			}
 		} else {
@@ -2492,11 +2523,13 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		}
 		NSURL *url = [self URLFor:self->_request.collectionPath options:options error:&error];
 		if (url == nil) {
-			completion(nil, error);
+			completion(nil, NO, error);
 			return;
 		}
 		[self get:url completion:^(NSArray *values, NSURL *next, NSError *fetched) {
-			completion(values, fetched);
+			/* A next link: the service pages it too, and what came is not
+			 * the end, however few. */
+			completion(values, next != nil, fetched);
 		}];
 	}];
 }
@@ -2784,13 +2817,15 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		/* A value of the last is null: read on by offset. */
 		_byOffset = YES;
 	}
-	[self.cursor scan:count offset:_offset after:_byOffset ? nil : _last completion:^(NSArray *values, NSError *error) {
+	[self.cursor scan:count offset:_offset after:_byOffset ? nil : _last completion:^(NSArray *values, BOOL more,
+	                                                                                    NSError *error) {
 		if (values == nil) {
 			completion(nil, error);
 			return;
 		}
 		self->_offset += [values count];
-		self->_atEnd = [values count] < count;
+		/* Fewer than asked for is the end, unless the service paged it. */
+		self->_atEnd = [values count] < count && !more;
 		if (seek != nil && [values count] > 0) {
 			NSArray *wires = [request seekWire];
 			NSMutableArray *last = [NSMutableArray array];

@@ -61,6 +61,9 @@ BOOL ORMIsAutomaticPlacement(NSPoint point);
 
 /* A change made of several operations, undone as one. */
 - (void)group:(NSString *)name with:(void (^)(void))operations;
+/* The same, for operations that may be refused part way: when the block
+ * returns NO, the document is as it was before, with no step to undo. */
+- (BOOL)group:(NSString *)name trying:(BOOL (^)(void))operations;
 
 /* The editing itself, each kind of element by an object of its own; each
  * makes its changes through this editor, as undoable steps of it. */

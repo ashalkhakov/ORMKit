@@ -203,8 +203,9 @@ ORMCompare(id left, NSString *comparison, id right)
  * nil where the entity read has no key. */
 - (ORMSeek *)seek;
 - (BOOL)rowsInOrder;
-/* Up to count more objects, read through its cursor at once; the answers
- * of the last batch read kept. */
+/* Up to count more objects, read through its cursor at once: those of one
+ * batch, the first that keeps any, with that batch's answers kept (rows are
+ * made with them); none only at the end or on an error. */
 - (NSArray *)next:(NSUInteger)count;
 @property (nonatomic, readonly) BOOL atEnd;
 - (NSString *)programText;
@@ -426,7 +427,7 @@ ORMBagKey(ORMPlanValue *value)
 	for (ORMPlanSort *sort in self.plan.sorts) {
 		[sorts addObject:@[ sort.path.keys, @(sort.ascending) ]];
 	}
-	return [ORMSeek seekWithSorts:sorts key:[self keyNames]];
+	return [ORMSeek seekWithSorts:sorts key:[self keyNames] entity:self.read];
 }
 
 /* The entity read's key, by its attributes' names. */
@@ -1313,18 +1314,21 @@ ORMBagKey(ORMPlanValue *value)
 
 - (NSArray *)next:(NSUInteger)count
 {
-	NSMutableArray *found = [NSMutableArray array];
-	while ([found count] < count && self.error == nil && ![self atEnd]) {
+	/* One batch's objects, the first that keeps any: its answers are what
+	 * their rows are made with, so no two batches' objects come together. */
+	while (self.error == nil && ![self atEnd]) {
 		NSError *error = nil;
-		ORMBatch *batch = ORMNextNow(self.cursor, count - [found count], &error);
+		ORMBatch *batch = ORMNextNow(self.cursor, count, &error);
 		if (batch == nil) {
 			[self fail:error.localizedDescription ?: @"A fetch failed."];
 			break;
 		}
-		[found addObjectsFromArray:batch.objects];
 		self.answers = batch.answers;
+		if ([batch.objects count] > 0) {
+			return batch.objects;
+		}
 	}
-	return found;
+	return @[];
 }
 
 - (NSString *)programText
@@ -1383,9 +1387,18 @@ ORMBagKey(ORMPlanValue *value)
 		                                               ascending:[[part lastObject] boolValue]]];
 	}
 	if (_seek == nil) {
+		NSMutableSet *sorted = [NSMutableSet set];
 		for (ORMPlanSort *sort in run.plan.sorts) {
-			[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:[sort.path.keys componentsJoinedByString:@"."]
-			                                               ascending:sort.ascending]];
+			NSString *key = [sort.path.keys componentsJoinedByString:@"."];
+			[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:key ascending:sort.ascending]];
+			[sorted addObject:key];
+		}
+		/* Read by offset: the key last, so that objects the sorts tie on
+		 * come in one order, page after page. */
+		for (NSString *key in [run keyNames]) {
+			if (![sorted containsObject:key]) {
+				[sorts addObject:[NSSortDescriptor sortDescriptorWithKey:key ascending:YES]];
+			}
 		}
 	}
 	fetch.sortDescriptors = sorts;
@@ -1400,10 +1413,13 @@ ORMBagKey(ORMPlanValue *value)
 		for (NSArray *all in after) {
 			NSMutableArray *parts = [NSMutableArray array];
 			for (NSArray *part in all) {
-				NSString *format = [NSString stringWithFormat:@"%%K %@ %%@", [[part objectAtIndex:1] isEqualToString:@"="] ? @"=="
-				                                                                                                       : [part objectAtIndex:1]];
-				[parts addObject:[NSPredicate predicateWithFormat:format, [[part firstObject] componentsJoinedByString:@"."],
-				                                                  [part lastObject]]];
+				NSString *op = [[part objectAtIndex:1] isEqualToString:@"="] ? @"==" : [part objectAtIndex:1];
+				NSString *key = [[part firstObject] componentsJoinedByString:@"."];
+				/* Is, or is not, nothing. */
+				[parts addObject:[part lastObject] == [NSNull null]
+				                     ? [NSPredicate predicateWithFormat:[NSString stringWithFormat:@"%%K %@ nil", op], key]
+				                     : [NSPredicate predicateWithFormat:[NSString stringWithFormat:@"%%K %@ %%@", op], key,
+				                                                        [part lastObject]]];
 			}
 			[alternatives addObject:[NSCompoundPredicate andPredicateWithSubpredicates:parts]];
 		}

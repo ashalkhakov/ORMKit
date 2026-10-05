@@ -722,7 +722,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 			NSString *variable = [self nextVariable];
 			[_scope addObject:variable];
 			ORMPlanCondition *body = [self binaryStep:nil node:node property:attribute
-			                                       at:[ORMPlannerPlace variable:variable entity:nil trail:at.trail]
+			                                       at:[ORMPlannerPlace variable:variable entity:nil trail:value.trail]
 			                                  columns:columns value:YES];
 			[_scope removeLastObject];
 			return [ORMPlanCondition maybe:value.path variable:variable where:body];

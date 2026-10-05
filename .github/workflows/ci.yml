@@ -128,7 +128,7 @@ jobs:
           rm -rf "$RUNNER_TEMP/ormtool" && mkdir -p "$RUNNER_TEMP/ormtool"
           cp "$built/ormtool" "$RUNNER_TEMP/ormtool/"
           cp -R "$built/ORMKit.framework" "$built/ODataKit.framework" "$built/ODataIncrementalStore.framework" \
-            "$RUNNER_TEMP/ormtool/"
+            "$built/OTelKit.framework" "$RUNNER_TEMP/ormtool/"
           ditto -c -k --keepParent "$built/ORMDesigner.app" "ORMDesigner-macOS-unsigned.zip"
           ditto -c -k --keepParent "$RUNNER_TEMP/ormtool" "ormtool-macOS-unsigned.zip"
 

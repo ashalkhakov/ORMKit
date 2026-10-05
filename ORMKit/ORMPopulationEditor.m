@@ -839,10 +839,13 @@ ORMWrapPart(NSString *name, BOOL composite)
 		return nil;
 	}
 	__block NSString *created = nil;
-	[_editor group:@"Edit Fact" with:^{
+	/* Refused part way (a role of an incomplete fact still unnamed), the
+	 * fact stays as it was. */
+	[_editor group:@"Edit Fact" trying:^BOOL {
 		if ([self removeFact:factInstanceId reason:reason]) {
 			created = [self addFactOf:factTypeId players:kept named:@{ roleId: text } reason:reason];
 		}
+		return created != nil;
 	}];
 	return created;
 }
@@ -962,8 +965,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 			}
 		}
 	}
-	__block BOOL done = YES;
-	[_editor group:@"Rename Instance" with:^{
+	return [_editor group:@"Rename Instance" trying:^BOOL {
 		/* The new parts first: they may be found, or made, under other ids. */
 		NSMutableDictionary *parts = [NSMutableDictionary dictionary];
 		for (NSString *roleId in named) {
@@ -971,8 +973,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 			[parts setObject:had ?: [named objectForKey:roleId] forKey:roleId];
 		}
 		if (![population isEmpty] && ![self addPopulation:population reason:reason]) {
-			done = NO;
-			return;
+			return NO;
 		}
 		NSMutableArray *old = [NSMutableArray array];
 		[self->_editor change:@"Rename Instance" with:^{
@@ -993,8 +994,8 @@ ORMWrapPart(NSString *name, BOOL composite)
 				}];
 			}
 		}
+		return YES;
 	}];
-	return done;
 }
 
 - (BOOL)renameInstance:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason

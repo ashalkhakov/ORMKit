@@ -925,6 +925,18 @@
 		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
 	}
 	XCTAssertEqualObjects(servedRows, countries, @"%@", [odata requestText]);
+	/* A cursor let go of is freed, its run with it: the run and its filter
+	 * do not hold each other. */
+	__weak id run = nil;
+	@autoreleasepool {
+		ORMQueryCursor *again = [interpreter cursorForPlan:plan inContext:context error:NULL];
+		[context performBlockAndWait:^{
+			[again nextPage:2 error:NULL];
+		}];
+		run = [again valueForKey:@"run"];
+		XCTAssertNotNil(run);
+	}
+	XCTAssertNil(run);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
@@ -983,6 +995,121 @@
 	NSArray *countries = @[ @[ @"Australia" ], @[ @"UK" ], @[ @"USA" ] ];
 	XCTAssertEqualObjects([self rowsOf:plan planner:planner twoAtATimeIn:context service:&served], countries);
 	XCTAssertEqualObjects(served, countries);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* A join whose plan has a join of its own: what a join takes of its plan
+ * over OData is the filter, so the inner join would be lost. The request
+ * is refused, and says why, rather than answer wrongly. */
+- (void)testAJoinWithinAJoinIsRefusedOverOData
+{
+	NSString *q = [[self queries] addQueryNamed:@"Anything" from:[self typeId:@"Employee"] reason:NULL];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	(void)[planner planForQuery:[self query:q]];
+	NSArray *byBranch = @[ @[ [ORMPlanPath pathFrom:nil keys:@[ @"nr" ]], [ORMPlanPath pathFrom:nil keys:@[ @"branch", @"nr" ]] ] ];
+	ORMQueryPlan *employees = [ORMQueryPlan planReading:@"Employee" where:nil columns:@[] sorts:@[] notes:@[]];
+	ORMQueryPlan *staffed = [ORMQueryPlan planReading:@"Branch"
+	                                             where:[ORMPlanCondition matches:employees pairs:byBranch]
+	                                           columns:@[] sorts:@[] notes:@[]];
+	NSArray *toBranch = @[ @[ [ORMPlanPath pathFrom:nil keys:@[ @"branch", @"nr" ]], [ORMPlanPath pathFrom:nil keys:@[ @"nr" ]] ] ];
+	ORMQueryPlan *plan = [ORMQueryPlan planReading:@"Employee"
+	                                         where:[ORMPlanCondition matches:staffed pairs:toBranch]
+	                                       columns:@[] sorts:@[] notes:@[]];
+	NSError *error = nil;
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNil(odata, @"%@", [odata requestText]);
+	XCTAssertTrue([[error localizedDescription] rangeOfString:@"not read over OData yet"].location != NSNotFound, @"%@", error);
+	/* The same join, without one of its own, is read. */
+	plan = [ORMQueryPlan planReading:@"Employee"
+	                           where:[ORMPlanCondition matches:employees pairs:byBranch]
+	                         columns:@[] sorts:@[] notes:@[]];
+	XCTAssertNotNil([ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error], @"%@", error);
+}
+
+/* Sorted by an attribute maybe there: each employee and maybe their
+ * name, last first. The sort is by the name, from the object read. */
+- (void)testASortByAValueMaybeThere
+{
+	NSString *q = [[self queries] addQueryNamed:@"Names" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	NSString *maybe = nil;
+	ORMQueryNode *name = [[self from:root through:[self role:@"hasName" at:0] in:q step:&maybe] firstObject];
+	[[self queries] setOperator:ORMQueryMaybe ofStep:maybe];
+	[[self queries] setProjected:YES ofNode:name.identifier];
+	[[self queries] setSortOrder:ORMQueryDescending ofNode:name.identifier];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertEqual([plan.sorts count], 1u, @"%@", [plan text]);
+	ORMPlanSort *sort = [plan.sorts firstObject];
+	XCTAssertEqualObjects(sort.path.keys, @[ @"employeeName" ], @"%@", [plan text]);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	NSArray *served = nil;
+	NSArray *rows = [self rowsOf:plan planner:planner twoAtATimeIn:context service:&served];
+	XCTAssertGreaterThan([rows count], 4u, @"%@", [plan text]);
+	XCTAssertEqualObjects(served, rows);
+	/* Last first. */
+	NSMutableArray *names = [NSMutableArray array];
+	for (NSArray *row in rows) {
+		if ([row lastObject] != [NSNull null]) {
+			[names addObject:[row lastObject]];
+		}
+	}
+	NSArray *descending = [names sortedArrayUsingComparator:^NSComparisonResult(id a, id b) {
+		return [b compare:a];
+	}];
+	XCTAssertEqualObjects(names, descending);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* Sorted descending by what may be nothing: each employee and the branch
+ * they maybe head. Where a store puts those heading none is its own, so
+ * no "after" of a page reaches them: they are read by offset, and none is
+ * lost, from the store or the service. */
+- (void)testASortByWhatMayBeNothingLosesNoRows
+{
+	NSString *q = [[self queries] addQueryNamed:@"Heads first" from:[self typeId:@"Employee"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	NSString *maybe = nil;
+	ORMQueryNode *branch = [[self from:root through:[self role:@"heads" at:0] in:q step:&maybe] firstObject];
+	[[self queries] setOperator:ORMQueryMaybe ofStep:maybe];
+	[[self queries] setProjected:YES ofNode:branch.identifier];
+	[[self queries] setSortOrder:ORMQueryDescending ofNode:branch.identifier];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	__block NSUInteger employees = 0;
+	[context performBlockAndWait:^{
+		employees = [context countForFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Employee"] error:NULL];
+	}];
+	XCTAssertGreaterThan(employees, 4u);
+	NSArray *served = nil;
+	NSArray *rows = [self rowsOf:plan planner:planner twoAtATimeIn:context service:&served];
+	XCTAssertEqual([rows count], employees, @"%@\n%@", rows, [plan text]);
+	XCTAssertEqualObjects(served, rows);
+
+	/* A service that pages answers itself, one object a page: what it
+	 * sends is not the end while it says there is more. */
+	ORMTestCountingTransport *capped = [self countedServiceOver:context];
+	((ODataService *)capped.service).maxPageSize = 1;
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:NULL];
+	ORMQueryODataCursor *cursor = [odata cursorWithTransport:capped serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	NSMutableArray *paged = [NSMutableArray array];
+	for (NSUInteger guard = 0; guard < 20 && ![cursor atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		[cursor nextPage:2 completion:^(ORMQueryResult *result, NSError *failed) {
+			XCTAssertNotNil(result, @"%@", failed);
+			[paged addObjectsFromArray:result.rows ?: @[]];
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
+	}
+	XCTAssertEqualObjects(paged, rows, @"%@", capped.queries);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 

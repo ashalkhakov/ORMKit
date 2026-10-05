@@ -34,6 +34,10 @@
 			isa = PBXBuildFile;
 			fileRef = E715EFC02CA131A7259F8C12 /* ORMQueryController.m */;
 		};
+		0C06CDF2F4BED011A33BEBF0 /* LICENSE-DMTabBar.txt */ = {
+			isa = PBXBuildFile;
+			fileRef = 94F4E7F9ECEC3C251AB9940B /* LICENSE-DMTabBar.txt */;
+		};
 		0CE58F123238F14F3937E54E /* ORMPopulationStore.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 154D9A9D4D8FDB9DFF38147F /* ORMPopulationStore.h */;
@@ -1411,6 +1415,13 @@
 			path = "ORMDesigner-Info.plist";
 			sourceTree = "<group>";
 		};
+		94F4E7F9ECEC3C251AB9940B /* LICENSE-DMTabBar.txt */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = text;
+			name = "LICENSE-DMTabBar.txt";
+			path = "ThirdParty/DMTabBar/LICENSE-DMTabBar.txt";
+			sourceTree = "<group>";
+		};
 		95FF8C6B38934A3200AD848A /* ORMIssueFinder.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -2123,6 +2134,7 @@
 				80A5F23A270C7CC12A83D9C8 /* ORMIssuesView.xib */,
 				2BF1767008837586301D67F1 /* ORMSearchNavigator.xib */,
 				C8EEE6A9C88B3BD919EF8C59 /* ORMPopulationView.xib */,
+				94F4E7F9ECEC3C251AB9940B /* LICENSE-DMTabBar.txt */,
 				D711E759700637DA41F98E72 /* Samples */,
 				6B2E3F09A4B47656091F7CF0 /* ActiveFacts */,
 				3C1726E2FC3F6CF80B0834BA /* StockMate.orm */,
@@ -2337,6 +2349,7 @@
 				45262B76B2F3009AB62993B7 /* ORMIssuesView.xib */,
 				0D782B154CE43AF239C50808 /* ORMSearchNavigator.xib */,
 				18FB23D77EF74F8EA0C0AA06 /* ORMPopulationView.xib */,
+				0C06CDF2F4BED011A33BEBF0 /* LICENSE-DMTabBar.txt */,
 				D168115F32EC066EDB5712D6 /* Samples */,
 				B80459DC79B9783F55045E56 /* ActiveFacts */,
 				60AA3CFA894F84306DC0E0D3 /* StockMate.orm */,

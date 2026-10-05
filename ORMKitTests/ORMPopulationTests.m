@@ -170,6 +170,19 @@
 	XCTAssertTrue([editor addInstanceOf:_country named:@"AU" reason:&reason] != nil, @"%@", reason);
 	XCTAssertFalse([editor renameInstance:au.identifier to:@"AU" reason:&reason]);
 	XCTAssertEqualObjects(reason, @"There is already a Country_code AU.");
+
+	/* A fact a file has with a role unplayed: editing the other player is
+	 * refused, and the fact stays, with no step to undo. */
+	ORMSamplePopulation *partial = [[ORMSamplePopulation alloc] init];
+	NSString *lone = [partial factOf:_born players:@{ personRole: [self instanceOf:_person value:@"9" in:partial] }];
+	XCTAssertTrue([editor addPopulation:partial reason:&reason], @"%@", reason);
+	NSUInteger facts = [[[_editor.model elementWithId:_born] instances] count];
+	[self.undoManager removeAllActions];
+	XCTAssertNil([editor setPlayer:@"8" ofRole:personRole inFact:lone reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Name the Country too.");
+	XCTAssertNotNil([_editor.model elementWithId:lone]);
+	XCTAssertEqual([[[_editor.model elementWithId:_born] instances] count], facts);
+	XCTAssertFalse([self.undoManager canUndo]);
 }
 
 /* An entity type identified by the facts it plays in, not one value: the

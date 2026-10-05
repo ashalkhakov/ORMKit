@@ -404,9 +404,11 @@ ORMCellText(id value)
 	ORMSamplePopulation *population = [generator population];
 	__block BOOL added = NO;
 	__block NSString *reason = nil;
-	[self.editor group:@"Make Up a Sample Population" with:^{
+	/* Refused, the population there stays. */
+	[self.editor group:@"Make Up a Sample Population" trying:^BOOL {
 		[self.editor.populationEditor removePopulation];
 		added = [self.editor.populationEditor addPopulation:population reason:&reason];
+		return added;
 	}];
 	if (!added) {
 		[self say:[NSString stringWithFormat:@"No population: %@", reason]];

@@ -45,6 +45,7 @@ ORMDesigner_RESOURCE_FILES = \
   ORMIssuesView.xib \
   ORMSearchNavigator.xib \
   ORMPopulationView.xib \
+  ThirdParty/DMTabBar/LICENSE-DMTabBar.txt \
   ../Samples \
   ../ORMKitTests/Fixtures/ActiveFacts \
   ../ORMKitTests/Fixtures/StockMate.orm

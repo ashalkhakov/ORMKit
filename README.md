@@ -116,4 +116,6 @@ are Clifford Heath's ActiveFacts examples, under the MIT license
 Common Public License 1.0 (`ORMKitTests/Fixtures/NORMA/LICENSE.txt`). Neither
 is part of the library. The models in `Samples/` are ORMKit's own, of
 schemas Halpin's papers publish; StockMate, which ORMDesigner also bundles,
-is its author's, used with their leave.
+is its author's, used with their leave. ORMDesigner's tab bars are Daniele
+Margutti's DMTabBar, under the MIT license
+(`ORMDesigner/ThirdParty/DMTabBar/LICENSE-DMTabBar.txt`, also in the app).

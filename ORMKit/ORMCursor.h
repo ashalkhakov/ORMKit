@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <Foundation/Foundation.h>
 
-@class ORMQueryResult;
+@class ORMQueryResult, NSEntityDescription;
 
 /* A plan read as a tree of cursors (docs/CURSORS.md): each gives the next
  * batch of what it reads, and is asked for more. The backends build the
@@ -84,11 +84,20 @@ typedef void (^ORMBindRead)(NSArray *values, void (^done)(id answer, NSError *er
 @interface ORMSeek : NSObject
 /* The sorts, then each part of the key no sort is by. No key, no seek. */
 + (instancetype)seekWithSorts:(NSArray<NSArray *> *)sorts key:(NSArray<NSString *> *)key;
+/* The same, knowing from the entity read which sorts can come to nothing,
+ * which "after" then reaches too. */
++ (instancetype)seekWithSorts:(NSArray<NSArray *> *)sorts
+                          key:(NSArray<NSString *> *)key
+                       entity:(NSEntityDescription *)entity;
+/* Whether the key path from an entity's object can come to nothing: an
+ * optional attribute, or one past an optional relationship. */
++ (BOOL)canBeNull:(NSArray<NSString *> *)keys from:(NSEntityDescription *)entity;
 @property (nonatomic, readonly, copy) NSArray<NSArray *> *order;
-/* What comes after the values (the last object's, in the order): each
- * alternative a list of @[ key path, comparison ("=", ">" or "<"), value ],
- * all of which hold. nil where a value is nil (where nothing is, stores
- * order differently): read on by offset then. */
+/* What comes after the values (the last object's, in the order, NSNull
+ * for nothing): each alternative a list of @[ key path, comparison ("=",
+ * "!=", ">" or "<"), value ], all of which hold; "=" and "!=" NSNull for
+ * is and is not nothing. Nothing comes before any value, as Core Data and
+ * OData order it. nil when the values are not one for each part. */
 - (NSArray<NSArray<NSArray *> *> *)after:(NSArray *)values;
 /* "nr", "name, then nr": the order, to read. */
 - (NSString *)orderText;

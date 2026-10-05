@@ -1,4 +1,5 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
+#import <CoreData/CoreData.h>
 #import "ORMCursor.h"
 #import "ORMQueryInterpreter.h"
 #import "ORMQueryPlan.h"
@@ -32,7 +33,9 @@
 @implementation ORMFilterCursor
 {
 	id<ORMCursor> _input;
-	id<ORMBatchEvaluator> _evaluator;
+	/* Weak: the evaluator (a plan's run) owns its cursor, and whoever reads
+	 * the cursor holds the run. */
+	__weak id<ORMBatchEvaluator> _evaluator;
 }
 
 - (instancetype)initWithInput:(id<ORMCursor>)input evaluator:(id<ORMBatchEvaluator>)evaluator
@@ -245,13 +248,26 @@
 @end
 
 @implementation ORMSeek
+{
+	/* For each part of the order, whether its value can be nothing. */
+	NSArray<NSNumber *> *_nullable;
+}
 
 + (instancetype)seekWithSorts:(NSArray<NSArray *> *)sorts key:(NSArray<NSString *> *)key
+{
+	return [self seekWithSorts:sorts key:key entity:nil];
+}
+
++ (instancetype)seekWithSorts:(NSArray<NSArray *> *)sorts key:(NSArray<NSString *> *)key entity:(NSEntityDescription *)entity
 {
 	if ([key count] == 0) {
 		return nil;
 	}
 	NSMutableArray *order = [NSMutableArray arrayWithArray:sorts ?: @[]];
+	NSMutableArray *nullable = [NSMutableArray array];
+	for (NSArray *sort in sorts) {
+		[nullable addObject:@(entity != nil && [self canBeNull:[sort firstObject] from:entity])];
+	}
 	for (NSString *part in key) {
 		BOOL sorted = NO;
 		for (NSArray *sort in sorts) {
@@ -259,11 +275,32 @@
 		}
 		if (!sorted) {
 			[order addObject:@[ @[ part ], @YES ]];
+			[nullable addObject:@NO];
 		}
 	}
 	ORMSeek *seek = [[self alloc] init];
 	seek->_order = [order copy];
+	seek->_nullable = [nullable copy];
 	return seek;
+}
+
++ (BOOL)canBeNull:(NSArray<NSString *> *)keys from:(NSEntityDescription *)entity
+{
+	NSEntityDescription *at = entity;
+	for (NSString *key in keys) {
+		NSPropertyDescription *property = [[at propertiesByName] objectForKey:key];
+		if (property == nil || [property isOptional]) {
+			return YES;
+		}
+		if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+			NSRelationshipDescription *relationship = (NSRelationshipDescription *)property;
+			if ([relationship isToMany]) {
+				return YES;
+			}
+			at = [relationship destinationEntity];
+		}
+	}
+	return NO;
 }
 
 - (NSArray<NSArray<NSArray *> *> *)after:(NSArray *)values
@@ -271,21 +308,37 @@
 	if ([values count] != [_order count]) {
 		return nil;
 	}
-	for (id value in values) {
-		if (value == [NSNull null]) {
-			return nil;
-		}
-	}
-	/* (a > x) or (a = x and b > y) or ... */
+	/* Nothing is less than any value, as Core Data's SQLite store and the
+	 * OData spec have it (and FreeCoreData's stores): first ascending, last
+	 * descending. (a > x) or (a = x and b > y) or ..., where for a part
+	 * that can be nothing:
+	 * - ascending after x: a > x; after nothing: a is something;
+	 * - descending after x: a < x, or a is nothing; after nothing: none;
+	 * - equal to nothing: a is nothing. */
 	NSMutableArray *alternatives = [NSMutableArray array];
 	for (NSUInteger i = 0; i < [_order count]; i++) {
-		NSMutableArray *all = [NSMutableArray array];
+		NSMutableArray *equal = [NSMutableArray array];
 		for (NSUInteger j = 0; j < i; j++) {
-			[all addObject:@[ [[_order objectAtIndex:j] firstObject], @"=", [values objectAtIndex:j] ]];
+			[equal addObject:@[ [[_order objectAtIndex:j] firstObject], @"=", [values objectAtIndex:j] ]];
 		}
+		NSArray *path = [[_order objectAtIndex:i] firstObject];
+		id value = [values objectAtIndex:i];
 		BOOL ascending = [[[_order objectAtIndex:i] lastObject] boolValue];
-		[all addObject:@[ [[_order objectAtIndex:i] firstObject], ascending ? @">" : @"<", [values objectAtIndex:i] ]];
-		[alternatives addObject:all];
+		BOOL nullable = i < [_nullable count] && [[_nullable objectAtIndex:i] boolValue];
+		NSMutableArray *strict = [NSMutableArray array];
+		if (value == [NSNull null]) {
+			if (ascending) {
+				[strict addObject:@[ path, @"!=", [NSNull null] ]];
+			}
+		} else {
+			[strict addObject:@[ path, ascending ? @">" : @"<", value ]];
+			if (!ascending && nullable) {
+				[strict addObject:@[ path, @"=", [NSNull null] ]];
+			}
+		}
+		for (NSArray *part in strict) {
+			[alternatives addObject:[equal arrayByAddingObject:part]];
+		}
 	}
 	return alternatives;
 }
