@@ -159,6 +159,19 @@ Not done yet:
   populations are written and made up, but not yet edited by hand in the
   designer ([POPULATIONS.md](POPULATIONS.md#not-done-yet)).
 - **Verbalization**: wording checked against NORMA's report only by eye.
+- **The designer's window layout** (asked for, to do):
+  - the left pane as a tabbed navigator, as RDLKit's and XForms Designer's
+    are, with these tabs:
+    - the outline;
+    - an Insert palette, taking the drawing tools out of the top bar;
+    - a search of the verbalizations;
+    - an issue list, like Xcode's, each issue selecting its element:
+      population violations, broken rules, mapping notes;
+  - the top bar for NORMA-style alignment buttons;
+  - under the diagram, the page popup, and tabs for Verbalization, Fact
+    entry and Populations. Populations is a table of the selected fact
+    type's or object type's population, its rows added, removed and edited
+    in place.
 - **Core Data**: per-relationship deletion rule overrides; watching the
   `.xcdatamodeld` for changes; validating with FreeCoreData's `momc` in the
   GNUstep job, and a live `NSManagedObjectModel` preview with FreeCoreData;
