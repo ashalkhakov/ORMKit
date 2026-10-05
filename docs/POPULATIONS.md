@@ -142,10 +142,30 @@ A query whose conditions name values (Q1's branch 52) finds nothing in a
 made-up population whose branches are numbered 1 to 5. That is the right
 answer, not a fault.
 
+## Editing by hand
+
+The designer's Population tab, under the canvas, shows the selected fact
+type's or object type's population as a table, a column for each role
+([WINDOW.md](WINDOW.md)). `ORMPopulationEditor` makes each edit one change:
+- `addFactOf:named:` adds a fact, its players named as the table shows them:
+  - a value type's value;
+  - an entity type's reference mode value, the instance so identified
+    found or made;
+  - a subtype's, through its supertype.
+- `setPlayer:ofRole:inFact:` names a player anew, replacing the fact.
+- `removeFact:` removes a fact. It is refused while an objectifying instance
+  is that fact.
+- `addInstanceOf:named:` and `removeInstance:` add and remove an object
+  type's instances. Removal is refused while the instance plays in a fact or
+  identifies another.
+
 ## Not done yet
 
-- **Editing a population by hand** in the designer: a grid per fact type, as
-  NORMA has. The editor's API is there.
+- **Editing an entity instance identified by more than one value**
+  (composite identifiers) by hand: the Population tab names an instance by
+  one value, so such instances come from the facts that identify them, or
+  from code. Editing a value in place, rather than a fact's player, is not
+  done either.
 - **The generator's limits:**
   - a subtype's share is fixed, so a mandatory one-to-one role it must cover
     can run out of instances (ActiveFacts' Supervision and Diplomacy);

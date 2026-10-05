@@ -92,10 +92,18 @@ on 2026-10-05, and the steps to get there. It follows RDLDesigner's window
      - three or more spaced evenly, across or down.
    - The top bar has **Align:** Left, Centre, Right, Top, Middle, Bottom, and
      **Space:** Across, Down.
-4. **The lower tabs:**
-   - Verbalization and Fact entry as tabs, the page popup alone.
-   - Population, with `ORMPopulationEditor` editing single facts and values.
-     Today it replaces a whole population at once.
+4. **Done: the lower tabs.**
+   - Verbalization, Fact entry and Population are tabs on the bar under the
+     canvas, with a `DMTabBar` of V, F and P.
+   - The page popup and + stay on the bar's right; the page tabs are gone.
+   - "New Fact Type…" opens the Fact entry tab.
+   - `ORMPopulationView` is the Population tab, the selection's population
+     as a table:
+     - + starts a row, which is added once each of its cells is named;
+     - editing a fact's cell names that player anew;
+     - − removes the selected rows.
+   - What it refuses, or the checker's violations for that fact type, show
+     under the table. Each edit is one `ORMPopulationEditor` change.
 
 Then **paths by clicking role boxes** on the canvas, for the Queries window:
 see [QUERIES.md](QUERIES.md).

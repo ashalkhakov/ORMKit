@@ -22,8 +22,6 @@
 @property (nonatomic, readonly, strong) NSTextView *verbalization;
 @property (nonatomic, readonly, strong) NSTextField *factEditor;
 @property (nonatomic, readonly, strong) NSPopUpButton *diagramPopup;
-/* The diagrams as tabs under the canvas, NORMA's pages. */
-@property (nonatomic, readonly, strong) NSSegmentedControl *diagramTabs;
 @property (nonatomic, readonly, strong) NSTextField *status;
 
 /* The document's editor changed, or was replaced (a revert). */
@@ -45,7 +43,6 @@
 - (IBAction)renameDiagram:(id)sender;
 - (IBAction)deleteDiagram:(id)sender;
 - (IBAction)chooseDiagram:(id)sender;
-- (IBAction)chooseDiagramTab:(id)sender;
 - (IBAction)arrangeDiagram:(id)sender;
 - (IBAction)showOnDiagram:(id)sender;
 - (IBAction)showRelated:(id)sender;

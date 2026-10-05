@@ -62,6 +62,63 @@
 	XCTAssertTrue([_editor.populationEditor addPopulation:population reason:&reason], @"%@", reason);
 }
 
+/* One fact or instance at a time, as a table edits them, each instance
+ * named as it shows: a fact added by its players' values; a player named
+ * anew, the fact replaced, one undo; a fact removed; an instance removed
+ * only once nothing has it play a role. */
+- (void)testFactsAndInstancesAreEditedOneAtATime
+{
+	[self addAnnAndBob];
+	ORMFactType *born = [_editor.model elementWithId:_born];
+	NSString *personRole = [[born.roles firstObject] identifier];
+	NSString *countryRole = [[born.roles lastObject] identifier];
+	NSString *reason = nil;
+	NSString *added = [_editor.populationEditor addFactOf:_born named:@{ personRole: @"3", countryRole: @"NZ" }
+	                                               reason:&reason];
+	XCTAssertNotNil(added, @"%@", reason);
+	born = [_editor.model elementWithId:_born];
+	XCTAssertEqual([[born instances] count], 3u);
+	XCTAssertNil([_editor.populationEditor addFactOf:_born named:@{ personRole: @"4" } reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Name the Country too.");
+
+	/* Ann born in New Zealand instead: the fact replaced, NZ reused. */
+	ORMFactInstance *ann = [[born instances] firstObject];
+	NSString *edited = [_editor.populationEditor setPlayer:@"NZ" ofRole:countryRole inFact:ann.identifier reason:&reason];
+	XCTAssertNotNil(edited, @"%@", reason);
+	born = [_editor.model elementWithId:_born];
+	ORMFactInstance *now = [_editor.model elementWithId:edited];
+	XCTAssertEqualObjects([[now.instancesByRole objectForKey:countryRole] displayText], @"'NZ'");
+	XCTAssertEqualObjects([[now.instancesByRole objectForKey:personRole] displayText], @"1");
+	XCTAssertEqual([[[_editor.model elementWithId:_country] instances] count], 2u);
+	[self.undoManager undo];
+	XCTAssertNotNil([_editor.model elementWithId:ann.identifier]);
+	XCTAssertNil([_editor.model elementWithId:edited]);
+
+	/* Person 3 plays in a fact: not removed until it is gone. */
+	ORMObjectType *person = [_editor.model elementWithId:_person];
+	ORMInstance *third = nil;
+	for (ORMInstance *instance in [person instances]) {
+		if ([[instance displayText] isEqualToString:@"3"]) {
+			third = instance;
+		}
+	}
+	XCTAssertFalse([_editor.populationEditor removeInstance:third.identifier reason:&reason]);
+	XCTAssertEqualObjects(reason, @"It plays a role in 1 fact: remove it first.");
+	XCTAssertTrue([_editor.populationEditor removeFact:added reason:&reason], @"%@", reason);
+	XCTAssertEqual([[[_editor.model elementWithId:_born] instances] count], 2u);
+	XCTAssertTrue([_editor.populationEditor removeInstance:third.identifier reason:&reason], @"%@", reason);
+	XCTAssertEqual([[[_editor.model elementWithId:_person] instances] count], 2u);
+	/* What identified it is a value no one has now: removed in turn. */
+	ORMObjectType *ids = [[_editor.model elementWithId:_person] referenceModeValueType];
+	ORMInstance *three = [[ids instances] lastObject];
+	XCTAssertEqualObjects(three.value, @"3");
+	XCTAssertTrue([_editor.populationEditor removeInstance:three.identifier reason:&reason], @"%@", reason);
+	/* Added by name. */
+	XCTAssertNotNil([_editor.populationEditor addInstanceOf:_country named:@"FR" reason:&reason], @"%@", reason);
+	XCTAssertEqual([[[_editor.model elementWithId:_country] instances] count], 3u);
+	XCTAssertTrue([[[ORMPopulationChecker alloc] initWithModel:_editor.model].violations count] == 0);
+}
+
 /* As NORMA keeps them: instances under their types, role instances under
  * the roles, a fact type's instances after all else it has. */
 - (void)testAPopulationIsWrittenAsNormaWritesIt

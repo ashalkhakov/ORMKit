@@ -6,6 +6,7 @@
 #import "ORMInsertPalette.h"
 #import "ORMIssuesView.h"
 #import "ORMSearchNavigator.h"
+#import "ORMPopulationView.h"
 #import "ORMPane.h"
 #import "ThirdParty/DMTabBar/DMTabBar.h"
 
@@ -17,7 +18,6 @@ static const double ORMFactBarHeight = 30;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextView *verbalization;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *factEditor;
 @property (nonatomic, readwrite, strong) IBOutlet NSPopUpButton *diagramPopup;
-@property (nonatomic, readwrite, strong) NSSegmentedControl *diagramTabs;
 @property (nonatomic, strong) IBOutlet NSView *diagramTabsBar;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *status;
 @property (nonatomic, strong) IBOutlet NSOutlineView *browserOutline;
@@ -39,6 +39,11 @@ static const double ORMFactBarHeight = 30;
 @property (nonatomic, strong) ORMInsertPalette *insertPalette;
 @property (nonatomic, strong) ORMSearchNavigator *searchNavigator;
 @property (nonatomic, strong) ORMIssuesView *issuesView;
+/* The tabs under the canvas, and the Population tab's pane. */
+@property (nonatomic, strong) IBOutlet NSView *lowerTabBar;
+@property (nonatomic, strong) IBOutlet NSTabView *lowerTabView;
+@property (nonatomic, strong) IBOutlet NSView *populationHost;
+@property (nonatomic, strong) ORMPopulationView *populationView;
 @end
 
 @implementation ORMWindowController
@@ -218,7 +223,7 @@ static const double ORMFactBarHeight = 30;
 {
 	[super windowDidLoad];
 	[self makeNavigator];
-	[self makeDiagramTabs];
+	[self makeLowerTabs];
 	[self.browserOutline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
 	_browser = [[ORMModelBrowser alloc] initWithOutlineView:self.browserOutline];
 	_browser.delegate = self;
@@ -247,70 +252,60 @@ static const double ORMFactBarHeight = 30;
 	[self editorDidChange];
 }
 
-#pragma mark Diagram tabs
+#pragma mark The tabs under the canvas
 
-/* The model's diagrams as tabs under the canvas, as NORMA shows its pages,
- * in a strip that scrolls when they are more than fit (the pop-up beside
- * it lists them all). Made here: a segmented control in a XIB is not one
- * gnustep-gui reads. */
-- (void)makeDiagramTabs
+/* Verbalization, Fact entry and Population (docs/WINDOW.md): a badge each
+ * on the bar under the canvas, the page popup on its right. */
+- (void)makeLowerTabs
 {
-	NSRect bar = [self.diagramTabsBar bounds];
-	double width = MAX(NSMinX([self.diagramPopup frame]) - 6, 40);
-	NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSMakeRect(0, 0, width, NSHeight(bar))];
-	[scroll setAutoresizingMask:NSViewWidthSizable];
-	[scroll setHasHorizontalScroller:NO];
-	[scroll setHasVerticalScroller:NO];
-	[scroll setBorderType:NSNoBorder];
-	[scroll setDrawsBackground:NO];
-	self.diagramTabs = [[NSSegmentedControl alloc] initWithFrame:NSMakeRect(0, 1, 40, NSHeight(bar) - 2)];
-	[[self.diagramTabs cell] setTrackingMode:NSSegmentSwitchTrackingSelectOne];
-	[self.diagramTabs setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
-	[self.diagramTabs setTarget:self];
-	[self.diagramTabs setAction:@selector(chooseDiagramTab:)];
-	NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Diagram"];
-	for (NSArray *item in @[ @[ @"New Diagram", @"newDiagram:" ], @[ @"Rename Diagram…", @"renameDiagram:" ],
-	                         @[ @"Delete Diagram", @"deleteDiagram:" ] ]) {
-		[[menu addItemWithTitle:[item objectAtIndex:0] action:NSSelectorFromString([item objectAtIndex:1])
-		          keyEquivalent:@""] setTarget:self];
-	}
-	[self.diagramTabs setMenu:menu];
-	[scroll setDocumentView:self.diagramTabs];
-	[self.diagramTabsBar addSubview:scroll];
-}
-
-/* The tabs, one a diagram, the open one selected and scrolled to. */
-- (void)reloadDiagramTabs
-{
-	NSArray<ORMDiagram *> *diagrams = [self editor].model.diagrams;
-	NSSegmentedControl *tabs = self.diagramTabs;
-	NSDictionary *attributes = @{ NSFontAttributeName: [tabs font] };
-	[tabs setSegmentCount:(NSInteger)[diagrams count]];
-	double x = 0;
-	NSRect open = NSZeroRect;
-	for (NSUInteger i = 0; i < [diagrams count]; i++) {
-		ORMDiagram *diagram = [diagrams objectAtIndex:i];
-		NSString *title = diagram.name ?: @"Diagram";
-		double width = MIN(MAX(ceil([title sizeWithAttributes:attributes].width) + 20, 48), 200);
-		[tabs setLabel:title forSegment:(NSInteger)i];
-		[tabs setWidth:width forSegment:(NSInteger)i];
-		if ([diagram.identifier isEqualToString:_canvas.diagramId]) {
-			[tabs setSelectedSegment:(NSInteger)i];
-			open = NSMakeRect(x, 0, width, NSHeight([tabs frame]));
+	DMTabBar *bar = (DMTabBar *)self.lowerTabBar;
+	if ([bar isKindOfClass:[DMTabBar class]]) {
+		NSMutableArray *items = [NSMutableArray array];
+		NSUInteger tag = 0;
+		for (NSArray *page in @[ @[ @"V", @"Verbalization", @0.47, @0.53, @0.64 ], @[ @"F", @"Fact entry", @0.32, @0.60, @0.53 ],
+		                         @[ @"P", @"Population", @0.70, @0.48, @0.32 ] ]) {
+			DMTabBarItem *item = [DMTabBarItem tabBarItemWithIcon:ORMTabBadge([page objectAtIndex:0],
+			                                                                  [[page objectAtIndex:2] doubleValue],
+			                                                                  [[page objectAtIndex:3] doubleValue],
+			                                                                  [[page objectAtIndex:4] doubleValue])
+			                                                  tag:tag++];
+			item.toolTip = [page objectAtIndex:1];
+			[items addObject:item];
 		}
-		x += width + 2;
+		bar.tabBarItems = items;
+		[bar setTarget:self action:@selector(lowerTabChanged:)];
+		bar.selectedIndex = 0;
 	}
-	[tabs setFrameSize:NSMakeSize(MAX(x + 8, 40), NSHeight([tabs frame]))];
-	[tabs scrollRectToVisible:open];
+	self.populationView = [[ORMPopulationView alloc] initWithFrame:[self.populationHost bounds]];
+	ORMFillHost(self.populationHost, self.populationView);
 }
 
-- (IBAction)chooseDiagramTab:(id)sender
+- (void)lowerTabChanged:(id)sender
 {
-	NSInteger index = [sender selectedSegment];
-	NSArray *diagrams = [self editor].model.diagrams;
-	if (index >= 0 && (NSUInteger)index < [diagrams count]) {
-		[self openDiagram:[[diagrams objectAtIndex:(NSUInteger)index] identifier]];
+	if (![sender isKindOfClass:[DMTabBar class]]) {
+		return;
 	}
+	[self showLowerTab:(NSInteger)[(DMTabBar *)sender selectedIndex]];
+}
+
+/* The tab under the canvas, and its badge selected. */
+- (void)showLowerTab:(NSInteger)index
+{
+	if (index < 0 || index >= [self.lowerTabView numberOfTabViewItems]) {
+		return;
+	}
+	[self.lowerTabView selectTabViewItemAtIndex:index];
+	DMTabBar *bar = (DMTabBar *)self.lowerTabBar;
+	if ([bar isKindOfClass:[DMTabBar class]] && (NSInteger)bar.selectedIndex != index) {
+		bar.selectedIndex = (NSUInteger)index;
+	}
+}
+
+/* The Population tab's element: the one selected, when it has one. */
+- (void)showPopulationOf:(NSString *)elementId
+{
+	self.populationView.editor = [self editor];
+	self.populationView.elementId = elementId;
 }
 
 #pragma mark Splits
@@ -418,7 +413,6 @@ static const double ORMFactBarHeight = 30;
 			[_diagramPopup selectItem:[_diagramPopup lastItem]];
 		}
 	}
-	[self reloadDiagramTabs];
 }
 
 /* The selection's sentences in the verbalization pane, coloured as NORMA
@@ -430,6 +424,7 @@ static const double ORMFactBarHeight = 30;
 	if ([elements count] == 0 && _inspector.elementId != nil) {
 		elements = @[ _inspector.elementId ];
 	}
+	[self showPopulationOf:[elements firstObject]];
 	NSMutableArray *sentences = [NSMutableArray array];
 	if ([elements count] == 0 && _verbalizesModel) {
 		[sentences addObjectsFromArray:[verbalizer sentencesForModel]];
@@ -605,6 +600,7 @@ static const double ORMFactBarHeight = 30;
 - (IBAction)focusFactEditor:(id)sender
 {
 	(void)sender;
+	[self showLowerTab:1];
 	[[self window] makeFirstResponder:_factEditor];
 }
 

@@ -8,6 +8,7 @@
 #import "ORMInsertPalette.h"
 #import "ORMIssuesView.h"
 #import "ORMSearchNavigator.h"
+#import "ORMPopulationView.h"
 #import "ORMSampleMenu.h"
 #import "ORMWindowController.h"
 
@@ -81,20 +82,20 @@
 	XCTAssertEqualObjects(saved, [NSData dataWithContentsOfFile:[self fixturePath:@"StockMate.orm"]]);
 }
 
-/* Each of NORMA's diagram pages is a tab under the canvas, and shown, its
- * shapes in view, when picked. */
+/* Each of NORMA's diagram pages is in the popup under the canvas, and
+ * shown, its shapes in view, when picked. */
 - (void)testEachDiagramPageIsShown
 {
 	[self open:@"StockMate.orm"];
 	[[_controller window] setContentSize:NSMakeSize(900, 600)];
-	NSSegmentedControl *tabs = _controller.diagramTabs;
-	XCTAssertEqual([tabs segmentCount], (NSInteger)4);
-	XCTAssertEqual([tabs selectedSegment], (NSInteger)0);
-	for (NSInteger i = [tabs segmentCount] - 1; i >= 0; i--) {
-		[tabs setSelectedSegment:i];
-		[_controller chooseDiagramTab:tabs];
+	NSPopUpButton *pages = _controller.diagramPopup;
+	XCTAssertEqual([pages numberOfItems], (NSInteger)4);
+	XCTAssertEqual([pages indexOfSelectedItem], (NSInteger)0);
+	for (NSInteger i = [pages numberOfItems] - 1; i >= 0; i--) {
+		[pages selectItemAtIndex:i];
+		[_controller chooseDiagram:pages];
 		ORMDiagram *diagram = [_controller.canvas diagram];
-		XCTAssertEqualObjects(diagram.name, [tabs labelForSegment:i]);
+		XCTAssertEqualObjects(diagram.name, [pages itemTitleAtIndex:i]);
 		XCTAssertEqualObjects(diagram.name, [_controller.diagramPopup titleOfSelectedItem]);
 		NSRect visible = [_controller.canvas visibleRect];
 		NSUInteger seen = 0;
@@ -255,6 +256,48 @@
 	XCTAssertEqual(NSMinX(a), NSMinX(b));
 	[[_document undoManager] undo];
 	XCTAssertEqual(NSMinX([[[_controller.canvas diagram] shapeForSubject:barcode] bounds]), before);
+}
+
+/* The tabs under the canvas: the Population tab shows the selection's
+ * population, a row added by naming its cells, a cell edited, a row
+ * removed; each one change. */
+- (void)testThePopulationTabEditsTheSelectedFactType
+{
+	[self open:@"StockMate.orm"];
+	/* Each change its own step to undo, as no event loop groups them. */
+	[[_document undoManager] setGroupsByEvent:NO];
+	[_document.editor.populationEditor removePopulation];
+	ORMModel *model = _document.editor.model;
+	ORMFactType *barcode = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:@"Product has Barcode"]) {
+			barcode = fact;
+		}
+	}
+	XCTAssertNotNil(barcode);
+	[_controller.canvas selectElements:@[ barcode.identifier ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	XCTAssertEqualObjects(population.elementId, barcode.identifier);
+	XCTAssertEqual([population.table numberOfColumns], 2);
+	XCTAssertEqual([population.table numberOfRows], 0);
+	[population addRow:nil];
+	XCTAssertEqual([population.table numberOfRows], 1);
+	[population setText:@"7" atRow:0 column:0];
+	XCTAssertEqual([[[_document.editor.model elementWithId:barcode.identifier] instances] count], 0u);
+	[population setText:@"4006381333931" atRow:0 column:1];
+	XCTAssertEqual([[[_document.editor.model elementWithId:barcode.identifier] instances] count], 1u);
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"7");
+	[population setText:@"8" atRow:0 column:0];
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"8");
+	[[_document undoManager] undo];
+	[population reload];
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"7");
+	[population.table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+	[population removeRows:nil];
+	XCTAssertEqual([population.table numberOfRows], 0);
+	/* Fact entry is a tab of its own: focusing it shows it. */
+	[_controller focusFactEditor:nil];
+	XCTAssertEqualObjects([[[_controller valueForKey:@"lowerTabView"] selectedTabViewItem] identifier], @"facts");
 }
 
 - (void)testTheFactEditorAddsToTheDiagram

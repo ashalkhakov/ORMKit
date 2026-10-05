@@ -49,4 +49,32 @@
 /* Removes every instance, fact instance and role instance: the model with
  * no population. */
 - (void)removePopulation;
+
+/* One fact or instance at a time, as a table of a population edits it
+ * (docs/WINDOW.md). Each is one change. An instance is named by its text,
+ * as the table shows it: a value type's value; an entity type's reference
+ * mode's value (a subtype's, its supertype's); the instance so named the
+ * model has, or a new one. */
+
+/* The instance of the object type named so, into the population: its id.
+ * nil, and why, for one identified by more than one value. */
+- (NSString *)instanceOf:(NSString *)objectTypeId
+                   named:(NSString *)text
+                    into:(ORMSamplePopulation *)population
+                  reason:(NSString **)reason;
+/* A fact of the fact type, the player of each role (by id) named. Its id. */
+- (NSString *)addFactOf:(NSString *)factTypeId named:(NSDictionary<NSString *, NSString *> *)textsByRole
+                 reason:(NSString **)reason;
+/* The fact, and its role instances, removed; refused when an instance of
+ * an objectifying type is the fact. */
+- (BOOL)removeFact:(NSString *)factInstanceId reason:(NSString **)reason;
+/* The fact with the role's player named anew: the fact replaced, the
+ * others' players kept. The new fact's id. */
+- (NSString *)setPlayer:(NSString *)text ofRole:(NSString *)roleId inFact:(NSString *)factInstanceId
+                 reason:(NSString **)reason;
+/* An instance of the object type, named so. Its id. */
+- (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason;
+/* The instance removed, and the role instances that identify it; refused
+ * while a fact has it play a role, or it identifies or is another. */
+- (BOOL)removeInstance:(NSString *)instanceId reason:(NSString **)reason;
 @end

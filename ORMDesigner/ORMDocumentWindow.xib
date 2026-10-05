@@ -27,6 +27,9 @@
                 <outlet property="leftTabView" destination="leftTabView" id="leftTabViewOutlet"/>
                 <outlet property="insertHost" destination="insertHost" id="insertHostOutlet"/>
                 <outlet property="searchHost" destination="searchHost" id="searchHostOutlet"/>
+                <outlet property="lowerTabBar" destination="lowerTabBar" id="lowerTabBarOutlet"/>
+                <outlet property="lowerTabView" destination="lowerTabView" id="lowerTabViewOutlet"/>
+                <outlet property="populationHost" destination="populationHost" id="populationHostOutlet"/>
                 <outlet property="issuesHost" destination="issuesHost" id="issuesHostOutlet"/>
                 <outlet property="window" destination="documentWindow" id="documentWindowOutlet15"/>
             </connections>
@@ -381,6 +384,10 @@
                                                         <rect key="frame" x="0" y="0" width="778" height="26"/>
                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMaxY="YES"/>
                                                         <subviews>
+                                                            <customView id="lowerTabBar" customClass="DMTabBar">
+                                                                <rect key="frame" x="0" y="1" width="120" height="24"/>
+                                                                <autoresizingMask key="autoresizingMask"/>
+                                                            </customView>
                                                             <popUpButton toolTip="Every diagram of the model" verticalHuggingPriority="750" id="diagramPopup">
                                                                 <rect key="frame" x="610" y="1" width="140" height="24"/>
                                                                 <autoresizingMask key="autoresizingMask" flexibleMinX="YES"/>
@@ -412,73 +419,117 @@
                                                 <rect key="frame" x="0" y="564" width="778" height="200"/>
                                                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                                                 <subviews>
-                                                    <customView id="factBar">
-                                                        <rect key="frame" x="0" y="170" width="778" height="30"/>
-                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
-                                                        <subviews>
-                                                            <textField focusRingType="none" verticalHuggingPriority="750" id="factLabel">
-                                                                <rect key="frame" x="6" y="7" width="34" height="16"/>
-                                                                <autoresizingMask key="autoresizingMask"/>
-                                                                <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Fact:" id="factLabelCell">
-                                                                    <font key="font" metaFont="smallSystem"/>
-                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                                                    <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
-                                                                </textFieldCell>
-                                                            </textField>
-                                                            <textField verticalHuggingPriority="750" id="factEditor">
-                                                                <rect key="frame" x="42" y="4" width="668" height="22"/>
-                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
-                                                                <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="Person(.id) was born in Country(.code)  ·  Each Person was born in exactly one Country." drawsBackground="YES" id="factEditorCell">
-                                                                    <font key="font" metaFont="smallSystem"/>
-                                                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
-                                                                    <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                                                </textFieldCell>
-                                                                <connections>
-                                                                    <action selector="factEditorReturn:" target="-2" id="factEditorAction"/>
-                                                                </connections>
-                                                            </textField>
-                                                            <button verticalHuggingPriority="750" id="addFactButton">
-                                                                <rect key="frame" x="714" y="3" width="58" height="24"/>
-                                                                <autoresizingMask key="autoresizingMask" flexibleMinX="YES"/>
-                                                                <buttonCell key="cell" type="push" title="Add" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="addFactButtonCell">
-                                                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
-                                                                    <font key="font" metaFont="smallSystem"/>
-                                                                </buttonCell>
-                                                                <connections>
-                                                                    <action selector="factEditorReturn:" target="-2" id="addFactButtonAction"/>
-                                                                </connections>
-                                                            </button>
-                                                        </subviews>
-                                                    </customView>
-                                                    <scrollView borderType="none" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" id="verbalizationScroll">
-                                                        <rect key="frame" x="0" y="0" width="778" height="170"/>
+                                                    <tabView type="noTabsNoBorder" id="lowerTabView">
+                                                        <rect key="frame" x="0" y="0" width="778" height="200"/>
                                                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                                        <clipView key="contentView" copiesOnScroll="NO" id="verbalizationScrollClip">
-                                                            <rect key="frame" x="0" y="0" width="778" height="170"/>
-                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
-                                                            <subviews>
-                                                                <textView editable="NO" selectable="YES" importsGraphics="NO" richText="YES" verticallyResizable="YES" spellCheckingEnabled="NO" smartInsertDeleteEnabled="NO" id="verbalization">
-                                                                    <rect key="frame" x="0" y="0" width="778" height="170"/>
-                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
-                                                                    <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
-                                                                    <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
-                                                                    <size key="minSize" width="778" height="170"/>
-                                                                    <size key="maxSize" width="10000" height="10000000"/>
-                                                                    <connections>
-                                                                        <outlet property="delegate" destination="-2" id="verbalizationDelegate"/>
-                                                                    </connections>
-                                                                </textView>
-                                                            </subviews>
-                                                        </clipView>
-                                                        <scroller key="horizontalScroller" verticalHuggingPriority="750" horizontal="YES" id="verbalizationScrollHScroller">
-                                                            <rect key="frame" x="0" y="155" width="778" height="15"/>
-                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
-                                                        </scroller>
-                                                        <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="verbalizationScrollVScroller">
-                                                            <rect key="frame" x="763" y="0" width="15" height="170"/>
-                                                            <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
-                                                        </scroller>
-                                                    </scrollView>
+                                                        <font key="font" metaFont="system"/>
+                                                        <tabViewItems>
+                                                            <tabViewItem label="Verbalization" identifier="verbalization" id="lowerVerbalizationItem">
+                                                                <view key="view" id="lowerVerbalizationItemView">
+                                                                    <rect key="frame" x="0" y="0" width="778" height="200"/>
+                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                    <subviews>
+                                                                        <scrollView borderType="none" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" hasHorizontalScroller="NO" usesPredominantAxisScrolling="NO" id="verbalizationScroll">
+                                                                            <rect key="frame" x="0" y="0" width="778" height="200"/>
+                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                            <clipView key="contentView" copiesOnScroll="NO" id="verbalizationScrollClip">
+                                                                                <rect key="frame" x="0" y="0" width="778" height="200"/>
+                                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                                <subviews>
+                                                                                    <textView editable="NO" selectable="YES" importsGraphics="NO" richText="YES" verticallyResizable="YES" spellCheckingEnabled="NO" smartInsertDeleteEnabled="NO" id="verbalization">
+                                                                                        <rect key="frame" x="0" y="0" width="778" height="200"/>
+                                                                                        <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                                                                        <color key="textColor" name="textColor" catalog="System" colorSpace="catalog"/>
+                                                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                        <size key="minSize" width="778" height="200"/>
+                                                                                        <size key="maxSize" width="10000" height="10000000"/>
+                                                                                        <connections>
+                                                                                            <outlet property="delegate" destination="-2" id="verbalizationDelegate"/>
+                                                                                        </connections>
+                                                                                    </textView>
+                                                                                </subviews>
+                                                                            </clipView>
+                                                                            <scroller key="horizontalScroller" verticalHuggingPriority="750" horizontal="YES" id="verbalizationScrollHScroller">
+                                                                                <rect key="frame" x="0" y="185" width="778" height="15"/>
+                                                                                <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                            </scroller>
+                                                                            <scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="verbalizationScrollVScroller">
+                                                                                <rect key="frame" x="763" y="0" width="15" height="200"/>
+                                                                                <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+                                                                            </scroller>
+                                                                        </scrollView>
+                                                                    </subviews>
+                                                                </view>
+                                                            </tabViewItem>
+                                                            <tabViewItem label="Facts" identifier="facts" id="lowerFactsItem">
+                                                                <view key="view" id="lowerFactsItemView">
+                                                                    <rect key="frame" x="0" y="0" width="778" height="200"/>
+                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                    <subviews>
+                                                                        <customView id="factBar">
+                                                                            <rect key="frame" x="0" y="170" width="778" height="30"/>
+                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                            <subviews>
+                                                                                <textField focusRingType="none" verticalHuggingPriority="750" id="factLabel">
+                                                                                    <rect key="frame" x="6" y="7" width="34" height="16"/>
+                                                                                    <autoresizingMask key="autoresizingMask"/>
+                                                                                    <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Fact:" id="factLabelCell">
+                                                                                        <font key="font" metaFont="smallSystem"/>
+                                                                                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                        <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                                                                    </textFieldCell>
+                                                                                </textField>
+                                                                                <textField verticalHuggingPriority="750" id="factEditor">
+                                                                                    <rect key="frame" x="42" y="4" width="668" height="22"/>
+                                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+                                                                                    <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="Person(.id) was born in Country(.code)  ·  Each Person was born in exactly one Country." drawsBackground="YES" id="factEditorCell">
+                                                                                        <font key="font" metaFont="smallSystem"/>
+                                                                                        <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                        <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+                                                                                    </textFieldCell>
+                                                                                    <connections>
+                                                                                        <action selector="factEditorReturn:" target="-2" id="factEditorAction"/>
+                                                                                    </connections>
+                                                                                </textField>
+                                                                                <button verticalHuggingPriority="750" id="addFactButton">
+                                                                                    <rect key="frame" x="714" y="3" width="58" height="24"/>
+                                                                                    <autoresizingMask key="autoresizingMask" flexibleMinX="YES"/>
+                                                                                    <buttonCell key="cell" type="push" title="Add" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="addFactButtonCell">
+                                                                                        <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                                                                        <font key="font" metaFont="smallSystem"/>
+                                                                                    </buttonCell>
+                                                                                    <connections>
+                                                                                        <action selector="factEditorReturn:" target="-2" id="addFactButtonAction"/>
+                                                                                    </connections>
+                                                                                </button>
+                                                                            </subviews>
+                                                                        </customView>
+                                                                        <textField focusRingType="none" verticalHuggingPriority="750" id="factHint">
+                                                                            <rect key="frame" x="42" y="110" width="720" height="54"/>
+                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+                                                                            <textFieldCell key="cell" sendsActionOnEndEditing="YES" alignment="left" title="A fact type's reading, its object types named: Person(.id) was born in Country(.code). Or a constraint sentence: Each Person was born in exactly one Country. Return adds it to the model and the diagram." id="factHintCell">
+                                                                                <font key="font" metaFont="smallSystem"/>
+                                                                                <color key="textColor" name="disabledControlTextColor" catalog="System" colorSpace="catalog"/>
+                                                                                <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                                                            </textFieldCell>
+                                                                        </textField>
+                                                                    </subviews>
+                                                                </view>
+                                                            </tabViewItem>
+                                                            <tabViewItem label="Population" identifier="population" id="lowerPopulationItem">
+                                                                <view key="view" id="lowerPopulationItemView">
+                                                                    <rect key="frame" x="0" y="0" width="778" height="200"/>
+                                                                    <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                    <subviews>
+                                                                        <customView id="populationHost">
+                                                                            <rect key="frame" x="0" y="0" width="778" height="200"/>
+                                                                            <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                                                                        </customView>
+                                                                    </subviews>
+                                                                </view>
+                                                            </tabViewItem>
+                                                        </tabViewItems>
+                                                    </tabView>
                                                 </subviews>
                                             </customView>
                                         </subviews>

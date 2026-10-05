@@ -22,6 +22,7 @@ ORMDesigner_OBJC_FILES = \
   ORMInsertPalette.m \
   ORMIssuesView.m \
   ORMSearchNavigator.m \
+  ORMPopulationView.m \
   ThirdParty/DMTabBar/DMTabBar.m \
   ThirdParty/DMTabBar/DMTabBarItem.m
 # ORMKit is built in the tree beside this one and not installed.
@@ -43,6 +44,7 @@ ORMDesigner_RESOURCE_FILES = \
   ORMInsertPalette.xib \
   ORMIssuesView.xib \
   ORMSearchNavigator.xib \
+  ORMPopulationView.xib \
   ../Samples \
   ../ORMKitTests/Fixtures/ActiveFacts \
   ../ORMKitTests/Fixtures/StockMate.orm

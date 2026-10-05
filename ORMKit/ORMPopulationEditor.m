@@ -428,6 +428,210 @@ ORMHasInvariantForm(ORMObjectType *type)
 	return YES;
 }
 
+#pragma mark One at a time
+
+- (NSString *)instanceOf:(NSString *)objectTypeId
+                   named:(NSString *)text
+                    into:(ORMSamplePopulation *)population
+                  reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	if (![type isKindOfClass:[ORMObjectType class]] || [text length] == 0) {
+		[self refuse:[type isKindOfClass:[ORMObjectType class]] ? @"Name the instance." : @"There is no such object type."
+		      reason:reason];
+		return nil;
+	}
+	if (type.kind == ORMValueType) {
+		return [population value:text of:objectTypeId];
+	}
+	NSArray *identifying = [type.preferredIdentifier allRoles];
+	if ([identifying count] == 1 && [(ORMRole *)[identifying firstObject] player].kind == ORMValueType) {
+		ORMRole *role = [identifying firstObject];
+		return [population instanceOf:objectTypeId
+		                 identifiedBy:@{ role.identifier: [population value:text of:role.player.identifier] }];
+	}
+	if (type.preferredIdentifier == nil && [type.supertypes count] > 0) {
+		/* Identified as its supertype is: that instance, which it is. */
+		NSString *supertype = [self instanceOf:[[type.supertypes firstObject] identifier] named:text into:population
+		                                reason:reason];
+		return supertype != nil ? [population instanceOf:objectTypeId supertypeInstance:supertype] : nil;
+	}
+	[self refuse:[NSString stringWithFormat:@"%@ is identified by more than one value: add its instances from the facts "
+	                                        @"that identify them.",
+	                                        type.name]
+	      reason:reason];
+	return nil;
+}
+
+/* The fact's population: the role's player named, the others' as they are. */
+- (NSString *)addFactOf:(NSString *)factTypeId
+                players:(NSDictionary<NSString *, NSString *> *)instancesByRole
+                  named:(NSDictionary<NSString *, NSString *> *)textsByRole
+                 reason:(NSString **)reason
+{
+	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
+	if (![fact isKindOfClass:[ORMFactType class]]) {
+		[self refuse:@"There is no such fact type." reason:reason];
+		return nil;
+	}
+	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
+	NSMutableDictionary *players = [NSMutableDictionary dictionaryWithDictionary:instancesByRole ?: @{}];
+	for (ORMRole *role in [fact visibleRoles]) {
+		NSString *text = [textsByRole objectForKey:role.identifier];
+		if (text == nil) {
+			continue;
+		}
+		NSString *instance = [self instanceOf:role.player.identifier named:text into:population reason:reason];
+		if (instance == nil) {
+			return nil;
+		}
+		[players setObject:instance forKey:role.identifier];
+	}
+	for (ORMRole *role in [fact visibleRoles]) {
+		if ([players objectForKey:role.identifier] == nil) {
+			[self refuse:[NSString stringWithFormat:@"Name the %@ too.", role.player.name] reason:reason];
+			return nil;
+		}
+	}
+	NSString *created = [population factOf:factTypeId players:players];
+	return [self addPopulation:population reason:reason] ? created : nil;
+}
+
+- (NSString *)addFactOf:(NSString *)factTypeId named:(NSDictionary<NSString *, NSString *> *)textsByRole
+                 reason:(NSString **)reason
+{
+	return [self addFactOf:factTypeId players:nil named:textsByRole reason:reason];
+}
+
+/* Every element of the document of the kind, by what it refers to. */
+- (NSArray<NSXMLElement *> *)elements:(NSString *)local referringTo:(NSString *)identifier
+{
+	NSMutableArray *found = [NSMutableArray array];
+	for (NSXMLElement *element in ORMDescendants([_editor.document rootElement], CORE, local)) {
+		if ([ORMAttribute(element, @"ref") isEqualToString:identifier]) {
+			[found addObject:element];
+		}
+	}
+	return found;
+}
+
+- (BOOL)removeFact:(NSString *)factInstanceId reason:(NSString **)reason
+{
+	NSXMLElement *fact = [_editor xml:factInstanceId];
+	if (fact == nil || ![[fact localName] isEqualToString:@"FactTypeInstance"]) {
+		return [self refuse:@"There is no such fact." reason:reason];
+	}
+	if ([[self elements:@"ObjectifiedInstance" referringTo:factInstanceId] count] > 0) {
+		return [self refuse:@"An instance of the type that objectifies it is this fact: remove that first." reason:reason];
+	}
+	/* Its role instances, under the roles. */
+	NSMutableArray *roleInstances = [NSMutableArray array];
+	for (NSXMLElement *refs in ORMChildren(fact, CORE, @"RoleInstances")) {
+		for (NSXMLElement *ref in ORMChildren(refs, CORE, @"FactTypeRoleInstance")) {
+			NSXMLElement *roleInstance = [_editor xml:ORMAttribute(ref, @"ref")];
+			if (roleInstance != nil) {
+				[roleInstances addObject:roleInstance];
+			}
+		}
+	}
+	[_editor change:@"Remove Fact" with:^{
+		for (NSXMLElement *roleInstance in roleInstances) {
+			[roleInstance detach];
+		}
+		[fact detach];
+	}];
+	return YES;
+}
+
+- (NSString *)setPlayer:(NSString *)text ofRole:(NSString *)roleId inFact:(NSString *)factInstanceId
+                 reason:(NSString **)reason
+{
+	ORMFactInstance *fact = [_editor.model elementWithId:factInstanceId];
+	if (![fact isKindOfClass:[ORMFactInstance class]] || [fact.factType.roles indexOfObjectPassingTest:^BOOL(ORMRole *role,
+	                                                                                                       NSUInteger i, BOOL *stop) {
+		    (void)i;
+		    (void)stop;
+		    return [role.identifier isEqualToString:roleId];
+	    }] == NSNotFound) {
+		[self refuse:@"There is no such fact, or role of it." reason:reason];
+		return nil;
+	}
+	NSMutableDictionary *kept = [NSMutableDictionary dictionary];
+	for (NSString *role in fact.instancesByRole) {
+		if (![role isEqualToString:roleId] && ![[_editor.model elementWithId:role] player].isImplicitBooleanValue) {
+			[kept setObject:[[fact.instancesByRole objectForKey:role] identifier] forKey:role];
+		}
+	}
+	NSString *factTypeId = fact.factType.identifier;
+	/* What would refuse it, asked before anything changes. */
+	ORMRole *role = [_editor.model elementWithId:roleId];
+	if ([self instanceOf:role.player.identifier named:text into:[[ORMSamplePopulation alloc] init] reason:reason] == nil) {
+		return nil;
+	}
+	if ([[self elements:@"ObjectifiedInstance" referringTo:factInstanceId] count] > 0) {
+		[self refuse:@"An instance of the type that objectifies it is this fact: remove that first." reason:reason];
+		return nil;
+	}
+	__block NSString *created = nil;
+	[_editor group:@"Edit Fact" with:^{
+		if ([self removeFact:factInstanceId reason:reason]) {
+			created = [self addFactOf:factTypeId players:kept named:@{ roleId: text } reason:reason];
+		}
+	}];
+	return created;
+}
+
+- (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason
+{
+	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
+	NSString *created = [self instanceOf:objectTypeId named:text into:population reason:reason];
+	return created != nil && [self addPopulation:population reason:reason] ? created : nil;
+}
+
+- (BOOL)removeInstance:(NSString *)instanceId reason:(NSString **)reason
+{
+	NSXMLElement *instance = [_editor xml:instanceId];
+	if (instance == nil || ![@[ @"ValueTypeInstance", @"EntityTypeInstance", @"EntityTypeSubtypeInstance" ]
+	                           containsObject:[instance localName]]) {
+		return [self refuse:@"There is no such instance." reason:reason];
+	}
+	/* Role instances refer to their player; a fact's refers to those. */
+	NSUInteger playing = 0;
+	for (NSXMLElement *roleInstance in [self elements:@"FactTypeRoleInstance" referringTo:instanceId]) {
+		playing += [ORMAttribute(roleInstance, @"id") length] > 0;
+	}
+	if (playing > 0) {
+		return [self refuse:[NSString stringWithFormat:@"It plays a role in %lu %@: remove %@ first.", (unsigned long)playing,
+		                                               playing == 1 ? @"fact" : @"facts", playing == 1 ? @"it" : @"them"]
+		             reason:reason];
+	}
+	for (NSXMLElement *roleInstance in [self elements:@"EntityTypeRoleInstance" referringTo:instanceId]) {
+		if ([ORMAttribute(roleInstance, @"id") length] > 0) {
+			return [self refuse:@"It identifies another instance: remove that first." reason:reason];
+		}
+	}
+	if ([[self elements:@"SupertypeInstance" referringTo:instanceId] count] > 0) {
+		return [self refuse:@"A subtype's instance is it: remove that first." reason:reason];
+	}
+	/* What identifies it: its own role instances, under the roles. */
+	NSMutableArray *identifying = [NSMutableArray array];
+	for (NSXMLElement *refs in ORMChildren(instance, CORE, @"RoleInstances")) {
+		for (NSXMLElement *ref in ORMChildren(refs, CORE, @"EntityTypeRoleInstance")) {
+			NSXMLElement *roleInstance = [_editor xml:ORMAttribute(ref, @"ref")];
+			if (roleInstance != nil) {
+				[identifying addObject:roleInstance];
+			}
+		}
+	}
+	[_editor change:@"Remove Instance" with:^{
+		for (NSXMLElement *roleInstance in identifying) {
+			[roleInstance detach];
+		}
+		[instance detach];
+	}];
+	return YES;
+}
+
 - (void)removePopulation
 {
 	ORMModel *model = _editor.model;
