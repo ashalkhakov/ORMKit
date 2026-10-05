@@ -397,6 +397,75 @@
 	XCTAssertEqualObjects([population textAtRow:0 column:1], @"101");
 }
 
+/* What the review found of the canvas and the table: a role clicked is
+ * forgotten when the selection comes from elsewhere; the left button waits
+ * while the middle one pans; a Space let go in another window is
+ * forgotten with the window's focus; rows removed together are one undo. */
+- (void)testTheCanvasAndTheTableKeepTheirStateStraight
+{
+	[self open:@"StockMate.orm"];
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMCanvasView *canvas = _controller.canvas;
+	ORMModel *model = _document.editor.model;
+	ORMFactType *barcode = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:@"Product has Barcode"]) {
+			barcode = fact;
+		}
+	}
+	NSRect box = [[[canvas diagram] shapeForSubject:barcode.identifier] bounds];
+	NSPoint role = NSMakePoint(NSMinX(box) + NSWidth(box) / 4, NSMidY(box));
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertNotNil(canvas.clickedRole);
+	NSString *product = [[model objectTypeNamed:@"Product"] identifier];
+	[canvas selectElements:@[ product ]];
+	XCTAssertNil(canvas.clickedRole);
+
+	/* The middle button pans; a left press meanwhile changes nothing. */
+	NSWindow *window = [canvas window];
+	NSPoint at = [canvas convertPoint:role toView:nil];
+	NSEvent *(^other)(NSEventType) = ^NSEvent *(NSEventType type) {
+		return [NSEvent mouseEventWithType:type location:at modifierFlags:0 timestamp:0 windowNumber:[window windowNumber]
+		                           context:nil eventNumber:0 clickCount:1 pressure:1];
+	};
+	[canvas otherMouseDown:other(NSEventTypeOtherMouseDown)];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqualObjects([canvas selectedElements], @[ product ]);
+	[canvas otherMouseUp:other(NSEventTypeOtherMouseUp)];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqualObjects([canvas selectedElements], @[ barcode.identifier ]);
+
+	/* Space held, then the window loses its focus: a click selects. */
+	[canvas keyDown:[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+	                             windowNumber:[window windowNumber] context:nil characters:@" "
+	              charactersIgnoringModifiers:@" " isARepeat:NO keyCode:49]];
+	[[NSNotificationCenter defaultCenter] postNotificationName:NSWindowDidResignKeyNotification object:window];
+	[canvas selectElements:@[]];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqualObjects([canvas selectedElements], @[ barcode.identifier ]);
+
+	/* Two facts removed at once: one undo brings both back. */
+	[_document.editor.populationEditor removePopulation];
+	NSArray *roles = [barcode visibleRoles];
+	for (NSArray *pair in @[ @[ @"1", @"11" ], @[ @"2", @"22" ] ]) {
+		NSDictionary *named = @{ [roles[0] identifier]: pair[0], [roles[1] identifier]: pair[1] };
+		XCTAssertNotNil([_document.editor.populationEditor addFactOf:barcode.identifier named:named reason:NULL]);
+	}
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	[population reload];
+	XCTAssertEqual([population.table numberOfRows], 2);
+	[population.table selectRowIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, 2)] byExtendingSelection:NO];
+	[population removeRows:nil];
+	XCTAssertEqual([population.table numberOfRows], 0);
+	[[_document undoManager] undo];
+	[population reload];
+	XCTAssertEqual([population.table numberOfRows], 2);
+}
+
 /* A mouse event at a point of the canvas, in diagram points. */
 - (NSEvent *)event:(NSEventType)type at:(NSPoint)point
 {
@@ -910,7 +979,10 @@
 		}
 	}
 	[queries modelDidChange];
-	/* Gus breaks it. */
+	/* Unseen, the rules are not checked: that builds a store of the
+	 * population. Shown, they are, and Gus breaks this one. */
+	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:@"Lives near work (rule)"]);
+	[queries showWindow:nil];
 	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:@"Lives near work (rule, broken)"]);
 	XCTAssertEqual([[queries valueForKey:@"kindPopUp"] indexOfSelectedItem], (NSInteger)ORMQueryConstraint);
 	XCTAssertEqual([[queries valueForKey:@"modalityPopUp"] indexOfSelectedItem], 1);

@@ -506,6 +506,25 @@ ORMHasInvariantForm(ORMObjectType *type)
 	return YES;
 }
 
+/* Detached, with the container it leaves empty (Instances, RoleInstances):
+ * NORMA writes none empty. */
+static void
+ORMDetachPruning(NSXMLElement *element)
+{
+	NSXMLElement *container = (NSXMLElement *)[element parent];
+	[element detach];
+	if (![container isKindOfClass:[NSXMLElement class]]
+	    || ![@[ @"Instances", @"RoleInstances" ] containsObject:[container localName] ?: @""]) {
+		return;
+	}
+	for (NSXMLNode *child in [container children]) {
+		if ([child kind] == NSXMLElementKind) {
+			return;
+		}
+	}
+	[container detach];
+}
+
 #pragma mark One at a time
 
 /* The type an instance of this one is identified as: itself, or the
@@ -513,7 +532,7 @@ ORMHasInvariantForm(ORMObjectType *type)
 - (ORMObjectType *)identifiedTypeOf:(ORMObjectType *)type
 {
 	while (type.kind != ORMValueType && type.preferredIdentifier == nil && [type.supertypes count] > 0) {
-		type = [type.supertypes firstObject];
+		type = [type identifyingSupertype];
 	}
 	return type;
 }
@@ -641,7 +660,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	}
 	if (type.preferredIdentifier == nil && [type.supertypes count] > 0) {
 		/* Identified as its supertype is: that instance, which it is. */
-		NSString *supertype = [self instanceOf:[[type.supertypes firstObject] identifier] named:text into:population
+		NSString *supertype = [self instanceOf:[[type identifyingSupertype] identifier] named:text into:population
 		                                reason:reason];
 		return supertype != nil ? [population instanceOf:objectTypeId supertypeInstance:supertype] : nil;
 	}
@@ -688,9 +707,9 @@ ORMWrapPart(NSString *name, BOOL composite)
 	}
 	NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
 	for (ORMRole *role in roles) {
-		NSString *text = [[textsByRole objectForKey:role.identifier]
-			stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-		if ([text length] == 0) {
+		/* As named: a quoted part keeps its spaces. */
+		NSString *text = [textsByRole objectForKey:role.identifier];
+		if ([[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] length] == 0) {
 			[self refuse:[NSString stringWithFormat:@"Name the %@ too.", role.player.name] reason:reason];
 			return nil;
 		}
@@ -703,7 +722,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	NSString *instance = [population instanceOf:identified.identifier identifiedBy:byRole];
 	/* A subtype identified as its supertype: down to it, each in turn. */
 	NSMutableArray *chain = [NSMutableArray array];
-	for (ORMObjectType *each = type; each != identified; each = [each.supertypes firstObject]) {
+	for (ORMObjectType *each = type; each != identified; each = [each identifyingSupertype]) {
 		[chain insertObject:each atIndex:0];
 	}
 	for (ORMObjectType *each in chain) {
@@ -747,6 +766,12 @@ ORMWrapPart(NSString *name, BOOL composite)
 		[self refuse:@"That fact is there already." reason:reason];
 		return nil;
 	}
+	/* Objectified, and identified by the fact: its instance is the fact,
+	 * made with it. (One identified otherwise needs its values named.) */
+	ORMObjectType *objectifying = fact.objectifyingType;
+	if (objectifying != nil && [self isTheFactItObjectifies:objectifying]) {
+		[population instanceOf:objectifying.identifier objectifying:created];
+	}
 	return [self addPopulation:population reason:reason] ? created : nil;
 }
 
@@ -774,8 +799,12 @@ ORMWrapPart(NSString *name, BOOL composite)
 	if (fact == nil || ![[fact localName] isEqualToString:@"FactTypeInstance"]) {
 		return [self refuse:@"There is no such fact." reason:reason];
 	}
-	if ([[self elements:@"ObjectifiedInstance" referringTo:factInstanceId] count] > 0) {
-		return [self refuse:@"An instance of the type that objectifies it is this fact: remove that first." reason:reason];
+	BOOL blocked = NO;
+	NSXMLElement *objectifying = [self objectifyingInstanceOf:factInstanceId blocked:&blocked];
+	if (blocked) {
+		return [self refuse:@"An instance of the type that objectifies it is this fact, and plays a role or identifies "
+		                    @"another: remove that first."
+		             reason:reason];
 	}
 	/* Its role instances, under the roles. */
 	NSMutableArray *roleInstances = [NSMutableArray array];
@@ -789,11 +818,37 @@ ORMWrapPart(NSString *name, BOOL composite)
 	}
 	[_editor change:@"Remove Fact" with:^{
 		for (NSXMLElement *roleInstance in roleInstances) {
-			[roleInstance detach];
+			ORMDetachPruning(roleInstance);
 		}
-		[fact detach];
+		ORMDetachPruning(fact);
+		if (objectifying != nil) {
+			ORMDetachPruning(objectifying);
+		}
 	}];
 	return YES;
+}
+
+/* The instance of the objectifying type that is the fact; with blocked,
+ * when it cannot go with the fact: it plays a role, identifies another or
+ * is a subtype's, or is identified by more than the fact. */
+- (NSXMLElement *)objectifyingInstanceOf:(NSString *)factInstanceId blocked:(BOOL *)blocked
+{
+	*blocked = NO;
+	NSXMLElement *ref = [[self elements:@"ObjectifiedInstance" referringTo:factInstanceId] firstObject];
+	NSXMLElement *instance = (NSXMLElement *)[ref parent];
+	NSString *identifier = ORMAttribute(instance, @"id");
+	if (identifier == nil) {
+		return nil;
+	}
+	BOOL referred = NO;
+	for (NSString *local in @[ @"FactTypeRoleInstance", @"EntityTypeRoleInstance", @"SupertypeInstance" ]) {
+		for (NSXMLElement *element in [self elements:local referringTo:identifier]) {
+			/* A role instance's own element names its player by ref too. */
+			referred = referred || [ORMAttribute(element, @"id") length] > 0 || [local isEqualToString:@"SupertypeInstance"];
+		}
+	}
+	*blocked = referred || [ORMChildren(instance, CORE, @"RoleInstances") count] > 0;
+	return instance;
 }
 
 - (NSString *)setPlayer:(NSString *)text ofRole:(NSString *)roleId inFact:(NSString *)factInstanceId
@@ -834,8 +889,12 @@ ORMWrapPart(NSString *name, BOOL composite)
 		[self refuse:@"That fact is there already." reason:reason];
 		return nil;
 	}
-	if ([[self elements:@"ObjectifiedInstance" referringTo:factInstanceId] count] > 0) {
-		[self refuse:@"An instance of the type that objectifies it is this fact: remove that first." reason:reason];
+	BOOL blocked = NO;
+	[self objectifyingInstanceOf:factInstanceId blocked:&blocked];
+	if (blocked) {
+		[self refuse:@"An instance of the type that objectifies it is this fact, and plays a role or identifies "
+		             @"another: remove that first."
+		      reason:reason];
 		return nil;
 	}
 	__block NSString *created = nil;
@@ -990,7 +1049,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 			    && [[self elements:@"EntityTypeRoleInstance" referringTo:identifier] count] == 0
 			    && [[self elements:@"FactTypeRoleInstance" referringTo:identifier] count] == 0) {
 				[self->_editor change:@"Remove Value" with:^{
-					[element detach];
+					ORMDetachPruning(element);
 				}];
 			}
 		}
@@ -1086,9 +1145,9 @@ ORMWrapPart(NSString *name, BOOL composite)
 	}
 	[_editor change:@"Remove Instance" with:^{
 		for (NSXMLElement *roleInstance in identifying) {
-			[roleInstance detach];
+			ORMDetachPruning(roleInstance);
 		}
-		[instance detach];
+		ORMDetachPruning(instance);
 	}];
 	return YES;
 }

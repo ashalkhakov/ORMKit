@@ -473,11 +473,45 @@ ORMJSONConstant(ORMPlanValue *value)
 	return text;
 }
 
+/* A value an answer gave, as a literal of the property at the wire path:
+ * a date or a GUID comes as text, and goes back typed, not as a string. */
+static ODataExpression *
+ORMLiteralAt(id value, NSArray<NSString *> *wire, NSEntityDescription *entity, ODataPropertyMapper *mapper)
+{
+	if ([value isKindOfClass:[NSString class]] && entity != nil) {
+		NSEntityDescription *at = entity;
+		NSAttributeDescription *attribute = nil;
+		for (NSString *name in wire) {
+			NSPropertyDescription *property = [mapper propertyForWireName:name entity:at];
+			if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+				at = [(NSRelationshipDescription *)property destinationEntity];
+			} else {
+				attribute = [property isKindOfClass:[NSAttributeDescription class]] ? (NSAttributeDescription *)property : nil;
+			}
+		}
+		if (attribute != nil
+		    && (attribute.attributeType == NSDateAttributeType || attribute.attributeType == NSUUIDAttributeType)) {
+			ODataExpression *typed = [ODataExpression literalWithText:value];
+			if (typed != nil) {
+				return typed;
+			}
+		}
+	}
+	return [ODataExpression literalWithValue:value ?: [NSNull null]];
+}
+
 static BOOL
 ORMJSONCompare(id left, NSString *comparison, id right)
 {
-	if (left == nil || right == nil || left == [NSNull null] || right == [NSNull null]) {
-		return [comparison isEqualToString:@"<>"] ? left != right : NO;
+	/* As the interpreter's predicates have it: nothing equals nothing and
+	 * no value; nothing is in no order. nil and NSNull alike. */
+	BOOL leftNull = left == nil || left == [NSNull null];
+	BOOL rightNull = right == nil || right == [NSNull null];
+	if (leftNull || rightNull) {
+		if ([comparison isEqualToString:@"="]) {
+			return leftNull && rightNull;
+		}
+		return [comparison isEqualToString:@"<>"] && !(leftNull && rightNull);
 	}
 	NSComparisonResult order;
 	if ([left isKindOfClass:[NSNumber class]] && [right isKindOfClass:[NSNumber class]]) {
@@ -635,10 +669,25 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	}
 	case ORMPlanIsOf: {
 		id value = [[self valuesAt:condition.path object:read bindings:bindings] firstObject];
-		NSString *type = [value isKindOfClass:[ORMODataObject class]] ? [((ORMODataObject *)value).json objectForKey:@"@odata.type"]
-		                                                              : nil;
-		/* Without its type the service's answer says nothing more. */
-		return type == nil || [type hasSuffix:[@"." stringByAppendingString:condition.entityName]];
+		if (![value isKindOfClass:[ORMODataObject class]]) {
+			return NO;
+		}
+		/* Its type: what @odata.type names, which a service writes only
+		 * where it is not the one expected; else the one it was read as.
+		 * It is one of the entity's, or of one of its subentities. */
+		ORMODataObject *object = value;
+		NSEntityDescription *entity = object.entity;
+		NSString *named = [object.json objectForKey:@"@odata.type"];
+		if ([named isKindOfClass:[NSString class]]) {
+			NSString *name = [[named componentsSeparatedByString:@"."] lastObject];
+			entity = [[[object.entity managedObjectModel] entitiesByName] objectForKey:name] ?: entity;
+		}
+		for (NSEntityDescription *at = entity; at != nil; at = [at superentity]) {
+			if ([[at name] isEqualToString:condition.entityName]) {
+				return YES;
+			}
+		}
+		return NO;
 	}
 	case ORMPlanMatches:
 		return [self matches:condition object:read bindings:bindings];
@@ -751,6 +800,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
  * by offset); each part's wire path. */
 - (ORMSeek *)seek;
 - (NSArray<NSArray<NSString *> *> *)seekWire;
+/* The key, as the last of an $orderby read by offset: objects the sorts
+ * tie on then come in one order, page after page. */
+- (NSArray<ODataOrderItem *> *)keyOrderAfter:(NSArray<ODataOrderItem *> *)items;
 - (BOOL)rowsInOrder;
 - (ODataExpression *)join:(ORMQueryODataJoin *)join filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
 - (ODataExpression *)bag:(NSString *)name filterFor:(NSArray<NSDictionary *> *)page error:(NSError **)error;
@@ -1010,9 +1062,10 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	for (NSArray *tuple in tuples) {
 		ODataExpression *all = nil;
 		for (NSUInteger i = 0; i < [tuple count]; i++) {
-			ODataExpression *path = [ODataExpression memberPath:[[join.pageScope objectAtIndex:i] lastObject] of:nil error:error];
+			NSArray *wire = [[join.pageScope objectAtIndex:i] lastObject];
+			ODataExpression *path = [ODataExpression memberPath:wire of:nil error:error];
 			ODataExpression *equal = path != nil ? [ODataExpression binary:@"eq" left:path
-			                                                         right:[ODataExpression literalWithValue:[tuple objectAtIndex:i]]
+			                                                         right:ORMLiteralAt([tuple objectAtIndex:i], wire, join.entity, _mapper)
 			                                                         error:error]
 			                                     : nil;
 			all = equal == nil ? nil : (all != nil ? [ODataExpression binary:@"and" left:all right:equal error:error] : equal);
@@ -1148,7 +1201,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	for (id group in groups) {
 		ODataExpression *path = [ODataExpression memberPath:[scope lastObject] of:nil error:error];
 		ODataExpression *equal = path != nil ? [ODataExpression binary:@"eq" left:path
-		                                                         right:[ODataExpression literalWithValue:group] error:error]
+		                                                         right:ORMLiteralAt(group, [scope lastObject],
+		                                                                            [[_bags objectForKey:name] readEntity], _mapper)
+		                                                         error:error]
 		                                     : nil;
 		if (equal == nil) {
 			return nil;
@@ -2079,6 +2134,23 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	return YES;
 }
 
+- (NSArray<ODataOrderItem *> *)keyOrderAfter:(NSArray<ODataOrderItem *> *)items
+{
+	NSMutableArray *order = [NSMutableArray arrayWithArray:items ?: @[]];
+	for (NSString *key in [self keyNames]) {
+		BOOL sorted = NO;
+		for (ORMPlanSort *sort in _plan.sorts) {
+			sorted = sorted || [sort.path.keys isEqualToArray:@[ key ]];
+		}
+		NSArray *wire = sorted ? nil : [self wirePathFor:@[ key ] from:_read entity:NULL];
+		ODataExpression *path = wire != nil ? [ODataExpression memberPath:wire of:nil error:NULL] : nil;
+		if (path != nil) {
+			[order addObject:[ODataOrderItem itemWithExpression:path descending:NO]];
+		}
+	}
+	return order;
+}
+
 - (BOOL)orderInto:(ODataMutableQueryOptions *)options
 {
 	NSMutableArray *items = [NSMutableArray array];
@@ -2190,7 +2262,8 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 					value = [value isKindOfClass:[NSDictionary class]] ? [value objectForKey:name] : nil;
 				}
 				ODataExpression *equal = [ODataExpression binary:@"eq" left:[join.ours objectAtIndex:i]
-				                                           right:[ODataExpression literalWithValue:value ?: [NSNull null]]
+				                                           right:ORMLiteralAt(value, [[join.pairs objectAtIndex:i] lastObject],
+				                                                              join.entity, _mapper)
 				                                           error:error];
 				parts = parts != nil ? [ODataExpression binary:@"and" left:parts right:equal error:error] : equal;
 				if (parts == nil) {
@@ -2520,6 +2593,9 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 			}
 		} else {
 			options.skip = @(offset);
+			if (seek == nil) {
+				options.orderBy = [self->_request keyOrderAfter:options.orderBy];
+			}
 		}
 		NSURL *url = [self URLFor:self->_request.collectionPath options:options error:&error];
 		if (url == nil) {
@@ -2636,9 +2712,11 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	for (NSArray *tuple in tuples) {
 		ODataExpression *all = nil;
 		for (NSUInteger i = 0; i < [join.pairs count] && error == nil; i++) {
-			ODataExpression *path = [ODataExpression memberPath:[[join.pairs objectAtIndex:i] lastObject] of:nil error:&error];
+			NSArray *wire = [[join.pairs objectAtIndex:i] lastObject];
+			ODataExpression *path = [ODataExpression memberPath:wire of:nil error:&error];
 			ODataExpression *equal = path != nil ? [ODataExpression binary:@"eq" left:path
-			                                                         right:[ODataExpression literalWithValue:[tuple objectAtIndex:i]]
+			                                                         right:ORMLiteralAt([tuple objectAtIndex:i], wire, join.entity,
+			                                                                            join.mapper)
 			                                                         error:&error]
 			                                     : nil;
 			all = all != nil && equal != nil ? [ODataExpression binary:@"and" left:all right:equal error:&error] : equal;
@@ -2786,7 +2864,13 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		_reader.objectsApart = [_request.plan listsTheObjectRead];
 		_reader.rowsInOrder = [_request rowsInOrder];
 	}
-	[_reader nextPage:size completion:completion];
+	/* Held until the page is given: its scans hold it weakly, and a caller
+	 * need not keep it while the requests are out. */
+	ORMQueryODataCursor *held = self;
+	[_reader nextPage:size completion:^(ORMQueryResult *page, NSError *error) {
+		completion(page, error);
+		(void)held;
+	}];
 }
 
 @end

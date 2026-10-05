@@ -282,10 +282,12 @@ ORMReadingOf(ORMFactType *fact)
 	while (progress) {
 		progress = NO;
 		for (ORMObjectType *type in _model.objectTypes) {
-			if ([_pools objectForKey:type.identifier] != nil || ![type isEntity] || [type.supertypes count] == 0) {
+			/* One with an identifier of its own is made with the others. */
+			if ([_pools objectForKey:type.identifier] != nil || ![type isEntity] || [type.supertypes count] == 0
+			    || [self isIdentifiedRoot:type]) {
 				continue;
 			}
-			ORMObjectType *supertype = [type.supertypes firstObject];
+			ORMObjectType *supertype = [type identifyingSupertype];
 			NSArray *supers = [_pools objectForKey:supertype.identifier];
 			if (supers == nil) {
 				continue;

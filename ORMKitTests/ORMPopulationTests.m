@@ -185,6 +185,72 @@
 	XCTAssertFalse([self.undoManager canUndo]);
 }
 
+/* A fact of an objectified fact type is an instance of the type that
+ * objectifies it: added with the fact, and removed with it. What a removal
+ * empties goes too, as NORMA writes no empty Instances or RoleInstances. */
+- (void)testAnObjectifiedFactComesAndGoesWithItsInstance
+{
+	NSString *reason = nil;
+	NSString *birth = [_editor.factTypeEditor objectifyFactType:_born named:@"Birth" reason:&reason];
+	XCTAssertNotNil(birth, @"%@", reason);
+	ORMFactType *born = [_editor.model elementWithId:_born];
+	NSString *personRole = [[born.roles firstObject] identifier];
+	NSString *countryRole = [[born.roles lastObject] identifier];
+	NSString *fact = [_editor.populationEditor addFactOf:_born named:@{ personRole: @"1", countryRole: @"AU" } reason:&reason];
+	XCTAssertNotNil(fact, @"%@", reason);
+	ORMObjectType *objectifying = [(ORMFactType *)[_editor.model elementWithId:_born] objectifyingType];
+	XCTAssertEqual([[objectifying instances] count], 1u);
+	XCTAssertEqual([[[[objectifying instances] firstObject] objectifiedInstance] identifier], fact);
+	XCTAssertTrue([[[ORMPopulationChecker alloc] initWithModel:_editor.model].violations count] == 0,
+	              @"%@", [[[ORMPopulationChecker alloc] initWithModel:_editor.model].violations valueForKey:@"text"]);
+
+	XCTAssertTrue([_editor.populationEditor removeFact:fact reason:&reason], @"%@", reason);
+	objectifying = [(ORMFactType *)[_editor.model elementWithId:_born] objectifyingType];
+	XCTAssertEqual([[objectifying instances] count], 0u);
+	born = [_editor.model elementWithId:_born];
+	XCTAssertEqual([ORMChildren(born.element, ORMCoreNamespace, @"Instances") count], 0u);
+	XCTAssertEqual([ORMChildren(objectifying.element, ORMCoreNamespace, @"Instances") count], 0u);
+	for (ORMRole *role in born.roles) {
+		XCTAssertEqual([ORMChildren(role.element, ORMCoreNamespace, @"RoleInstances") count], 0u);
+	}
+}
+
+/* Strongly intransitive: one who supervises another reaches them by no
+ * longer chain either. A chain of three that skips a step is broken; one of
+ * two only is what plain intransitivity forbids too. */
+- (void)testAStronglyIntransitiveRingIsCheckedOverLongChains
+{
+	NSString *diagram = [[_editor.model.diagrams firstObject] identifier];
+	NSString *reason = nil;
+	NSString *supervises = [_editor.factTypeEditor addFactTypeWithPlayers:@[ _person, _person ] reading:@"{0} supervises {1}"
+	                                                            onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(supervises, @"%@", reason);
+	NSArray *roles = [[_editor.model elementWithId:supervises] roles];
+	NSArray *both = @[ [roles[0] identifier], [roles[1] identifier] ];
+	XCTAssertNotNil([_editor.constraintEditor addUniquenessConstraintOverRoles:both reason:&reason], @"%@", reason);
+	XCTAssertNotNil([_editor.constraintEditor addRingConstraint:ORMRingStronglyIntransitive overRoles:both reason:&reason],
+	                @"%@", reason);
+	NSArray *chain = @[ @[ @"1", @"2" ], @[ @"2", @"3" ], @[ @"3", @"4" ] ];
+	for (NSArray *pair in chain) {
+		XCTAssertNotNil(([_editor.populationEditor addFactOf:supervises named:@{ both[0]: pair[0], both[1]: pair[1] }
+		                                              reason:&reason]), @"%@", reason);
+	}
+	NSArray *(^broken)(void) = ^NSArray * {
+		NSMutableArray *texts = [NSMutableArray array];
+		for (ORMPopulationViolation *violation in [[[ORMPopulationChecker alloc] initWithModel:self->_editor.model] violations]) {
+			if (violation.constraint.kind == ORMRingConstraint) {
+				[texts addObject:violation.text];
+			}
+		}
+		return texts;
+	};
+	XCTAssertEqual([broken() count], 0u, @"%@", broken());
+	/* 1 supervises 4, whom 1 reaches through 2 and 3. */
+	XCTAssertNotNil(([_editor.populationEditor addFactOf:supervises named:@{ both[0]: @"1", both[1]: @"4" } reason:&reason]),
+	                @"%@", reason);
+	XCTAssertEqual([broken() count], 1u, @"%@", broken());
+}
+
 /* An entity type identified by the facts it plays in, not one value: the
  * roles of its preferred identifier and their players. */
 - (NSString *)entity:(NSString *)name identifiedBy:(NSArray<NSString *> *)players readings:(NSArray<NSString *> *)readings
@@ -250,6 +316,11 @@
 	XCTAssertEqual([[[_editor.model elementWithId:room] instances] count], 2u);
 	XCTAssertNil([editor addInstanceOf:room namedByRole:@{ [roles[0] identifier]: @"3" } reason:&reason]);
 	XCTAssertEqualObjects(reason, @"Name the RoomNr too.");
+	/* A part quoted for its spaces keeps them. */
+	added = [editor addInstanceOf:room named:@"3, ' 7 '" reason:&reason];
+	XCTAssertNotNil(added, @"%@", reason);
+	XCTAssertEqualObjects([editor nameOf:[_editor.model elementWithId:added]], @"3, ' 7 '");
+	XCTAssertTrue([editor removeInstance:added reason:&reason], @"%@", reason);
 	XCTAssertNil([editor addInstanceOf:room named:@"2, 'A, east'" reason:&reason]);
 	XCTAssertEqualObjects(reason, @"There is already a Room 2, 'A, east'.");
 	/* One part renamed; into another's name, refused. */

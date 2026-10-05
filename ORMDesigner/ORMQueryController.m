@@ -53,6 +53,8 @@ static const NSUInteger ORMResultsPage = 200;
 	 * roles' links to one another are weak, so it is held until the next is
 	 * read. */
 	ORMModel *_model;
+	/* The rules were not checked last time, the window hidden. */
+	BOOL _rulesUnchecked;
 	ORMQuery *_query;
 	/* Node and step ids -> what they are in the query as now read. */
 	NSMutableDictionary<NSString *, id> *_items;
@@ -114,6 +116,14 @@ static const NSUInteger ORMResultsPage = 200;
 	[_statusLabel setStringValue:message ?: @""];
 }
 
+- (void)showWindow:(id)sender
+{
+	[super showWindow:sender];
+	if (_rulesUnchecked) {
+		[self modelDidChange];
+	}
+}
+
 - (void)modelDidChange
 {
 	ORMModel *model = self.editor.model;
@@ -128,7 +138,11 @@ static const NSUInteger ORMResultsPage = 200;
 		self.queryId = [[queries firstObject] identifier];
 	}
 	[_queryPopUp removeAllItems];
-	NSSet *broken = [self brokenRules];
+	/* Checking the rules builds a store of the whole population: not for a
+	 * window no one sees. Shown again, it checks them. */
+	BOOL seen = [self isWindowLoaded] && [[self window] isVisible];
+	_rulesUnchecked = !seen;
+	NSSet *broken = seen ? [self brokenRules] : [NSSet set];
 	for (ORMQuery *query in queries) {
 		/* A rule or a calculation says so beside its name, and whether the
 		 * sample population breaks it. */

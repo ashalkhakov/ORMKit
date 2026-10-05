@@ -90,6 +90,10 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 @property (nonatomic, readonly, copy) NSArray<ORMObjectType *> *subtypes;
 /* The subtype facts that attach it to its supertypes. */
 @property (nonatomic, readonly, copy) NSArray<ORMFactType *> *supertypeFacts;
+/* The supertype it is identified as, having no identifier of its own: the
+ * one its preferred identification path goes to (NORMA's
+ * PreferredIdentificationPath), else its first. nil without supertypes. */
+- (ORMObjectType *)identifyingSupertype;
 
 /* Free text: NORMA's Definition and Note. */
 @property (nonatomic, readonly, copy) NSString *definitionText;

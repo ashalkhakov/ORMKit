@@ -129,6 +129,17 @@ ORMKeyOf(ORMCDEntity *entity)
 	XCTAssertEqualObjects(annotations(@"score"), @"{\"Validation.Minimum\": 0, \"Validation.Minimum@Validation.Exclusive\": true}");
 	XCTAssertNil(annotations(@"age"));
 	XCTAssertEqualObjects([[[entity attributeNamed:@"age"] userInfo] objectForKey:@"OData.description"], @"In whole years.");
+
+	/* A bound written ".5" is JSON's 0.5: the annotations read as JSON. */
+	NSString *share = [self value:@"Share" type:@"DecimalNumericDataType" in:editor];
+	NSString *reason = nil;
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"{(.5..1]}" of:share reason:&reason], @"%@", reason);
+	[self has:person value:share in:editor];
+	entity = [[self map:editor serving:YES notes:NULL] entityNamed:@"Person"];
+	NSString *text = [[[entity attributeNamed:@"share"] userInfo] objectForKey:@"OData.annotations"];
+	XCTAssertEqualObjects(text, @"{\"Validation.Minimum\": 0.5, \"Validation.Minimum@Validation.Exclusive\": true}");
+	XCTAssertNotNil([NSJSONSerialization JSONObjectWithData:[text dataUsingEncoding:NSUTF8StringEncoding] options:0 error:NULL],
+	                @"%@", text);
 }
 
 /* Off, the mapping says nothing of OData and adds nothing. */

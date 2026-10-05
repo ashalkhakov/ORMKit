@@ -123,7 +123,11 @@
 		return;
 	}
 	NSMutableArray *broken = [NSMutableArray array];
-	for (ORMPopulationViolation *violation in [[[ORMPopulationChecker alloc] initWithModel:self.editor.model] violations]) {
+	/* The checker reads the whole population: not for a tab no one sees.
+	 * Shown, the window reloads it. */
+	NSArray *violations = [self isHiddenOrHasHiddenAncestor] || [self window] == nil
+		? @[] : [[[ORMPopulationChecker alloc] initWithModel:self.editor.model] violations];
+	for (ORMPopulationViolation *violation in violations) {
 		if (violation.factType == _fact || [[violation.constraint factTypes] containsObject:_fact]) {
 			[broken addObject:violation.text];
 		}
@@ -306,14 +310,22 @@
 	if ([rows containsIndex:[_rows count]]) {
 		_pending = nil;
 	}
-	NSString *reason = nil;
-	for (NSString *identifier in chosen) {
-		BOOL removed = _fact != nil ? [self.editor.populationEditor removeFact:identifier reason:&reason]
-		                            : [self.editor.populationEditor removeInstance:identifier reason:&reason];
-		if (!removed) {
-			[self refuse:reason];
-			break;
+	__block NSString *reason = nil;
+	BOOL fact = _fact != nil;
+	/* One change, undone as one; one refused, none removed. */
+	BOOL removed = [chosen count] == 0 || [self.editor group:fact ? @"Remove Facts" : @"Remove Instances" trying:^BOOL {
+		for (NSString *identifier in chosen) {
+			NSString *why = nil;
+			if (!(fact ? [self.editor.populationEditor removeFact:identifier reason:&why]
+			           : [self.editor.populationEditor removeInstance:identifier reason:&why])) {
+				reason = why;
+				return NO;
+			}
 		}
+		return YES;
+	}];
+	if (!removed) {
+		[self refuse:reason];
 	}
 	[self reload];
 }

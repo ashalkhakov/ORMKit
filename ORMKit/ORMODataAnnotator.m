@@ -246,8 +246,18 @@ ORMWithEntry(NSDictionary *info, NSString *key, NSString *value)
 		if (!numeric || ![scanner scanDouble:&number] || ![scanner isAtEnd]) {
 			return text;
 		}
+		/* Written as JSON writes a number: ".5", "5." and "+1" are not. */
+		NSRegularExpression *grammar = [NSRegularExpression
+			regularExpressionWithPattern:@"^-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?$" options:0 error:NULL];
+		NSString *written = text;
+		if ([grammar numberOfMatchesInString:written options:0 range:NSMakeRange(0, [written length])] == 0) {
+			written = [[NSDecimalNumber decimalNumberWithString:text] stringValue];
+		}
+		if ([grammar numberOfMatchesInString:written options:0 range:NSMakeRange(0, [written length])] == 0) {
+			return text;
+		}
 		ORMJSONNumber *json = [[ORMJSONNumber alloc] init];
-		json.text = text;
+		json.text = written;
 		return json;
 	};
 	NSMutableDictionary *annotations = [NSMutableDictionary dictionary];

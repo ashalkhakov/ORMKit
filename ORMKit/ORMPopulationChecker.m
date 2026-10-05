@@ -470,9 +470,37 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 				if ((type & ORMRingTransitive) && !closes) {
 					broken(@"Not transitive", @[ [pair firstObject], [pair lastObject], z ]);
 				}
-				if ((type & (ORMRingIntransitive | ORMRingStronglyIntransitive)) && closes) {
+				if ((type & ORMRingIntransitive) && closes) {
 					broken(@"Transitive", @[ [pair firstObject], [pair lastObject], z ]);
 				}
+			}
+		}
+	}
+	if (type & ORMRingStronglyIntransitive) {
+		/* x related to y, and y reached from x by a longer chain too: from
+		 * each other thing x is related to. */
+		for (NSArray *pair in ordered) {
+			NSString *x = [pair firstObject];
+			NSString *y = [pair lastObject];
+			NSMutableSet *reached = [NSMutableSet set];
+			NSMutableArray *queue = [NSMutableArray array];
+			for (NSString *z in [next objectForKey:x] ?: @[]) {
+				if (![z isEqualToString:y]) {
+					[queue addObject:z];
+				}
+			}
+			while ([queue count] > 0 && ![reached containsObject:y]) {
+				NSString *at = [queue lastObject];
+				[queue removeLastObject];
+				for (NSString *after in [next objectForKey:at] ?: @[]) {
+					if (![reached containsObject:after]) {
+						[reached addObject:after];
+						[queue addObject:after];
+					}
+				}
+			}
+			if ([reached containsObject:y]) {
+				broken(@"Reached by a longer chain too", pair);
 			}
 		}
 	}

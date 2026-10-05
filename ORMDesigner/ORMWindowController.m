@@ -295,6 +295,10 @@ static const double ORMFactBarHeight = 30;
 		return;
 	}
 	[self.lowerTabView selectTabViewItemAtIndex:index];
+	if ([[[self.lowerTabView selectedTabViewItem] identifier] isEqual:@"population"]) {
+		/* What it skipped while hidden: the checker's violations. */
+		[self.populationView reload];
+	}
 	DMTabBar *bar = (DMTabBar *)self.lowerTabBar;
 	if ([bar isKindOfClass:[DMTabBar class]] && (NSInteger)bar.selectedIndex != index) {
 		bar.selectedIndex = (NSUInteger)index;

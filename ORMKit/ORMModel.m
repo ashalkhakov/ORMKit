@@ -47,6 +47,18 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 
 @implementation ORMObjectType
 
+- (ORMObjectType *)identifyingSupertype
+{
+	ORMObjectType *chosen = nil;
+	for (ORMFactType *fact in self.supertypeFacts) {
+		ORMObjectType *supertype = [[fact.roles lastObject] player];
+		if (supertype != nil && (chosen == nil || fact.providesPreferredIdentifier)) {
+			chosen = supertype;
+		}
+	}
+	return chosen ?: [self.supertypes firstObject];
+}
+
 - (BOOL)isEntity
 {
 	return self.kind != ORMValueType;

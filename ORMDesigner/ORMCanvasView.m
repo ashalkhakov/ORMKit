@@ -39,6 +39,8 @@ static const double ORMCanvasMargin = 240.0;
 	NSPoint _panFrom;
 	/* Space held down: a drag pans, as in drawing programs. */
 	BOOL _spaceHeld;
+	/* The pan is the middle button's, not a Space-drag's. */
+	BOOL _panByOtherButton;
 	ORMHit *_downHit;
 	NSString *_hover;
 	NSTextField *_renamer;
@@ -268,6 +270,7 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)clearSelection
 {
+	_clickedRole = nil;
 	[_selectedShapes removeAllObjects];
 	[_selectedRoles removeAllObjects];
 	[self selectionChanged];
@@ -275,6 +278,8 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)selectElements:(NSArray<NSString *> *)elementIds
 {
+	/* Not a click: no role was clicked to follow. */
+	_clickedRole = nil;
 	[_selectedShapes removeAllObjects];
 	[_selectedRoles removeAllObjects];
 	ORMDiagram *diagram = [self diagram];
@@ -436,6 +441,10 @@ static const double ORMCanvasMargin = 240.0;
 	NSPoint point = [self pointOf:event];
 	_down = point;
 	_at = point;
+	if (_gesture == ORMGesturePan) {
+		/* A pan with the middle button: the left one waits for it. */
+		return;
+	}
 	_panFrom = [event locationInWindow];
 	if (_spaceHeld) {
 		[self beginPan];
@@ -585,7 +594,9 @@ static const double ORMCanvasMargin = 240.0;
 - (void)mouseDragged:(NSEvent *)event
 {
 	if (_gesture == ORMGesturePan) {
-		[self panTo:[event locationInWindow]];
+		if (!_panByOtherButton) {
+			[self panTo:[event locationInWindow]];
+		}
 		return;
 	}
 	_at = [self pointOf:event];
@@ -599,6 +610,10 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)mouseUp:(NSEvent *)event
 {
+	if (_gesture == ORMGesturePan && _panByOtherButton) {
+		/* The middle button's pan goes on. */
+		return;
+	}
 	_at = [self pointOf:event];
 	ORMGesture gesture = _gesture;
 	_gesture = ORMGestureNone;
@@ -641,18 +656,24 @@ static const double ORMCanvasMargin = 240.0;
 - (void)endPan
 {
 	_gesture = ORMGestureNone;
+	_panByOtherButton = NO;
 	[NSCursor pop];
 }
 
 - (void)otherMouseDown:(NSEvent *)event
 {
+	if (_gesture != ORMGestureNone) {
+		/* Another gesture has the canvas: the middle button waits. */
+		return;
+	}
 	_panFrom = [event locationInWindow];
+	_panByOtherButton = YES;
 	[self beginPan];
 }
 
 - (void)otherMouseDragged:(NSEvent *)event
 {
-	if (_gesture == ORMGesturePan) {
+	if (_gesture == ORMGesturePan && _panByOtherButton) {
 		[self panTo:[event locationInWindow]];
 	}
 }
@@ -660,7 +681,7 @@ static const double ORMCanvasMargin = 240.0;
 - (void)otherMouseUp:(NSEvent *)event
 {
 	(void)event;
-	if (_gesture == ORMGesturePan) {
+	if (_gesture == ORMGesturePan && _panByOtherButton) {
 		[self endPan];
 	}
 }
@@ -688,6 +709,7 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)selectInBand
 {
+	_clickedRole = nil;
 	NSRect band = NSMakeRect(MIN(_down.x, _at.x), MIN(_down.y, _at.y), fabs(_at.x - _down.x), fabs(_at.y - _down.y));
 	if (NSWidth(band) < 2 && NSHeight(band) < 2) {
 		return;
@@ -1087,10 +1109,44 @@ static const double ORMCanvasMargin = 240.0;
 }
 
 /* Space let go elsewhere: no pan is armed. */
+- (void)forgetSpace
+{
+	if (_spaceHeld) {
+		_spaceHeld = NO;
+		[[NSCursor arrowCursor] set];
+	}
+}
+
 - (BOOL)resignFirstResponder
 {
-	_spaceHeld = NO;
+	[self forgetSpace];
 	return [super resignFirstResponder];
+}
+
+/* Another window made key keeps this one's first responder, but takes
+ * the keys: a Space let go there never reaches the canvas. */
+- (void)viewWillMoveToWindow:(NSWindow *)window
+{
+	NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+	if ([self window] != nil) {
+		[center removeObserver:self name:NSWindowDidResignKeyNotification object:[self window]];
+	}
+	if (window != nil) {
+		[center addObserver:self selector:@selector(windowDidResignKey:) name:NSWindowDidResignKeyNotification
+		             object:window];
+	}
+	[super viewWillMoveToWindow:window];
+}
+
+- (void)dealloc
+{
+	[[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)windowDidResignKey:(NSNotification *)notification
+{
+	(void)notification;
+	[self forgetSpace];
 }
 
 - (void)nudge:(NSSize)delta
@@ -1127,6 +1183,7 @@ static const double ORMCanvasMargin = 240.0;
 - (IBAction)selectAll:(id)sender
 {
 	(void)sender;
+	_clickedRole = nil;
 	[_selectedShapes removeAllObjects];
 	for (ORMShape *shape in [self diagram].shapes) {
 		[_selectedShapes addObject:shape.identifier];
