@@ -5,8 +5,9 @@ include $(GNUSTEP_MAKEFILES)/common.make
 # builds the same sources as ORMKit.framework (.tools/genxcodeproj.py reads
 # the lists below).
 LIBRARY_NAME = ORMKit
-# Foundation only: NSXML for the files, NSGeometry for the diagrams. What
-# draws lives in ORMDesigner. ODataKit for the OData requests.
+# No AppKit: NSXML for the files, NSGeometry for the diagrams, Core Data for
+# queries and populations in a store. What draws lives in ORMDesigner.
+# ODataKit for the OData requests.
 ORMKit_NEEDS_GUI = no
 include ../odatakit.make
 ORMKit_INCLUDE_DIRS += $(ODATAKIT_INCLUDE_DIRS)

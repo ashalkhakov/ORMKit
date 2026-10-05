@@ -40,7 +40,7 @@ RUN apt-get -q -y install \
       libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev libssl-dev \
       libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev libgmp-dev \
       libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
-      libpthread-workqueue-dev \
+      libpthread-workqueue-dev libsqlite3-dev \
       libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -63,6 +63,24 @@ ENV CC=clang CXX=clang++ \
 # repository's default branch, as a local reproduction box should.
 COPY .github/scripts/dependencies.sh /tmp/dependencies.sh
 RUN sh /tmp/dependencies.sh && rm -rf /deps
+
+# FreeCoreData (Core Data, and its momc) and then ODataKit, over that stack,
+# at the commits the workflow pins: pass the same values from ci.yml,
+#
+#   docker build -f .tools/gnustep.Dockerfile \
+#     --build-arg FREECOREDATA_REF=... --build-arg ODATAKIT_REF=... -t ormkit-gnustep .
+#
+# Without them, each repository's default branch.
+ARG FREECOREDATA_REF=
+ARG ODATAKIT_REF=
+RUN . /gnustep/System/Library/Makefiles/GNUstep.sh \
+ && git clone https://github.com/ashalkhakov/FreeCoreData.git /deps/FreeCoreData \
+ && cd /deps/FreeCoreData && { [ -z "$FREECOREDATA_REF" ] || git checkout -q "$FREECOREDATA_REF"; } \
+ && make -j"$(nproc)" && make install && make -C Tools/momc && make -C Tools/momc install \
+ && git clone https://github.com/ashalkhakov/ODataKit.git /deps/ODataKit \
+ && cd /deps/ODataKit && { [ -z "$ODATAKIT_REF" ] || git checkout -q "$ODATAKIT_REF"; } \
+ && make -j"$(nproc)" && make install \
+ && rm -rf /deps
 
 ENV LD_LIBRARY_PATH=/gnustep/lib
 WORKDIR /src

@@ -211,10 +211,12 @@ jobs:
             echo "::error::a macOS-only framework is imported; GNUstep has no such header"
             exit 1
           fi
-          # Imports only: a comment may name what ORMKit stays clear of.
-          if grep -rnE '^[[:space:]]*(#import|#include|@import)[[:space:]]*[<"]?AppKit' \
+          # Imports only: a comment may name what ORMKit stays clear of. AppKit
+          # by any spelling (#import, # import, @import), what brings it in
+          # (Cocoa, Quartz), or a header of the designer's.
+          if grep -rnE '^[[:space:]]*(#[[:space:]]*(import|include)|@import)[[:space:]]*[<"]?([^>"]*/)?(AppKit|Cocoa|Quartz)\b|^[[:space:]]*#[[:space:]]*(import|include)[[:space:]]*"[^"]*ORMDesigner/' \
                --include="*.h" --include="*.m" ORMKit; then
-            echo "::error::ORMKit is Foundation only; what draws belongs in ORMDesigner"
+            echo "::error::ORMKit has no AppKit; what draws belongs in ORMDesigner"
             exit 1
           fi
           echo "none found"

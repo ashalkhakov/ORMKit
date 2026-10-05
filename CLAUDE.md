@@ -71,7 +71,10 @@ only in docker may be a fix CI already has. The sources are still in
 `/deps`, so patch them in place and commit the container as the image:
 apply `../gnustep-patches/Scripts/apply-patches.sh` at the pinned ref to
 `/deps/libs-base` and `/deps/libs-gui`, then `make && make install` each.
-That is how SUBQUERY started parsing here (2026-10-03). FreeCoreData and
+That is how SUBQUERY started parsing here (2026-10-03), and how
+`NSSortDescriptor` came to sort nil first (2026-10-05, gnustep-patches'
+`libs-base/sortdescriptor-nil-first`): the image is ahead of CI until that
+is pushed and `GNUSTEP_PATCHES_REF` moves to it. FreeCoreData and
 ODataKit are installed in the image the same way: `git archive` of
 `../gnustep-coredata` and `../ODataKit` at the pinned commits into `/deps`,
 `make && make install` (FreeCoreData's `Tools/momc` too), `docker commit`.

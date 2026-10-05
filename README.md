@@ -59,14 +59,21 @@ would have made it. See [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPING.md).
 
 ## Building
 
-macOS:
+ORMKit links [ODataKit](https://github.com/ashalkhakov/ODataKit), checked out
+beside this repository as `../ODataKit` ([docs/ODATA.md](docs/ODATA.md)).
+
+macOS, through the workspace, which builds ODataKit's frameworks too:
 
 ```sh
-xcodebuild -project ORMKit.xcodeproj -scheme ORMDesigner build
-xcodebuild -project ORMKit.xcodeproj -scheme ORMKitTests test
+xcodebuild -workspace ORMKit.xcworkspace -scheme ORMDesigner build
+xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests -destination 'platform=macOS' test
 ```
 
-GNUstep (clang, libobjc2, gnustep-2.0 runtime, tools-xctest):
+GNUstep (clang, libobjc2, gnustep-2.0 runtime, tools-xctest), with
+[FreeCoreData](https://github.com/ashalkhakov/gnustep-coredata) (its `Tools/momc`
+too) and then ODataKit built and installed first, at the commits CI pins
+(`FREECOREDATA_REF`, `ODATAKIT_REF` in `.github/workflows/ci.yml`; GNUstep
+itself with the fixes `GNUSTEP_PATCHES_REF` names applied):
 
 ```sh
 . /path/to/GNUstep.sh
@@ -75,7 +82,7 @@ make -C ORMKitTests run-tests
 xvfb-run -a make -C ORMDesignerTests run-tests
 ```
 
-or in docker: `.tools/gnustep.sh make -C ORMKitTests run-tests`.
+or in docker, in an image that has them: `.tools/gnustep.sh make -C ORMKitTests run-tests`.
 
 ## ormtool
 
