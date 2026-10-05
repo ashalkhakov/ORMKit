@@ -430,6 +430,123 @@ ORMHasInvariantForm(ORMObjectType *type)
 
 #pragma mark One at a time
 
+/* The type an instance of this one is identified as: itself, or the
+ * supertype it is identified as, having no identifier of its own. */
+- (ORMObjectType *)identifiedTypeOf:(ORMObjectType *)type
+{
+	while (type.kind != ORMValueType && type.preferredIdentifier == nil && [type.supertypes count] > 0) {
+		type = [type.supertypes firstObject];
+	}
+	return type;
+}
+
+/* Whether what identifies the type is the fact it objectifies. */
+- (BOOL)isTheFactItObjectifies:(ORMObjectType *)type
+{
+	ORMFactType *nested = type.nestedFactType;
+	for (ORMRole *role in [type.preferredIdentifier allRoles]) {
+		if (nested != nil && role.factType == nested) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+- (NSArray<ORMRole *> *)compositeRolesOf:(NSString *)objectTypeId
+{
+	ORMObjectType *type = [self identifiedTypeOf:[_editor.model elementWithId:objectTypeId]];
+	if (![type isKindOfClass:[ORMObjectType class]] || type.kind == ORMValueType || [self isTheFactItObjectifies:type]) {
+		return @[];
+	}
+	NSArray *roles = [type.preferredIdentifier allRoles];
+	return [roles count] > 1 ? roles : @[];
+}
+
+/* The parts of a name, split at the commas outside parentheses and quotes. */
+static NSArray<NSString *> *
+ORMNameParts(NSString *text)
+{
+	NSMutableArray *parts = [NSMutableArray array];
+	NSInteger depth = 0;
+	BOOL quoted = NO;
+	NSUInteger start = 0;
+	for (NSUInteger i = 0; i < [text length]; i++) {
+		unichar c = [text characterAtIndex:i];
+		if (c == '\'') {
+			quoted = !quoted;
+		} else if (!quoted && c == '(') {
+			depth++;
+		} else if (!quoted && c == ')') {
+			depth--;
+		} else if (!quoted && depth == 0 && c == ',') {
+			[parts addObject:[text substringWithRange:NSMakeRange(start, i - start)]];
+			start = i + 1;
+		}
+	}
+	[parts addObject:[text substringFromIndex:start]];
+	return parts;
+}
+
+/* A part as it is named: out of its parentheses or quotes. */
+static NSString *
+ORMUnwrapPart(NSString *part)
+{
+	NSString *text = [part stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+	NSUInteger length = [text length];
+	if (length >= 2 && [text hasPrefix:@"("] && [text hasSuffix:@")"]) {
+		return [text substringWithRange:NSMakeRange(1, length - 2)];
+	}
+	if (length >= 2 && [text hasPrefix:@"'"] && [text hasSuffix:@"'"]) {
+		return [[text substringWithRange:NSMakeRange(1, length - 2)] stringByReplacingOccurrencesOfString:@"''"
+		                                                                                        withString:@"'"];
+	}
+	return text;
+}
+
+/* A part of a name, so that it reads back as itself. */
+static NSString *
+ORMWrapPart(NSString *name, BOOL composite)
+{
+	if (composite) {
+		return [NSString stringWithFormat:@"(%@)", name];
+	}
+	NSCharacterSet *special = [NSCharacterSet characterSetWithCharactersInString:@",()'"];
+	NSString *trimmed = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+	if ([name length] == 0 || [name rangeOfCharacterFromSet:special].location != NSNotFound
+	    || ![trimmed isEqualToString:name]) {
+		return [NSString stringWithFormat:@"'%@'", [name stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
+	}
+	return name;
+}
+
+- (NSString *)nameOf:(ORMInstance *)instance
+{
+	if (instance == nil) {
+		return @"";
+	}
+	if (instance.value != nil) {
+		return instance.value;
+	}
+	if ([instance supertypeInstance] != nil) {
+		return [self nameOf:[instance supertypeInstance]];
+	}
+	NSDictionary *identifying = [instance identifyingInstancesByRole];
+	NSArray *roles = [instance.objectType.preferredIdentifier allRoles];
+	if ([identifying count] == 0 || [roles count] == 0) {
+		return [instance displayText] ?: @"";
+	}
+	if ([roles count] == 1) {
+		return [self nameOf:[identifying objectForKey:[[roles firstObject] identifier]]];
+	}
+	NSMutableArray *parts = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		ORMInstance *part = [identifying objectForKey:role.identifier];
+		[parts addObject:part != nil ? ORMWrapPart([self nameOf:part], [[self compositeRolesOf:part.objectType.identifier] count] > 0)
+		                             : @"?"];
+	}
+	return [parts componentsJoinedByString:@", "];
+}
+
 - (NSString *)instanceOf:(NSString *)objectTypeId
                    named:(NSString *)text
                     into:(ORMSamplePopulation *)population
@@ -444,23 +561,77 @@ ORMHasInvariantForm(ORMObjectType *type)
 	if (type.kind == ORMValueType) {
 		return [population value:text of:objectTypeId];
 	}
-	NSArray *identifying = [type.preferredIdentifier allRoles];
-	if ([identifying count] == 1 && [(ORMRole *)[identifying firstObject] player].kind == ORMValueType) {
-		ORMRole *role = [identifying firstObject];
-		return [population instanceOf:objectTypeId
-		                 identifiedBy:@{ role.identifier: [population value:text of:role.player.identifier] }];
-	}
 	if (type.preferredIdentifier == nil && [type.supertypes count] > 0) {
 		/* Identified as its supertype is: that instance, which it is. */
 		NSString *supertype = [self instanceOf:[[type.supertypes firstObject] identifier] named:text into:population
 		                                reason:reason];
 		return supertype != nil ? [population instanceOf:objectTypeId supertypeInstance:supertype] : nil;
 	}
-	[self refuse:[NSString stringWithFormat:@"%@ is identified by more than one value: add its instances from the facts "
-	                                        @"that identify them.",
-	                                        type.name]
-	      reason:reason];
-	return nil;
+	NSArray *identifying = [type.preferredIdentifier allRoles];
+	if ([identifying count] == 0 || [self isTheFactItObjectifies:type]) {
+		[self refuse:[NSString stringWithFormat:@"%@ is the fact it objectifies: add that fact.", type.name] reason:reason];
+		return nil;
+	}
+	if ([identifying count] == 1) {
+		ORMRole *role = [identifying firstObject];
+		NSString *part = [self instanceOf:role.player.identifier named:text into:population reason:reason];
+		return part != nil ? [population instanceOf:objectTypeId identifiedBy:@{ role.identifier: part }] : nil;
+	}
+	NSArray *parts = ORMNameParts(text);
+	if ([parts count] != [identifying count]) {
+		NSMutableArray *names = [NSMutableArray array];
+		for (ORMRole *role in identifying) {
+			[names addObject:role.player.name ?: @"?"];
+		}
+		[self refuse:[NSString stringWithFormat:@"%@ is identified by %@: name each, separated by commas.", type.name,
+		                                        [names componentsJoinedByString:@", "]]
+		      reason:reason];
+		return nil;
+	}
+	NSMutableDictionary *texts = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < [parts count]; i++) {
+		[texts setObject:ORMUnwrapPart([parts objectAtIndex:i]) forKey:[[identifying objectAtIndex:i] identifier]];
+	}
+	return [self instanceOf:objectTypeId namedByRole:texts into:population reason:reason];
+}
+
+/* An entity identified by several values, each named by its role. */
+- (NSString *)instanceOf:(NSString *)objectTypeId
+             namedByRole:(NSDictionary<NSString *, NSString *> *)textsByRole
+                    into:(ORMSamplePopulation *)population
+                  reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	ORMObjectType *identified = [self identifiedTypeOf:type];
+	NSArray *roles = [self compositeRolesOf:objectTypeId];
+	if ([roles count] == 0) {
+		[self refuse:@"It is not identified by several values." reason:reason];
+		return nil;
+	}
+	NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+	for (ORMRole *role in roles) {
+		NSString *text = [[textsByRole objectForKey:role.identifier]
+			stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+		if ([text length] == 0) {
+			[self refuse:[NSString stringWithFormat:@"Name the %@ too.", role.player.name] reason:reason];
+			return nil;
+		}
+		NSString *part = [self instanceOf:role.player.identifier named:text into:population reason:reason];
+		if (part == nil) {
+			return nil;
+		}
+		[byRole setObject:part forKey:role.identifier];
+	}
+	NSString *instance = [population instanceOf:identified.identifier identifiedBy:byRole];
+	/* A subtype identified as its supertype: down to it, each in turn. */
+	NSMutableArray *chain = [NSMutableArray array];
+	for (ORMObjectType *each = type; each != identified; each = [each.supertypes firstObject]) {
+		[chain insertObject:each atIndex:0];
+	}
+	for (ORMObjectType *each in chain) {
+		instance = [population instanceOf:each.identifier supertypeInstance:instance];
+	}
+	return instance;
 }
 
 /* The fact's population: the role's player named, the others' as they are. */
@@ -585,6 +756,15 @@ ORMHasInvariantForm(ORMObjectType *type)
 {
 	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
 	NSString *created = [self instanceOf:objectTypeId named:text into:population reason:reason];
+	return created != nil && [self addPopulation:population reason:reason] ? created : nil;
+}
+
+- (NSString *)addInstanceOf:(NSString *)objectTypeId
+                namedByRole:(NSDictionary<NSString *, NSString *> *)textsByRole
+                     reason:(NSString **)reason
+{
+	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
+	NSString *created = [self instanceOf:objectTypeId namedByRole:textsByRole into:population reason:reason];
 	return created != nil && [self addPopulation:population reason:reason] ? created : nil;
 }
 

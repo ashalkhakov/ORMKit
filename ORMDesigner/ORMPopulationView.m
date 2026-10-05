@@ -2,28 +2,6 @@
 #import "ORMPopulationView.h"
 #import "ORMPane.h"
 
-/* An instance as the table names it: a value as it is, an entity by its
- * reference mode's value (its supertype's, for a subtype's), else as the
- * model shows it. */
-static NSString *
-ORMNameOf(ORMInstance *instance)
-{
-	if (instance == nil) {
-		return @"";
-	}
-	if (instance.value != nil) {
-		return instance.value;
-	}
-	NSDictionary *identifying = [instance identifyingInstancesByRole];
-	if ([identifying count] == 1) {
-		return ORMNameOf([[identifying allValues] firstObject]);
-	}
-	if ([instance supertypeInstance] != nil) {
-		return ORMNameOf([instance supertypeInstance]);
-	}
-	return [instance displayText] ?: @"";
-}
-
 @implementation ORMPopulationView
 {
 	/* The projection the rows were read from, held: its objects' links to
@@ -31,6 +9,8 @@ ORMNameOf(ORMInstance *instance)
 	ORMModel *_model;
 	ORMFactType *_fact;
 	ORMObjectType *_type;
+	/* An object type identified by several values: a column each. */
+	NSArray<ORMRole *> *_parts;
 	NSArray *_rows;
 	/* The row being added: a text for each column, until each is named. */
 	NSMutableArray<NSString *> *_pending;
@@ -67,7 +47,13 @@ ORMNameOf(ORMInstance *instance)
 
 - (NSUInteger)columnCount
 {
-	return _fact != nil ? MAX([[self roles] count], (NSUInteger)1) : 1;
+	return MAX(_fact != nil ? [[self roles] count] : [_parts count], (NSUInteger)1);
+}
+
+/* An instance as the table names it, as the population editor reads it. */
+- (NSString *)nameOf:(ORMInstance *)instance
+{
+	return [self.editor.populationEditor nameOf:instance] ?: @"";
 }
 
 - (void)reload
@@ -80,6 +66,7 @@ ORMNameOf(ORMInstance *instance)
 	}
 	_fact = [element isKindOfClass:[ORMFactType class]] && [(ORMFactType *)element kind] == ORMFactTypeOrdinary ? element : nil;
 	_type = [element isKindOfClass:[ORMObjectType class]] ? element : nil;
+	_parts = _type != nil ? [self.editor.populationEditor compositeRolesOf:_type.identifier] : @[];
 	_rows = _fact != nil ? [_fact instances] : (_type != nil ? [_type instances] : @[]);
 	if (_pending != nil && [_pending count] != [self columnCount]) {
 		_pending = nil;
@@ -88,6 +75,10 @@ ORMNameOf(ORMInstance *instance)
 	NSMutableArray *titles = [NSMutableArray array];
 	if (_fact != nil) {
 		for (ORMRole *role in [self roles]) {
+			[titles addObject:[role.name length] > 0 ? role.name : role.player.name ?: @"?"];
+		}
+	} else if ([_parts count] > 0) {
+		for (ORMRole *role in _parts) {
 			[titles addObject:[role.name length] > 0 ? role.name : role.player.name ?: @"?"];
 		}
 	} else {
@@ -107,6 +98,8 @@ ORMNameOf(ORMInstance *instance)
 		[column setIdentifier:[NSString stringWithFormat:@"%lu", (unsigned long)i]];
 		[[column headerCell] setStringValue:[titles objectAtIndex:i]];
 		[column setEditable:_fact != nil || _type != nil];
+		/* The cell too: a column whose cell is not editable never opens one. */
+		[[column dataCell] setEditable:_fact != nil || _type != nil];
 	}
 	[_table reloadData];
 	[_title setStringValue:_fact != nil ? [NSString stringWithFormat:@"Population of %@",
@@ -171,9 +164,18 @@ ORMNameOf(ORMInstance *instance)
 		ORMFactInstance *fact = [_rows objectAtIndex:(NSUInteger)row];
 		NSArray *roles = [self roles];
 		ORMRole *role = (NSUInteger)column < [roles count] ? [roles objectAtIndex:(NSUInteger)column] : nil;
-		return ORMNameOf(role != nil ? [fact.instancesByRole objectForKey:role.identifier] : nil);
+		return [self nameOf:role != nil ? [fact.instancesByRole objectForKey:role.identifier] : nil];
 	}
-	return ORMNameOf([_rows objectAtIndex:(NSUInteger)row]);
+	ORMInstance *instance = [_rows objectAtIndex:(NSUInteger)row];
+	if ([_parts count] > 0) {
+		/* A subtype's instance is identified as its supertype's is. */
+		while ([instance supertypeInstance] != nil) {
+			instance = [instance supertypeInstance];
+		}
+		ORMRole *role = (NSUInteger)column < [_parts count] ? [_parts objectAtIndex:(NSUInteger)column] : nil;
+		return [self nameOf:role != nil ? [[instance identifyingInstancesByRole] objectForKey:role.identifier] : nil];
+	}
+	return [self nameOf:instance];
 }
 
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
@@ -224,6 +226,12 @@ ORMNameOf(ORMInstance *instance)
 				[byRole setObject:[pending objectAtIndex:i] forKey:[[roles objectAtIndex:i] identifier]];
 			}
 			added = [self.editor.populationEditor addFactOf:_fact.identifier named:byRole reason:&reason];
+		} else if ([_parts count] > 0) {
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			for (NSUInteger i = 0; i < [_parts count]; i++) {
+				[byRole setObject:[pending objectAtIndex:i] forKey:[[_parts objectAtIndex:i] identifier]];
+			}
+			added = [self.editor.populationEditor addInstanceOf:_type.identifier namedByRole:byRole reason:&reason];
 		} else {
 			added = [self.editor.populationEditor addInstanceOf:_type.identifier named:[pending firstObject] reason:&reason];
 		}

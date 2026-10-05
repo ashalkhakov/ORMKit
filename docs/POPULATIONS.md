@@ -151,21 +151,28 @@ type's or object type's population as a table, a column for each role
   - a value type's value;
   - an entity type's reference mode value, the instance so identified
     found or made;
+  - an entity type identified by several values: those values, in its
+    preferred identifier's order and separated by commas, as in `1, 101`.
+    A part that is itself named this way goes in parentheses, as in
+    `(1, 101), 3`, and a value with a comma, parenthesis or quote goes in
+    quotes, as in `'A, east'`. `nameOf:` writes this form and the editor
+    reads it back;
   - a subtype's, through its supertype.
 - `setPlayer:ofRole:inFact:` names a player anew, replacing the fact.
 - `removeFact:` removes a fact. It is refused while an objectifying instance
   is that fact.
 - `addInstanceOf:named:` and `removeInstance:` add and remove an object
-  type's instances. Removal is refused while the instance plays in a fact or
+  type's instances. For a type identified by several values, the table has
+  a column for each (`compositeRolesOf:`), and `addInstanceOf:namedByRole:`
+  adds the row once each is named. Removal is refused while the instance plays in a fact or
   identifies another.
 
 ## Not done yet
 
-- **Editing an entity instance identified by more than one value**
-  (composite identifiers) by hand: the Population tab names an instance by
-  one value, so such instances come from the facts that identify them, or
-  from code. Editing a value in place, rather than a fact's player, is not
-  done either.
+- **Editing a value in place**, rather than a fact's player, or renaming an
+  entity instance.
+- **An objectifying type's instances** by hand: such an instance is the
+  fact it objectifies, and the table refuses it by name.
 - **The generator's limits:**
   - a subtype's share is fixed, so a mandatory one-to-one role it must cover
     can run out of instances (ActiveFacts' Supervision and Diplomacy);

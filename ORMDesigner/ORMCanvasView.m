@@ -37,6 +37,8 @@ static const double ORMCanvasMargin = 240.0;
 	/* Where a pan last had the pointer, in the window: the drawing moves
 	 * under it. */
 	NSPoint _panFrom;
+	/* Space held down: a drag pans, as in drawing programs. */
+	BOOL _spaceHeld;
 	ORMHit *_downHit;
 	NSString *_hover;
 	NSTextField *_renamer;
@@ -435,6 +437,10 @@ static const double ORMCanvasMargin = 240.0;
 	_down = point;
 	_at = point;
 	_panFrom = [event locationInWindow];
+	if (_spaceHeld) {
+		[self beginPan];
+		return;
+	}
 	ORMHit *hit = [self hitAt:point];
 	_downHit = hit;
 	_clickedRole = [hit.role.identifier copy];
@@ -525,17 +531,12 @@ static const double ORMCanvasMargin = 240.0;
 - (void)pointerDown:(ORMHit *)hit extend:(BOOL)extend
 {
 	if (hit == nil) {
-		if (extend) {
-			/* Shift or Command: a band adds what it touches. */
-			_gesture = ORMGestureBand;
-			return;
+		if (!extend) {
+			[_selectedShapes removeAllObjects];
+			[_selectedRoles removeAllObjects];
+			[self selectionChanged];
 		}
-		/* As NORMA: a drag on nothing pans the drawing. */
-		[_selectedShapes removeAllObjects];
-		[_selectedRoles removeAllObjects];
-		[self selectionChanged];
-		_gesture = ORMGesturePan;
-		[[NSCursor closedHandCursor] push];
+		_gesture = ORMGestureBand;
 		return;
 	}
 	NSString *shapeId = hit.shape.identifier;
@@ -620,12 +621,48 @@ static const double ORMCanvasMargin = 240.0;
 		[self finishConnect];
 		break;
 	case ORMGesturePan:
-		[NSCursor pop];
+		[self endPan];
 		break;
 	case ORMGestureNone:
 		break;
 	}
 	[self setNeedsDisplay:YES];
+}
+
+/* A pan: with Space held down, or with the middle button; the scroll
+ * wheel and the trackpad pan as any scroll view does. A plain drag on
+ * nothing draws a band, as the HIG and the Finder have it. */
+- (void)beginPan
+{
+	_gesture = ORMGesturePan;
+	[[NSCursor closedHandCursor] push];
+}
+
+- (void)endPan
+{
+	_gesture = ORMGestureNone;
+	[NSCursor pop];
+}
+
+- (void)otherMouseDown:(NSEvent *)event
+{
+	_panFrom = [event locationInWindow];
+	[self beginPan];
+}
+
+- (void)otherMouseDragged:(NSEvent *)event
+{
+	if (_gesture == ORMGesturePan) {
+		[self panTo:[event locationInWindow]];
+	}
+}
+
+- (void)otherMouseUp:(NSEvent *)event
+{
+	(void)event;
+	if (_gesture == ORMGesturePan) {
+		[self endPan];
+	}
 }
 
 /* The drawing scrolled so that what was under the pointer stays under it,
@@ -976,6 +1013,13 @@ static const double ORMCanvasMargin = 240.0;
 	unichar key = [characters length] > 0 ? [characters characterAtIndex:0] : 0;
 	NSUInteger flags = [event modifierFlags];
 	double step = (flags & NSEventModifierFlagShift) ? 10 : 1;
+	if (key == ' ') {
+		if (!_spaceHeld) {
+			_spaceHeld = YES;
+			[[NSCursor openHandCursor] set];
+		}
+		return;
+	}
 	switch (key) {
 	case NSDeleteCharacter:
 	case NSBackspaceCharacter:
@@ -1029,6 +1073,24 @@ static const double ORMCanvasMargin = 240.0;
 		break;
 	}
 	[super keyDown:event];
+}
+
+- (void)keyUp:(NSEvent *)event
+{
+	NSString *characters = [event charactersIgnoringModifiers];
+	if ([characters isEqualToString:@" "]) {
+		_spaceHeld = NO;
+		[[NSCursor arrowCursor] set];
+		return;
+	}
+	[super keyUp:event];
+}
+
+/* Space let go elsewhere: no pan is armed. */
+- (BOOL)resignFirstResponder
+{
+	_spaceHeld = NO;
+	return [super resignFirstResponder];
 }
 
 - (void)nudge:(NSSize)delta

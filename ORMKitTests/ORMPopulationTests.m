@@ -119,6 +119,93 @@
 	XCTAssertTrue([[[ORMPopulationChecker alloc] initWithModel:_editor.model].violations count] == 0);
 }
 
+/* An entity type identified by the facts it plays in, not one value: the
+ * roles of its preferred identifier and their players. */
+- (NSString *)entity:(NSString *)name identifiedBy:(NSArray<NSString *> *)players readings:(NSArray<NSString *> *)readings
+{
+	NSString *diagram = [[_editor.model.diagrams firstObject] identifier];
+	NSString *reason = nil;
+	NSString *type = [_editor.objectTypeEditor addEntityTypeNamed:name referenceMode:nil kind:ORMReferenceModePopular
+	                                                    onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(type, @"%@", reason);
+	NSMutableArray *identifying = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [players count]; i++) {
+		NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:@[ type, players[i] ] reading:readings[i]
+		                                                      onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
+		XCTAssertNotNil(fact, @"%@", reason);
+		NSArray *roles = [[_editor.model elementWithId:fact] roles];
+		XCTAssertTrue([_editor.constraintEditor setUnique:YES role:[roles[0] identifier] reason:&reason], @"%@", reason);
+		XCTAssertTrue([_editor.constraintEditor setMandatory:YES role:[roles[0] identifier] reason:&reason], @"%@", reason);
+		[identifying addObject:[roles[1] identifier]];
+	}
+	NSString *unique = [_editor.constraintEditor addUniquenessConstraintOverRoles:identifying reason:&reason];
+	XCTAssertNotNil(unique, @"%@", reason);
+	XCTAssertTrue([_editor.constraintEditor setPreferredIdentifier:unique reason:&reason], @"%@", reason);
+	return type;
+}
+
+/* An instance identified by several values is named by them, in its
+ * preferred identifier's order and separated by commas, a part named so in
+ * turn in parentheses; the name reads back as the same instance. */
+- (void)testInstancesIdentifiedBySeveralValuesAreNamed
+{
+	NSString *diagram = [[_editor.model.diagrams firstObject] identifier];
+	NSString *building = [_editor.objectTypeEditor addEntityTypeNamed:@"Building" referenceMode:@"nr"
+	                                                            kind:ORMReferenceModePopular onDiagram:diagram
+	                                                              at:ORMAutomaticPlacement reason:NULL];
+	NSString *roomNr = [_editor.objectTypeEditor addValueTypeNamed:@"RoomNr" dataType:nil onDiagram:diagram
+	                                                            at:ORMAutomaticPlacement reason:NULL];
+	NSString *room = [self entity:@"Room" identifiedBy:@[ building, roomNr ] readings:@[ @"{0} is in {1}", @"{0} has {1}" ]];
+	ORMPopulationEditor *editor = _editor.populationEditor;
+	NSArray *roles = [editor compositeRolesOf:room];
+	XCTAssertEqual([roles count], 2u);
+	XCTAssertEqualObjects([[roles[0] player] name], @"Building");
+
+	NSString *reason = nil;
+	NSString *added = [editor addInstanceOf:room named:@"1, 101" reason:&reason];
+	XCTAssertNotNil(added, @"%@", reason);
+	ORMInstance *first = [_editor.model elementWithId:added];
+	XCTAssertEqualObjects([editor nameOf:first], @"1, 101");
+	XCTAssertEqual([[[_editor.model elementWithId:building] instances] count], 1u);
+	/* Named again: the same one. */
+	XCTAssertNotNil([editor addInstanceOf:room named:@" 1 ,101 " reason:&reason], @"%@", reason);
+	XCTAssertEqual([[[_editor.model elementWithId:room] instances] count], 1u);
+	XCTAssertNil([editor addInstanceOf:room named:@"1" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Room is identified by Building, RoomNr: name each, separated by commas.");
+
+	/* By role, as a table's columns name it; a comma quoted. */
+	added = [editor addInstanceOf:room namedByRole:@{ [roles[0] identifier]: @"2", [roles[1] identifier]: @"A, east" }
+	                       reason:&reason];
+	XCTAssertNotNil(added, @"%@", reason);
+	NSString *name = [editor nameOf:[_editor.model elementWithId:added]];
+	XCTAssertEqualObjects(name, @"2, 'A, east'");
+	XCTAssertNotNil([editor addInstanceOf:room named:name reason:&reason], @"%@", reason);
+	XCTAssertEqual([[[_editor.model elementWithId:room] instances] count], 2u);
+	XCTAssertNil([editor addInstanceOf:room namedByRole:@{ [roles[0] identifier]: @"3" } reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Name the RoomNr too.");
+
+	/* A desk is identified by its room and its number: nested. */
+	NSString *deskNr = [_editor.objectTypeEditor addValueTypeNamed:@"DeskNr" dataType:nil onDiagram:diagram
+	                                                            at:ORMAutomaticPlacement reason:NULL];
+	NSString *desk = [self entity:@"Desk" identifiedBy:@[ room, deskNr ] readings:@[ @"{0} is in {1}", @"{0} has {1}" ]];
+	added = [editor addInstanceOf:desk named:@"(1, 101), 3" reason:&reason];
+	XCTAssertNotNil(added, @"%@", reason);
+	XCTAssertEqualObjects([editor nameOf:[_editor.model elementWithId:added]], @"(1, 101), 3");
+	XCTAssertEqual([[[_editor.model elementWithId:room] instances] count], 2u);
+
+	/* A fact's player named so too. */
+	NSString *works = [_editor.factTypeEditor addFactTypeWithPlayers:@[ _person, desk ] reading:@"{0} works at {1}"
+	                                                       onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	NSArray *workRoles = [[_editor.model elementWithId:works] roles];
+	NSString *fact = [editor addFactOf:works named:@{ [workRoles[0] identifier]: @"1", [workRoles[1] identifier]: @"(2, 'A, east'), 9" }
+	                            reason:&reason];
+	XCTAssertNotNil(fact, @"%@", reason);
+	ORMFactInstance *instance = [_editor.model elementWithId:fact];
+	XCTAssertEqualObjects([editor nameOf:[instance.instancesByRole objectForKey:[workRoles[1] identifier]]], @"(2, 'A, east'), 9");
+	XCTAssertEqual([[[_editor.model elementWithId:room] instances] count], 2u);
+	XCTAssertEqual([[[_editor.model elementWithId:desk] instances] count], 2u);
+}
+
 /* As NORMA keeps them: instances under their types, role instances under
  * the roles, a fact type's instances after all else it has. */
 - (void)testAPopulationIsWrittenAsNormaWritesIt

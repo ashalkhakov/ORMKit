@@ -300,6 +300,79 @@
 	XCTAssertEqualObjects([[[_controller valueForKey:@"lowerTabView"] selectedTabViewItem] identifier], @"facts");
 }
 
+/* An object type's instances are added as the user does it: + opens the
+ * new row's cell for typing, and ending the edit adds the instance. */
+- (void)testPlusOpensANewInstanceForTyping
+{
+	[self open:@"StockMate.orm"];
+	[_controller.factEditor setStringValue:@"Person(.id) has Name()"];
+	XCTAssertTrue([_controller addFactFromEditor]);
+	ORMObjectType *person = [_document.editor.model objectTypeNamed:@"Person"];
+	XCTAssertNotNil(person);
+	[_controller.canvas selectElements:@[ person.identifier ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	XCTAssertEqualObjects(population.elementId, person.identifier);
+	NSTableView *table = population.table;
+	[[_controller valueForKey:@"lowerTabView"] selectTabViewItemWithIdentifier:@"population"];
+	XCTAssertEqualObjects([table window], [_controller window]);
+	XCTAssertFalse([table isHiddenOrHasHiddenAncestor]);
+	/* A click on a cell opens it only when its cell is editable. */
+	for (NSTableColumn *column in [table tableColumns]) {
+		XCTAssertTrue([[column dataCell] isEditable]);
+	}
+	[population addRow:nil];
+	XCTAssertEqual([table numberOfRows], 1);
+	/* What the window does a moment after a change leaves it open. */
+	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.8]];
+	XCTAssertEqual([table editedRow], 0);
+	NSText *editor = [table currentEditor];
+	XCTAssertNotNil(editor);
+	[editor setString:@"1"];
+	[[table window] makeFirstResponder:nil];
+	XCTAssertEqual([[[_document.editor.model objectTypeNamed:@"Person"] instances] count], 1u);
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"1");
+}
+
+/* An object type identified by several values has a column for each: a
+ * new row is added once each is named, and shows as named. */
+- (void)testAnInstanceIdentifiedBySeveralValuesHasAColumnEach
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *building = [editor.objectTypeEditor addEntityTypeNamed:@"Building" referenceMode:@"nr"
+	                                                           kind:ORMReferenceModePopular onDiagram:diagram
+	                                                             at:ORMAutomaticPlacement reason:NULL];
+	NSString *roomNr = [editor.objectTypeEditor addValueTypeNamed:@"RoomNr" dataType:nil onDiagram:diagram
+	                                                           at:ORMAutomaticPlacement reason:NULL];
+	NSString *room = [editor.objectTypeEditor addEntityTypeNamed:@"Room" referenceMode:nil kind:ORMReferenceModePopular
+	                                                   onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	NSMutableArray *identifying = [NSMutableArray array];
+	for (NSArray *pair in @[ @[ building, @"{0} is in {1}" ], @[ roomNr, @"{0} has {1}" ] ]) {
+		NSString *fact = [editor.factTypeEditor addFactTypeWithPlayers:@[ room, pair[0] ] reading:pair[1] onDiagram:diagram
+		                                                            at:ORMAutomaticPlacement reason:NULL];
+		NSArray *roles = [[editor.model elementWithId:fact] roles];
+		XCTAssertTrue([editor.constraintEditor setUnique:YES role:[roles[0] identifier] reason:NULL]);
+		[identifying addObject:[roles[1] identifier]];
+	}
+	NSString *unique = [editor.constraintEditor addUniquenessConstraintOverRoles:identifying reason:NULL];
+	XCTAssertTrue([editor.constraintEditor setPreferredIdentifier:unique reason:NULL]);
+
+	[_controller.canvas selectElements:@[ room ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	XCTAssertEqualObjects(population.elementId, room);
+	NSTableView *table = population.table;
+	XCTAssertEqual([table numberOfColumns], 2);
+	XCTAssertEqualObjects([[[[table tableColumns] lastObject] headerCell] stringValue], @"RoomNr");
+	[population addRow:nil];
+	[population setText:@"1" atRow:0 column:0];
+	XCTAssertEqual([[[editor.model elementWithId:room] instances] count], 0u);
+	[population setText:@"101" atRow:0 column:1];
+	XCTAssertEqual([[[editor.model elementWithId:room] instances] count], 1u);
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"1");
+	XCTAssertEqualObjects([population textAtRow:0 column:1], @"101");
+}
+
 /* A mouse event at a point of the canvas, in diagram points. */
 - (NSEvent *)event:(NSEventType)type at:(NSPoint)point
 {
@@ -360,9 +433,10 @@
 	XCTAssertEqual(NSMinX([[[canvas diagram] shapeForSubject:product] bounds]), NSMinX(productBefore));
 }
 
-/* As NORMA: a drag on nothing pans the drawing, what was under the pointer
- * staying under it; nothing is selected or moved. Shift-drag draws a band. */
-- (void)testDraggingOnNothingPans
+/* As drawing programs: a drag with Space held pans the drawing, what was
+ * under the pointer staying under it, nothing selected or moved; so does
+ * the middle button. A plain drag on nothing draws a band. */
+- (void)testSpaceDragPansAndADragOnNothingSelects
 {
 	[self open:@"StockMate.orm"];
 	ORMCanvasView *canvas = _controller.canvas;
@@ -397,6 +471,12 @@
 	NSPoint down = [canvas convertPoint:empty toView:nil];
 	NSPoint up = NSMakePoint(down.x - 40, down.y - 30);
 	NSWindow *window = [canvas window];
+	NSEvent *(^space)(NSEventType) = ^NSEvent *(NSEventType type) {
+		return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:0 timestamp:0
+		                    windowNumber:[window windowNumber] context:nil characters:@" "
+		     charactersIgnoringModifiers:@" " isARepeat:NO keyCode:49];
+	};
+	[canvas keyDown:space(NSEventTypeKeyDown)];
 	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:empty]];
 	NSEvent *drag = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged location:up modifierFlags:0 timestamp:0
 	                               windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
@@ -404,6 +484,7 @@
 	NSEvent *release = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:up modifierFlags:0 timestamp:0
 	                                  windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
 	[canvas mouseUp:release];
+	[canvas keyUp:space(NSEventTypeKeyUp)];
 	NSPoint under = [canvas convertPoint:up fromView:nil];
 	XCTAssertEqualWithAccuracy(under.x, empty.x, 0.5);
 	XCTAssertEqualWithAccuracy(under.y, empty.y, 0.5);
@@ -414,7 +495,19 @@
 		XCTAssertTrue(NSEqualRects(shape.bounds, [before[i++] rectValue]));
 	}
 
-	/* Shift-drag still draws a band: around a shape in view, it selects it. */
+	/* The middle button pans too. */
+	visible = [canvas visibleRect];
+	NSEvent *(^other)(NSEventType, NSPoint) = ^NSEvent *(NSEventType type, NSPoint at) {
+		return [NSEvent mouseEventWithType:type location:at modifierFlags:0 timestamp:0 windowNumber:[window windowNumber]
+		                           context:nil eventNumber:0 clickCount:1 pressure:1];
+	};
+	[canvas otherMouseDown:other(NSEventTypeOtherMouseDown, up)];
+	[canvas otherMouseDragged:other(NSEventTypeOtherMouseDragged, down)];
+	[canvas otherMouseUp:other(NSEventTypeOtherMouseUp, down)];
+	XCTAssertFalse(NSEqualRects([canvas visibleRect], visible));
+
+	/* A plain drag on nothing draws a band: around a shape in view, it
+	 * selects it. */
 	visible = [canvas visibleRect];
 	ORMShape *inView = nil;
 	for (ORMShape *shape in [canvas diagram].shapes) {
@@ -425,10 +518,7 @@
 	XCTAssertNotNil(inView);
 	NSPoint corner = NSMakePoint(NSMinX(inView.bounds) - 5, NSMinY(inView.bounds) - 5);
 	NSPoint far = NSMakePoint(NSMaxX(inView.bounds) + 5, NSMaxY(inView.bounds) + 5);
-	NSEvent *press = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:[canvas convertPoint:corner toView:nil]
-	                               modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:[window windowNumber]
-	                                     context:nil eventNumber:0 clickCount:1 pressure:1];
-	[canvas mouseDown:press];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:corner]];
 	[canvas mouseDragged:[self event:NSEventTypeLeftMouseDragged at:far]];
 	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:far]];
 	XCTAssertTrue([[canvas selectedShapes] containsObject:inView.identifier], @"%@", [canvas selectedShapes]);

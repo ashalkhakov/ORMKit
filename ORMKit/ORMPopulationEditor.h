@@ -1,6 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMEditor.h"
 
+@class ORMInstance;
+
 /* Instances to add to a model's sample population, as one change: values,
  * entity instances by what identifies them, subtype instances, and facts.
  * Each is named by the id its element will have (or an instance's the
@@ -57,7 +59,8 @@
  * model has, or a new one. */
 
 /* The instance of the object type named so, into the population: its id.
- * nil, and why, for one identified by more than one value. */
+ * nil, and why, for one named wrongly: the wrong number of values for
+ * what identifies it, or one an objectified fact type is. */
 - (NSString *)instanceOf:(NSString *)objectTypeId
                    named:(NSString *)text
                     into:(ORMSamplePopulation *)population
@@ -74,6 +77,21 @@
                  reason:(NSString **)reason;
 /* An instance of the object type, named so. Its id. */
 - (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason;
+/* An instance of an entity type identified by several values, each named
+ * by the role of its preferred identifier it plays (by id). Its id. */
+- (NSString *)addInstanceOf:(NSString *)objectTypeId
+                namedByRole:(NSDictionary<NSString *, NSString *> *)textsByRole
+                     reason:(NSString **)reason;
+/* The roles an instance of the entity type is named by when more than
+ * one value identifies it: its preferred identifier's (its supertype's,
+ * for a subtype identified as that is), in order; empty otherwise. */
+- (NSArray<ORMRole *> *)compositeRolesOf:(NSString *)objectTypeId;
+/* What an instance is named, as a table shows it and the methods above
+ * read it back: a value as it is; an entity by the values identifying it,
+ * in its preferred identifier's order, joined by ", "; a part that is
+ * itself named so in parentheses, and one with a comma, a parenthesis or a
+ * quote in quotes ('O''Neil'); a subtype's as its supertype's. */
+- (NSString *)nameOf:(ORMInstance *)instance;
 /* The instance removed, and the role instances that identify it; refused
  * while a fact has it play a role, or it identifies or is another. */
 - (BOOL)removeInstance:(NSString *)instanceId reason:(NSString **)reason;

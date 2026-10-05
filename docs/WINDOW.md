@@ -112,8 +112,12 @@ On the canvas, as in NORMA:
 - the first click on a fact type's role box selects the fact type, and the
   next click selects the role;
 - what is selected is dragged together;
-- a drag on nothing pans the drawing;
-- Shift- or Command-drag on nothing draws a band, which adds what it touches.
+- a drag on nothing draws a band, as the Finder does, and selects what it
+  touches; with Shift or Command, it adds to the selection instead;
+- Space-drag or a middle-button drag pans the drawing, as in drawing
+  programs, and so do the scroll wheel and trackpad. The HIG names no pan
+  gesture, and Command-click is its "add to the selection", so Command
+  stays that.
 
 Then **paths by clicking role boxes** on the canvas, for the Queries window.
 This is done: see **Build from the diagram** in [QUERIES.md](QUERIES.md).
