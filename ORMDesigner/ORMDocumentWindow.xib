@@ -46,6 +46,112 @@
                         <rect key="frame" x="0" y="786" width="1280" height="34"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
                         <subviews>
+                            <textField focusRingType="none" verticalHuggingPriority="750" id="alignLabel">
+                                <rect key="frame" x="6" y="9" width="40" height="16"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <textFieldCell key="cell" lineBreakMode="clipping" sendsActionOnEndEditing="YES" alignment="right" title="Align:" id="alignLabelCell">
+                                    <font key="font" metaFont="smallSystem"/>
+                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                    <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                </textFieldCell>
+                            </textField>
+                            <button toolTip="Line up the left edges" verticalHuggingPriority="750" tag="0" id="alignLeft">
+                                <rect key="frame" x="48" y="4" width="62" height="26"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <buttonCell key="cell" type="push" title="Left" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" tag="0" id="alignLeftCell">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="smallSystem"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="alignSelection:" target="-2" id="alignLeftAction"/>
+                                </connections>
+                            </button>
+                            <button toolTip="Centres on one vertical line, the first shape selected" verticalHuggingPriority="750" tag="4" id="alignCentres">
+                                <rect key="frame" x="112" y="4" width="62" height="26"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <buttonCell key="cell" type="push" title="Centre" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" tag="4" id="alignCentresCell">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="smallSystem"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="alignSelection:" target="-2" id="alignCentresAction"/>
+                                </connections>
+                            </button>
+                            <button toolTip="Line up the right edges" verticalHuggingPriority="750" tag="1" id="alignRight">
+                                <rect key="frame" x="176" y="4" width="62" height="26"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <buttonCell key="cell" type="push" title="Right" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" tag="1" id="alignRightCell">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="smallSystem"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="alignSelection:" target="-2" id="alignRightAction"/>
+                                </connections>
+                            </button>
+                            <button toolTip="Line up the top edges" verticalHuggingPriority="750" tag="2" id="alignTop">
+                                <rect key="frame" x="240" y="4" width="62" height="26"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <buttonCell key="cell" type="push" title="Top" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" tag="2" id="alignTopCell">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="smallSystem"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="alignSelection:" target="-2" id="alignTopAction"/>
+                                </connections>
+                            </button>
+                            <button toolTip="Centres on one horizontal line, the first shape selected" verticalHuggingPriority="750" tag="5" id="alignMiddles">
+                                <rect key="frame" x="304" y="4" width="62" height="26"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <buttonCell key="cell" type="push" title="Middle" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" tag="5" id="alignMiddlesCell">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="smallSystem"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="alignSelection:" target="-2" id="alignMiddlesAction"/>
+                                </connections>
+                            </button>
+                            <button toolTip="Line up the bottom edges" verticalHuggingPriority="750" tag="3" id="alignBottom">
+                                <rect key="frame" x="368" y="4" width="62" height="26"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <buttonCell key="cell" type="push" title="Bottom" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" tag="3" id="alignBottomCell">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="smallSystem"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="alignSelection:" target="-2" id="alignBottomAction"/>
+                                </connections>
+                            </button>
+                            <textField focusRingType="none" verticalHuggingPriority="750" id="distributeLabel">
+                                <rect key="frame" x="442" y="9" width="46" height="16"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <textFieldCell key="cell" lineBreakMode="clipping" sendsActionOnEndEditing="YES" alignment="right" title="Space:" id="distributeLabelCell">
+                                    <font key="font" metaFont="smallSystem"/>
+                                    <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+                                    <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
+                                </textFieldCell>
+                            </textField>
+                            <button toolTip="Space three or more evenly from left to right" verticalHuggingPriority="750" tag="6" id="distributeAcross">
+                                <rect key="frame" x="490" y="4" width="66" height="26"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <buttonCell key="cell" type="push" title="Across" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" tag="6" id="distributeAcrossCell">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="smallSystem"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="alignSelection:" target="-2" id="distributeAcrossAction"/>
+                                </connections>
+                            </button>
+                            <button toolTip="Space three or more evenly from top to bottom" verticalHuggingPriority="750" tag="7" id="distributeDown">
+                                <rect key="frame" x="558" y="4" width="66" height="26"/>
+                                <autoresizingMask key="autoresizingMask"/>
+                                <buttonCell key="cell" type="push" title="Down" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" tag="7" id="distributeDownCell">
+                                    <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                    <font key="font" metaFont="smallSystem"/>
+                                </buttonCell>
+                                <connections>
+                                    <action selector="alignSelection:" target="-2" id="distributeDownAction"/>
+                                </connections>
+                            </button>
                             <button verticalHuggingPriority="750" id="zoomOutButton">
                                 <rect key="frame" x="1212" y="4" width="30" height="26"/>
                                 <autoresizingMask key="autoresizingMask" flexibleMinX="YES"/>

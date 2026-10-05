@@ -278,6 +278,51 @@
 	}
 }
 
+/* NORMA's alignment: edges to the outermost, centres to the first,
+ * spacing even between the outermost two; what a shape carries moves with
+ * it; one change, one undo. */
+- (void)testShapesAreAligned
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *a = [self entity:@"A" mode:@"id" in:editor];
+	NSString *b = [self entity:@"B" mode:@"id" in:editor];
+	NSString *c = [self entity:@"C" mode:@"id" in:editor];
+	NSString *fact = [self fact:@[ a, b ] reading:@"{0} knows {1}" in:editor];
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	NSString *(^shape)(NSString *) = ^NSString *(NSString *element) {
+		return [[[editor.model.diagrams firstObject] shapeForSubject:element] identifier];
+	};
+	NSRect (^bounds)(NSString *) = ^NSRect(NSString *element) {
+		return [[[editor.model.diagrams firstObject] shapeForSubject:element] bounds];
+	};
+	[editor.diagramEditor setBounds:NSMakeRect(10, 10, 60, 30) ofShape:shape(a)];
+	[editor.diagramEditor setBounds:NSMakeRect(100, 50, 80, 30) ofShape:shape(b)];
+	[editor.diagramEditor setBounds:NSMakeRect(300, 200, 40, 20) ofShape:shape(c)];
+	(void)diagram;
+	NSString *reason = nil;
+	XCTAssertFalse(([editor.diagramEditor alignShapes:@[ shape(a) ] as:ORMAlignLeft reason:&reason]));
+	XCTAssertFalse(([editor.diagramEditor alignShapes:@[ shape(a), shape(b) ] as:ORMDistributeAcross reason:&reason]));
+	XCTAssertTrue(([editor.diagramEditor alignShapes:@[ shape(a), shape(b), shape(c) ] as:ORMAlignLeft reason:&reason]));
+	XCTAssertEqual(NSMinX(bounds(b)), 10.0);
+	XCTAssertEqual(NSMinX(bounds(c)), 10.0);
+	[self.undoManager undo];
+	XCTAssertEqual(NSMinX(bounds(b)), 100.0);
+	XCTAssertEqual(NSMinX(bounds(c)), 300.0);
+	XCTAssertTrue(([editor.diagramEditor alignShapes:@[ shape(b), shape(a) ] as:ORMAlignCentres reason:&reason]));
+	XCTAssertEqual(NSMidX(bounds(a)), NSMidX(bounds(b)));
+	XCTAssertEqual(NSMidX(bounds(b)), 140.0);
+	XCTAssertTrue(([editor.diagramEditor alignShapes:@[ shape(a), shape(b), shape(c) ] as:ORMDistributeDown reason:&reason]));
+	double first = NSMidY(bounds(a)), middle = NSMidY(bounds(b)), last = NSMidY(bounds(c));
+	XCTAssertEqualWithAccuracy(middle - first, last - middle, 0.001);
+	/* A fact type's reading moves with it. */
+	NSRect reading = [[[[[editor.model.diagrams firstObject] shapeForSubject:fact] relativeShapes] firstObject] bounds];
+	NSRect factBounds = bounds(fact);
+	XCTAssertTrue(([editor.diagramEditor alignShapes:@[ shape(a), shape(fact) ] as:ORMAlignTop reason:&reason]));
+	double moved = NSMinY(bounds(fact)) - NSMinY(factBounds);
+	NSRect readingNow = [[[[[editor.model.diagrams firstObject] shapeForSubject:fact] relativeShapes] firstObject] bounds];
+	XCTAssertEqualWithAccuracy(NSMinY(readingNow) - NSMinY(reading), moved, 0.001);
+}
+
 - (void)testSubtypingRefusesCycles
 {
 	ORMEditor *editor = [self newEditor];

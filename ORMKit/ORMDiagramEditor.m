@@ -372,6 +372,104 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	}];
 }
 
+- (BOOL)alignShapes:(NSArray<NSString *> *)shapeIds as:(ORMAlignment)alignment reason:(NSString **)reason
+{
+	NSMutableArray<ORMShape *> *shapes = [NSMutableArray array];
+	for (NSString *shapeId in shapeIds) {
+		ORMShape *shape = [_editor.model elementWithId:shapeId];
+		if ([shape isKindOfClass:[ORMShape class]] && ![shapes containsObject:shape]) {
+			[shapes addObject:shape];
+		}
+	}
+	BOOL distributes = alignment == ORMDistributeAcross || alignment == ORMDistributeDown;
+	if ([shapes count] < (distributes ? 3u : 2u)) {
+		if (reason != NULL) {
+			*reason = distributes ? @"Select three shapes or more to space evenly." : @"Select two shapes or more to align.";
+		}
+		return NO;
+	}
+	/* Where each goes: its offset. */
+	NSMutableArray<NSValue *> *deltas = [NSMutableArray array];
+	ORMShape *first = [shapes firstObject];
+	double minX = INFINITY, maxX = -INFINITY, minY = INFINITY, maxY = -INFINITY;
+	for (ORMShape *shape in shapes) {
+		minX = MIN(minX, NSMinX(shape.bounds));
+		maxX = MAX(maxX, NSMaxX(shape.bounds));
+		minY = MIN(minY, NSMinY(shape.bounds));
+		maxY = MAX(maxY, NSMaxY(shape.bounds));
+	}
+	NSArray *order = shapes;
+	if (distributes) {
+		BOOL across = alignment == ORMDistributeAcross;
+		order = [shapes sortedArrayUsingComparator:^NSComparisonResult(ORMShape *a, ORMShape *b) {
+			double p = across ? NSMidX(a.bounds) : NSMidY(a.bounds);
+			double q = across ? NSMidX(b.bounds) : NSMidY(b.bounds);
+			return p < q ? NSOrderedAscending : (p > q ? NSOrderedDescending : NSOrderedSame);
+		}];
+	}
+	for (NSUInteger i = 0; i < [order count]; i++) {
+		NSRect bounds = [[order objectAtIndex:i] bounds];
+		NSSize delta = NSZeroSize;
+		switch (alignment) {
+		case ORMAlignLeft:
+			delta.width = minX - NSMinX(bounds);
+			break;
+		case ORMAlignRight:
+			delta.width = maxX - NSMaxX(bounds);
+			break;
+		case ORMAlignTop:
+			delta.height = minY - NSMinY(bounds);
+			break;
+		case ORMAlignBottom:
+			delta.height = maxY - NSMaxY(bounds);
+			break;
+		case ORMAlignCentres:
+			delta.width = NSMidX(first.bounds) - NSMidX(bounds);
+			break;
+		case ORMAlignMiddles:
+			delta.height = NSMidY(first.bounds) - NSMidY(bounds);
+			break;
+		case ORMDistributeAcross:
+		case ORMDistributeDown: {
+			BOOL across = alignment == ORMDistributeAcross;
+			double start = across ? NSMidX([[order firstObject] bounds]) : NSMidY([[order firstObject] bounds]);
+			double end = across ? NSMidX([[order lastObject] bounds]) : NSMidY([[order lastObject] bounds]);
+			double at = start + (end - start) * (double)i / (double)([order count] - 1);
+			if (across) {
+				delta.width = at - NSMidX(bounds);
+			} else {
+				delta.height = at - NSMidY(bounds);
+			}
+			break;
+		}
+		}
+		[deltas addObject:[NSValue valueWithSize:delta]];
+	}
+	NSArray *names = @[ @"Align Left Edges", @"Align Right Edges", @"Align Tops", @"Align Bottoms", @"Align Centres",
+		                @"Align Middles", @"Distribute Across", @"Distribute Down" ];
+	/* Each shape and what it carries, where it goes: worked out before the
+	 * change, from the model as it is. */
+	NSMutableArray *moves = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [order count]; i++) {
+		NSSize delta = [[deltas objectAtIndex:i] sizeValue];
+		if (delta.width == 0 && delta.height == 0) {
+			continue;
+		}
+		for (ORMShape *shape in [self movedShapes:@[ [[order objectAtIndex:i] identifier] ]]) {
+			[moves addObject:@[ shape.element, ORMFormatBounds(NSOffsetRect(shape.bounds, delta.width, delta.height)) ]];
+		}
+	}
+	if ([moves count] == 0) {
+		return YES;
+	}
+	[_editor change:[names objectAtIndex:(NSUInteger)alignment] with:^{
+		for (NSArray *move in moves) {
+			ORMSetAttribute([move firstObject], @"AbsoluteBounds", [move lastObject]);
+		}
+	}];
+	return YES;
+}
+
 - (void)setBounds:(NSRect)bounds ofShape:(NSString *)shapeId
 {
 	ORMShape *shape = [_editor.model elementWithId:shapeId];

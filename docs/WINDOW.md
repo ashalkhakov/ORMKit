@@ -84,8 +84,14 @@ on 2026-10-05, and the steps to get there. It follows RDLDesigner's window
    - Choosing an issue or a sentence shows its element, on the page that
      shows it. A rule's id opens the Queries window on that rule.
    - Not yet: readings that do not read; ORMKit has no checker for them.
-3. **Alignment:** `-[ORMDiagramEditor alignShapes:how:]` and
-   `distributeShapes:`, and their buttons.
+3. **Done: alignment.**
+   - `-[ORMDiagramEditor alignShapes:as:reason:]` lines up the shapes
+     selected, each moving with what it carries, as one change:
+     - edges to the outermost shape's;
+     - centres to the first shape selected;
+     - three or more spaced evenly, across or down.
+   - The top bar has **Align:** Left, Centre, Right, Top, Middle, Bottom, and
+     **Space:** Across, Down.
 4. **The lower tabs:**
    - Verbalization and Fact entry as tabs, the page popup alone.
    - Population, with `ORMPopulationEditor` editing single facts and values.

@@ -157,6 +157,17 @@ static const double ORMFactBarHeight = 30;
 	}
 }
 
+/* The top bar's alignment (docs/WINDOW.md): the shapes selected, lined up
+ * as the button's tag says (ORMAlignment). */
+- (IBAction)alignSelection:(id)sender
+{
+	NSString *reason = nil;
+	if (![[self editor].diagramEditor alignShapes:_canvas.selectedShapes as:(ORMAlignment)[sender tag] reason:&reason]) {
+		NSBeep();
+		[self say:reason];
+	}
+}
+
 - (void)insertPalette:(ORMInsertPalette *)palette didChooseTool:(ORMCanvasTool)tool
 {
 	(void)palette;

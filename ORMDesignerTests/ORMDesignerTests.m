@@ -237,6 +237,26 @@
 	XCTAssertEqualObjects(_controller.inspector.elementId, [[issues.issues objectAtIndex:row] elementId]);
 }
 
+/* The top bar aligns the shapes selected: one change, one undo. */
+- (void)testTheTopBarAlignsTheSelection
+{
+	[self open:@"StockMate.orm"];
+	ORMModel *model = _document.editor.model;
+	NSString *product = [[model objectTypeNamed:@"Product"] identifier];
+	NSString *barcode = [[model objectTypeNamed:@"Barcode"] identifier];
+	[_controller.canvas selectElements:@[ product, barcode ]];
+	XCTAssertEqual([_controller.canvas.selectedShapes count], 2u);
+	double before = NSMinX([[[_controller.canvas diagram] shapeForSubject:barcode] bounds]);
+	NSButton *left = [[NSButton alloc] init];
+	[left setTag:ORMAlignLeft];
+	[_controller alignSelection:left];
+	NSRect a = [[[_controller.canvas diagram] shapeForSubject:product] bounds];
+	NSRect b = [[[_controller.canvas diagram] shapeForSubject:barcode] bounds];
+	XCTAssertEqual(NSMinX(a), NSMinX(b));
+	[[_document undoManager] undo];
+	XCTAssertEqual(NSMinX([[[_controller.canvas diagram] shapeForSubject:barcode] bounds]), before);
+}
+
 - (void)testTheFactEditorAddsToTheDiagram
 {
 	[self open:@"StockMate.orm"];
