@@ -531,16 +531,24 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		id group = [[self valuesAt:value.groupPath object:read bindings:bindings] firstObject];
 		NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.column ?: @""];
 		NSMutableArray *values = [NSMutableArray array];
+		NSMutableSet *distinct = [NSMutableSet set];
 		NSUInteger set = 0;
 		for (NSArray *row in [self rowsOf:value group:group]) {
 			id each = column != NSNotFound ? [row objectAtIndex:column] : [NSNull null];
 			set += each != [NSNull null];
+			if (each != [NSNull null]) {
+				[distinct addObject:each];
+			}
 			if ([each isKindOfClass:[NSNumber class]]) {
 				[values addObject:each];
 			}
 		}
 		if ([value.function isEqualToString:@"count"]) {
 			return @(set);
+		}
+		if ([value.function isEqualToString:@"value"]) {
+			/* The one value; none where there is none, or more than one. */
+			return [distinct count] == 1 ? [distinct anyObject] : nil;
 		}
 		if ([values count] == 0) {
 			return [value.function isEqualToString:@"sum"] ? @0 : nil;
@@ -710,8 +718,10 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		NSArray *tuples = @[ @[] ];
 		for (ORMPlanColumn *column in _plan.columns) {
 			NSMutableArray *next = [NSMutableArray array];
+			NSArray *values = column.value != nil ? @[ [self firstAt:column.value object:read bindings:way] ?: [NSNull null] ]
+			                                      : [self valuesAt:[column valuePath] object:read bindings:way];
 			for (NSArray *tuple in tuples) {
-				for (id value in [self valuesAt:[column valuePath] object:read bindings:way]) {
+				for (id value in values) {
 					[next addObject:[tuple arrayByAddingObject:[value isKindOfClass:[ORMODataObject class]]
 					                                               ? ((ORMODataObject *)value).json : value]];
 				}
@@ -1873,6 +1883,11 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	_collectionPath = [_mapper collectionPathForEntity:_read];
 	_rows = [[ORMODataRows alloc] initWithPlan:_plan read:_read mapper:_mapper];
 	[self requestBagsOf:_plan.condition];
+	for (ORMPlanColumn *column in _plan.columns) {
+		if (column.value != nil) {
+			[self requestBagsOf:[ORMPlanCondition compare:column.value comparison:@"=" with:column.value]];
+		}
+	}
 	if ([[self keyOf:_read] count] == 0) {
 		[self note:[NSString stringWithFormat:@"%@ has no key in OData, so the service does not serve it: map it with "
 		                                      @"ServeOData.", _read.name]];
@@ -1920,7 +1935,16 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 - (BOOL)selectInto:(ODataMutableQueryOptions *)options
 {
 	ORMODataLevel *top = [ORMODataLevel levelOf:_read];
+	NSMutableArray *computed = [NSMutableArray array];
 	for (ORMPlanColumn *column in _plan.columns) {
+		if (column.value != nil) {
+			/* Computed: what its group is, read. */
+			[computed addObjectsFromArray:[_rows pathsOf:[ORMPlanCondition compare:column.value comparison:@"="
+			                                                                   with:column.value]
+			                                         from:nil]];
+			[_columnWire addObject:@[]];
+			continue;
+		}
 		ORMODataLevel *level = top;
 		NSEntityDescription *at = _read;
 		NSArray *keys = column.trail;
@@ -1953,6 +1977,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	}
 	/* What the page joins compare and check, and what the rows look at. */
 	NSMutableArray *read = [NSMutableArray arrayWithArray:[_rows neededPaths]];
+	[read addObjectsFromArray:computed];
 	for (ORMPlanCondition *check in _checks) {
 		[read addObjectsFromArray:[_rows pathsOf:check from:nil]];
 	}

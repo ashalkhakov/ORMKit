@@ -602,13 +602,28 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	return self;
 }
 
++ (instancetype)columnTitled:(NSString *)title node:(NSString *)nodeId value:(ORMPlanValue *)value
+{
+	ORMPlanColumn *column = [[self alloc] init];
+	column->_title = [title copy];
+	column->_nodeId = [nodeId copy];
+	column->_value = value;
+	return column;
+}
+
 - (ORMPlanPath *)valuePath
 {
+	if (_value != nil) {
+		return nil;
+	}
 	return _identifierKey != nil ? [_path pathByAddingKey:_identifierKey] : _path;
 }
 
 - (NSString *)description
 {
+	if (_value != nil) {
+		return [_value description];
+	}
 	return _identifierKey != nil ? [NSString stringWithFormat:@"%@ (%@)", _path, _identifierKey] : [_path description];
 }
 
@@ -651,6 +666,10 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 {
 	NSMutableArray *listed = [NSMutableArray array];
 	for (ORMPlanColumn *column in self.columns) {
+		if (column.value != nil) {
+			/* Computed of the object read: listed with it, or not at all. */
+			continue;
+		}
 		if (column.path.variable != nil) {
 			return nil;
 		}
@@ -736,7 +755,7 @@ ORMHasPrefix(NSArray *path, NSArray *prefix)
 - (BOOL)listsTheObjectRead
 {
 	for (ORMPlanColumn *column in self.columns) {
-		if (column.path.variable == nil && [column.path.keys count] == 0) {
+		if (column.value == nil && column.path.variable == nil && [column.path.keys count] == 0) {
 			return YES;
 		}
 	}
@@ -917,6 +936,11 @@ ORMConditionList(ORMPlanCondition *condition)
 	}
 	NSMutableArray *columns = [NSMutableArray array];
 	for (ORMPlanColumn *column in _columns) {
+		if (column.value != nil) {
+			[columns addObject:@{ @"title": column.title ?: @"", @"node": column.nodeId ?: @"",
+			                      @"value": ORMValueList(column.value) }];
+			continue;
+		}
 		NSMutableDictionary *item = [NSMutableDictionary dictionaryWithObjectsAndKeys:column.title ?: @"", @"title",
 		                                                 column.nodeId ?: @"", @"node", ORMPathList(column.path), @"path",
 		                                                 column.trail, @"trail", nil];
@@ -1196,6 +1220,15 @@ ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined
 	}
 	NSMutableArray *columns = [NSMutableArray array];
 	for (id item in [list objectForKey:@"columns"] ?: @[]) {
+		if ([item isKindOfClass:[NSDictionary class]] && [item objectForKey:@"value"] != nil) {
+			ORMPlanValue *value = ORMReadValueIn([item objectForKey:@"value"], visible, reason);
+			if (value == nil) {
+				return nil;
+			}
+			[columns addObject:[ORMPlanColumn columnTitled:[item objectForKey:@"title"] node:[item objectForKey:@"node"]
+			                                         value:value]];
+			continue;
+		}
 		ORMPlanPath *path = [item isKindOfClass:[NSDictionary class]] ? ORMReadPath([item objectForKey:@"path"], reason) : nil;
 		id identifier = [item isKindOfClass:[NSDictionary class]] ? [item objectForKey:@"identifier"] : nil;
 		if (path == nil || (identifier != nil && !ORMPlanIsName(identifier))) {

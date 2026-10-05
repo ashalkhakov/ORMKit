@@ -864,6 +864,11 @@ ORMBagKey(ORMPlanValue *value)
 	if ([value.function isEqualToString:@"count"]) {
 		return @([values count]);
 	}
+	if ([value.function isEqualToString:@"value"]) {
+		/* The one value; none where there is none, or more than one. */
+		NSSet *distinct = [NSSet setWithArray:values];
+		return [distinct count] == 1 ? [distinct anyObject] : nil;
+	}
 	if ([values count] == 0) {
 		return [value.function isEqualToString:@"sum"] ? @0 : nil;
 	}
@@ -1172,7 +1177,9 @@ ORMBagKey(ORMPlanValue *value)
 	for (NSDictionary *way in ways) {
 		NSArray *tuples = @[ @[] ];
 		for (ORMPlanColumn *column in self.plan.columns) {
-			NSArray *values = [self valuesAt:[column valuePath] object:object bindings:way];
+			NSArray *values = column.value != nil
+				? @[ [self value:column.value object:object bindings:way] ?: [NSNull null] ]
+				: [self valuesAt:[column valuePath] object:object bindings:way];
 			NSMutableArray *next = [NSMutableArray array];
 			for (NSArray *tuple in tuples) {
 				for (id value in values) {
@@ -1245,6 +1252,12 @@ ORMBagKey(ORMPlanValue *value)
 	NSMutableArray *bags = [NSMutableArray array];
 	for (ORMPlanCondition *check in checked) {
 		[self collectBags:check into:bags];
+	}
+	/* And those computed columns are of. */
+	for (ORMPlanColumn *column in self.plan.columns) {
+		if (column.value != nil) {
+			[self collectBags:[ORMPlanCondition compare:column.value comparison:@"=" with:column.value] into:bags];
+		}
 	}
 	_bagValues = bags;
 	/* The joins the checks probe, each read for a batch where the batch's

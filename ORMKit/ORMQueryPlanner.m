@@ -212,6 +212,9 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	if (!query.isComplete && _bagNodes == nil) {
 		[self note:@"Something the query goes through is no longer in the model, and is left out."];
 	}
+	if (query.kind == ORMQueryCalculation && _bagNodes == nil) {
+		return [self plannedCalculation:entity];
+	}
 	ORMPlanCondition *condition = [self conditionFor:root entity:entity
 	                                              at:[ORMPlannerPlace variable:nil entity:_read trail:@[]] columns:YES];
 	/* Each column titled by its node, with its label ("Employee2"); two
@@ -240,6 +243,35 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	}
 	return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:[self sorts] notes:_notes
 	                     definitions:_definitions];
+}
+
+/* A calculation (docs/RULES.md): every object of the root's type, and its
+ * value, the function of the node's values over the query's bag for it. */
+- (ORMQueryPlan *)plannedCalculation:(ORMCDEntity *)entity
+{
+	ORMQuery *query = _query;
+	ORMQueryNode *root = query.root;
+	_read = entity;
+	ORMPlannerPlace *at = [ORMPlannerPlace variable:nil entity:entity trail:@[]];
+	[self reach:root place:at];
+	ORMCDAttribute *identifier = [_places identifierOf:root.objectType on:entity];
+	NSMutableArray *columns = [NSMutableArray arrayWithObject:[ORMPlanColumn columnTitled:[root designation]
+	                                                                                 node:root.identifier
+	                                                                                 path:at.path
+	                                                                                trail:@[]
+	                                                                           identifier:identifier.name]];
+	ORMQueryNode *node = query.calculatedNode;
+	if (node == nil) {
+		[self note:[NSString stringWithFormat:@"%@ says of no node what it computes.", query.name]];
+	} else {
+		NSArray *functions = @[ @"value", @"count", @"sum", @"average", @"max", @"min" ];
+		ORMPlanValue *value = [self aggregate:[functions objectAtIndex:(NSUInteger)query.calculationFunction] of:node
+		                                  for:root];
+		if (value != nil) {
+			[columns addObject:[ORMPlanColumn columnTitled:query.name node:node.identifier value:value]];
+		}
+	}
+	return [ORMQueryPlan planReading:entity.name where:nil columns:columns sorts:@[] notes:_notes definitions:_definitions];
 }
 
 /* A set named in the plan, its plan reading the entity. */

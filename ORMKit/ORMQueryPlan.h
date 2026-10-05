@@ -216,8 +216,14 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *trail;
 @property (nonatomic, readonly, copy) NSString *identifierKey;
-/* The path to the column's value: the path, and the identifier's key. */
+/* The path to the column's value: the path, and the identifier's key; nil
+ * for a computed column. */
 - (ORMPlanPath *)valuePath;
+/* A column computed for each object read, not read from a path: a
+ * calculation's value (docs/RULES.md), an aggregate of a bag the plan
+ * defines. */
++ (instancetype)columnTitled:(NSString *)title node:(NSString *)nodeId value:(ORMPlanValue *)value;
+@property (nonatomic, readonly, strong) ORMPlanValue *value;
 @end
 
 @interface ORMPlanSort : NSObject <NSCopying>

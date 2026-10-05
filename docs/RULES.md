@@ -9,7 +9,7 @@ Both are said in the model's terms, verbalized, checked against sample
 populations, and run against a store or a service. Constraints also become
 validation code.
 
-This is a design, being built: steps 1 to 3 are done ([Steps](#steps)).
+This is a design, being built: steps 1 to 4 are done ([Steps](#steps)).
 
 ## Why
 
@@ -186,8 +186,20 @@ which objects the rule depends on. The notes call such a constraint
      check. It exits with 1 when an alethic constraint or rule is broken.
    - The Company sample has a deontic rule, "Lives near work", that Gus
      breaks. The fixture builder rejects only alethic violations.
-4. **Calculations computed:** computed plan columns, in both evaluators and
-   both backends, and in `ormtool query`.
+4. **Done: calculations computed.**
+   - A calculation's plan reads every object of the root's type, with no
+     condition, and lists the object and a computed column: an
+     `ORMPlanColumn` with a `value`, the bag lookup aggregates use.
+   - Both evaluators compute it in rows, and read its bag for each batch,
+     as they do a condition's.
+   - The `value` function is the one value, and none where there is none or
+     more than one.
+   - `testCalculationsAreComputed` covers each branch's total salary and
+     head's name, and each country's total. A salary two of its employees
+     share counts for each.
+   - Not yet done: reporting a `Value` calculation with more than one value
+     (the table above says the population check does). Today it is only
+     empty.
 5. **The designer:** Kind, Modality, Function and Of in the Queries window;
    violations and values in the Results tab.
 6. **Validation code** for constraints whose condition the store can say.

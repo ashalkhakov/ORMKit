@@ -1425,6 +1425,56 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* Calculations (docs/RULES.md): each branch's total salary, and the name of
+ * the employee who heads it, its one value; each country's total of what
+ * the employees born in it earn, a salary once for each employee, though
+ * Bea and Cal (Australia), and Dee and Eve (USA), earn the same one. Every
+ * branch and country, from the store and from the service. */
+- (void)testCalculationsAreComputed
+{
+	NSString *total = [[self queries] addQueryNamed:@"TotalSalary" from:[self typeId:@"Branch"] reason:NULL];
+	ORMQueryNode *employee = [self from:[self root:total].identifier through:[self role:@"worksFor" at:1] in:total];
+	ORMQueryNode *salary = [self from:employee.identifier through:[self role:@"earns" at:0] in:total];
+	XCTAssertTrue([[self queries] setKind:ORMQueryCalculation ofQuery:total reason:NULL]);
+	XCTAssertTrue([[self queries] setCalculation:ORMCalculationTotal ofNode:salary.identifier inQuery:total reason:NULL]);
+	NSString *head = [[self queries] addQueryNamed:@"HeadName" from:[self typeId:@"Branch"] reason:NULL];
+	ORMQueryNode *heads = [self from:[self root:head].identifier through:[self role:@"heads" at:1] in:head];
+	ORMQueryNode *name = [self from:heads.identifier through:[self role:@"hasName" at:0] in:head];
+	XCTAssertTrue([[self queries] setKind:ORMQueryCalculation ofQuery:head reason:NULL]);
+	XCTAssertTrue([[self queries] setCalculation:ORMCalculationValue ofNode:name.identifier inQuery:head reason:NULL]);
+
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:total]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertNil(plan.condition, @"%@", [plan text]);
+	XCTAssertTrue([[plan text] hasSuffix:@"list self (nr), sum of Salary in bag1 where Branch is nr"], @"%@", [plan text]);
+	XCTAssertEqualObjects([[ORMQueryPlan planWithPropertyList:[plan propertyList] error:NULL] text], [plan text]);
+	ORMQueryPlan *headPlan = [planner planForQuery:[self query:head]];
+	XCTAssertEqual([headPlan.notes count], 0u, @"%@", headPlan.notes);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	NSArray *served = nil;
+	NSArray *totals = @[ @[ @7, @1150000 ], @[ @52, @1100000 ], @[ @101, @50000 ], @[ @102, @50000 ] ];
+	XCTAssertEqualObjects([self rowsOf:plan planner:planner twoAtATimeIn:context service:&served], totals);
+	XCTAssertEqualObjects(served, totals);
+	NSArray *names = @[ @[ @7, @"E2" ], @[ @52, @"E1" ], @[ @101, @"E4" ], @[ @102, @"E5" ] ];
+	XCTAssertEqualObjects([self rowsOf:headPlan planner:planner twoAtATimeIn:context service:&served], names);
+	XCTAssertEqualObjects(served, names);
+	NSString *born = [[self queries] addQueryNamed:@"NativesEarn" from:[self typeId:@"Country"] reason:NULL];
+	ORMQueryNode *native = [self from:[self root:born].identifier through:[self role:@"bornIn" at:1] in:born];
+	ORMQueryNode *earned = [self from:native.identifier through:[self role:@"earns" at:0] in:born];
+	XCTAssertTrue([[self queries] setKind:ORMQueryCalculation ofQuery:born reason:NULL]);
+	XCTAssertTrue([[self queries] setCalculation:ORMCalculationTotal ofNode:earned.identifier inQuery:born reason:NULL]);
+	ORMQueryPlan *bornPlan = [planner planForQuery:[self query:born]];
+	XCTAssertEqual([bornPlan.notes count], 0u, @"%@", bornPlan.notes);
+	NSSet *natives = [NSSet setWithArray:@[ @[ @"Australia", @1600000 ], @[ @"UK", @650000 ], @[ @"USA", @100000 ] ]];
+	XCTAssertEqualObjects([NSSet setWithArray:[self rowsOf:bornPlan planner:planner twoAtATimeIn:context service:&served]],
+	                      natives);
+	XCTAssertEqualObjects([NSSet setWithArray:served], natives);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* Queries are in the document: saved, undone, and left out of what is
  * written for NORMA. */
 - (void)testQueriesAreInTheDocument
