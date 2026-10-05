@@ -9,6 +9,7 @@ typedef NS_ENUM(NSInteger, ORMGesture) {
 	ORMGestureBand,
 	ORMGestureSubtype,
 	ORMGestureConnect,
+	ORMGesturePan,
 };
 
 /* What is under a point: the shape, and the role box when it is one. */
@@ -33,6 +34,9 @@ static const double ORMCanvasMargin = 240.0;
 	ORMGesture _gesture;
 	NSPoint _down;
 	NSPoint _at;
+	/* Where a pan last had the pointer, in the window: the drawing moves
+	 * under it. */
+	NSPoint _panFrom;
 	ORMHit *_downHit;
 	NSString *_hover;
 	NSTextField *_renamer;
@@ -430,6 +434,7 @@ static const double ORMCanvasMargin = 240.0;
 	NSPoint point = [self pointOf:event];
 	_down = point;
 	_at = point;
+	_panFrom = [event locationInWindow];
 	ORMHit *hit = [self hitAt:point];
 	_downHit = hit;
 	_clickedRole = [hit.role.identifier copy];
@@ -520,12 +525,17 @@ static const double ORMCanvasMargin = 240.0;
 - (void)pointerDown:(ORMHit *)hit extend:(BOOL)extend
 {
 	if (hit == nil) {
-		if (!extend) {
-			[_selectedShapes removeAllObjects];
-			[_selectedRoles removeAllObjects];
-			[self selectionChanged];
+		if (extend) {
+			/* Shift or Command: a band adds what it touches. */
+			_gesture = ORMGestureBand;
+			return;
 		}
-		_gesture = ORMGestureBand;
+		/* As NORMA: a drag on nothing pans the drawing. */
+		[_selectedShapes removeAllObjects];
+		[_selectedRoles removeAllObjects];
+		[self selectionChanged];
+		_gesture = ORMGesturePan;
+		[[NSCursor closedHandCursor] push];
 		return;
 	}
 	NSString *shapeId = hit.shape.identifier;
@@ -573,6 +583,10 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)mouseDragged:(NSEvent *)event
 {
+	if (_gesture == ORMGesturePan) {
+		[self panTo:[event locationInWindow]];
+		return;
+	}
 	_at = [self pointOf:event];
 	[self autoscroll:event];
 	if (_gesture == ORMGestureConnect || _gesture == ORMGestureSubtype) {
@@ -605,10 +619,34 @@ static const double ORMCanvasMargin = 240.0;
 	case ORMGestureConnect:
 		[self finishConnect];
 		break;
+	case ORMGesturePan:
+		[NSCursor pop];
+		break;
 	case ORMGestureNone:
 		break;
 	}
 	[self setNeedsDisplay:YES];
+}
+
+/* The drawing scrolled so that what was under the pointer stays under it,
+ * as far as there is drawing to show. */
+- (void)panTo:(NSPoint)location
+{
+	NSScrollView *scroll = [self enclosingScrollView];
+	NSClipView *clip = [scroll contentView];
+	if (clip == nil) {
+		return;
+	}
+	NSPoint from = [clip convertPoint:_panFrom fromView:nil];
+	NSPoint to = [clip convertPoint:location fromView:nil];
+	_panFrom = location;
+	NSRect visible = [clip bounds];
+	NSRect document = [[clip documentView] frame];
+	NSPoint origin = NSMakePoint(NSMinX(visible) - (to.x - from.x), NSMinY(visible) - (to.y - from.y));
+	origin.x = MAX(NSMinX(document), MIN(origin.x, NSMaxX(document) - NSWidth(visible)));
+	origin.y = MAX(NSMinY(document), MIN(origin.y, NSMaxY(document) - NSHeight(visible)));
+	[clip scrollToPoint:origin];
+	[scroll reflectScrolledClipView:clip];
 }
 
 - (void)selectInBand

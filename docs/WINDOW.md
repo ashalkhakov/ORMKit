@@ -105,5 +105,12 @@ on 2026-10-05, and the steps to get there. It follows RDLDesigner's window
    - What it refuses, or the checker's violations for that fact type, show
      under the table. Each edit is one `ORMPopulationEditor` change.
 
+On the canvas, as in NORMA:
+- the first click on a fact type's role box selects the fact type, and the
+  next click selects the role;
+- what is selected is dragged together;
+- a drag on nothing pans the drawing;
+- Shift- or Command-drag on nothing draws a band, which adds what it touches.
+
 Then **paths by clicking role boxes** on the canvas, for the Queries window.
 This is done: see **Build from the diagram** in [QUERIES.md](QUERIES.md).

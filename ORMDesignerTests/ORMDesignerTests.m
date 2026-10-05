@@ -360,6 +360,80 @@
 	XCTAssertEqual(NSMinX([[[canvas diagram] shapeForSubject:product] bounds]), NSMinX(productBefore));
 }
 
+/* As NORMA: a drag on nothing pans the drawing, what was under the pointer
+ * staying under it; nothing is selected or moved. Shift-drag draws a band. */
+- (void)testDraggingOnNothingPans
+{
+	[self open:@"StockMate.orm"];
+	ORMCanvasView *canvas = _controller.canvas;
+	NSScrollView *scroll = [canvas enclosingScrollView];
+	XCTAssertNotNil(scroll);
+	/* Somewhere in the middle, so there is room to pan every way. */
+	NSRect all = [canvas bounds];
+	NSRect visible = [canvas visibleRect];
+	[canvas scrollPoint:NSMakePoint(NSMidX(all) - NSWidth(visible) / 2, NSMidY(all) - NSHeight(visible) / 2)];
+	visible = [canvas visibleRect];
+	XCTAssertLessThan(NSWidth(visible), NSWidth(all));
+	/* A point in view, well away from every shape. */
+	NSPoint empty = NSZeroPoint;
+	BOOL found = NO;
+	for (double y = NSMinY(visible) + 40; y < NSMaxY(visible) - 40 && !found; y += 10) {
+		for (double x = NSMinX(visible) + 40; x < NSMaxX(visible) - 40 && !found; x += 10) {
+			NSRect around = NSMakeRect(x - 20, y - 20, 40, 40);
+			found = YES;
+			for (ORMShape *shape in [canvas diagram].shapes) {
+				if (NSIntersectsRect(around, shape.bounds)) {
+					found = NO;
+				}
+			}
+			empty = NSMakePoint(x, y);
+		}
+	}
+	XCTAssertTrue(found);
+	NSMutableArray *before = [NSMutableArray array];
+	for (ORMShape *shape in [canvas diagram].shapes) {
+		[before addObject:[NSValue valueWithRect:shape.bounds]];
+	}
+	NSPoint down = [canvas convertPoint:empty toView:nil];
+	NSPoint up = NSMakePoint(down.x - 40, down.y - 30);
+	NSWindow *window = [canvas window];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:empty]];
+	NSEvent *drag = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged location:up modifierFlags:0 timestamp:0
+	                               windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+	[canvas mouseDragged:drag];
+	NSEvent *release = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:up modifierFlags:0 timestamp:0
+	                                  windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+	[canvas mouseUp:release];
+	NSPoint under = [canvas convertPoint:up fromView:nil];
+	XCTAssertEqualWithAccuracy(under.x, empty.x, 0.5);
+	XCTAssertEqualWithAccuracy(under.y, empty.y, 0.5);
+	XCTAssertFalse(NSEqualRects([canvas visibleRect], visible));
+	XCTAssertEqual([[canvas selectedElements] count], 0u);
+	NSUInteger i = 0;
+	for (ORMShape *shape in [canvas diagram].shapes) {
+		XCTAssertTrue(NSEqualRects(shape.bounds, [before[i++] rectValue]));
+	}
+
+	/* Shift-drag still draws a band: around a shape in view, it selects it. */
+	visible = [canvas visibleRect];
+	ORMShape *inView = nil;
+	for (ORMShape *shape in [canvas diagram].shapes) {
+		if (NSContainsRect(NSInsetRect(visible, 40, 40), shape.bounds)) {
+			inView = shape;
+		}
+	}
+	XCTAssertNotNil(inView);
+	NSPoint corner = NSMakePoint(NSMinX(inView.bounds) - 5, NSMinY(inView.bounds) - 5);
+	NSPoint far = NSMakePoint(NSMaxX(inView.bounds) + 5, NSMaxY(inView.bounds) + 5);
+	NSEvent *press = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:[canvas convertPoint:corner toView:nil]
+	                               modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:[window windowNumber]
+	                                     context:nil eventNumber:0 clickCount:1 pressure:1];
+	[canvas mouseDown:press];
+	[canvas mouseDragged:[self event:NSEventTypeLeftMouseDragged at:far]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:far]];
+	XCTAssertTrue([[canvas selectedShapes] containsObject:inView.identifier], @"%@", [canvas selectedShapes]);
+}
+
 - (void)testTheFactEditorAddsToTheDiagram
 {
 	[self open:@"StockMate.orm"];
