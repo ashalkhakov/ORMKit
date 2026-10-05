@@ -225,3 +225,7 @@ query builder is the client's). The tests also link `ODataService`.
   the cursor keeps those meeting the step's conditions. With many related
   objects, `$expand=X($filter=...)` would read fewer, where the conditions do
   not refer to `$it`.
+- **A join within a join.** What a join takes of its plan is the filter
+  and the options. A joined plan that needs more (a join, a bag, or a
+  condition the filter cannot say, of its own) is refused with an error,
+  not read without them (`testAJoinWithinAJoinIsRefusedOverOData`).

@@ -53,7 +53,9 @@ answer, without waiting on a semaphore and without leaving the context's
 queue. A completion that has not been called on return is an error there.
 
 `count` asks for up to that many objects. A cursor may give fewer before
-its end (a filter drops some), and none only at the end. As in Reactive
+its end (a filter drops some), even none: a Filter that drops a whole
+batch gives an empty one. Only `atEnd` says the end; the Page reader and
+`-[ORMPlanRun next:]` read on until it, or until a batch keeps something. As in Reactive
 Streams' `request(n)`, the consumer asks for more, and nothing is read
 ahead of what it asks for.
 
@@ -188,12 +190,22 @@ run underneath does.
    is). A batch starts after the last one's values.
    - Both scans read this way: `ORMStoreScan` in the predicate and
      `ORMODataScan` in `$filter`, with the key added to `$orderby`.
-   - A scan falls back to offset in two cases:
-     - an entity with no key;
-     - a last object with a null in the order, since stores order nulls
-       differently.
-   - OData also falls back when an order attribute is no plain literal (a
-     date, a GUID).
+   - Nothing (null) is less than any value: first ascending, last
+     descending. This is how Core Data's SQLite store and the OData spec order
+     it; FreeCoreData's stores do the same. So "after" reaches nulls too:
+     - descending after x: `a < x`, or `a` is null, where `a` can be null
+       (`+[ORMSeek canBeNull:from:]` asks the entity);
+     - after a null: ascending, `a` is not null; descending, nothing more
+       of `a`, so the next part of the order decides.
+   - A scan falls back to offset for an entity with no key. OData also falls
+     back when an order attribute is no plain literal (a date, a GUID). By
+     offset, the key still comes last in the order, so objects the sorts
+     tie on come in one order across pages.
+   - A service that pages its answers itself (a next link with fewer than
+     asked for) has not ended: the scan reads on after the last one.
+   - `testASortByWhatMayBeNothingLosesNoRows` sorts descending by a branch
+     most employees head none of, two at a time, from the store, from the
+     service, and from a service that sends one object a page.
    - `testPagesResumeAfterTheLastKey` hires someone between pages, numbered
      before the bookmark. Neither backend repeats or skips anyone; by
      offset, both would.
