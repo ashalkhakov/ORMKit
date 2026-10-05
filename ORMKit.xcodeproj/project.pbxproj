@@ -129,6 +129,10 @@
 			isa = PBXBuildFile;
 			fileRef = 73D95C1CB5718ECFD903C6B1 /* ORMTestSupport.m */;
 		};
+		2CC57E57CE1D5260FA42A852 /* ORMInsertPalette.xib */ = {
+			isa = PBXBuildFile;
+			fileRef = AD981CEE7DB94AB83105E587 /* ORMInsertPalette.xib */;
+		};
 		2E8F99B003563CDF00627DF2 /* ORMQueryOData.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 6575CC7388F1A48E4069E108 /* ORMQueryOData.h */;
@@ -287,6 +291,10 @@
 			isa = PBXBuildFile;
 			fileRef = 99460512A004DF4683FCEF8F /* ORMQueryTests.m */;
 		};
+		628E779B4447415ED0EC93EF /* ORMPane.m */ = {
+			isa = PBXBuildFile;
+			fileRef = F5C8F920131BBC6F1F224F2D /* ORMPane.m */;
+		};
 		634DD5971332199291B56DFE /* ODataKit.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = F308B2510F1C0D890B6F2016 /* ODataKit.framework */;
@@ -309,6 +317,10 @@
 			fileRef = 22A37A39197D392DDE6DCA1D /* ORMPath.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		695774695C2ECFD98CCDD85E /* ORMPane.m */ = {
+			isa = PBXBuildFile;
+			fileRef = F5C8F920131BBC6F1F224F2D /* ORMPane.m */;
+		};
 		697BA58E85B51EE5C0EF320A /* ORMKit.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 1CE3B4E9C0E37597B847C022 /* ORMKit.h */;
@@ -328,6 +340,10 @@
 			isa = PBXBuildFile;
 			fileRef = 5B53E81857C96665119D7DC5 /* ORMValueConstraintParser.h */;
 			settings = {ATTRIBUTES = (Public, ); };
+		};
+		6DB97811CD61DEA41A4D67D2 /* ORMInsertPalette.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 59DCB04F17C042573F88FBA4 /* ORMInsertPalette.m */;
 		};
 		6F5CA1FFB2132B232E3CF654 /* ORMAppDelegate.m */ = {
 			isa = PBXBuildFile;
@@ -368,6 +384,10 @@
 		765DE346EBF99036206E2642 /* ORMCoreDataWindow.xib */ = {
 			isa = PBXBuildFile;
 			fileRef = 03B1F7A3F4120942622B9D0F /* ORMCoreDataWindow.xib */;
+		};
+		76A2F083C5FE9C8465EB2876 /* DMTabBar.m */ = {
+			isa = PBXBuildFile;
+			fileRef = A02CB28FA9341F5AABF71EB1 /* DMTabBar.m */;
 		};
 		7BC2CBB880964CE43801F057 /* ORMModelPriv.h */ = {
 			isa = PBXBuildFile;
@@ -477,9 +497,17 @@
 			fileRef = 8D29F219573DEF5B67555B00 /* ORMLogic.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		AC31F5E9553D84C28B7295F1 /* ORMInsertPalette.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 59DCB04F17C042573F88FBA4 /* ORMInsertPalette.m */;
+		};
 		AC7E7DC8AAE4B2AB0F3D99DD /* ORMFactTypeEditor.m */ = {
 			isa = PBXBuildFile;
 			fileRef = B244F52CD329B230FBD6B87E /* ORMFactTypeEditor.m */;
+		};
+		ACF2F14C1F78FE5900EE5B1D /* DMTabBar.m */ = {
+			isa = PBXBuildFile;
+			fileRef = A02CB28FA9341F5AABF71EB1 /* DMTabBar.m */;
 		};
 		AEF9CD6C5435A772EF9AD5ED /* ORMDesignerTests.m */ = {
 			isa = PBXBuildFile;
@@ -488,6 +516,10 @@
 		B07F3FBC7F2887E725D42BB7 /* ORMValueConstraintParser.m */ = {
 			isa = PBXBuildFile;
 			fileRef = ED06D502E8230F6A420BB42A /* ORMValueConstraintParser.m */;
+		};
+		B22FCFA30AD9F641B6C6FEAA /* DMTabBarItem.m */ = {
+			isa = PBXBuildFile;
+			fileRef = AB58A76137004B14F824168D /* DMTabBarItem.m */;
 		};
 		B5143818FD8732157969200B /* ORMPopulationEditor.h */ = {
 			isa = PBXBuildFile;
@@ -517,6 +549,10 @@
 		B92690D6D3292FC5F26E22E3 /* ORMDocumentWindow.xib */ = {
 			isa = PBXBuildFile;
 			fileRef = 1E949A0478DFF0A12FDAF766 /* ORMDocumentWindow.xib */;
+		};
+		BA6BAA66D817B8DF907E5E99 /* DMTabBarItem.m */ = {
+			isa = PBXBuildFile;
+			fileRef = AB58A76137004B14F824168D /* DMTabBarItem.m */;
 		};
 		BAC6868E1F7C155AAB760B22 /* ORMObjectTypeEditor.h */ = {
 			isa = PBXBuildFile;
@@ -553,6 +589,10 @@
 			isa = PBXBuildFile;
 			fileRef = 40CD4721407D2E4FBAA65ACF /* ORMQueryPlan.h */;
 			settings = {ATTRIBUTES = (Public, ); };
+		};
+		C71479A27392A4BF146F2710 /* ORMInsertPalette.xib */ = {
+			isa = PBXBuildFile;
+			fileRef = AD981CEE7DB94AB83105E587 /* ORMInsertPalette.xib */;
 		};
 		C7A010EF163E795053DA2D55 /* ORMRuleChecker.h */ = {
 			isa = PBXBuildFile;
@@ -741,6 +781,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = file.xib;
 			path = ORMCoreDataWindow.xib;
+			sourceTree = "<group>";
+		};
+		060C30B3CCE15101F1148F0C /* ORMInsertPalette.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMInsertPalette.h;
 			sourceTree = "<group>";
 		};
 		062FF68896E2CA759A15C8DC /* ORMQueryPlanner.m */ = {
@@ -1077,6 +1123,12 @@
 			path = ormtool.m;
 			sourceTree = "<group>";
 		};
+		59DCB04F17C042573F88FBA4 /* ORMInsertPalette.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMInsertPalette.m;
+			sourceTree = "<group>";
+		};
 		5B53E81857C96665119D7DC5 /* ORMValueConstraintParser.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -1296,6 +1348,13 @@
 			path = ORMQuery.h;
 			sourceTree = "<group>";
 		};
+		A02CB28FA9341F5AABF71EB1 /* DMTabBar.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			name = DMTabBar.m;
+			path = ThirdParty/DMTabBar/DMTabBar.m;
+			sourceTree = "<group>";
+		};
 		A2912B87D083B2C60E070A76 /* ORMSentenceEditor.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -1326,10 +1385,23 @@
 			path = OTelKit.framework;
 			sourceTree = BUILT_PRODUCTS_DIR;
 		};
+		AB58A76137004B14F824168D /* DMTabBarItem.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			name = DMTabBarItem.m;
+			path = ThirdParty/DMTabBar/DMTabBarItem.m;
+			sourceTree = "<group>";
+		};
 		ACF5341500A4DB8CEAF80DED /* ORMCoreDataImportTests.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMCoreDataImportTests.m;
+			sourceTree = "<group>";
+		};
+		AD981CEE7DB94AB83105E587 /* ORMInsertPalette.xib */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = file.xib;
+			path = ORMInsertPalette.xib;
 			sourceTree = "<group>";
 		};
 		AE6D64430985BCA827E2F4AB /* ORMVerbalizer+Logic.m */ = {
@@ -1397,6 +1469,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMPopulationStore.m;
+			sourceTree = "<group>";
+		};
+		BE22807BB95EEE131DE53D30 /* ORMPane.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMPane.h;
 			sourceTree = "<group>";
 		};
 		C0F919A99F0C76DE7B887762 /* ORMObjectTypeEditor.h */ = {
@@ -1604,6 +1682,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMXML.m;
+			sourceTree = "<group>";
+		};
+		F5C8F920131BBC6F1F224F2D /* ORMPane.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMPane.m;
 			sourceTree = "<group>";
 		};
 		F78ABCDC6C55F4685C4F566E /* ORMRuleChecker.h */ = {
@@ -1880,10 +1964,14 @@
 				0203E61393DC011820525F4A /* ORMCoreDataController.m */,
 				1BD60235BFFFEB2270AD79EE /* ORMDocument.h */,
 				4D541C7036B75F6CDE27732C /* ORMDocument.m */,
+				060C30B3CCE15101F1148F0C /* ORMInsertPalette.h */,
+				59DCB04F17C042573F88FBA4 /* ORMInsertPalette.m */,
 				63A309D993A10BC9B1C7C889 /* ORMInspectorView.h */,
 				B804A3D742207FD36E47391F /* ORMInspectorView.m */,
 				34BD5D65416F736251FFE0AE /* ORMModelBrowser.h */,
 				17EAEBAF92A12202869D3AD4 /* ORMModelBrowser.m */,
+				BE22807BB95EEE131DE53D30 /* ORMPane.h */,
+				F5C8F920131BBC6F1F224F2D /* ORMPane.m */,
 				EFF663103940787A2E3E1C5D /* ORMQueryController.h */,
 				E715EFC02CA131A7259F8C12 /* ORMQueryController.m */,
 				BBEE49DA623AF459C875BC11 /* ORMRenderer.h */,
@@ -1892,12 +1980,15 @@
 				73BDA4A4C10D412D6D61374F /* ORMSampleMenu.m */,
 				FE6D3079C4C0EFEC7A47A7A5 /* ORMWindowController.h */,
 				E6D02C60A7E8B7C9FA581455 /* ORMWindowController.m */,
+				A02CB28FA9341F5AABF71EB1 /* DMTabBar.m */,
+				AB58A76137004B14F824168D /* DMTabBarItem.m */,
 				FAEC6D9C026AE82C4B58B9DB /* main.m */,
 				5FB382E95CD0DEC728DF4FAC /* ORMDesigner.png */,
 				9B4DBA577B59C4FD6946E407 /* MainMenu.xib */,
 				96F662D60F2A361B6131420E /* ORMQueryWindow.xib */,
 				03B1F7A3F4120942622B9D0F /* ORMCoreDataWindow.xib */,
 				1E949A0478DFF0A12FDAF766 /* ORMDocumentWindow.xib */,
+				AD981CEE7DB94AB83105E587 /* ORMInsertPalette.xib */,
 				D711E759700637DA41F98E72 /* Samples */,
 				6B2E3F09A4B47656091F7CF0 /* ActiveFacts */,
 				3C1726E2FC3F6CF80B0834BA /* StockMate.orm */,
@@ -2091,6 +2182,7 @@
 				3E6DB197300AA70096AE643B /* ORMQueryWindow.xib */,
 				765DE346EBF99036206E2642 /* ORMCoreDataWindow.xib */,
 				B92690D6D3292FC5F26E22E3 /* ORMDocumentWindow.xib */,
+				C71479A27392A4BF146F2710 /* ORMInsertPalette.xib */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2103,6 +2195,7 @@
 				5DAC765E6C4C76F62BB189EC /* ORMQueryWindow.xib */,
 				592D80B5D49719E9A17E49C5 /* ORMCoreDataWindow.xib */,
 				743EBF4B19D84D4AA842CA7A /* ORMDocumentWindow.xib */,
+				2CC57E57CE1D5260FA42A852 /* ORMInsertPalette.xib */,
 				D168115F32EC066EDB5712D6 /* Samples */,
 				B80459DC79B9783F55045E56 /* ActiveFacts */,
 				60AA3CFA894F84306DC0E0D3 /* StockMate.orm */,
@@ -2175,6 +2268,10 @@
 				CD7E7D3DDC751B186400728C /* ORMCoreDataController.m */,
 				48F4B6D04CAFA5EAB5CDC811 /* ORMQueryController.m */,
 				D27A6179B05FED4C532D5D0A /* ORMSampleMenu.m */,
+				695774695C2ECFD98CCDD85E /* ORMPane.m */,
+				6DB97811CD61DEA41A4D67D2 /* ORMInsertPalette.m */,
+				76A2F083C5FE9C8465EB2876 /* DMTabBar.m */,
+				BA6BAA66D817B8DF907E5E99 /* DMTabBarItem.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2201,6 +2298,10 @@
 				44631AE35AB4FA9D84CF66C4 /* ORMCoreDataController.m */,
 				0A67F86B5F6F61B97F5BA37B /* ORMQueryController.m */,
 				B70C49E7EB4EE07DB1058EC3 /* ORMSampleMenu.m */,
+				628E779B4447415ED0EC93EF /* ORMPane.m */,
+				AC31F5E9553D84C28B7295F1 /* ORMInsertPalette.m */,
+				ACF2F14C1F78FE5900EE5B1D /* DMTabBar.m */,
+				B22FCFA30AD9F641B6C6FEAA /* DMTabBarItem.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

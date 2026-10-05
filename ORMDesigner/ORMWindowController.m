@@ -3,10 +3,13 @@
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
+#import "ORMInsertPalette.h"
+#import "ORMPane.h"
+#import "ThirdParty/DMTabBar/DMTabBar.h"
 
 static const double ORMFactBarHeight = 30;
 
-@interface ORMWindowController ()
+@interface ORMWindowController () <ORMInsertPaletteDelegate>
 @property (nonatomic, readwrite, strong) IBOutlet ORMCanvasView *canvas;
 @property (nonatomic, readwrite, strong) IBOutlet ORMInspectorView *inspector;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextView *verbalization;
@@ -24,12 +27,17 @@ static const double ORMFactBarHeight = 30;
 @property (nonatomic, strong) IBOutlet NSScrollView *inspectorScroll;
 @property (nonatomic, strong) IBOutlet NSSplitView *columnsSplit;
 @property (nonatomic, strong) IBOutlet NSSplitView *middleSplit;
+/* The navigator (docs/WINDOW.md): its tab bar and tabs, and the hosts of
+ * the panes put in them. */
+@property (nonatomic, strong) IBOutlet NSView *leftTabBar;
+@property (nonatomic, strong) IBOutlet NSTabView *leftTabView;
+@property (nonatomic, strong) IBOutlet NSView *insertHost;
+@property (nonatomic, strong) ORMInsertPalette *insertPalette;
 @end
 
 @implementation ORMWindowController
 {
 	__weak ORMDocument *_document;
-	NSMutableArray<NSButton *> *_toolButtons;
 	ORMCoreDataController *_coreData;
 	ORMQueryController *_queries;
 	/* What the verbalization shows when nothing is selected: the model, or
@@ -41,7 +49,6 @@ static const double ORMFactBarHeight = 30;
 {
 	if ((self = [super initWithWindowNibName:@"ORMDocumentWindow"])) {
 		_document = document;
-		_toolButtons = [NSMutableArray array];
 		[self window];
 	}
 	return self;
@@ -60,29 +67,48 @@ static const double ORMFactBarHeight = 30;
 	return button;
 }
 
-/* The tools across the top: made here, each as wide as its title is in
- * the font the platform has. */
-- (void)makeToolButtons
+/* The navigator's tabs, as RDLDesigner's (docs/WINDOW.md): a badge each,
+ * its name the tool tip; and the panes put in them. */
+- (void)makeNavigator
 {
-	NSArray *tools = @[ @[ @"Select", @(ORMToolPointer) ], @[ @"Entity", @(ORMToolEntityType) ],
-	                    @[ @"Value", @(ORMToolValueType) ], @[ @"Fact", @(ORMToolFactType) ],
-	                    @[ @"Subtype", @(ORMToolSubtype) ], @[ @"Role →", @(ORMToolConnectRole) ],
-	                    @[ @"Unique", @(ORMToolUniqueness) ], @[ @"Or", @(ORMToolInclusiveOr) ],
-	                    @[ @"Excl", @(ORMToolExclusion) ], @[ @"Xor", @(ORMToolExclusiveOr) ],
-	                    @[ @"⊆", @(ORMToolSubset) ], @[ @"=", @(ORMToolEquality) ],
-	                    @[ @"Freq", @(ORMToolFrequency) ], @[ @"Ring", @(ORMToolRing) ], @[ @"Note", @(ORMToolNote) ] ];
-	double x = 6;
-	for (NSArray *tool in tools) {
-		NSString *title = [tool objectAtIndex:0];
-		/* The rounded bezel takes about 14 points a side. */
-		double width = MAX(36, ceil([title sizeWithAttributes:@{ NSFontAttributeName: [NSFont systemFontOfSize:[NSFont smallSystemFontSize]] }].width) + 30);
-		NSButton *button = [self button:title action:@selector(toolClicked:) frame:NSMakeRect(x, 4, width, 26)];
-		[button setButtonType:NSButtonTypePushOnPushOff];
-		[button setTag:[[tool objectAtIndex:1] integerValue]];
-		[self.toolBar addSubview:button];
-		[_toolButtons addObject:button];
-		x += width + 2;
+	DMTabBar *bar = (DMTabBar *)self.leftTabBar;
+	if ([bar isKindOfClass:[DMTabBar class]]) {
+		NSMutableArray *items = [NSMutableArray array];
+		NSUInteger tag = 0;
+		for (NSArray *page in @[ @[ @"O", @"Outline", @0.47, @0.53, @0.64 ], @[ @"I", @"Insert", @0.32, @0.60, @0.53 ] ]) {
+			DMTabBarItem *item = [DMTabBarItem tabBarItemWithIcon:ORMTabBadge([page objectAtIndex:0],
+			                                                                  [[page objectAtIndex:2] doubleValue],
+			                                                                  [[page objectAtIndex:3] doubleValue],
+			                                                                  [[page objectAtIndex:4] doubleValue])
+			                                                  tag:tag++];
+			item.toolTip = [page objectAtIndex:1];
+			[items addObject:item];
+		}
+		bar.tabBarItems = items;
+		[bar setTarget:self action:@selector(navigatorTabChanged:)];
+		bar.selectedIndex = 0;
 	}
+	self.insertPalette = [[ORMInsertPalette alloc] initWithFrame:[self.insertHost bounds]];
+	self.insertPalette.delegate = self;
+	ORMFillHost(self.insertHost, self.insertPalette);
+}
+
+/* The bar's item chosen: its tab. The sender is the bar, not the item. */
+- (void)navigatorTabChanged:(id)sender
+{
+	if (![sender isKindOfClass:[DMTabBar class]]) {
+		return;
+	}
+	NSInteger index = (NSInteger)[(DMTabBar *)sender selectedIndex];
+	if (index >= 0 && index < [self.leftTabView numberOfTabViewItems]) {
+		[self.leftTabView selectTabViewItemAtIndex:index];
+	}
+}
+
+- (void)insertPalette:(ORMInsertPalette *)palette didChooseTool:(ORMCanvasTool)tool
+{
+	(void)palette;
+	[self.canvas useTool:tool];
 }
 
 - (void)filterBrowser:(id)sender
@@ -128,7 +154,7 @@ static const double ORMFactBarHeight = 30;
 - (void)windowDidLoad
 {
 	[super windowDidLoad];
-	[self makeToolButtons];
+	[self makeNavigator];
 	[self makeDiagramTabs];
 	[self.browserOutline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
 	_browser = [[ORMModelBrowser alloc] initWithOutlineView:self.browserOutline];
@@ -414,9 +440,7 @@ static const double ORMFactBarHeight = 30;
 
 - (void)canvasToolDidChange:(ORMCanvasView *)canvas
 {
-	for (NSButton *button in _toolButtons) {
-		[button setState:[button tag] == canvas.tool ? NSControlStateValueOn : NSControlStateValueOff];
-	}
+	[self.insertPalette showTool:canvas.tool];
 }
 
 - (void)inspector:(ORMInspectorView *)inspector say:(NSString *)message
@@ -454,11 +478,6 @@ static const double ORMFactBarHeight = 30;
 }
 
 #pragma mark Actions
-
-- (void)toolClicked:(id)sender
-{
-	[_canvas chooseTool:sender];
-}
 
 - (void)zoomCanvasIn:(id)sender
 {

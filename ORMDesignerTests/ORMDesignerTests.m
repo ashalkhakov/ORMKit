@@ -5,6 +5,7 @@
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
+#import "ORMInsertPalette.h"
 #import "ORMSampleMenu.h"
 #import "ORMWindowController.h"
 
@@ -173,6 +174,34 @@
 	ORMObjectType *added = [_document.editor.model objectTypeNamed:@"EntityType"];
 	XCTAssertNotNil(added);
 	XCTAssertNotNil([[_controller.canvas diagram] shapeForSubject:added.identifier]);
+}
+
+/* The navigator (docs/WINDOW.md): Outline and Insert tabs; a row of the
+ * palette chosen arms the canvas's tool, and a tool chosen elsewhere selects
+ * its row; an object type is placed in one go, as a drop places it. */
+- (void)testTheNavigatorInsertsOnTheCanvas
+{
+	[self open:@"StockMate.orm"];
+	NSTabView *tabs = [_controller valueForKey:@"leftTabView"];
+	XCTAssertEqual([tabs numberOfTabViewItems], 2);
+	ORMInsertPalette *palette = [_controller valueForKey:@"insertPalette"];
+	XCTAssertNotNil(palette.table);
+	XCTAssertEqual([palette.table numberOfRows], (NSInteger)[[ORMInsertPalette items] count]);
+	NSUInteger value = 0;
+	NSArray *items = [ORMInsertPalette items];
+	for (NSUInteger i = 0; i < [items count]; i++) {
+		if ([[[items objectAtIndex:i] lastObject] integerValue] == ORMToolValueType) {
+			value = i;
+		}
+	}
+	[palette.table selectRowIndexes:[NSIndexSet indexSetWithIndex:value] byExtendingSelection:NO];
+	XCTAssertEqual(_controller.canvas.tool, ORMToolValueType);
+	[_controller.canvas useTool:ORMToolPointer];
+	XCTAssertEqual([palette.table selectedRow], 0);
+	XCTAssertTrue([_controller.canvas placeTool:ORMToolEntityType at:NSMakePoint(40, 40)]);
+	ORMObjectType *added = [_document.editor.model objectTypeNamed:@"EntityType"];
+	XCTAssertNotNil([[_controller.canvas diagram] shapeForSubject:added.identifier]);
+	XCTAssertFalse([_controller.canvas placeTool:ORMToolFactType at:NSMakePoint(40, 40)]);
 }
 
 - (void)testTheFactEditorAddsToTheDiagram

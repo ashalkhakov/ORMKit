@@ -17,7 +17,11 @@ ORMDesigner_OBJC_FILES = \
   ORMModelBrowser.m \
   ORMCoreDataController.m \
   ORMQueryController.m \
-  ORMSampleMenu.m
+  ORMSampleMenu.m \
+  ORMPane.m \
+  ORMInsertPalette.m \
+  ThirdParty/DMTabBar/DMTabBar.m \
+  ThirdParty/DMTabBar/DMTabBarItem.m
 # ORMKit is built in the tree beside this one and not installed.
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 ORMDesigner_OBJC_LIBS += -lORMKit $(ODATAKIT_LIBS) -ldispatch
@@ -34,6 +38,7 @@ ORMDesigner_RESOURCE_FILES = \
   ORMQueryWindow.xib \
   ORMCoreDataWindow.xib \
   ORMDocumentWindow.xib \
+  ORMInsertPalette.xib \
   ../Samples \
   ../ORMKitTests/Fixtures/ActiveFacts \
   ../ORMKitTests/Fixtures/StockMate.orm

@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCanvasView.h"
+#import "ORMInsertPalette.h"
 
 /* What a gesture is doing, between mouse down and up. */
 typedef NS_ENUM(NSInteger, ORMGesture) {
@@ -48,6 +49,8 @@ static const double ORMCanvasMargin = 240.0;
 	_pickedPlayers = [NSMutableArray array];
 	_zoom = 1.5;
 	[self addTrackingRect:[self bounds] owner:self userData:NULL assumeInside:NO];
+	/* What the Insert palette drags here. */
+	[self registerForDraggedTypes:@[ ORMInsertDragType ]];
 }
 
 - (instancetype)initWithFrame:(NSRect)frame
@@ -426,7 +429,7 @@ static const double ORMCanvasMargin = 240.0;
 		break;
 	case ORMToolEntityType:
 	case ORMToolValueType:
-		[self createObjectTypeAt:point value:self.tool == ORMToolValueType];
+		[self placeTool:self.tool at:point];
 		break;
 	case ORMToolFactType:
 		[self factTypeToolDown:hit at:point];
@@ -445,18 +448,58 @@ static const double ORMCanvasMargin = 240.0;
 			[self refuse:@"Drag from a role box to the object type that plays it."];
 		}
 		break;
-	case ORMToolNote: {
-		NSString *reason = nil;
-		NSString *note = [self.editor.elementEditor addNote:@"Note" attachedTo:@[] onDiagram:self.diagramId at:point reason:&reason];
-		[self finishTool];
-		[self selectElements:note != nil ? @[ note ] : @[]];
+	case ORMToolNote:
+		[self placeTool:ORMToolNote at:point];
 		break;
-	}
 	default:
 		[self constraintToolDown:hit];
 		break;
 	}
 	[self setNeedsDisplay:YES];
+}
+
+- (BOOL)placeTool:(ORMCanvasTool)tool at:(NSPoint)point
+{
+	switch (tool) {
+	case ORMToolEntityType:
+	case ORMToolValueType:
+		[self createObjectTypeAt:point value:tool == ORMToolValueType];
+		return YES;
+	case ORMToolNote: {
+		NSString *reason = nil;
+		NSString *note = [self.editor.elementEditor addNote:@"Note" attachedTo:@[] onDiagram:self.diagramId at:point reason:&reason];
+		[self finishTool];
+		[self selectElements:note != nil ? @[ note ] : @[]];
+		return YES;
+	}
+	default:
+		return NO;
+	}
+}
+
+#pragma mark Dropped from the Insert palette
+
+- (ORMCanvasTool)droppedTool:(id<NSDraggingInfo>)sender
+{
+	NSString *text = [[sender draggingPasteboard] stringForType:ORMInsertDragType];
+	return text != nil ? (ORMCanvasTool)[text integerValue] : ORMToolPointer;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender
+{
+	ORMCanvasTool tool = [self droppedTool:sender];
+	return tool == ORMToolEntityType || tool == ORMToolValueType || tool == ORMToolNote ? NSDragOperationCopy
+	                                                                                  : NSDragOperationNone;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender
+{
+	return [self draggingEntered:sender];
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender
+{
+	return [self placeTool:[self droppedTool:sender] at:[self convertPoint:[sender draggingLocation] fromView:nil]];
 }
 
 - (void)pointerDown:(ORMHit *)hit extend:(BOOL)extend
@@ -777,7 +820,12 @@ static const double ORMCanvasMargin = 240.0;
 
 - (IBAction)chooseTool:(id)sender
 {
-	self.tool = (ORMCanvasTool)[sender tag];
+	[self useTool:(ORMCanvasTool)[sender tag]];
+}
+
+- (void)useTool:(ORMCanvasTool)tool
+{
+	self.tool = tool;
 	NSDictionary *hints = @{
 		@(ORMToolEntityType): @"Click where the entity type goes.",
 		@(ORMToolValueType): @"Click where the value type goes.",

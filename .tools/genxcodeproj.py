@@ -45,7 +45,8 @@ APP_RESOURCES = make_list("ORMDesigner/GNUmakefile", "ORMDesigner_RESOURCE_FILES
 APP_HEADERS = [h for h in headers_in("ORMDesigner") if h != "ORMDesignerCompat.h"]
 APP_TEST_FILES = make_list("ORMDesignerTests/GNUmakefile", "ORMDesignerTests_OBJC_FILES")
 APP_TESTS = [t for t in APP_TEST_FILES if not t.startswith("../")]
-APP_TESTED = [os.path.basename(t) for t in APP_TEST_FILES if t.startswith("../ORMDesigner/")]
+# Their paths below ORMDesigner/ (ThirdParty/DMTabBar/DMTabBar.m), as the app's list has them.
+APP_TESTED = [t[len("../ORMDesigner/"):] for t in APP_TEST_FILES if t.startswith("../ORMDesigner/")]
 # The designer's XIBs, which its classes load from the bundle they are in.
 APP_TEST_RESOURCES = [os.path.basename(t) for t in make_list("ORMDesignerTests/GNUmakefile",
                                                             "ORMDesignerTests_RESOURCE_FILES")
@@ -126,8 +127,9 @@ def phase(isa, target, name, files, extra=()):
 kit_refs = {f: fileref("ORMKit/" + f) for f in KIT_SOURCES + KIT_PUBLIC + KIT_PRIVATE}
 kit_test_refs = {f: fileref("ORMKitTests/" + f) for f in KIT_TESTS + KIT_TEST_HEADERS}
 tool_refs = {f: fileref("Tools/ormtool/" + f) for f in TOOL_SOURCES}
-# A resource outside ORMDesigner/ is a sample, or a folder of them.
-app_refs = {f: outsideref(os.path.normpath("ORMDesigner/" + f), f) if f.startswith("../")
+# A resource outside ORMDesigner/ is a sample, or a folder of them; a file in
+# a folder of it (ThirdParty/) is named by its path from there.
+app_refs = {f: outsideref(os.path.normpath("ORMDesigner/" + f), f) if f.startswith("../") or "/" in f
             else fileref("ORMDesigner/" + f)
             for f in APP_SOURCES + APP_HEADERS + APP_RESOURCES + ["ORMDesigner-Info.plist"]}
 app_test_refs = {f: fileref("ORMDesignerTests/" + f) for f in APP_TESTS}

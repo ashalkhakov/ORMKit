@@ -71,6 +71,11 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
  * placed at the point (or wherever there is room), its name in edit. */
 - (void)createObjectTypeAt:(NSPoint)point value:(BOOL)value;
 - (IBAction)chooseTool:(id)sender;
+/* The same, the tool given: what the Insert palette chooses. */
+- (void)useTool:(ORMCanvasTool)tool;
+/* What the tool puts at the point, in one click: an entity or value type,
+ * or a note. NO for a tool that takes more (a fact type, a constraint). */
+- (BOOL)placeTool:(ORMCanvasTool)tool at:(NSPoint)point;
 - (IBAction)delete:(id)sender;
 - (IBAction)removeFromDiagram:(id)sender;
 - (IBAction)toggleUniqueness:(id)sender;

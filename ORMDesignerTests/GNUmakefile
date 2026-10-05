@@ -19,7 +19,11 @@ ORMDesignerTests_OBJC_FILES = \
   ../ORMDesigner/ORMModelBrowser.m \
   ../ORMDesigner/ORMCoreDataController.m \
   ../ORMDesigner/ORMQueryController.m \
-  ../ORMDesigner/ORMSampleMenu.m
+  ../ORMDesigner/ORMSampleMenu.m \
+  ../ORMDesigner/ORMPane.m \
+  ../ORMDesigner/ORMInsertPalette.m \
+  ../ORMDesigner/ThirdParty/DMTabBar/DMTabBar.m \
+  ../ORMDesigner/ThirdParty/DMTabBar/DMTabBarItem.m
 ORMDesignerTests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../ORMDesigner/ORMDesignerCompat.h
 include ../odatakit.make
 ORMDesignerTests_INCLUDE_DIRS = -I../ORMKit -I../ORMDesigner $(ODATAKIT_INCLUDE_DIRS)
@@ -32,7 +36,8 @@ ORMDesignerTests_RESOURCE_FILES = \
   ../ORMDesigner/MainMenu.xib \
   ../ORMDesigner/ORMQueryWindow.xib \
   ../ORMDesigner/ORMCoreDataWindow.xib \
-  ../ORMDesigner/ORMDocumentWindow.xib
+  ../ORMDesigner/ORMDocumentWindow.xib \
+  ../ORMDesigner/ORMInsertPalette.xib
 
 ifeq ($(SANITIZE),1)
 ADDITIONAL_OBJCFLAGS += -fsanitize=address -fno-omit-frame-pointer -g
