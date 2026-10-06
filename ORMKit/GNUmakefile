@@ -51,7 +51,7 @@ ORMKit_HEADER_FILES = \
   ORMQuery.h \
   ORMCDModel+CoreData.h \
   ORMQueryPlanner.h \
-  ORMQueryOData.h \
+  ORMQueryOData+ORMKit.h \
   ORMRuleChecker.h \
   ORMIssueFinder.h \
   ORMDeriver.h \
@@ -101,7 +101,7 @@ ORMKit_OBJC_FILES = \
   ORMJoinedFacade.m \
   ORMEntityMerger.m \
   ORMOutlineReader.m \
-  ORMQueryOData.m
+  ORMQueryOData+ORMKit.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the
 # moment it happens, instead of whatever allocation later notices.

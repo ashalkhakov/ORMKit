@@ -74,6 +74,10 @@ ORMBound(NSString *value)
 	 * inverse keys ]. */
 	NSMutableArray<ORMStoredDerivation *> *_derivations;
 	NSMutableDictionary<NSString *, NSMutableOrderedSet<NSArray *> *> *_ruleBacks;
+	/* The queries an app runs by name (docs/RUNTIME.md): their plans, and
+	 * each one's method, @[ selector's stem, name, what it says ]. */
+	NSMutableDictionary<NSString *, ORMQueryPlan *> *_queries;
+	NSMutableArray<NSArray<NSString *> *> *_queryMethods;
 	/* The joined entity types' code (docs/JOINED-ENTITIES.md). */
 	ORMJoinedFacade *_joined;
 }
@@ -574,6 +578,7 @@ ORMBound(NSString *value)
 	}
 	[self rules];
 	[self derivations];
+	[self queries];
 }
 
 /* The constraint queries (docs/RULES.md): each a predicate its root's
@@ -631,6 +636,106 @@ ORMBound(NSString *value)
 			                                         entity.name, entity.name];
 		}
 	}
+}
+
+/* A query's method's stem: its name in camel case, "Lives near work"
+ * livesNearWork, one that starts with a digit "query" first. */
+static NSString *
+ORMSelectorStem(NSString *name)
+{
+	NSMutableString *stem = [NSMutableString string];
+	BOOL upper = NO;
+	for (NSUInteger i = 0; i < [name length]; i++) {
+		unichar c = [name characterAtIndex:i];
+		if (!(c < 128 && isalnum(c))) {
+			upper = [stem length] > 0;
+			continue;
+		}
+		NSString *letter = [NSString stringWithCharacters:&c length:1];
+		[stem appendString:[stem length] == 0 ? [letter lowercaseString] : upper ? [letter uppercaseString] : letter];
+		upper = NO;
+	}
+	if ([stem length] == 0 || isdigit([stem characterAtIndex:0])) {
+		[stem insertString:@"query" atIndex:0];
+	}
+	return stem;
+}
+
+/* The queries an app runs (docs/RUNTIME.md): each list and calculation
+ * the store can run, its plan in the tables, a method of <Name>Queries
+ * running it by name. */
+- (void)queries
+{
+	_queries = [NSMutableDictionary dictionary];
+	_queryMethods = [NSMutableArray array];
+	ORMQueryPlanner *planner = nil;
+	NSMutableSet *stems = [NSMutableSet set];
+	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
+		if (query.kind != ORMQueryList && query.kind != ORMQueryCalculation) {
+			continue;
+		}
+		planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
+		ORMQueryPlan *plan = [planner planForQuery:query];
+		NSString *why = [plan.notes count] > 0 ? [plan.notes componentsJoinedByString:@" "]
+			: [_queries objectForKey:query.name] != nil ? @"another query has its name" : nil;
+		if (why != nil) {
+			[_notes addObject:[NSString stringWithFormat:@"%@: not in the tables: %@", query.name, why]];
+			continue;
+		}
+		NSString *stem = ORMSelectorStem(query.name);
+		for (NSUInteger n = 2; [stems containsObject:stem]; n++) {
+			stem = [NSString stringWithFormat:@"%@%lu", ORMSelectorStem(query.name), (unsigned long)n];
+		}
+		[stems addObject:stem];
+		[_queries setObject:plan forKey:query.name];
+		NSArray *sentences = [[[ORMVerbalizer alloc] initWithModel:_model] sentencesForQuery:query];
+		[_queryMethods addObject:@[ stem, query.name, [[sentences valueForKey:@"text"] componentsJoinedByString:@" "] ?: @"" ]];
+	}
+}
+
+/* <Name>Queries: a method for each query, running its plan by name. */
+- (NSString *)queriesInterface
+{
+	if ([_queryMethods count] == 0) {
+		return @"";
+	}
+	NSMutableString *out = [NSMutableString stringWithFormat:
+		@"\n/* The model's queries (docs/QUERIES.md), run from the tables (%@.ormplans):\n"
+		@" * in a context, every row; or as requests to the model's OData service. nil,\n"
+		@" * and why, where it cannot be run there. */\n"
+		@"@interface %@Queries : NSObject\n",
+		_name, _name];
+	for (NSArray *method in _queryMethods) {
+		[out appendFormat:@"/* %@: %@ */\n"
+		                  @"+ (ORMQueryResult *)%@InContext:(NSManagedObjectContext *)context error:(NSError **)error;\n"
+		                  @"+ (ORMQueryOData *)%@RequestForModel:(NSManagedObjectModel *)model error:(NSError **)error;\n",
+		                  ORMCommentText([method objectAtIndex:1]), ORMCommentText([method lastObject]),
+		                  [method firstObject], [method firstObject]];
+	}
+	[out appendString:@"@end\n"];
+	return out;
+}
+
+- (NSString *)queriesImplementation
+{
+	if ([_queryMethods count] == 0) {
+		return @"";
+	}
+	NSMutableString *out = [NSMutableString stringWithFormat:@"\n@implementation %@Queries\n", _name];
+	for (NSArray *method in _queryMethods) {
+		[out appendFormat:@"\n+ (ORMQueryResult *)%@InContext:(NSManagedObjectContext *)context error:(NSError **)error\n"
+		                  @"{\n"
+		                  @"\treturn [[ORMTables tablesNamed:%@ error:error] runQuery:%@ inContext:context error:error];\n"
+		                  @"}\n\n"
+		                  @"+ (ORMQueryOData *)%@RequestForModel:(NSManagedObjectModel *)model error:(NSError **)error\n"
+		                  @"{\n"
+		                  @"\treturn [[ORMTables tablesNamed:%@ error:error] requestForQuery:%@ model:model error:error];\n"
+		                  @"}\n",
+		                  [method firstObject], ORMLiteral(_name), ORMLiteral([method objectAtIndex:1]),
+		                  [method firstObject], ORMLiteral(_name), ORMLiteral([method objectAtIndex:1])];
+	}
+	[out appendString:@"\n@end\n"];
+	return out;
 }
 
 #pragma mark The save hook
@@ -956,6 +1061,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 		                  _name, [self classOf:entity]];
 	}
 	[out appendString:[_joined header]];
+	[out appendString:[self queriesInterface]];
 	if ([self hasSaveHook]) {
 		[out appendString:@"\n/* Saving (docs/DERIVATION.md): call before save:, as Core Data's will-save\n"
 		                  @" * notification cannot refuse one.\n"
@@ -987,6 +1093,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 		[out appendString:@" */\n\n"];
 	}
 	[out appendString:[_joined implementation]];
+	[out appendString:[self queriesImplementation]];
 	/* Each entity's rules, its ancestors' too, are the driver's to check:
 	 * a category on the topmost classes with rules. */
 	for (ORMCDEntity *entity in [self entitiesWithRules]) {
@@ -1017,14 +1124,14 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	for (NSString *entity in _ruleBacks) {
 		[backs setObject:[[_ruleBacks objectForKey:entity] array] forKey:entity];
 	}
-	return [[ORMTables tablesOfModel:_name queries:@{} derivations:_derivations rules:_rules ruleBacks:backs]
+	return [[ORMTables tablesOfModel:_name queries:_queries derivations:_derivations rules:_rules ruleBacks:backs]
 		tablesWithJoined:[_joined types]];
 }
 
 /* Whether the code reads tables: it has rules or a save hook. */
 - (BOOL)hasTables
 {
-	return [_rules count] > 0 || [self hasSaveHook];
+	return [_rules count] > 0 || [_queries count] > 0 || [self hasSaveHook];
 }
 
 - (NSDictionary<NSString *, NSString *> *)files

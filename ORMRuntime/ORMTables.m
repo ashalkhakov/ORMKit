@@ -1,5 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTables.h"
+#import "ORMQueryInterpreter.h"
+#import "ORMQueryOData.h"
+#import <CoreData/CoreData.h>
 
 const NSUInteger ORMTablesFormat = 1;
 
@@ -412,6 +415,9 @@ ORMIsMember(id member)
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<ORMRule *> *> *rules;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<NSArray *> *> *ruleBacks;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMJoinedType *> *joined;
+/* The interpreter of each model the queries are run in, kept: the
+ * cursors it makes hold it weakly. */
+@property (nonatomic, strong) NSMutableDictionary<NSValue *, ORMQueryInterpreter *> *interpreters;
 /* What a later format's tables say, kept as it is. */
 @property (nonatomic, copy) NSDictionary *others;
 @end
@@ -578,6 +584,52 @@ ORMIsMember(id member)
 	[others removeObjectsForKeys:@[ @"format", @"model", @"queries", @"derivations", @"rules", @"ruleBacks", @"joined" ]];
 	tables.others = others;
 	return tables;
+}
+
+#pragma mark Queries
+
+/* The query's plan, or nil and why. */
+- (ORMQueryPlan *)planOfQuery:(NSString *)name error:(NSError **)error
+{
+	ORMQueryPlan *plan = [self.queries objectForKey:name];
+	if (plan == nil && error != NULL) {
+		*error = ORMTablesError([NSString stringWithFormat:@"they have no query %@.", name]);
+	}
+	return plan;
+}
+
+/* The interpreter of the context's model, made once. */
+- (ORMQueryInterpreter *)interpreterFor:(NSManagedObjectContext *)context
+{
+	@synchronized(self) {
+		NSManagedObjectModel *model = context.persistentStoreCoordinator.managedObjectModel;
+		self.interpreters = self.interpreters ?: [NSMutableDictionary dictionary];
+		NSValue *key = [NSValue valueWithNonretainedObject:model];
+		ORMQueryInterpreter *interpreter = [self.interpreters objectForKey:key];
+		if (interpreter == nil) {
+			interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+			[self.interpreters setObject:interpreter forKey:key];
+		}
+		return interpreter;
+	}
+}
+
+- (ORMQueryResult *)runQuery:(NSString *)name inContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+	ORMQueryPlan *plan = [self planOfQuery:name error:error];
+	return plan != nil ? [[self interpreterFor:context] executePlan:plan inContext:context error:error] : nil;
+}
+
+- (ORMQueryCursor *)cursorForQuery:(NSString *)name inContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+	ORMQueryPlan *plan = [self planOfQuery:name error:error];
+	return plan != nil ? [[self interpreterFor:context] cursorForPlan:plan inContext:context error:error] : nil;
+}
+
+- (ORMQueryOData *)requestForQuery:(NSString *)name model:(NSManagedObjectModel *)model error:(NSError **)error
+{
+	ORMQueryPlan *plan = [self planOfQuery:name error:error];
+	return plan != nil ? [ORMQueryOData requestForPlan:plan model:model error:error] : nil;
 }
 
 #pragma mark Found by name

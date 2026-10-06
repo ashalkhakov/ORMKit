@@ -199,7 +199,7 @@ runtime_sources = phase("PBXSourcesBuildPhase", "ORMRuntime", "Sources",
                         [buildfile("ORMRuntime", runtime_refs[s]) for s in RUNTIME_SOURCES])
 runtime_frameworks = phase("PBXFrameworksBuildPhase", "ORMRuntime", "Frameworks",
                            [buildfile("ORMRuntime", sdk["Foundation"]), buildfile("ORMRuntime", coredata),
-                            buildfile("ORMRuntime", odatakit)])
+                            buildfile("ORMRuntime", odatakit), buildfile("ORMRuntime", odatastore)])
 kit_headers = phase("PBXHeadersBuildPhase", "ORMKit", "Headers",
                     [buildfile("ORMKit", kit_refs[h], "{ATTRIBUTES = (Public, ); }") for h in KIT_PUBLIC]
                     + [buildfile("ORMKit", kit_refs[h]) for h in KIT_PRIVATE])

@@ -63,7 +63,7 @@ interpreter only runs them. So the split is where the code already divides:
 
 | | ORMKit (tools, designer) | ORMRuntime (apps, and ORMKit) |
 | --- | --- | --- |
-| queries | `ORMQuery`, `ORMQueryPlanner`: from the model to plans | `ORMQueryPlan`, `ORMQueryInterpreter`, `ORMCursor`: plans run |
+| queries | `ORMQuery`, `ORMQueryPlanner`: from the model to plans | `ORMQueryPlan`, `ORMQueryInterpreter`, `ORMCursor`, `ORMQueryOData`: plans run, or sent |
 | tables | written: the generator | read: the archive |
 | rules | which constraints, as which plans or checks | the checks, at validation and at save |
 | derivations | which, in what order, reached back from which changes | the save hook: affected roots, derive, store |
@@ -94,16 +94,17 @@ a change to the model shows as a readable diff.
   variable and steps, values, definitions by name, columns.
   `-[ORMQueryPlan propertyList]` writes it, and
   `+planWithPropertyList:error:` reads it back, checking each part.
-- **A rule's check** is a plan: the object violates the rule where the
-  plan, run from it, finds a row. A ring property (acyclic, intransitive)
-  needs a closure no plan says. It is a check of its own kind, with its
-  keys, which the driver knows (`ring = acyclic; key = reportsTo`).
-  Few kinds are needed: the current `PFXAcyclic` and the like become them.
+- **A rule's check** is a tree of a few kinds the driver knows
+  (`ORMRuleCheck`): presence, all, any, not, counts, set comparisons,
+  ring properties (`ring = ( acyclic ); key = reportsTo`), comparisons
+  and ranges. A constraint query's is its plan:
+  `{ not = { plan = ... }; }`, the object violating the rule where the
+  plan's condition holds of it.
 - **A derivation** is its plan, the property it sets, and the trails back
   from what it reads to its root. The generator writes the derivations
   in dependency order.
-- **A joined type** is its members as the mapper names them: the
-  table `ORMJoinedFacade` turns into code today.
+- **A joined type** is its members as the mapper names them, and its
+  façade's properties, each the key and the entity that keeps it.
 
 The tables are made when the code is: by Synchronize, `ormtool coredata`
 and `ormtool validation`. Planning stays in ORMKit, and the driver never
@@ -118,25 +119,35 @@ Declarations, and calls into the driver:
 @implementation Employee (ORMValidation)
 - (BOOL)orm_validateConstraints:(NSError **)error
 {
-    return [ORMRuntime validate:self tables:CompanyTables() error:error];
+    ORMValidator *validator = [ORMValidator validatorNamed:@"Company" error:error];
+    return validator != nil && [validator validate:self error:error];
 }
 @end
 
-// Customer.h / .m: the façade, typed; its properties are the driver's
+// The façade, typed; its properties are the driver's
 @interface Customer : ORMJoinedObject
-@property (nonatomic, copy) NSNumber *userId;
-@property (nonatomic, copy) NSNumber *balance;
+@property (nonatomic, strong) NSNumber *userId;
+@property (nonatomic, strong) NSNumber *balance;
 @end
 @implementation Customer
 @dynamic userId, balance;      // resolved by ORMJoinedObject from the table
-+ (NSString *)joinedType { return @"Customer"; }
++ (NSString *)tablesName { return @"Customers"; }
 @end
+
+// A query, by name
++ (ORMQueryResult *)polyglotsInContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+    return [[ORMTables tablesNamed:@"Company" error:error] runQuery:@"Polyglots" inContext:context error:error];
+}
 ```
 
-- `CompanyTables()` loads `Company.ormplans` once, from the bundle of the
-  generated classes.
-- A query becomes a typed method that runs its plan by name.
-- `orm_prepareForSave:` is the driver's, with nothing generated.
+- `+[ORMTables tablesNamed:error:]` reads `Company.ormplans` once, from the
+  main bundle or a framework or bundle loaded, unless tables of the name
+  were registered (a test's, a download).
+- A query is two methods of `<Name>Queries`: run in a context, or as a
+  request to the model's OData service.
+- `orm_prepareForSave:` loads the tables and calls `ORMSaveHook`: derive,
+  prepare the joined types, check the rules, report.
 
 ## Testing
 
@@ -157,12 +168,13 @@ Declarations, and calls into the driver:
 - **The format has a version.** A driver refuses tables of a later major
   version, and reads every earlier one it knows. The generator writes the
   latest.
-- **Apps link ORMRuntime.** It is small, has no model, and depends on
-  Foundation, Core Data, and ODataKit's property mapper. The mapper could
-  be dropped if an app does not use OData.
-- **OData:** `ORMQueryOData` still reads the mapper's `ORMCDModel`. An app
-  that runs plans against a service needs a model-free version, reading
-  what it needs from the `NSManagedObjectModel`, as the interpreter does.
+- **Apps link ORMRuntime.** It has no ORM model, and depends on
+  Foundation, Core Data and ODataKit (its property mapper, and its client
+  library's query builder, which writes the requests' URLs).
+- **OData:** `ORMQueryOData` reads only the `NSManagedObjectModel`, as the
+  interpreter does, so it is the runtime's. ORMKit's ways to make one of
+  an `ORMCDModel`, or of a query, planned first, are a category of its own
+  (`ORMQueryOData+ORMKit.h`).
 - **Speed:** a plan interpreted, not compiled. It costs its fetches. If a
   plan ever shows up in a profile, it can be compiled to code behind the
   same interface (re2c's answer for a hot lexer), but nothing asks for
@@ -196,8 +208,13 @@ Declarations, and calls into the driver:
    name. The save hook prepares the types' hub objects. Nothing is
    emitted but declarations, and the joined tests run the driver on both
    platforms, through a façade class of their own.
-6. **Queries for apps:** typed methods, and the model-free OData path.
-7. **Remove the emitters.** `-helpers` and its string literals go.
+6. **Queries for apps** (done). The generator writes each list and
+   calculation the store can run into the tables, and `<Name>Queries`
+   runs it by name, in a context or as an OData request. `ORMQueryOData`
+   moved into ORMRuntime. Rows are arrays, as `ORMQueryResult` has them;
+   a class of typed rows for each query is for later.
+7. **Remove the emitters** (done along the way). What the generator writes
+   is declarations, and one-line calls into the driver.
 
 Each step keeps the tests passing, and steps 3 to 5 each replace one
 emitter.

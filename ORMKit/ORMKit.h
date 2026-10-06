@@ -65,4 +65,4 @@
 #import "ORMPopulationStore.h"
 #import "ORMPopulationChecker.h"
 #import "ORMPopulationGenerator.h"
-#import "ORMQueryOData.h"
+#import "ORMQueryOData+ORMKit.h"

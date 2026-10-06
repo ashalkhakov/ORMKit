@@ -1,12 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryOData.h"
-#import "ORMQueryPlanner.h"
-#if __has_include(<ORMRuntime/ORMRuntime.h>)
-#import <ORMRuntime/ORMRuntime.h>
-#else
-#import "ORMRuntime.h"
-#endif
-#import "ORMCDModel+CoreData.h"
+#import "ORMCursor.h"
 #import <CoreData/CoreData.h>
 #import <ODataKit/ODataApply.h>
 #import <ODataKit/ODataExpression.h>
@@ -907,7 +901,6 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 
 @implementation ORMQueryOData
 {
-	ORMCDModel *_coreData;
 	NSManagedObjectModel *_managed;
 	ODataPropertyMapper *_mapper;
 	NSEntityDescription *_read;
@@ -936,21 +929,11 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSMutableArray<ORMQueryODataJoin *> *_wholeJoins;
 }
 
-+ (instancetype)requestForQuery:(ORMQuery *)query
-                          model:(ORMModel *)model
-                        mapping:(ORMCoreDataMapping *)mapping
-                          error:(NSError **)error
-{
-	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:mapping];
-	return [self requestForPlan:[planner planForQuery:query] coreData:planner.coreData error:error];
-}
-
-+ (instancetype)requestForPlan:(ORMQueryPlan *)plan coreData:(ORMCDModel *)coreData error:(NSError **)error
++ (instancetype)requestForPlan:(ORMQueryPlan *)plan model:(NSManagedObjectModel *)model error:(NSError **)error
 {
 	ORMQueryOData *request = [[self alloc] init];
 	request->_plan = plan;
-	request->_coreData = coreData;
-	request->_managed = [coreData managedObjectModel];
+	request->_managed = model;
 	request->_mapper = [[ODataPropertyMapper alloc] init];
 	request->_notes = [NSMutableArray arrayWithArray:plan.notes ?: @[]];
 	request->_joins = [NSMutableArray array];
@@ -1074,7 +1057,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSError *error = nil;
 	ORMQueryOData *joined = [ORMQueryOData requestForPlan:[ORMQueryPlan planReading:condition.plan.entityName where:reduced
 	                                                                        columns:@[] sorts:@[] notes:@[]]
-	                                             coreData:_coreData error:&error];
+	                                             model:_managed error:&error];
 	if (joined == nil || theirEntity == nil) {
 		[self fail:error];
 		return;
@@ -1343,7 +1326,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			continue;
 		}
 		NSError *error = nil;
-		ORMQueryOData *request = [ORMQueryOData requestForPlan:bag.plan coreData:_coreData error:&error];
+		ORMQueryOData *request = [ORMQueryOData requestForPlan:bag.plan model:_managed error:&error];
 		if (request == nil) {
 			[self fail:error];
 			return;
@@ -1813,7 +1796,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		return [ODataExpression literalWithValue:@YES];
 	}
 	NSError *error = nil;
-	ORMQueryOData *joined = [ORMQueryOData requestForPlan:condition.plan coreData:_coreData error:&error];
+	ORMQueryOData *joined = [ORMQueryOData requestForPlan:condition.plan model:_managed error:&error];
 	if (joined == nil) {
 		[self fail:error];
 		return nil;
@@ -1943,7 +1926,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSError *error = nil;
 	ORMQueryOData *joined = [ORMQueryOData requestForPlan:[ORMQueryPlan planReading:condition.plan.entityName where:reduced
 	                                                                        columns:@[] sorts:@[] notes:@[]]
-	                                             coreData:_coreData error:&error];
+	                                             model:_managed error:&error];
 	if (joined == nil) {
 		[self fail:error];
 		return NO;

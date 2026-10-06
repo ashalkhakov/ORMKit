@@ -101,10 +101,12 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)) |
 | `ORMCoreDataImporter` | a Core Data model brought into ORM, with a mapping back to it |
 | `ORMQuery`, `ORMQueryEditor` | conceptual queries after ConQuer, as logic ([QUERIES.md](QUERIES.md)) |
-| `ORMQueryPlanner`, `ORMQueryPlan` | a query planned against a mapping: public, a property list |
-| `ORMQueryInterpreter`, `ORMQueryOData` | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
+| `ORMQueryPlanner` | a query planned against a mapping |
+| `ORMQueryPlan` (ORMRuntime) | a plan: public, a property list |
+| `ORMQueryInterpreter`, `ORMQueryOData` (ORMRuntime) | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
+| `ORMTables`, `ORMSaveHook`, `ORMValidator`, `ORMJoinedObject` (ORMRuntime) | what an app runs: the model's tables, and their driver ([RUNTIME.md](RUNTIME.md)) |
 | `ORMPopulationEditor`, `ORMPopulationChecker`, `ORMPopulationGenerator`, `ORMPopulationStore` | sample populations: written as NORMA keeps them, checked, made up, and put in a Core Data store for queries ([POPULATIONS.md](POPULATIONS.md)) |
-| `ORMCursor` | the cursors a plan is read through, page by page, and keyset paging ([CURSORS.md](CURSORS.md)) |
+| `ORMCursor` (ORMRuntime) | the cursors a plan is read through, page by page, and keyset paging ([CURSORS.md](CURSORS.md)) |
 | `ORMRuleChecker` | queries that are rules: constraints and calculations, checked on a population ([RULES.md](RULES.md)) |
 | `ORMIssueFinder` | what is wrong with a model, as the designer's Issues navigator lists it |
 | `ORMODataAnnotator` | the mapping's annotations for ODataKit: keys, descriptions, validation terms ([ODATA.md](ODATA.md)) |

@@ -1,11 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
-#if __has_include(<ORMRuntime/ORMRuntime.h>)
-#import <ORMRuntime/ORMRuntime.h>
-#else
-#import "ORMRuntime.h"
-#endif
-#import "ORMQuery.h"
-#import "ORMCoreDataMapper.h"
+#import "ORMQueryPlan.h"
+#import "ORMQueryInterpreter.h"
+
+@class NSManagedObjectModel;
 
 /* ODataKit's <ODataKit/ODataExpression.h>, imported where they are used. */
 @class ODataExpression, ODataQueryOptions;
@@ -65,13 +62,10 @@
 @end
 
 @interface ORMQueryOData : NSObject
-/* nil, and why, when a name the plan reaches is one ODataKit refuses. */
-+ (instancetype)requestForPlan:(ORMQueryPlan *)plan coreData:(ORMCDModel *)coreData error:(NSError **)error;
-/* Planned through the mapping (the defaults for nil) first. */
-+ (instancetype)requestForQuery:(ORMQuery *)query
-                          model:(ORMModel *)model
-                        mapping:(ORMCoreDataMapping *)mapping
-                          error:(NSError **)error;
+/* The plan as requests to the service of the Core Data model: nil, and
+ * why, when a name the plan reaches is one ODataKit refuses. ORMKit makes
+ * one of an ORM query too (ORMQueryOData+ORMKit.h). */
++ (instancetype)requestForPlan:(ORMQueryPlan *)plan model:(NSManagedObjectModel *)model error:(NSError **)error;
 
 @property (nonatomic, readonly, strong) ORMQueryPlan *plan;
 /* The entity whose objects are the results; nil when the plan reads none. */

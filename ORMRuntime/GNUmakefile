@@ -12,14 +12,17 @@ ORMRuntime_HEADER_FILES_INSTALL_DIR = ORMRuntime
 include ../odatakit.make
 ORMRuntime_INCLUDE_DIRS += $(ODATAKIT_INCLUDE_DIRS)
 ORMRuntime_LIB_DIRS += $(ODATAKIT_LIB_DIRS)
-# ODataKit for an entity's key attributes (ODataPropertyMapper).
-ORMRuntime_LIBRARIES_DEPEND_UPON += -lODataKit -lCoreData
+# ODataKit for an entity's key attributes (ODataPropertyMapper) and the
+# OData requests a plan is sent as (ORMQueryOData.h), whose URLs its client
+# library's query builder writes.
+ORMRuntime_LIBRARIES_DEPEND_UPON += $(ODATAKIT_LIBS)
 ORMRuntime_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
 ORMRuntime_HEADER_FILES = \
   ORMRuntime.h \
   ORMQueryPlan.h \
   ORMQueryInterpreter.h \
   ORMCursor.h \
+  ORMQueryOData.h \
   ORMTables.h \
   ORMSaveHook.h \
   ORMValidator.h \
@@ -28,6 +31,7 @@ ORMRuntime_OBJC_FILES = \
   ORMQueryPlan.m \
   ORMQueryInterpreter.m \
   ORMCursor.m \
+  ORMQueryOData.m \
   ORMTables.m \
   ORMSaveHook.m \
   ORMValidator.m \

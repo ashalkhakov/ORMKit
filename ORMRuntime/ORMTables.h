@@ -1,6 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryPlan.h"
 
+@class NSManagedObjectContext, NSManagedObjectModel, ORMQueryResult, ORMQueryCursor, ORMQueryOData;
+
 /* What an app built from an ORM model runs, as data (docs/RUNTIME.md): the
  * tables ORMKit's generator writes beside the code it generates, a property
  * list in the app's resources (<Name>.ormplans), read by the driver.
@@ -150,6 +152,14 @@ extern const NSUInteger ORMTablesFormat;
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMQueryPlan *> *queries;
 /* In the order they run: each after those whose facts it reads. */
 @property (nonatomic, readonly, copy) NSArray<ORMStoredDerivation *> *derivations;
+
+/* The query of the name run against the context's store, every page;
+ * a cursor over it, a page at a time; or as requests to the service of the
+ * model (ORMQueryOData.h). nil, and why, where the tables have no query of
+ * the name, or it cannot be run there. */
+- (ORMQueryResult *)runQuery:(NSString *)name inContext:(NSManagedObjectContext *)context error:(NSError **)error;
+- (ORMQueryCursor *)cursorForQuery:(NSString *)name inContext:(NSManagedObjectContext *)context error:(NSError **)error;
+- (ORMQueryOData *)requestForQuery:(NSString *)name model:(NSManagedObjectModel *)model error:(NSError **)error;
 
 /* As a property list, and read back: nil, and why, for one of a later
  * format, or with a part that is not what it says. */

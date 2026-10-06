@@ -26,6 +26,10 @@
 			fileRef = 2221A156C6194C7039DA1037 /* ORMCoreDataImport.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		03DE96A1968EDED8D91EE345 /* ODataIncrementalStore.framework */ = {
+			isa = PBXBuildFile;
+			fileRef = 82F51E4810BFBB8BEAC2202C /* ODataIncrementalStore.framework */;
+		};
 		090E38F8258CBE7BB92A7E69 /* ORMEntityMerger.h */ = {
 			isa = PBXBuildFile;
 			fileRef = CAD45B21FDD8B9B394F70A04 /* ORMEntityMerger.h */;
@@ -159,11 +163,6 @@
 		2CC57E57CE1D5260FA42A852 /* ORMInsertPalette.xib */ = {
 			isa = PBXBuildFile;
 			fileRef = AD981CEE7DB94AB83105E587 /* ORMInsertPalette.xib */;
-		};
-		2E8F99B003563CDF00627DF2 /* ORMQueryOData.h */ = {
-			isa = PBXBuildFile;
-			fileRef = 6575CC7388F1A48E4069E108 /* ORMQueryOData.h */;
-			settings = {ATTRIBUTES = (Public, ); };
 		};
 		2EAD9C474B5A7A7C36025FB8 /* ORMCoreDataSync.m */ = {
 			isa = PBXBuildFile;
@@ -350,6 +349,11 @@
 		5E60EECC840F6DFD58AA789A /* Foundation.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = B29454D488C4F49E273C15A0 /* Foundation.framework */;
+		};
+		5F4738DAFEF78C3AD0ED4886 /* ORMQueryOData+ORMKit.h */ = {
+			isa = PBXBuildFile;
+			fileRef = EADD500C2C0FE46F0F58FD1B /* ORMQueryOData+ORMKit.h */;
+			settings = {ATTRIBUTES = (Public, ); };
 		};
 		605CDD2C648E7D649ACB13BB /* ORMFileTests.m */ = {
 			isa = PBXBuildFile;
@@ -607,10 +611,6 @@
 			isa = PBXBuildFile;
 			fileRef = 1D8B30B1C1392AE50C6F7E15 /* ORMTables.m */;
 		};
-		A2CE76FECBD080EA6023129B /* ORMQueryOData.m */ = {
-			isa = PBXBuildFile;
-			fileRef = 1A6915FC0BA8D1614E2FDAB4 /* ORMQueryOData.m */;
-		};
 		A356B02DC18CFFCDE8341CD6 /* ORMEntityMerger.m */ = {
 			isa = PBXBuildFile;
 			fileRef = E66B7E7AF30042E49C2F1817 /* ORMEntityMerger.m */;
@@ -641,6 +641,11 @@
 		AC31F5E9553D84C28B7295F1 /* ORMInsertPalette.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 59DCB04F17C042573F88FBA4 /* ORMInsertPalette.m */;
+		};
+		AC482BC65D31DAC2093E7429 /* ORMQueryOData.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 654F0EB6DE0AECA2AD35990C /* ORMQueryOData.h */;
+			settings = {ATTRIBUTES = (Public, ); };
 		};
 		AC7E7DC8AAE4B2AB0F3D99DD /* ORMFactTypeEditor.m */ = {
 			isa = PBXBuildFile;
@@ -724,6 +729,10 @@
 		BD65B0FB5517FD316F7E72E8 /* ORMWindowController.m */ = {
 			isa = PBXBuildFile;
 			fileRef = E6D02C60A7E8B7C9FA581455 /* ORMWindowController.m */;
+		};
+		BDAC91D0B29FE474368C5F7F /* ORMQueryOData.m */ = {
+			isa = PBXBuildFile;
+			fileRef = AA6E89C05EA402AED02AAFC2 /* ORMQueryOData.m */;
 		};
 		C1A88BE83BA3F15B5CF914AA /* OTelKit.framework */ = {
 			isa = PBXBuildFile;
@@ -856,6 +865,10 @@
 		ED845705156C8D56401522CA /* ORMPopulationGenerator.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 5C86A6DC7A399335168B3B21 /* ORMPopulationGenerator.m */;
+		};
+		F14DCA22FCE7BD77D74B41C9 /* ORMQueryOData+ORMKit.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 2A52998F2FDB78CD31E9E0B9 /* ORMQueryOData+ORMKit.m */;
 		};
 		F15FE67197E1ED375B7D951F /* ORMCursor.m */ = {
 			isa = PBXBuildFile;
@@ -1067,12 +1080,6 @@
 			path = ORMQueryPlanner.h;
 			sourceTree = "<group>";
 		};
-		1A6915FC0BA8D1614E2FDAB4 /* ORMQueryOData.m */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.objc;
-			path = ORMQueryOData.m;
-			sourceTree = "<group>";
-		};
 		1BD60235BFFFEB2270AD79EE /* ORMDocument.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -1179,6 +1186,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMOutlineReader.h;
+			sourceTree = "<group>";
+		};
+		2A52998F2FDB78CD31E9E0B9 /* ORMQueryOData+ORMKit.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = "ORMQueryOData+ORMKit.m";
 			sourceTree = "<group>";
 		};
 		2AB66C65BE330D1517DF768E /* CoreData.framework */ = {
@@ -1406,7 +1419,7 @@
 			path = ORMInspectorView.h;
 			sourceTree = "<group>";
 		};
-		6575CC7388F1A48E4069E108 /* ORMQueryOData.h */ = {
+		654F0EB6DE0AECA2AD35990C /* ORMQueryOData.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMQueryOData.h;
@@ -1691,6 +1704,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMJoinedObject.h;
+			sourceTree = "<group>";
+		};
+		AA6E89C05EA402AED02AAFC2 /* ORMQueryOData.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMQueryOData.m;
 			sourceTree = "<group>";
 		};
 		AB58A76137004B14F824168D /* DMTabBarItem.m */ = {
@@ -1992,6 +2011,12 @@
 			path = ORMCoreDataValidationTests.m;
 			sourceTree = "<group>";
 		};
+		EADD500C2C0FE46F0F58FD1B /* ORMQueryOData+ORMKit.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = "ORMQueryOData+ORMKit.h";
+			sourceTree = "<group>";
+		};
 		EC982668FBE20641550E0F20 /* ORMModel.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -2099,6 +2124,7 @@
 				706B203C81842ED9F9E27E16 /* Foundation.framework */,
 				CBEFAE916F32513D237AF171 /* CoreData.framework */,
 				65298B300A75F0F34348F7D2 /* ODataKit.framework */,
+				03DE96A1968EDED8D91EE345 /* ODataIncrementalStore.framework */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2244,6 +2270,8 @@
 				E92DE55981E76DFF8BB89AAE /* ORMJoinedObject.m */,
 				7173E01D6E563A57D37D3142 /* ORMQueryInterpreter.h */,
 				6BEF846193223BF6F8183053 /* ORMQueryInterpreter.m */,
+				654F0EB6DE0AECA2AD35990C /* ORMQueryOData.h */,
+				AA6E89C05EA402AED02AAFC2 /* ORMQueryOData.m */,
 				EE2EAB4AB59DF719BB76DF6C /* ORMQueryPlan.h */,
 				80509A6A117340DADE0B36D8 /* ORMQueryPlan.m */,
 				1EF48C651F36D9A24CC15F5C /* ORMRuntime.h */,
@@ -2328,8 +2356,8 @@
 				BD0CD37C4ADEE212802936FC /* ORMPopulationStore.m */,
 				9E54ECAF663C48174377D7F2 /* ORMQuery.h */,
 				6C7864A2189FC1598056F4F4 /* ORMQuery.m */,
-				6575CC7388F1A48E4069E108 /* ORMQueryOData.h */,
-				1A6915FC0BA8D1614E2FDAB4 /* ORMQueryOData.m */,
+				EADD500C2C0FE46F0F58FD1B /* ORMQueryOData+ORMKit.h */,
+				2A52998F2FDB78CD31E9E0B9 /* ORMQueryOData+ORMKit.m */,
 				F466A87CF7B26B0B27D334C7 /* ORMQueryPlaces.h */,
 				DB6AE83D771FB9DEB8F2AE98 /* ORMQueryPlaces.m */,
 				1A297D870D0B23FEC505E3C0 /* ORMQueryPlanner.h */,
@@ -2437,6 +2465,7 @@
 				3B864043033EA6D038FE3ABB /* ORMQueryPlan.h */,
 				8388339255EA6691DFA06F47 /* ORMQueryInterpreter.h */,
 				54707845230900C47086D8BC /* ORMCursor.h */,
+				AC482BC65D31DAC2093E7429 /* ORMQueryOData.h */,
 				5B8283E1E684E5471A49FB2D /* ORMTables.h */,
 				F7D2E3B4AD130E07AFF39020 /* ORMSaveHook.h */,
 				9B2E2B41F81A1A0A3081753F /* ORMValidator.h */,
@@ -2483,7 +2512,7 @@
 				6A2672E1768E93D44283C8C7 /* ORMQuery.h */,
 				375CEBFCC8AD92CFBBFC09B0 /* ORMCDModel+CoreData.h */,
 				3AA43FA1EBB9FFC96374ACFF /* ORMQueryPlanner.h */,
-				2E8F99B003563CDF00627DF2 /* ORMQueryOData.h */,
+				5F4738DAFEF78C3AD0ED4886 /* ORMQueryOData+ORMKit.h */,
 				C7A010EF163E795053DA2D55 /* ORMRuleChecker.h */,
 				9DF0F126C9A8ED042D1162D8 /* ORMIssueFinder.h */,
 				A8D5268545B117D218F74473 /* ORMDeriver.h */,
@@ -2723,7 +2752,7 @@
 				ADB9E1B77978DBD8397AC9B1 /* ORMJoinedFacade.m */,
 				A356B02DC18CFFCDE8341CD6 /* ORMEntityMerger.m */,
 				47887A93D711637B9064004D /* ORMOutlineReader.m */,
-				A2CE76FECBD080EA6023129B /* ORMQueryOData.m */,
+				F14DCA22FCE7BD77D74B41C9 /* ORMQueryOData+ORMKit.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2734,6 +2763,7 @@
 				475E569D1B0B58FE7A2076C1 /* ORMQueryPlan.m */,
 				99831D34C642FD3CFA4CD5BE /* ORMQueryInterpreter.m */,
 				F15FE67197E1ED375B7D951F /* ORMCursor.m */,
+				BDAC91D0B29FE474368C5F7F /* ORMQueryOData.m */,
 				A20FC48761C1C37839E917F9 /* ORMTables.m */,
 				865877A8C4AA1D2231E76213 /* ORMSaveHook.m */,
 				C6EE27C0DC910DAD6020E6D9 /* ORMValidator.m */,

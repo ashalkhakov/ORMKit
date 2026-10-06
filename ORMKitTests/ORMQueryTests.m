@@ -2158,6 +2158,63 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* The model's queries in its tables (docs/RUNTIME.md): run by name, as an
+ * app runs them, they read what the planner's plans read; and each has a
+ * method of CompanyQueries. */
+- (void)testQueriesAreRunByNameFromTheTables
+{
+	NSDictionary *queries = [self paperQueries];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Company"];
+	NSDictionary *files = [generator files];
+	XCTAssertTrue([[files objectForKey:@"CompanyValidation.h"]
+	                  containsString:@"+ (ORMQueryResult *)polyglotsInContext:(NSManagedObjectContext *)context "
+	                                 @"error:(NSError **)error;"],
+	              @"%@", [files objectForKey:@"CompanyValidation.h"]);
+	NSData *data = [[files objectForKey:@"Company.ormplans"] dataUsingEncoding:NSUTF8StringEncoding];
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+	NSError *error = nil;
+	ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+	XCTAssertNotNil(tables, @"%@", error);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	for (NSString *name in queries) {
+		NSString *queryName = [self query:[queries objectForKey:name]].name;
+		XCTAssertNotNil([tables.queries objectForKey:queryName], @"%@", generator.notes);
+		NSArray *expected = [self rowsOfQuery:[queries objectForKey:name] planner:planner in:context];
+		__block ORMQueryResult *result = nil;
+		__block NSError *failed = nil;
+		[context performBlockAndWait:^{
+			result = [tables runQuery:queryName inContext:context error:&failed];
+		}];
+		XCTAssertNotNil(result, @"%@: %@", queryName, failed);
+		XCTAssertEqualObjects([NSSet setWithArray:result.rows], [NSSet setWithArray:expected], @"%@", queryName);
+		XCTAssertNotNil([tables requestForQuery:queryName model:[planner.coreData managedObjectModel] error:&failed], @"%@",
+		                failed);
+	}
+	XCTAssertNil([tables runQuery:@"No such query" inContext:context error:&error]);
+#if defined(__APPLE__)
+	/* The same, through the generated method. */
+	NSString *why = nil;
+	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
+	Class companyQueries = NSClassFromString(@"CompanyQueries");
+	SEL polyglots = NSSelectorFromString(@"polyglotsInContext:error:");
+	XCTAssertTrue([companyQueries respondsToSelector:polyglots]);
+	ORMQueryResult *(*run)(id, SEL, NSManagedObjectContext *, NSError **) =
+		(ORMQueryResult * (*)(id, SEL, NSManagedObjectContext *, NSError **))[companyQueries methodForSelector:polyglots];
+	__block ORMQueryResult *ran = nil;
+	[context performBlockAndWait:^{
+		ran = run(companyQueries, polyglots, context, NULL);
+	}];
+	XCTAssertEqualObjects([NSSet setWithArray:ran.rows],
+	                      [NSSet setWithArray:[self rowsOfQuery:[queries objectForKey:@"Polyglots"] planner:planner in:context]]);
+	[ORMTables registerTables:nil named:@"Company"];
+#endif
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* Queries are in the document: saved, undone, and left out of what is
  * written for NORMA. */
 - (void)testQueriesAreInTheDocument
