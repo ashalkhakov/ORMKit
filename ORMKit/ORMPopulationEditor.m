@@ -2,6 +2,8 @@
 #import "ORMEditorPriv.h"
 #import "ORMPath.h"
 #import "ORMPopulationEditor.h"
+#import "ORMDeriver.h"
+#import "ORMQuery.h"
 
 /* What a sample population adds: the order it was made in, each a kind and
  * what it names. */
@@ -128,6 +130,11 @@ ORMKeyOf(NSString *typeId, NSDictionary<NSString *, NSString *> *byRole)
 @end
 
 @implementation ORMPopulationEditor
+{
+	/* Edits within an edit: the stored derived facts are brought up to date
+	 * once, by the outermost. */
+	NSUInteger _editing;
+}
 
 @synthesize editor = _editor;
 
@@ -775,7 +782,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return [self addPopulation:population reason:reason] ? created : nil;
 }
 
-- (NSString *)addFactOf:(NSString *)factTypeId named:(NSDictionary<NSString *, NSString *> *)textsByRole
+- (NSString *)addFactNowOf:(NSString *)factTypeId named:(NSDictionary<NSString *, NSString *> *)textsByRole
                  reason:(NSString **)reason
 {
 	return [self addFactOf:factTypeId players:nil named:textsByRole reason:reason];
@@ -793,7 +800,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return found;
 }
 
-- (BOOL)removeFact:(NSString *)factInstanceId reason:(NSString **)reason
+- (BOOL)removeFactNow:(NSString *)factInstanceId reason:(NSString **)reason
 {
 	NSXMLElement *fact = [_editor xml:factInstanceId];
 	if (fact == nil || ![[fact localName] isEqualToString:@"FactTypeInstance"]) {
@@ -851,7 +858,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return instance;
 }
 
-- (NSString *)setPlayer:(NSString *)text ofRole:(NSString *)roleId inFact:(NSString *)factInstanceId
+- (NSString *)setPlayerNow:(NSString *)text ofRole:(NSString *)roleId inFact:(NSString *)factInstanceId
                  reason:(NSString **)reason
 {
 	ORMFactInstance *fact = [_editor.model elementWithId:factInstanceId];
@@ -927,7 +934,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return [self addPopulation:population reason:reason] ? created : nil;
 }
 
-- (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason
+- (NSString *)addInstanceNowOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason
 {
 	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
 	NSString *created = [self instanceOf:objectTypeId named:text into:population reason:reason];
@@ -1057,7 +1064,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	}];
 }
 
-- (BOOL)renameInstance:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason
+- (BOOL)renameInstanceNow:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason
 {
 	ORMInstance *instance = [_editor.model elementWithId:instanceId];
 	while ([instance isKindOfClass:[ORMInstance class]] && [instance supertypeInstance] != nil) {
@@ -1087,7 +1094,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return [self renameInstance:instance.identifier parts:texts reason:reason];
 }
 
-- (BOOL)renameInstance:(NSString *)instanceId role:(NSString *)roleId to:(NSString *)text reason:(NSString **)reason
+- (BOOL)renameInstanceNow:(NSString *)instanceId role:(NSString *)roleId to:(NSString *)text reason:(NSString **)reason
 {
 	ORMInstance *instance = [_editor.model elementWithId:instanceId];
 	while ([instance isKindOfClass:[ORMInstance class]] && [instance supertypeInstance] != nil) {
@@ -1099,7 +1106,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return [self renameInstance:instance.identifier parts:@{ roleId ?: @"": text } reason:reason];
 }
 
-- (NSString *)addInstanceOf:(NSString *)objectTypeId
+- (NSString *)addInstanceNowOf:(NSString *)objectTypeId
                 namedByRole:(NSDictionary<NSString *, NSString *> *)textsByRole
                      reason:(NSString **)reason
 {
@@ -1108,7 +1115,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return [self addInstance:created of:objectTypeId in:population reason:reason];
 }
 
-- (BOOL)removeInstance:(NSString *)instanceId reason:(NSString **)reason
+- (BOOL)removeInstanceNow:(NSString *)instanceId reason:(NSString **)reason
 {
 	NSXMLElement *instance = [_editor xml:instanceId];
 	if (instance == nil || ![@[ @"ValueTypeInstance", @"EntityTypeInstance", @"EntityTypeSubtypeInstance" ]
@@ -1150,6 +1157,171 @@ ORMWrapPart(NSString *name, BOOL composite)
 		ORMDetachPruning(instance);
 	}];
 	return YES;
+}
+
+#pragma mark Derived and stored facts
+
+/* Whether a derivation of the model is stored: its facts are written into
+ * the population (docs/DERIVATION.md). */
+- (BOOL)hasStoredDerivations
+{
+	for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+		if (query.kind == ORMQueryDerivation && [query.derivedFactType derivationRule].isStored) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* An edit of the population, then its stored derived facts brought up to
+ * date: one change, undone as one, refused as one. An edit inside another
+ * is that one's. */
+- (BOOL)edit:(NSString *)name with:(BOOL (^)(void))edit
+{
+	if (_editing > 0 || ![self hasStoredDerivations]) {
+		return edit();
+	}
+	_editing++;
+	BOOL done = [_editor group:name trying:^BOOL {
+		return edit() && [self bringStoredDerivationsUpToDate:NULL];
+	}];
+	_editing--;
+	return done;
+}
+
+- (BOOL)bringStoredDerivationsUpToDate:(NSString **)reason
+{
+	ORMDeriver *deriver = [[ORMDeriver alloc] initWithModel:_editor.model];
+	NSDictionary *derived = [deriver derivedFacts];
+	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
+	NSMutableArray *gone = [NSMutableArray array];
+	for (NSString *factId in derived) {
+		ORMFactType *fact = [_editor.model elementWithId:factId];
+		ORMDerivationRule *rule = [fact derivationRule];
+		if (!rule.isStored) {
+			continue;
+		}
+		/* What is stored, by its players; a unary's truth left out. */
+		NSMutableDictionary *stored = [NSMutableDictionary dictionary];
+		for (ORMFactInstance *instance in [fact instances]) {
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			for (NSString *roleId in instance.instancesByRole) {
+				ORMInstance *player = [instance.instancesByRole objectForKey:roleId];
+				if (!player.objectType.isImplicitBooleanValue) {
+					[byRole setObject:player.identifier forKey:roleId];
+				}
+			}
+			[stored setObject:instance.identifier forKey:byRole];
+		}
+		NSMutableSet *kept = [NSMutableSet set];
+		for (ORMDerivedFact *each in [derived objectForKey:factId]) {
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			BOOL known = YES;
+			for (NSString *roleId in each.players) {
+				id player = [each.players objectForKey:roleId];
+				if ([player isKindOfClass:[ORMInstance class]]) {
+					[byRole setObject:[player identifier] forKey:roleId];
+				} else {
+					/* A value no instance has yet: made. */
+					ORMRole *role = [_editor.model elementWithId:roleId];
+					[byRole setObject:[population value:player of:role.player.identifier] forKey:roleId];
+					known = NO;
+				}
+			}
+			if (known && [stored objectForKey:byRole] != nil) {
+				[kept addObject:byRole];
+				continue;
+			}
+			[population factOf:factId players:byRole];
+		}
+		/* A fully derived one's facts the rule no longer derives go; a
+		 * partly derived one's may be asserted, and stay. */
+		if (!rule.isPartial) {
+			for (NSDictionary *byRole in stored) {
+				if (![kept containsObject:byRole]) {
+					[gone addObject:[stored objectForKey:byRole]];
+				}
+			}
+		}
+	}
+	for (NSString *factInstanceId in gone) {
+		if (![self removeFactNow:factInstanceId reason:reason]) {
+			return NO;
+		}
+	}
+	return [population isEmpty] || [self addPopulation:population reason:reason];
+}
+
+- (NSString *)addFactOf:(NSString *)factTypeId named:(NSDictionary<NSString *, NSString *> *)textsByRole
+                 reason:(NSString **)reason
+{
+	__block NSString *made = nil;
+	[self edit:@"Add Fact" with:^BOOL {
+		made = [self addFactNowOf:factTypeId named:textsByRole reason:reason];
+		return made != nil;
+	}];
+	return made;
+}
+
+- (BOOL)removeFact:(NSString *)factInstanceId reason:(NSString **)reason
+{
+	return [self edit:@"Remove Fact" with:^BOOL {
+		return [self removeFactNow:factInstanceId reason:reason];
+	}];
+}
+
+- (NSString *)setPlayer:(NSString *)text ofRole:(NSString *)roleId inFact:(NSString *)factInstanceId
+                 reason:(NSString **)reason
+{
+	__block NSString *made = nil;
+	[self edit:@"Edit Fact" with:^BOOL {
+		made = [self setPlayerNow:text ofRole:roleId inFact:factInstanceId reason:reason];
+		return made != nil;
+	}];
+	return made;
+}
+
+- (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason
+{
+	__block NSString *made = nil;
+	[self edit:@"Add Instance" with:^BOOL {
+		made = [self addInstanceNowOf:objectTypeId named:text reason:reason];
+		return made != nil;
+	}];
+	return made;
+}
+
+- (BOOL)renameInstance:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason
+{
+	return [self edit:@"Rename Instance" with:^BOOL {
+		return [self renameInstanceNow:instanceId to:text reason:reason];
+	}];
+}
+
+- (BOOL)renameInstance:(NSString *)instanceId role:(NSString *)roleId to:(NSString *)text reason:(NSString **)reason
+{
+	return [self edit:@"Rename Instance" with:^BOOL {
+		return [self renameInstanceNow:instanceId role:roleId to:text reason:reason];
+	}];
+}
+
+- (NSString *)addInstanceOf:(NSString *)objectTypeId
+                namedByRole:(NSDictionary<NSString *, NSString *> *)textsByRole
+                     reason:(NSString **)reason
+{
+	__block NSString *made = nil;
+	[self edit:@"Add Instance" with:^BOOL {
+		made = [self addInstanceNowOf:objectTypeId namedByRole:textsByRole reason:reason];
+		return made != nil;
+	}];
+	return made;
+}
+
+- (BOOL)removeInstance:(NSString *)instanceId reason:(NSString **)reason
+{
+	return [self edit:@"Remove Instance" with:^BOOL {
+		return [self removeInstanceNow:instanceId reason:reason];
+	}];
 }
 
 - (void)removePopulation

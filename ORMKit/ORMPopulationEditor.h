@@ -92,6 +92,11 @@
 - (BOOL)renameInstance:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason;
 /* The same for one of the values identifying it, by the role it plays. */
 - (BOOL)renameInstance:(NSString *)instanceId role:(NSString *)roleId to:(NSString *)text reason:(NSString **)reason;
+/* The facts of each stored derived fact type (docs/DERIVATION.md) made what
+ * its derivation derives from the population: those missing added (with
+ * the values they need), and, for a fully derived one, those it no longer
+ * derives removed. Each edit above does this too, in the same change. */
+- (BOOL)bringStoredDerivationsUpToDate:(NSString **)reason;
 /* The roles an instance of the entity type is named by when more than
  * one value identifies it: its preferred identifier's (its supertype's,
  * for a subtype identified as that is), in order; empty otherwise. */

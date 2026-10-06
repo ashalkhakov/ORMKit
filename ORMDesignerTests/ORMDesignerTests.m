@@ -466,6 +466,63 @@
 	XCTAssertEqual([population.table numberOfRows], 2);
 }
 
+/* A derived fact type's Population tab (docs/DERIVATION.md): the facts its
+ * rule derives from the Company sample, shown read only and counted as
+ * derived; a fully derived one takes no facts by hand. */
+- (void)testThePopulationTabShowsDerivedFacts
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	ORMModel *model = editor.model;
+	ORMFactType *worksFor = nil, *heads = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		NSString *text = [[fact primaryReading] expandedText];
+		worksFor = [text isEqualToString:@"Employee works for Branch"] ? fact : worksFor;
+		heads = [text isEqualToString:@"Employee heads Branch"] ? fact : heads;
+	}
+	NSString *employee = [[model objectTypeNamed:@"Employee"] identifier];
+	NSString *reason = nil;
+	NSString *reports = [editor.factTypeEditor addFactTypeWithPlayers:@[ employee, employee ] reading:@"{0} reports to {1}"
+	                                                        onDiagram:[[_controller.canvas diagram] identifier]
+	                                                               at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(reports, @"%@", reason);
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *q = [queries addQueryNamed:@"Reporting" from:employee reason:NULL];
+	NSString *start = [ORMQuery queryWithId:q inModel:editor.model].root.identifier;
+	NSString *toBranch = [queries addStepTo:start through:[[worksFor.roles firstObject] identifier] reason:&reason];
+	NSString *branch = nil, *head = nil;
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:q inModel:editor.model] nodes]) {
+		branch = [node.step.identifier isEqualToString:toBranch] ? node.identifier : branch;
+	}
+	NSString *toHead = [queries addStepTo:branch through:[[heads.roles lastObject] identifier] reason:&reason];
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:q inModel:editor.model] nodes]) {
+		head = [node.step.identifier isEqualToString:toHead] ? node.identifier : head;
+	}
+	[queries setProjected:YES ofNode:head];
+	XCTAssertTrue([queries setKind:ORMQueryDerivation ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([queries setDerivedFactType:reports ofQuery:q reason:&reason], @"%@", reason);
+	NSUInteger derived = [[[[[ORMDeriver alloc] initWithModel:editor.model] derivedFacts] objectForKey:reports] count];
+	XCTAssertGreaterThan(derived, 3u);
+
+	[_controller.canvas selectElements:@[ reports ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	[population reload];
+	NSTableView *table = population.table;
+	XCTAssertEqual([table numberOfRows], (NSInteger)derived);
+	XCTAssertGreaterThan([[population textAtRow:0 column:0] length], 0u);
+	XCTAssertFalse([population tableView:table shouldEditTableColumn:[[table tableColumns] firstObject] row:0]);
+	NSString *counted = [NSString stringWithFormat:@"%lu derived", (unsigned long)derived];
+	XCTAssertTrue([[population.status stringValue] hasPrefix:counted], @"%@", [population.status stringValue]);
+	[population addRow:nil];
+	XCTAssertEqual([table numberOfRows], (NSInteger)derived);
+	XCTAssertEqualObjects([population.status stringValue], @"\"Employee reports to Employee\" is derived: its facts follow from its rule.");
+}
+
 /* A mouse event at a point of the canvas, in diagram points. */
 - (NSEvent *)event:(NSEventType)type at:(NSPoint)point
 {

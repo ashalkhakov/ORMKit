@@ -177,6 +177,19 @@ type's or object type's population as a table, a column for each role
   adds the row once each is named. Removal is refused while the instance plays in a fact or
   identifies another.
 
+## Derived fact types
+
+A fact type a query derives ([DERIVATION.md](DERIVATION.md)) has its facts
+worked out from the rest of the population (`ORMDeriver`).
+- The checker checks constraints on them as on asserted facts. It reports an
+  asserted fact of a fully derived fact type, and stored facts the rule no
+  longer agrees with.
+- A stored one's facts are written into the population: each edit of the
+  population brings them up to date in the same change
+  (`bringStoredDerivationsUpToDate:`), and so does making up a population.
+- The Population tab shows a derived fact type's facts, read only, after any
+  asserted ones; a fully derived one takes none by hand.
+
 ## Not done yet
 
 - **An objectifying type's instances** by hand: such an instance is the

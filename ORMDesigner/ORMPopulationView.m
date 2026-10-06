@@ -12,6 +12,9 @@
 	/* An object type identified by several values: a column each. */
 	NSArray<ORMRole *> *_parts;
 	NSArray *_rows;
+	/* A derived fact type's facts its rule derives and nothing stores
+	 * (docs/DERIVATION.md), after the asserted ones, read only. */
+	NSArray<ORMDerivedFact *> *_derived;
 	/* The row being added: a text for each column, until each is named. */
 	NSMutableArray<NSString *> *_pending;
 	NSString *_refusal;
@@ -68,6 +71,21 @@
 	_type = [element isKindOfClass:[ORMObjectType class]] ? element : nil;
 	_parts = _type != nil ? [self.editor.populationEditor compositeRolesOf:_type.identifier] : @[];
 	_rows = _fact != nil ? [_fact instances] : (_type != nil ? [_type instances] : @[]);
+	_derived = @[];
+	ORMDerivationRule *rule = _fact.isDerived ? [_fact derivationRule] : nil;
+	if (rule != nil && !rule.isStored) {
+		NSMutableSet *asserted = [NSMutableSet set];
+		for (ORMFactInstance *instance in _rows) {
+			[asserted addObject:[self playersOf:instance.instancesByRole]];
+		}
+		NSMutableArray *derived = [NSMutableArray array];
+		for (ORMDerivedFact *each in [[[[ORMDeriver alloc] initWithModel:_model] derivedFacts] objectForKey:_fact.identifier]) {
+			if (![asserted containsObject:[self playersOf:each.players]]) {
+				[derived addObject:each];
+			}
+		}
+		_derived = derived;
+	}
 	if (_pending != nil && [_pending count] != [self columnCount]) {
 		_pending = nil;
 	}
@@ -132,8 +150,12 @@
 			[broken addObject:violation.text];
 		}
 	}
-	[_status setStringValue:[broken count] == 0 ? [NSString stringWithFormat:@"%lu %@", (unsigned long)[_rows count],
-	                                                                         [_rows count] == 1 ? @"fact" : @"facts"]
+	NSString *counted = [NSString stringWithFormat:@"%lu %@", (unsigned long)[_rows count], [_rows count] == 1 ? @"fact" : @"facts"];
+	if ([_derived count] > 0) {
+		counted = [_rows count] == 0 ? [NSString stringWithFormat:@"%lu derived", (unsigned long)[_derived count]]
+		                             : [NSString stringWithFormat:@"%@, %lu derived", counted, (unsigned long)[_derived count]];
+	}
+	[_status setStringValue:[broken count] == 0 ? counted
 	                                            : [NSString stringWithFormat:@"%@%@", [broken firstObject],
 	                                                                         [broken count] > 1
 	                                                                             ? [NSString stringWithFormat:@" (and %lu more)",
@@ -150,16 +172,61 @@
 
 #pragma mark The table
 
+/* A fact by its players' ids (a value no instance has, by its text). */
+- (NSDictionary *)playersOf:(NSDictionary *)players
+{
+	NSMutableDictionary *ids = [NSMutableDictionary dictionary];
+	for (NSString *roleId in players) {
+		id player = [players objectForKey:roleId];
+		ORMRole *role = [_model elementWithId:roleId];
+		if (role.player.isImplicitBooleanValue) {
+			continue;
+		}
+		[ids setObject:[player isKindOfClass:[ORMInstance class]] ? [player identifier] : player forKey:roleId];
+	}
+	return ids;
+}
+
+/* Whether its facts all follow from its rule: none asserted by hand. */
+- (BOOL)isFullyDerived
+{
+	return _fact.isDerived && ![_fact derivationRule].isPartial;
+}
+
+/* A derived row: after the asserted ones, before one being added. */
+- (ORMDerivedFact *)derivedAtRow:(NSInteger)row
+{
+	NSInteger index = row - (NSInteger)[_rows count];
+	return index >= 0 && (NSUInteger)index < [_derived count] ? [_derived objectAtIndex:(NSUInteger)index] : nil;
+}
+
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
 	(void)tableView;
-	return (NSInteger)[_rows count] + (_pending != nil ? 1 : 0);
+	return (NSInteger)([_rows count] + [_derived count]) + (_pending != nil ? 1 : 0);
+}
+
+- (void)tableView:(NSTableView *)tableView willDisplayCell:(id)cell forTableColumn:(NSTableColumn *)column row:(NSInteger)row
+{
+	(void)tableView;
+	(void)column;
+	if ([cell respondsToSelector:@selector(setTextColor:)]) {
+		/* Derived: shown, not edited. */
+		[cell setTextColor:[self derivedAtRow:row] != nil ? [NSColor disabledControlTextColor] : [NSColor controlTextColor]];
+	}
 }
 
 - (NSString *)textAtRow:(NSInteger)row column:(NSInteger)column
 {
 	if (row < 0 || column < 0) {
 		return @"";
+	}
+	ORMDerivedFact *derived = [self derivedAtRow:row];
+	if (derived != nil) {
+		NSArray *roles = [self roles];
+		ORMRole *role = (NSUInteger)column < [roles count] ? [roles objectAtIndex:(NSUInteger)column] : nil;
+		id player = role != nil ? [derived.players objectForKey:role.identifier] : nil;
+		return [player isKindOfClass:[ORMInstance class]] ? [self nameOf:player] : (player ?: @"");
 	}
 	if ((NSUInteger)row >= [_rows count]) {
 		return (NSUInteger)column < [_pending count] ? [_pending objectAtIndex:(NSUInteger)column] : @"";
@@ -191,6 +258,9 @@
 {
 	(void)tableView;
 	(void)column;
+	if ([self derivedAtRow:row] != nil || [self isFullyDerived]) {
+		return NO;
+	}
 	return _fact != nil || _type != nil || (NSUInteger)row >= [_rows count];
 }
 
@@ -203,7 +273,7 @@
 {
 	_refusal = nil;
 	NSString *named = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] ?: @"";
-	if (row < 0 || column < 0) {
+	if (row < 0 || column < 0 || [self derivedAtRow:row] != nil) {
 		return;
 	}
 	if ((NSUInteger)row >= [_rows count]) {
@@ -283,6 +353,11 @@
 	if (_fact == nil && _type == nil) {
 		return;
 	}
+	if ([self isFullyDerived]) {
+		[self refuse:[NSString stringWithFormat:@"\"%@\" is derived: its facts follow from its rule.",
+		                                        [[_fact primaryReading] expandedText] ?: _fact.name]];
+		return;
+	}
 	_refusal = nil;
 	_pending = [NSMutableArray array];
 	for (NSUInteger i = 0; i < [self columnCount]; i++) {
@@ -307,7 +382,7 @@
 			[chosen addObject:[[self->_rows objectAtIndex:row] identifier]];
 		}
 	}];
-	if ([rows containsIndex:[_rows count]]) {
+	if ([rows containsIndex:[_rows count] + [_derived count]]) {
 		_pending = nil;
 	}
 	__block NSString *reason = nil;

@@ -56,6 +56,7 @@
 #import "ORMCursor.h"
 #import "ORMRuleChecker.h"
 #import "ORMIssueFinder.h"
+#import "ORMDeriver.h"
 #import "ORMPopulationStore.h"
 #import "ORMPopulationChecker.h"
 #import "ORMPopulationGenerator.h"

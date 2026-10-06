@@ -429,7 +429,9 @@ ORMCellText(id value)
 	/* Refused, the population there stays. */
 	[self.editor group:@"Make Up a Sample Population" trying:^BOOL {
 		[self.editor.populationEditor removePopulation];
-		added = [self.editor.populationEditor addPopulation:population reason:&reason];
+		/* With what the stored derivations derive from it. */
+		added = [self.editor.populationEditor addPopulation:population reason:&reason]
+		        && [self.editor.populationEditor bringStoredDerivationsUpToDate:&reason];
 		return added;
 	}];
 	if (!added) {

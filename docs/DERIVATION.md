@@ -153,7 +153,9 @@ populations do it after each change (step 3).
 2. **Done: verbalization.** "\* Each Person is a grandparent of each Person ...
    derived as follows: ...", and NORMA's wording for partly derived and
    stored ones.
-3. **Populations.** The derived facts computed from the sample population:
+3. **Done: populations.** `ORMDeriver` runs each derivation against a store of
+   the population and matches each row's values back to the population's
+   instances. The derived facts computed from the sample population:
    the checker checks constraints over them, and reports asserted facts of a
    fully derived fact type. The Population tab shows them. Stored ones are
    written into the sample population, after a change and when making one up.

@@ -252,6 +252,119 @@
 	XCTAssertEqual([broken() count], 1u, @"%@", broken());
 }
 
+/* The fact type with this primary reading. */
+- (ORMFactType *)factReading:(NSString *)text in:(ORMModel *)model
+{
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:text]) {
+			return fact;
+		}
+	}
+	return nil;
+}
+
+/* The node a new step from the node reaches. */
+- (NSString *)step:(ORMQueryEditor *)queries from:(NSString *)nodeId through:(NSString *)roleId in:(NSString *)queryId
+                in:(ORMEditor *)editor
+{
+	NSString *reason = nil;
+	NSString *step = [queries addStepTo:nodeId through:roleId reason:&reason];
+	XCTAssertNotNil(step, @"%@", reason);
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:queryId inModel:editor.model] nodes]) {
+		if ([node.step.identifier isEqualToString:step]) {
+			return node.identifier;
+		}
+	}
+	return nil;
+}
+
+/* Derived facts in a sample population (docs/DERIVATION.md): the Company
+ * sample's "Employee reports to Employee", from the branch one works for
+ * and the other heads, derived from its population as its instances;
+ * checked against the constraints on the derived fact type; an asserted
+ * fact of a fully derived one, and stored ones out of date, said wrong. */
+- (void)testDerivedFactsAreCheckedAsTheSamplesFacts
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	NSData *data = [NSData dataWithContentsOfFile:[root stringByAppendingPathComponent:@"Samples/Company.orm"]];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:self.undoManager];
+	ORMModel *model = editor.model;
+	NSString *employee = [[model objectTypeNamed:@"Employee"] identifier];
+	ORMFactType *worksFor = [self factReading:@"Employee works for Branch" in:model];
+	ORMFactType *heads = [self factReading:@"Employee heads Branch" in:model];
+	XCTAssertNotNil(worksFor);
+	XCTAssertNotNil(heads);
+	NSString *diagram = [[model.diagrams firstObject] identifier];
+	NSString *reason = nil;
+	NSString *reports = [editor.factTypeEditor addFactTypeWithPlayers:@[ employee, employee ] reading:@"{0} reports to {1}"
+	                                                        onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(reports, @"%@", reason);
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *q = [queries addQueryNamed:@"Reporting" from:employee reason:NULL];
+	NSString *start = [ORMQuery queryWithId:q inModel:editor.model].root.identifier;
+	NSString *branch = [self step:queries from:start through:[[worksFor.roles firstObject] identifier] in:q in:editor];
+	NSString *head = [self step:queries from:branch through:[[heads.roles lastObject] identifier] in:q in:editor];
+	[queries setProjected:YES ofNode:head];
+	XCTAssertTrue([queries setKind:ORMQueryDerivation ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([queries setDerivedFactType:reports ofQuery:q reason:&reason], @"%@", reason);
+
+	/* One fact for each employee whose branch has a head, its players the
+	 * population's own instances. */
+	ORMDeriver *deriver = [[ORMDeriver alloc] initWithModel:editor.model];
+	NSArray *derived = [[deriver derivedFacts] objectForKey:reports];
+	XCTAssertEqualObjects([deriver notes], @[]);
+	XCTAssertGreaterThan([derived count], 3u);
+	for (ORMDerivedFact *fact in derived) {
+		XCTAssertTrue([fact isOfInstances], @"%@", fact.players);
+	}
+	NSArray *(^texts)(void) = ^NSArray * {
+		return [[[[ORMPopulationChecker alloc] initWithModel:editor.model] violations] valueForKey:@"text"];
+	};
+	NSArray *before = texts();
+	/* Each employee reports to one head at most: holds. Each head is
+	 * reported to by one employee at most: does not, being derived. */
+	NSArray *roles = [[editor.model elementWithId:reports] roles];
+	XCTAssertNotNil([editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[0] identifier] ] reason:&reason]);
+	XCTAssertEqual([texts() count], [before count], @"%@", texts());
+	XCTAssertNotNil([editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[1] identifier] ] reason:&reason]);
+	XCTAssertGreaterThan([texts() count], [before count], @"%@", texts());
+
+	/* Asserted, though fully derived. */
+	ORMDerivedFact *some = [derived firstObject];
+	NSMutableDictionary *named = [NSMutableDictionary dictionary];
+	for (NSString *roleId in some.players) {
+		[named setObject:[editor.populationEditor nameOf:[some.players objectForKey:roleId]] forKey:roleId];
+	}
+	XCTAssertNotNil([editor.populationEditor addFactOf:reports named:named reason:&reason], @"%@", reason);
+	XCTAssertTrue([texts() containsObject:@"\"Employee reports to Employee\" is derived: its facts are not asserted."],
+	              @"%@", texts());
+	/* Stored, with one fact of many written: out of date. */
+	XCTAssertTrue([editor.factTypeEditor setDerivationPartial:NO stored:YES of:reports reason:&reason], @"%@", reason);
+	NSString *stale = [NSString stringWithFormat:@"\"Employee reports to Employee\" is stored out of date: %lu facts its "
+	                                             @"rule derives are missing, 0 are not derived.",
+	                                             (unsigned long)[derived count] - 1];
+	XCTAssertTrue([texts() containsObject:stale], @"%@", texts());
+
+	/* Brought up to date: each derived fact stored, once. */
+	XCTAssertTrue([editor.populationEditor bringStoredDerivationsUpToDate:&reason], @"%@", reason);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count]);
+	XCTAssertFalse([[texts() componentsJoinedByString:@"\n"] containsString:@"stored out of date"], @"%@", texts());
+	/* A new employee of a branch with a head: their report is stored with
+	 * the edit, and undone with it. */
+	heads = [self factReading:@"Employee heads Branch" in:editor.model];
+	worksFor = [self factReading:@"Employee works for Branch" in:editor.model];
+	ORMFactInstance *headed = [[heads instances] firstObject];
+	ORMInstance *ofBranch = [headed.instancesByRole objectForKey:[[heads.roles lastObject] identifier]];
+	NSDictionary *joins = @{ [[worksFor.roles firstObject] identifier]: @"999",
+		                     [[worksFor.roles lastObject] identifier]: [editor.populationEditor nameOf:ofBranch] };
+	XCTAssertNotNil([editor.populationEditor addFactOf:worksFor.identifier named:joins reason:&reason], @"%@", reason);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count] + 1);
+	[self.undoManager undo];
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count]);
+	XCTAssertEqual([[[self factReading:@"Employee works for Branch" in:editor.model] instances] count], [[worksFor instances] count]);
+}
+
 /* An entity type identified by the facts it plays in, not one value: the
  * roles of its preferred identifier and their players. */
 - (NSString *)entity:(NSString *)name identifiedBy:(NSArray<NSString *> *)players readings:(NSArray<NSString *> *)readings
