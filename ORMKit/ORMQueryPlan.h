@@ -264,6 +264,15 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* Whether a column lists the object read itself: then no row of one
  * object is another's. */
 - (BOOL)listsTheObjectRead;
+/* Every key path the plan reads from the object it reads, through the
+ * collections its variables range over: "branch.employees.salary". nil
+ * where it reads what no path from that object says: a set it joins on
+ * values, a bag. What generated code walks back from a change to the
+ * objects it can affect (docs/DERIVATION.md). */
+- (NSArray<NSArray<NSString *> *> *)trailsFromRead;
+/* The key path of a column from the object read, its identifier left
+ * out; nil for one computed, or past a join. */
+- (NSArray<NSString *> *)trailOfColumn:(ORMPlanColumn *)column;
 /* Whether equal rows are of objects read one after another, the objects
  * in the order (each part a key path from the object read; the key's
  * parts last, when it is given): a prefix of the order determines the

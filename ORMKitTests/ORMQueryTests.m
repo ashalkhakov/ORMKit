@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
+#include <dlfcn.h>
 #import <ODataKit/ODataExpression.h>
 #import <CoreData/CoreData.h>
 #import <ODataKit/ODataTransport.h>
@@ -1284,6 +1285,124 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+#if defined(__APPLE__)
+/* The generated validation code built as a library and loaded: the class
+ * headers it imports stubbed. NO, with clang's word, where it does not
+ * build. */
+- (BOOL)load:(NSDictionary<NSString *, NSString *> *)files in:(NSString *)directory why:(NSString **)why
+{
+	NSMutableArray *sources = [NSMutableArray array];
+	NSMutableString *stubs = [NSMutableString stringWithString:@"#import <CoreData/CoreData.h>\n"];
+	for (NSString *name in files) {
+		NSString *text = [files objectForKey:name];
+		[text writeToFile:[directory stringByAppendingPathComponent:name] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+		if ([name hasSuffix:@".m"]) {
+			[sources addObject:[directory stringByAppendingPathComponent:name]];
+		}
+		NSRegularExpression *imported = [NSRegularExpression regularExpressionWithPattern:@"#import \"([A-Za-z0-9_]+)\\+CoreDataClass\\.h\""
+		                                                                          options:0 error:NULL];
+		for (NSTextCheckingResult *match in [imported matchesInString:text options:0 range:NSMakeRange(0, [text length])]) {
+			NSString *class = [text substringWithRange:[match rangeAtIndex:1]];
+			NSString *header = [NSString stringWithFormat:@"#import <CoreData/CoreData.h>\n@interface %@ : NSManagedObject\n@end\n", class];
+			[header writeToFile:[directory stringByAppendingPathComponent:[class stringByAppendingString:@"+CoreDataClass.h"]]
+			         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+			if ([stubs rangeOfString:[NSString stringWithFormat:@"@implementation %@\n", class]].location == NSNotFound) {
+				[stubs appendFormat:@"@interface %@ : NSManagedObject\n@end\n@implementation %@\n@end\n", class, class];
+			}
+		}
+	}
+	NSString *stubFile = [directory stringByAppendingPathComponent:@"Stubs.m"];
+	[stubs writeToFile:stubFile atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+	[sources addObject:stubFile];
+	NSString *library = [directory stringByAppendingPathComponent:@"Generated.dylib"];
+	NSTask *clang = [[NSTask alloc] init];
+	clang.launchPath = @"/usr/bin/xcrun";
+	clang.arguments = [@[ @"clang", @"-fobjc-arc", @"-dynamiclib", @"-framework", @"Foundation", @"-framework", @"CoreData",
+	                      @"-o", library ] arrayByAddingObjectsFromArray:sources];
+	NSPipe *output = [NSPipe pipe];
+	clang.standardError = output;
+	clang.standardOutput = output;
+	[clang launch];
+	NSData *said = [[output fileHandleForReading] readDataToEndOfFile];
+	[clang waitUntilExit];
+	if (clang.terminationStatus != 0) {
+		*why = [[NSString alloc] initWithData:said encoding:NSUTF8StringEncoding];
+		return NO;
+	}
+	if (dlopen([library fileSystemRepresentation], RTLD_NOW) == NULL) {
+		*why = [NSString stringWithUTF8String:dlerror()];
+		return NO;
+	}
+	return YES;
+}
+#endif
+
+/* Saving (docs/DERIVATION.md, step 6): the generated code works out a
+ * stored derived fact type Core Data cannot ("Employee works in Cityname",
+ * two relationships away) for the objects a change reaches: a city renamed,
+ * its branches' employees work in the new name. Built and run on macOS. */
+- (void)testTheSaveHookWorksOutStoredDerivations
+{
+	NSString *employee = [self typeId:@"Employee"];
+	NSString *cityname = [self typeId:@"Cityname"];
+	NSArray *worksIn = [self fact:@"worksIn" players:@[ employee, cityname ] reading:@"{0} works in {1}" inverse:nil
+	                   uniqueness:@"1"];
+	NSString *worksInFact = [[(ORMRole *)[_editor.model elementWithId:worksIn[0]] factType] identifier];
+	NSString *q = [[self queries] addQueryNamed:@"Workplace" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:q].identifier through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *where = [self from:branch.identifier through:[self role:@"locatedIn" at:0] in:q];
+	ORMQueryNode *named = [self from:where.identifier through:[self role:@"cityName" at:0] in:q];
+	[[self queries] setProjected:YES ofNode:named.identifier];
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:q reason:NULL]);
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setDerivedFactType:worksInFact ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:worksInFact reason:&reason], @"%@", reason);
+
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Company"];
+	NSDictionary *files = [generator files];
+	NSString *code = [files objectForKey:@"CompanyValidation.m"];
+	XCTAssertTrue([[files objectForKey:@"CompanyValidation.h"] containsString:@"- (BOOL)orm_prepareForSave:(NSError **)error;"]);
+	XCTAssertTrue([code containsString:@"CompanyDerive(root, @[ @\"branch\", @\"city\", @\"cityname\" ]"], @"%@\n%@",
+	              generator.notes, code);
+	XCTAssertTrue([code containsString:@"@[ @\"City\", @[ @\"branches\", @\"employees\" ] ]"], @"%@", code);
+#if defined(__APPLE__)
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSString *why = nil;
+	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMCDModel *mapped = [mapper map];
+	NSString *target = nil;
+	for (ORMCDAttribute *attribute in [mapped entityNamed:@"Employee"].attributes) {
+		target = [attribute.source isEqualToString:[worksIn lastObject]] ? attribute.name : target;
+	}
+	XCTAssertNotNil(target);
+	NSManagedObjectContext *context = [self companyIn:directory model:[mapped managedObjectModel]];
+	SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
+	XCTAssertTrue([context respondsToSelector:prepare]);
+	[context performBlockAndWait:^{
+		NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"City"];
+		fetch.predicate = [NSPredicate predicateWithFormat:@"cityname == 'Sydney'"];
+		NSManagedObject *sydney = [[context executeFetchRequest:fetch error:NULL] firstObject];
+		XCTAssertNotNil(sydney);
+		[sydney setValue:@"Sydney Harbour" forKey:@"cityname"];
+		NSError *error = nil;
+		BOOL (*call)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[context methodForSelector:prepare];
+		XCTAssertTrue(call(context, prepare, &error), @"%@", error);
+		NSFetchRequest *employees = [NSFetchRequest fetchRequestWithEntityName:@"Employee"];
+		employees.predicate = [NSPredicate predicateWithFormat:@"branch.city == %@", sydney];
+		NSArray *there = [context executeFetchRequest:employees error:NULL];
+		XCTAssertGreaterThan([there count], 0u);
+		for (NSManagedObject *each in there) {
+			XCTAssertEqualObjects([each valueForKey:target], @"Sydney Harbour");
+		}
+		XCTAssertTrue([context save:&error], @"%@", error);
+	}];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+#endif
+}
+
 /* Sorted by an attribute maybe there: each employee and maybe their
  * name, last first. The sort is by the name, from the object read. */
 - (void)testASortByAValueMaybeThere
@@ -1932,7 +2051,11 @@
 	NSString *code = [[generator files] objectForKey:@"CompanyValidation.m"];
 	XCTAssertTrue([code rangeOfString:@"evaluateWithObject:self]"].location != NSNotFound, @"%@", code);
 	XCTAssertTrue([code rangeOfString:@"Lives near work"].location != NSNotFound);
-	XCTAssertTrue([code rangeOfString:@"Checked from Employee only"].location != NSNotFound, @"%@", code);
+	/* At save, again for each Employee a change reaches (docs/DERIVATION.md). */
+	XCTAssertTrue([code rangeOfString:@"Checked from Employee, and by orm_prepareForSave: for each Employee a change reaches."]
+	                  .location != NSNotFound, @"%@", code);
+	XCTAssertTrue([code rangeOfString:@"/* The rules Employee is checked by, again for each a change reaches. */"].location
+	                  != NSNotFound, @"%@", code);
 	NSString *notes = [generator.notes componentsJoinedByString:@"\n"];
 	XCTAssertTrue([notes rangeOfString:@"Lives near work"].location == NSNotFound, @"%@", notes);
 

@@ -771,6 +771,147 @@ ORMHasPrefix(NSArray *path, NSArray *prefix)
 	return [self rowsFollowOrder:order key:nil];
 }
 
+/* The keys a path reads from the object read: its variable's collection's
+ * first. nil where its variable is bound nowhere this walk sees. */
+static NSArray<NSString *> *
+ORMTrailOf(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
+{
+	if (path == nil) {
+		return nil;
+	}
+	if (path.variable == nil) {
+		return path.keys;
+	}
+	NSArray *base = [bound objectForKey:path.variable];
+	return base != nil ? [base arrayByAddingObjectsFromArray:path.keys] : nil;
+}
+
+/* What the condition reads, into trails; NO where it reads what no path
+ * says. */
+static BOOL
+ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet *trails)
+{
+	if (condition == nil) {
+		return YES;
+	}
+	BOOL ok = YES;
+	void (^add)(ORMPlanPath *) = ^(ORMPlanPath *path) {
+		NSArray *trail = ORMTrailOf(path, bound);
+		if (path != nil && trail == nil) {
+			return;
+		}
+		if ([trail count] > 0) {
+			[trails addObject:trail];
+		}
+	};
+	switch (condition.kind) {
+	case ORMPlanAnd:
+	case ORMPlanOr:
+		for (ORMPlanCondition *operand in condition.operands) {
+			ok = ORMCollectTrails(operand, bound, trails) && ok;
+		}
+		return ok;
+	case ORMPlanNot:
+		return ORMCollectTrails(condition.operand, bound, trails);
+	case ORMPlanCompare:
+		if (condition.left.bag != nil || condition.right.bag != nil) {
+			return NO;
+		}
+		add(condition.left.path);
+		add(condition.right.path);
+		return YES;
+	case ORMPlanNotNull:
+	case ORMPlanIsOf:
+		add(condition.path);
+		return YES;
+	case ORMPlanSame:
+		add(condition.path);
+		add(condition.otherPath);
+		return YES;
+	case ORMPlanAmong:
+		add(condition.path);
+		return YES;
+	case ORMPlanExists:
+	case ORMPlanCount:
+	case ORMPlanAggregate:
+	case ORMPlanMaybe: {
+		NSArray *collection = ORMTrailOf(condition.path, bound);
+		if (collection == nil) {
+			return NO;
+		}
+		[trails addObject:collection];
+		NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bound];
+		if (condition.variable != nil) {
+			[inner setObject:collection forKey:condition.variable];
+		}
+		if (condition.valuePath != nil) {
+			NSArray *value = ORMTrailOf(condition.valuePath, inner);
+			if ([value count] > 0) {
+				[trails addObject:value];
+			}
+		}
+		return ORMCollectTrails(condition.operand, inner, trails);
+	}
+	case ORMPlanMatches:
+		return NO;
+	}
+	return NO;
+}
+
+/* The variables bound where the condition binds them, to their trails. */
+static void
+ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionary *all)
+{
+	if (condition == nil) {
+		return;
+	}
+	NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bound];
+	if (condition.variable != nil && condition.kind != ORMPlanMatches) {
+		NSArray *collection = ORMTrailOf(condition.path, bound);
+		if (collection != nil) {
+			[inner setObject:collection forKey:condition.variable];
+			[all setObject:collection forKey:condition.variable];
+		}
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMBindings(operand, inner, all);
+	}
+	ORMBindings(condition.operand, inner, all);
+}
+
+- (NSArray<NSArray<NSString *> *> *)trailsFromRead
+{
+	NSMutableSet *trails = [NSMutableSet set];
+	if (!ORMCollectTrails(self.condition, @{}, trails) || [self.definitions count] > 0) {
+		return nil;
+	}
+	for (ORMPlanColumn *column in self.columns) {
+		if (column.value != nil) {
+			return nil;
+		}
+		NSArray *trail = [self trailOfColumn:column];
+		if (trail == nil) {
+			return nil;
+		}
+		if ([trail count] > 0) {
+			[trails addObject:trail];
+		}
+	}
+	return [[trails allObjects] sortedArrayUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) {
+		return [[a componentsJoinedByString:@"."] compare:[b componentsJoinedByString:@"."]];
+	}];
+}
+
+- (NSArray<NSString *> *)trailOfColumn:(ORMPlanColumn *)column
+{
+	if (column.value != nil || column.path == nil) {
+		return nil;
+	}
+	NSMutableDictionary *bound = [NSMutableDictionary dictionary];
+	ORMBindings(self.condition, @{}, bound);
+	return ORMTrailOf(column.path, bound);
+}
+
 - (BOOL)listsTheObjectRead
 {
 	for (ORMPlanColumn *column in self.columns) {

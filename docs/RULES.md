@@ -235,10 +235,11 @@ which objects the rule depends on. The notes call such a constraint
 - **Transition constraints**, about what may change into what. Dataphor has
   them; this does not.
 - **Constraints checked at commit,** not only from the root object, so that
-  a change anywhere on a rule's join path is seen. This is built with
-  derived-and-stored fact types, whose facts are brought up to date at the
-  same point and before the check
-  ([DERIVATION.md](DERIVATION.md#core-data-and-keeping-stored-ones-up-to-date)). Dataphor compiles each
+  a change anywhere on a rule's join path is seen. **Done** with
+  derived-and-stored fact types: the generated `orm_prepareForSave:` brings
+  their facts up to date, then checks each rule again for every root a
+  change reaches ([DERIVATION.md](DERIVATION.md), step 6). What is left
+  here: the same in the OData service, at the end of a change set. Dataphor compiles each
   database constraint into checks on the tables it reads, restricted to
   the rows a change touches. The literature calls this incremental
   integrity checking: Nicolas, "Logic for Improving Integrity Checking in

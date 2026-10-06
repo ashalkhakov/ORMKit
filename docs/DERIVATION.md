@@ -172,11 +172,28 @@ populations do it after each change (step 3).
    as far as Core Data goes ("currently unsupported (too many steps)"
    beyond). Partly derived ones not stored are mapped for their asserted
    facts; queries do not go through them yet (an or of the two).
-6. **Saving: derive, then check.** `orm_prepareForSave:` in the generated
-   code: the affected roots, the stored derivations brought up to date for
-   them in dependency order, then the rules checked. This is RULES.md's
-   commit-time check, built here. The OData service's change sets come
-   after, through ODataKit's hooks.
+6. **Done: saving, derive then check.** `-[NSManagedObjectContext
+   orm_prepareForSave:]` in the generated code (`ORMValidationGenerator`),
+   self-contained: plain Objective-C, nothing of ORMKit at run time.
+   - Each plan says the key paths it reads from its root
+     (`-[ORMQueryPlan trailsFromRead]`). The generator turns each into the
+     inverse relationships back to the root, and the hook walks those from
+     each changed object (inserted, updated, deleted) to the roots it can
+     affect.
+   - A stored derivation the generated code can work out is a plain chain
+     of steps, to-one or to-many, ending at a value or at objects. It is
+     worked out along the chain for each affected root, and set where it
+     differs. One with conditions on the way, or partly derived, is in the
+     generator's notes. One Core Data derives itself (step 5) is left to
+     it.
+   - Then each constraint query is checked again, with
+     `orm_collectViolations:`, for every root a change, a derived one
+     included, reaches. An alethic violation refuses the save.
+   - Tested by building the generated code with clang and loading it
+     (macOS): a city renamed, its branches' employees work in the new name.
+   - Apps that cannot generate code ahead of time run the same derivations
+     and rules through ORMKit (`ORMDeriver`, `ORMRuleChecker`). The OData
+     service's change sets are for later, through ODataKit's hooks.
 7. **The designer:** the inspector, the Queries window's kind, and the
    checks on the derivation's columns.
 8. **NORMA's rules as queries:** a role path with projections is read into
