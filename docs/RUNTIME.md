@@ -91,9 +91,9 @@ a change to the model shows as a readable diff.
 ```
 
 - **A plan** is archived node for node: conditions by kind, paths as
-  variable and steps, values, definitions by name, columns. An
-  `ORMPlanArchive` writes and reads it. Every plan the tests make goes
-  through it and back unchanged.
+  variable and steps, values, definitions by name, columns.
+  `-[ORMQueryPlan propertyList]` writes it, and
+  `+planWithPropertyList:error:` reads it back, checking each part.
 - **A rule's check** is a plan: the object violates the rule where the
   plan, run from it, finds a row. A ring property (acyclic, intransitive)
   needs a closure no plan says. It is a check of its own kind, with its
@@ -147,8 +147,10 @@ Declarations, and calls into the driver:
   `dlopen`.
 - **End to end:** the tables a model makes, loaded into the driver,
   against a store: on both platforms, where today it is Apple only.
-- **The archive:** every plan the query tests make, archived, read back
-  and run, gives the same rows.
+- **The archive:** every plan the query tests make goes through an XML
+  property list and back unchanged (`-[ORMTestCase archived:]`). The
+  plans the query tests run, and every query of every sample model, are
+  run from the copy read back.
 
 ## Costs
 
@@ -173,8 +175,10 @@ Declarations, and calls into the driver:
    links it, and imports `<ORMRuntime/ORMRuntime.h>` where the framework
    is, `"ORMRuntime.h"` from the tree beside it otherwise. Build it
    before ORMKit on GNUstep (`make -C ORMRuntime`).
-2. **Archive.** `ORMPlanArchive`, with the round trip over the query tests'
-   plans.
+2. **Archive** (done). Plans had a property list form already. Every plan
+   the tests make now goes through it, written as XML and read back, and
+   is run from what is read. That found the reader refusing a
+   calculation's `value` and `distinct`.
 3. **Derivations and the save hook** in the driver. The generator writes
    their tables, and `PFXDerive`, `PFXRoots` and `PFXWalk` go.
 4. **Rules:** checks as plans, and ring checks as kinds. The validation

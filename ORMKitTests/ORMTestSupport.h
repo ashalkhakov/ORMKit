@@ -22,6 +22,10 @@
  * where PATH has it; nil when it accepts it, or there is none. */
 - (NSString *)momcRejects:(ORMCDModel *)model;
 @property (nonatomic, readonly, strong) NSUndoManager *undoManager;
+/* The plan as the tables an app runs have it (docs/RUNTIME.md): written as
+ * an XML property list and read back, which must change nothing. The plan
+ * read; fails the test where it is not the same. */
+- (ORMQueryPlan *)archived:(ORMQueryPlan *)plan;
 /* The real NORMA files: written by NORMA itself, so they say what NORMA's
  * derived data and layout are, and normalizing them changes nothing.
  * StockMate is from a recent NORMA; the ActiveFacts examples from NORMA

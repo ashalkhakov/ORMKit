@@ -3,8 +3,24 @@
 #include <dlfcn.h>
 
 @implementation ORMTestCase
+
 {
 	NSUndoManager *_undoManager;
+}
+
+- (ORMQueryPlan *)archived:(ORMQueryPlan *)plan
+{
+	NSError *error = nil;
+	NSData *data = [NSPropertyListSerialization dataWithPropertyList:[plan propertyList]
+	                                                          format:NSPropertyListXMLFormat_v1_0
+	                                                         options:0
+	                                                           error:&error];
+	XCTAssertNotNil(data, @"%@\n%@", error, [plan text]);
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:&error] : nil;
+	ORMQueryPlan *read = list != nil ? [ORMQueryPlan planWithPropertyList:list error:&error] : nil;
+	XCTAssertNotNil(read, @"%@\n%@", error, [plan text]);
+	XCTAssertEqualObjects([read propertyList], [plan propertyList], @"%@", [plan text]);
+	return read ?: plan;
 }
 
 - (NSString *)fixturePath:(NSString *)name

@@ -1218,7 +1218,9 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 {
 	if ([list isKindOfClass:[NSDictionary class]] && [list objectForKey:@"aggregate"] != nil) {
 		id function = [list objectForKey:@"aggregate"];
-		if (![@[ @"count", @"sum", @"average", @"max", @"min" ] containsObject:function]) {
+		/* As the interpreter reads them: also the one value, and how many
+		 * values there are. */
+		if (![@[ @"value", @"distinct", @"count", @"sum", @"average", @"max", @"min" ] containsObject:function]) {
 			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no aggregate function.", function]);
 			return nil;
 		}

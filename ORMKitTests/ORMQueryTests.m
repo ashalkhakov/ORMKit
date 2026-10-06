@@ -211,6 +211,11 @@
 {
 	if (_editor != nil) {
 		[self readOutlinesBack];
+		/* Each query's plan, as an app's tables have it. */
+		ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+		for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+			[self archived:[planner planForQuery:query]];
+		}
 	}
 	_editor = nil;
 	_facts = nil;
@@ -1171,7 +1176,7 @@
 /* The query's distinct rows, from the store and from the service alike. */
 - (NSArray *)rowsOfQuery:(NSString *)queryId planner:(ORMQueryPlanner *)planner in:(NSManagedObjectContext *)context
 {
-	ORMQueryPlan *plan = [planner planForQuery:[self query:queryId]];
+	ORMQueryPlan *plan = [self archived:[planner planForQuery:[self query:queryId]]];
 	XCTAssertEqual([plan.notes count], 0u, @"%@\n%@", plan.notes, [plan text]);
 	NSArray *served = nil;
 	NSArray *read = [self rowsOf:plan planner:planner twoAtATimeIn:context service:&served];

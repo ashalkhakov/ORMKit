@@ -796,7 +796,8 @@ ORMViolationTexts(ORMModel *model)
 		XCTAssertEqualObjects(store.notes, @[]);
 		ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
 		for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
-			ORMQueryPlan *plan = [planner planForQuery:query];
+			/* Run as an app runs it: from its table. */
+			ORMQueryPlan *plan = [self archived:[planner planForQuery:query]];
 			ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
 			XCTAssertNotNil(result, @"%@: %@", query.name, error);
 			NSMutableOrderedSet *firsts = [NSMutableOrderedSet orderedSet];
