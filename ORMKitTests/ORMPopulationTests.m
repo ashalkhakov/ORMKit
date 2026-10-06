@@ -682,8 +682,8 @@
 }
 
 /* Every model gets a population that is written, read back and put in the
- * store of its default mapping. All but five break nothing (the samples,
- * StockMate, WorkMate, 24 of the 29 ActiveFacts models); for those five the
+ * store of its default mapping. All but two break nothing (the samples,
+ * StockMate, WorkMate, 27 of the 29 ActiveFacts models); for those two the
  * generator says why. */
 - (void)testAGeneratedPopulationMeetsTheConstraints
 {
@@ -721,8 +721,7 @@
 		}
 	}
 	/* What the generator cannot yet make whole: docs/POPULATIONS.md. */
-	XCTAssertEqualObjects(broken, ([NSSet setWithArray:@[ @"Blog.orm", @"Diplomacy.orm", @"Metamodel.orm",
-	                                                      @"Monogamy.orm", @"Supervision.orm" ]]));
+	XCTAssertEqualObjects(broken, ([NSSet setWithArray:@[ @"Diplomacy.orm", @"Metamodel.orm" ]]));
 }
 
 /* The samples' own populations: each query finds what its paper says, or

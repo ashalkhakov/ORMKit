@@ -35,6 +35,9 @@
             objectifying:(NSString *)factInstanceId
             identifiedBy:(NSDictionary<NSString *, NSString *> *)instancesByRole;
 - (BOOL)isEmpty;
+/* The instance taken out again, where nothing else here is of it (a fact
+ * it plays in, a subtype instance it is); whether it was. */
+- (BOOL)removeInstance:(NSString *)instanceId;
 @end
 
 /* The sample population, written as NORMA writes it: an instance under its

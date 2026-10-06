@@ -195,15 +195,31 @@ worked out from the rest of the population (`ORMDeriver`).
 - The Population tab shows a derived fact type's facts, read only, after any
   asserted ones; a fully derived one takes none by hand.
 
+The generator sizes and shapes the population for what must be played:
+- a type with a role that every instance of another type must play with it
+  (each Company run by a CEO) has at least as many instances as that type.
+  A supertype has enough for each subtype's share to have that many;
+- a type whose roles are exclusive (each Content the text of a Comment or of
+  a Paragraph, not both) has one for each partner of each;
+- an instance that ends up playing nothing, where it must play one of
+  several roles, is left out;
+- the facts that identify instances (an Employee by the Company it works for
+  and its number) count for the subset constraints on others ("CEO runs
+  Company" only where the CEO works for it);
+- a transitive ring is kept by making no chains of two;
+- a symmetric ring across two types (Girl going out with Boy) is kept by
+  making no facts, where none are mandatory.
+
 ## Not done yet
 
 - **The generator's limits:**
-  - a subtype's share is fixed, so a mandatory one-to-one role it must cover
-    can run out of instances (ActiveFacts' Supervision and Diplomacy);
-  - an objectifying type has as many instances as its fact type has facts,
-    which can be too few for a mandatory role it plays (Blog, and the
-    ActiveFacts Metamodel);
-  - symmetric rings between different types (Monogamy);
+  - a fact whose players must agree with several other fact types at once
+    (Diplomacy's ambassadors, from the country they represent to the one
+    they serve in, one for each pair) is looked for among a few hundred
+    candidates, not worked out from those facts;
+  - sibling subtypes' shares are each a fixed part of the supertype's
+    instances, grown for what one subtype needs but not balanced among
+    several (the ActiveFacts Metamodel's eight kinds of Shape);
   - external uniqueness over more than binaries;
   - value comparisons;
   - derived fact types, which it leaves out.

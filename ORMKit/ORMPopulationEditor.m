@@ -127,6 +127,29 @@ ORMKeyOf(NSString *typeId, NSDictionary<NSString *, NSString *> *byRole)
 	return [_items count] == 0;
 }
 
+- (BOOL)removeInstance:(NSString *)instanceId
+{
+	ORMSampleItem *found = nil;
+	for (ORMSampleItem *item in _items) {
+		if ([item.identifier isEqualToString:instanceId]) {
+			found = item;
+			continue;
+		}
+		if ([[item.byRole allValues] containsObject:instanceId]
+		    || (item.kind != ORMSampleValue && [item.text isEqualToString:instanceId])) {
+			return NO;
+		}
+	}
+	if (found == nil) {
+		return NO;
+	}
+	[_items removeObject:found];
+	for (NSString *key in [_made allKeysForObject:instanceId]) {
+		[_made removeObjectForKey:key];
+	}
+	return YES;
+}
+
 @end
 
 @implementation ORMPopulationEditor
