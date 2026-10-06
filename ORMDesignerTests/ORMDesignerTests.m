@@ -1302,4 +1302,41 @@
 	                      @"Line 2, \"+ floats\": no fact type of Warehouse reads so");
 }
 
+/* An objectifying type its fact identifies (CinemaTickets' Session, a
+ * cinema showing a film at a time): its instances are its fact's facts, so
+ * its table is that fact type's, and a row added is a fact and an instance
+ * both. */
+- (void)testAnObjectifyingTypesInstancesAreItsFacts
+{
+	[self open:@"ActiveFacts/CinemaTickets.orm"];
+	[_document.editor.populationEditor removePopulation];
+	ORMModel *model = _document.editor.model;
+	ORMObjectType *session = [model objectTypeNamed:@"Session"];
+	XCTAssertNotNil(session.nestedFactType);
+	[_controller.canvas selectElements:@[ session.identifier ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	if (![population.elementId isEqualToString:session.identifier]) {
+		population.elementId = session.identifier;
+	}
+	XCTAssertEqual([population.table numberOfColumns], (NSInteger)[[session.nestedFactType visibleRoles] count]);
+	XCTAssertTrue([[[population valueForKey:@"title"] stringValue] hasPrefix:@"Instances of Session, each a fact of "],
+	              @"%@", [[population valueForKey:@"title"] stringValue]);
+	[population addRow:nil];
+	NSArray *roles = [session.nestedFactType visibleRoles];
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		ORMObjectType *player = [(ORMRole *)[roles objectAtIndex:i] player];
+		/* A Session Time by its year, month, day, hour and minute. */
+		NSArray *parts = [_document.editor.populationEditor compositeRolesOf:player.identifier];
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSUInteger k = 0; k < MAX([parts count], 1u); k++) {
+			[values addObject:[NSString stringWithFormat:@"%lu", (unsigned long)i + k + 1]];
+		}
+		[population setText:[values componentsJoinedByString:@", "] atRow:0 column:(NSInteger)i];
+	}
+	model = _document.editor.model;
+	XCTAssertEqual([[[model elementWithId:session.nestedFactType.identifier] instances] count], 1u,
+	               @"%@", [[population valueForKey:@"status"] stringValue]);
+	XCTAssertEqual([[[model objectTypeNamed:@"Session"] instances] count], 1u);
+}
+
 @end

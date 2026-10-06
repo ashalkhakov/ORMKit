@@ -862,4 +862,61 @@
 	                      (@[ @"Third Party Property", @"Third Party Property Fire and Theft" ]));
 }
 
+/* A unary fact as newer NORMA writes it: no fact instance, but the role
+ * referred to from the instance playing it (EntityTypeUnaryRoleInstance).
+ * Read as a fact of the unary fact type, it is kept in the store as the
+ * player's Boolean, true. */
+- (void)testAUnaryFactKeptOnItsPlayerIsRead
+{
+	[self addAnnAndBob];
+	NSString *diagram = [[_editor.model.diagrams firstObject] identifier];
+	NSString *smokes = [_editor.factTypeEditor addFactTypeWithPlayers:@[ _person ] reading:@"{0} smokes"
+	                                                       onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	ORMFactType *fact = [_editor.model elementWithId:smokes];
+	ORMRole *role = [[fact visibleRoles] firstObject];
+	ORMInstance *ann = nil;
+	for (ORMInstance *instance in [(ORMObjectType *)[_editor.model elementWithId:_person] instances]) {
+		ann = [[instance displayText] isEqualToString:@"1"] ? instance : ann;
+	}
+	XCTAssertNotNil(ann);
+	NSXMLElement *roleInstances = nil;
+	for (NSXMLNode *node in [ann.element children]) {
+		roleInstances = [[node localName] isEqualToString:@"RoleInstances"] ? (NSXMLElement *)node : roleInstances;
+	}
+	XCTAssertNotNil(roleInstances);
+	NSXMLElement *unary = [[NSXMLElement alloc] initWithName:@"orm:EntityTypeUnaryRoleInstance" URI:ORMCoreNamespace];
+	[unary addAttribute:[NSXMLNode attributeWithName:@"ref" stringValue:role.identifier]];
+	[roleInstances addChild:unary];
+
+	NSString *reason = nil;
+	ORMModel *model = [ORMModel modelOfDocument:_editor.document reason:&reason];
+	XCTAssertNotNil(model, @"%@", reason);
+	NSArray *facts = [(ORMFactType *)[model elementWithId:smokes] instances];
+	XCTAssertEqual([facts count], 1u);
+	ORMFactInstance *read = [facts firstObject];
+	XCTAssertEqualObjects([[read.instancesByRole objectForKey:role.identifier] displayText], @"1");
+	XCTAssertEqualObjects([[[ORMPopulationChecker alloc] initWithModel:model] violations], @[]);
+
+	ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:model mapping:nil] map];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	NSString *flag = nil;
+	ORMRole *implicit = nil;
+	for (ORMRole *each in fact.roles) {
+		implicit = each != role ? each : implicit;
+	}
+	for (ORMCDAttribute *attribute in [coreData entityNamed:@"Person"].attributes) {
+		flag = [attribute.source isEqualToString:implicit.identifier] ? attribute.name : flag;
+	}
+	XCTAssertNotNil(flag);
+	NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:@"Person"];
+	request.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"id" ascending:YES] ];
+	NSArray *people = [context executeFetchRequest:request error:&error];
+	XCTAssertEqual([people count], 2u);
+	XCTAssertTrue([[[people firstObject] valueForKey:flag] boolValue]);
+	XCTAssertFalse([[[people lastObject] valueForKey:flag] boolValue], @"Bob does not smoke: no fact says so");
+}
+
 @end

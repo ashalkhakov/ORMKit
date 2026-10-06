@@ -187,13 +187,16 @@ worked out from the rest of the population (`ORMDeriver`).
 - A stored one's facts are written into the population: each edit of the
   population brings them up to date in the same change
   (`bringStoredDerivationsUpToDate:`), and so does making up a population.
+- An objectifying type its fact identifies (CinemaTickets' Session) has
+  its fact's table in the Population tab: each row is a fact of the fact
+  type it objectifies, and its instance. A row added adds both.
+- A unary fact NORMA keeps on its player, an `EntityTypeUnaryRoleInstance`
+  under the instance, is read as a fact of the unary fact type.
 - The Population tab shows a derived fact type's facts, read only, after any
   asserted ones; a fully derived one takes none by hand.
 
 ## Not done yet
 
-- **An objectifying type's instances** by hand: such an instance is the
-  fact it objectifies, and the table refuses it by name.
 - **The generator's limits:**
   - a subtype's share is fixed, so a mandatory one-to-one role it must cover
     can run out of instances (ActiveFacts' Supervision and Diplomacy);
@@ -204,8 +207,9 @@ worked out from the rest of the population (`ORMDeriver`).
   - external uniqueness over more than binaries;
   - value comparisons;
   - derived fact types, which it leaves out.
-- **Unary facts** as newer NORMA versions may write them
-  (`EntityTypeUnaryRoleInstance`) are not read.
+- **Unary facts kept on their player** (`EntityTypeUnaryRoleInstance`, as
+  newer NORMA versions write them) are read, but not written or removed
+  one by one: ORMKit writes a unary fact as a fact instance.
 - **The checker's limits:** value comparisons, and sequences that need a
   join path.
 - **Populations in OData:** posting a population to a running ODataKit

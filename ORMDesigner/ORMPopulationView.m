@@ -67,6 +67,21 @@
 		/* A role selected: its fact type's population. */
 		element = [(ORMRole *)element factType];
 	}
+	/* An objectifying type its fact identifies: each instance is a fact of
+	 * the fact type it objectifies, made with it. */
+	ORMObjectType *objectifying = nil;
+	if ([element isKindOfClass:[ORMObjectType class]] && [(ORMObjectType *)element nestedFactType] != nil) {
+		ORMObjectType *type = element;
+		NSArray *identifying = [type.preferredIdentifier allRoles];
+		BOOL byFact = [identifying count] > 0;
+		for (ORMRole *role in identifying) {
+			byFact = byFact && role.factType == type.nestedFactType;
+		}
+		if (byFact) {
+			objectifying = type;
+			element = type.nestedFactType;
+		}
+	}
 	_fact = [element isKindOfClass:[ORMFactType class]] && [(ORMFactType *)element kind] == ORMFactTypeOrdinary ? element : nil;
 	_type = [element isKindOfClass:[ORMObjectType class]] ? element : nil;
 	_parts = _type != nil ? [self.editor.populationEditor compositeRolesOf:_type.identifier] : @[];
@@ -120,7 +135,10 @@
 		[[column dataCell] setEditable:_fact != nil || _type != nil];
 	}
 	[_table reloadData];
-	[_title setStringValue:_fact != nil ? [NSString stringWithFormat:@"Population of %@",
+	[_title setStringValue:objectifying != nil
+	                           ? [NSString stringWithFormat:@"Instances of %@, each a fact of %@", objectifying.name,
+	                                                        [[_fact primaryReading] expandedText] ?: _fact.name]
+	                       : _fact != nil ? [NSString stringWithFormat:@"Population of %@",
 	                                                                  [[_fact primaryReading] expandedText] ?: _fact.name]
 	                                    : (_type != nil ? [NSString stringWithFormat:@"Instances of %@", _type.name]
 	                                                    : @"Select a fact type or an object type.")];
