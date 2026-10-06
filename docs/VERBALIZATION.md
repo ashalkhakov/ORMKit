@@ -86,6 +86,7 @@ object type they share, as an external uniqueness constraint is.
 | Fact type derivation | * For each Session and Seat, that Session has that Seat if and only if that Session is at some Cinema that contains some Row that contains that Seat. (numbered heads: * Person1 is grandparent of Person2 if and only if Person1 is parent of some Person3 who is parent of Person2.) | |
 | Derivation marks | `*` derived, `**` derived and stored, `+` semiderived (said with "if"), `++` semiderived and stored **check** | |
 | Informal derivation | * the modeller's text | |
+| Derivation query ([DERIVATION.md](DERIVATION.md)) | the fact type's rule as a NORMA path's is said, from the query: * Employee1 reports to Employee2 if and only if Employee1 works for some Branch that is headed by Employee2. The query itself says it without the mark, which is also the text NORMA keeps as the rule's | |
 | Examples | Examples: 'DROC', 'YV', 'BK'. / Club Name 'Dandenong Ranges Orienteering Club' is name of Club 'DROC'. | |
 
 ## To check against the book

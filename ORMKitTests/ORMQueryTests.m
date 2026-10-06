@@ -1062,6 +1062,14 @@
 	XCTAssertFalse(rule.isPartial);
 	XCTAssertFalse(rule.isStored);
 	XCTAssertEqualObjects(rule.informalText, [self english:q]);
+	/* Said as Halpin says a derivation; the fact type marks it. */
+	XCTAssertEqualObjects([self english:q], @"Employee1 reports to Employee2 if and only if Employee1 works for some Branch "
+	                                         @"that is headed by Employee2.");
+	NSArray *(^said)(void) = ^NSArray * {
+		return [[[[ORMVerbalizer alloc] initWithModel:self->_editor.model] sentencesForElement:factId] valueForKey:@"text"];
+	};
+	XCTAssertTrue([said() containsObject:@"* Employee1 reports to Employee2 if and only if Employee1 works for some Branch "
+	                                     @"that is headed by Employee2."], @"%@", said());
 	ORMShape *shape = [[[_editor.model elementWithId:_diagram] shapeForSubject:factId] self];
 	XCTAssertNotNil(shape);
 	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" *"]);
@@ -1076,6 +1084,9 @@
 	XCTAssertTrue([reports derivationRule].isPartial);
 	XCTAssertTrue([reports derivationRule].isStored);
 	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" ++"]);
+	/* Partly: some facts asserted, the rest derived when this holds. */
+	XCTAssertTrue([said() containsObject:@"++ Employee1 reports to Employee2 if Employee1 works for some Branch "
+	                                     @"that is headed by Employee2."], @"%@", said());
 	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:factId reason:&reason], @"%@", reason);
 	reports = [_editor.model elementWithId:factId];
 	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" **"]);

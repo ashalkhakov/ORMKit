@@ -150,7 +150,7 @@ populations do it after each change (step 3).
    fact type, and the editor's setters. `ORMFactType` knows its derivation.
    The fact type's NORMA `DerivationRule` is written with the query: its
    completeness, storage and verbalization. The diagram shows the marks.
-2. **Verbalization.** "\* Each Person is a grandparent of each Person ...
+2. **Done: verbalization.** "\* Each Person is a grandparent of each Person ...
    derived as follows: ...", and NORMA's wording for partly derived and
    stored ones.
 3. **Populations.** The derived facts computed from the sample population:
