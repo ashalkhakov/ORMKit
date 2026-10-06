@@ -136,7 +136,7 @@
                             <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
-                    <popUpButton toolTip="What the query is for: listing, a rule its rows break, or a value of each object" verticalHuggingPriority="750" id="kindPopUp">
+                    <popUpButton toolTip="What the query is for: listing, a rule its rows break, a value of each object, or the facts of a derived fact type" verticalHuggingPriority="750" id="kindPopUp">
                         <rect key="frame" x="52" y="588" width="120" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="kindPopUpCell">
@@ -147,6 +147,7 @@
                                 <menuItem title="List" id="kindPopUpItem0"/>
                                 <menuItem title="Constraint" id="kindPopUpItem1"/>
                                 <menuItem title="Calculation" id="kindPopUpItem2"/>
+                                <menuItem title="Derivation" id="kindPopUpItem3"/>
                                 </items>
                             </menu>
                         </popUpButtonCell>
@@ -201,7 +202,7 @@
                             <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
-                    <popUpButton toolTip="The node the calculation is of" verticalHuggingPriority="750" id="ofPopUp">
+                    <popUpButton toolTip="The node a calculation is of; the fact type a derivation derives" verticalHuggingPriority="750" id="ofPopUp">
                         <rect key="frame" x="396" y="588" width="208" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="ofPopUpCell">

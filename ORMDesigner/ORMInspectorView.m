@@ -358,11 +358,44 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 			return [editor.elementEditor rename:type.identifier to:value reason:reason];
 		})];
 	}
-	[rows addObject:ORMRow(ORMRowText, @"Derivation", ^id {
-		return [[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] informalText] ?: @"";
-	}, ^BOOL(id value, NSString **reason) {
-		return [editor.factTypeEditor setDerivationNote:value of:identifier reason:reason];
-	})];
+	/* Derived (docs/DERIVATION.md): by what, and how; a query's words are
+	 * its own, kept by the normalizer. */
+	ORMQuery *derivation = fact.isDerived ? [ORMQuery derivationOf:fact inModel:editor.model] : nil;
+	if (fact.isDerived) {
+		[rows addObject:ORMRow(ORMRowLabel, @"Derived by", ^id {
+			ORMFactType *now = [editor.model elementWithId:identifier];
+			ORMQuery *query = [ORMQuery derivationOf:now inModel:editor.model];
+			if (query != nil) {
+				return [NSString stringWithFormat:@"the query %@", query.name];
+			}
+			return [[now derivationRule].paths count] > 0 ? @"NORMA's rule" : @"its note";
+		}, nil)];
+		[rows addObject:ORMRow(ORMRowCheck, @"Partly Derived", ^id {
+			return @([[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] isPartial]);
+		}, ^BOOL(id value, NSString **reason) {
+			ORMDerivationRule *rule = [(ORMFactType *)[editor.model elementWithId:identifier] derivationRule];
+			return [editor.factTypeEditor setDerivationPartial:[value boolValue] stored:rule.isStored of:identifier
+			                                            reason:reason];
+		})];
+		[rows addObject:ORMRow(ORMRowCheck, @"Stored", ^id {
+			return @([[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] isStored]);
+		}, ^BOOL(id value, NSString **reason) {
+			ORMDerivationRule *rule = [(ORMFactType *)[editor.model elementWithId:identifier] derivationRule];
+			return [editor.factTypeEditor setDerivationPartial:rule.isPartial stored:[value boolValue] of:identifier
+			                                            reason:reason];
+		})];
+	}
+	if (derivation != nil) {
+		[rows addObject:ORMRow(ORMRowLabel, @"Derivation", ^id {
+			return [[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] informalText] ?: @"";
+		}, nil)];
+	} else {
+		[rows addObject:ORMRow(ORMRowText, @"Derivation", ^id {
+			return [[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] informalText] ?: @"";
+		}, ^BOOL(id value, NSString **reason) {
+			return [editor.factTypeEditor setDerivationNote:value of:identifier reason:reason];
+		})];
+	}
 	[rows addObjectsFromArray:[self textRowsFor:identifier]];
 	return rows;
 }

@@ -523,6 +523,69 @@
 	XCTAssertEqualObjects([population.status stringValue], @"\"Employee reports to Employee\" is derived: its facts follow from its rule.");
 }
 
+/* A derivation made in the Queries window (docs/DERIVATION.md): Kind is
+ * Derivation, and Of offers the fact types its columns are the roles of;
+ * the inspector then says the fact type is derived, by what, and how. */
+- (void)testADerivationIsMadeInTheWindow
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	ORMFactType *worksFor = nil, *heads = nil;
+	for (ORMFactType *fact in [editor.model ordinaryFactTypes]) {
+		NSString *text = [[fact primaryReading] expandedText];
+		worksFor = [text isEqualToString:@"Employee works for Branch"] ? fact : worksFor;
+		heads = [text isEqualToString:@"Employee heads Branch"] ? fact : heads;
+	}
+	NSString *employee = [[editor.model objectTypeNamed:@"Employee"] identifier];
+	NSString *reason = nil;
+	NSString *reports = [editor.factTypeEditor addFactTypeWithPlayers:@[ employee, employee ] reading:@"{0} reports to {1}"
+	                                                        onDiagram:[[_controller.canvas diagram] identifier]
+	                                                               at:ORMAutomaticPlacement reason:&reason];
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *q = [queries addQueryNamed:@"Reporting" from:employee reason:NULL];
+	NSString *start = [ORMQuery queryWithId:q inModel:editor.model].root.identifier;
+	NSString *toBranch = [queries addStepTo:start through:[[worksFor.roles firstObject] identifier] reason:&reason];
+	NSString *branch = nil, *head = nil;
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:q inModel:editor.model] nodes]) {
+		branch = [node.step.identifier isEqualToString:toBranch] ? node.identifier : branch;
+	}
+	NSString *toHead = [queries addStepTo:branch through:[[heads.roles lastObject] identifier] reason:&reason];
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:q inModel:editor.model] nodes]) {
+		head = [node.step.identifier isEqualToString:toHead] ? node.identifier : head;
+	}
+	[queries setProjected:YES ofNode:head];
+
+	ORMQueryController *window = [[ORMQueryController alloc] initWithEditor:editor];
+	[window window];
+	window.queryId = q;
+	[window modelDidChange];
+	NSPopUpButton *kind = [window valueForKey:@"kindPopUp"];
+	[kind selectItemWithTitle:@"Derivation"];
+	[window performSelector:@selector(kindChanged:) withObject:kind];
+	[window modelDidChange];
+	XCTAssertEqual([ORMQuery queryWithId:q inModel:editor.model].kind, ORMQueryDerivation);
+	NSPopUpButton *of = [window valueForKey:@"ofPopUp"];
+	XCTAssertTrue([of isEnabled]);
+	NSInteger offered = [of indexOfItemWithTitle:@"Employee reports to Employee"];
+	XCTAssertNotEqual(offered, -1, @"%@", [of itemTitles]);
+	XCTAssertEqual([of indexOfItemWithTitle:@"Employee works for Branch"], -1);
+	[of selectItemAtIndex:offered];
+	[window performSelector:@selector(calculationChanged:) withObject:of];
+	XCTAssertEqualObjects([ORMQuery queryWithId:q inModel:editor.model].derivedFactType.identifier, reports);
+
+	[_controller.canvas selectElements:@[ reports ]];
+	NSArray *titles = [[_controller.inspector valueForKey:@"rows"] valueForKey:@"title"];
+	XCTAssertTrue([titles containsObject:@"Derived by"], @"%@", titles);
+	XCTAssertTrue([titles containsObject:@"Partly Derived"]);
+	XCTAssertTrue([titles containsObject:@"Stored"]);
+	[window close];
+}
+
 /* A mouse event at a point of the canvas, in diagram points. */
 - (NSEvent *)event:(NSEventType)type at:(NSPoint)point
 {

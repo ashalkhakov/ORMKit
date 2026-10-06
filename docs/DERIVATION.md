@@ -194,8 +194,11 @@ populations do it after each change (step 3).
    - Apps that cannot generate code ahead of time run the same derivations
      and rules through ORMKit (`ORMDeriver`, `ORMRuleChecker`). The OData
      service's change sets are for later, through ODataKit's hooks.
-7. **The designer:** the inspector, the Queries window's kind, and the
-   checks on the derivation's columns.
+7. **Done: the designer.** The Queries window's Kind has Derivation, and
+   Of then offers the fact types the query's listed nodes play the roles of,
+   in order. A derived fact type's inspector says what derives it (the
+   query, NORMA's rule or its note), and has Partly Derived and Stored. A
+   query's words are its own there: the normalizer keeps them.
 8. **NORMA's rules as queries:** a role path with projections is read into
    a derivation query, so NORMA's rules run too. For path-shaped queries, the
    role path is written back.
