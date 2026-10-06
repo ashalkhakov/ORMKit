@@ -179,7 +179,10 @@
 - (void)readOutlinesBack
 {
 	ORMOutlineReader *reader = [[ORMOutlineReader alloc] initWithEditor:_editor];
-	for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+	/* Each read from the model as it is: reading one back changes it, and
+	 * the queries of the model before hold on to nothing of it. */
+	for (NSString *queryId in [[ORMQuery queriesInModel:_editor.model] valueForKey:@"identifier"]) {
+		ORMQuery *query = [ORMQuery queryWithId:queryId inModel:_editor.model];
 		NSString *outline = [query outlineText];
 		if (!query.isComplete || [outline length] == 0) {
 			continue;

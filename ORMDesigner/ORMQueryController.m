@@ -678,7 +678,8 @@ ORMCellText(id value)
 		return;
 	}
 	NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
-	[pasteboard clearContents];
+	/* Declared rather than cleared: gnustep-gui has no -clearContents. */
+	[pasteboard declareTypes:@[ NSPasteboardTypeString ] owner:nil];
 	[pasteboard setString:outline forType:NSPasteboardTypeString];
 }
 
