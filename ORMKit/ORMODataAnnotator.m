@@ -151,7 +151,23 @@ ORMWithEntry(NSDictionary *info, NSString *key, NSString *value)
 				[key addObject:attribute];
 			}
 		}
-		return [key count] > 0 ? key : nil;
+		if ([key count] > 0) {
+			return key;
+		}
+		/* Its values optional: a uniqueness of what it requires. */
+		for (NSArray<NSString *> *names in entity.uniquenessConstraints) {
+			NSMutableArray *unique = [NSMutableArray array];
+			for (NSString *name in names) {
+				ORMCDAttribute *attribute = [entity attributeNamed:name];
+				if (attribute != nil && !attribute.optional) {
+					[unique addObject:attribute];
+				}
+			}
+			if ([unique count] > 0 && [unique count] == [names count]) {
+				return unique;
+			}
+		}
+		return nil;
 	}
 	ORMConstraint *identifier = [self objectTypeOf:entity].preferredIdentifier;
 	if (identifier == nil) {

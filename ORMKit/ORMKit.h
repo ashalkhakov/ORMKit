@@ -58,6 +58,7 @@
 #import "ORMIssueFinder.h"
 #import "ORMDeriver.h"
 #import "ORMJoinedFacade.h"
+#import "ORMEntityMerger.h"
 #import "ORMPopulationStore.h"
 #import "ORMPopulationChecker.h"
 #import "ORMPopulationGenerator.h"

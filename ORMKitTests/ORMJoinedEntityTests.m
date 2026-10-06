@@ -493,16 +493,16 @@
 		XCTAssertEqual(rows(@"BillingAccount"), 1u);
 		[bob setValue:@70 forKey:@"balance"];
 		XCTAssertEqual(rows(@"BillingAccount"), 2u);
-		XCTAssertEqualObjects([[bob performSelector:NSSelectorFromString(@"rowIn:") withObject:@"BillingAccount"]
-		                          valueForKey:@"userId"], @2);
+		SEL rowIn = NSSelectorFromString(@"rowIn:");
+		id (*row)(id, SEL, NSString *) = (id (*)(id, SEL, NSString *))[bob methodForSelector:rowIn];
+		XCTAssertEqualObjects([row(bob, rowIn, @"BillingAccount") valueForKey:@"userId"], @2);
 		/* Bob subscribes, by his GUID through the hub; a new GUID moves his
 		 * subscription with him. */
 		[bob setValue:@"bob@example.test" forKey:@"email"];
 		XCTAssertEqual(rows(@"Subscriber"), 3u);
 		[bob setValue:@"g22" forKey:@"guid"];
 		XCTAssertEqualObjects([bob valueForKey:@"email"], @"bob@example.test");
-		XCTAssertEqualObjects([[bob performSelector:NSSelectorFromString(@"rowIn:") withObject:@"Subscriber"]
-		                          valueForKey:@"guid"], @"g22");
+		XCTAssertEqualObjects([row(bob, rowIn, @"Subscriber") valueForKey:@"guid"], @"g22");
 
 		/* Without the class: Cy's hub object deleted, Bob's re-keyed. At
 		 * save, Cy's rows go, and Bob's follow his id. */
@@ -518,6 +518,119 @@
 	}];
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 #endif
+}
+
+#pragma mark Reverse engineering
+
+/* Three processes' tables of the same customers: the CRM's by user id
+ * (with a GUID), billing's by user id, the newsletter's by its own id,
+ * with the GUID. */
+static NSString *const ORMCustomersModel =
+	@"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+	@"<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\">\n"
+	@"  <entity name=\"CRMCustomer\" representedClassName=\"CRMCustomer\" syncable=\"YES\">\n"
+	@"    <attribute name=\"userId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"name\" attributeType=\"String\"/>\n"
+	@"    <attribute name=\"guid\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"userId\"/></uniquenessConstraint>"
+	@"<uniquenessConstraint><constraint value=\"guid\"/></uniquenessConstraint></uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"  <entity name=\"BillingAccount\" representedClassName=\"BillingAccount\" syncable=\"YES\">\n"
+	@"    <attribute name=\"userId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"balance\" optional=\"YES\" attributeType=\"Integer 32\" usesScalarValueType=\"YES\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"userId\"/></uniquenessConstraint>"
+	@"</uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"  <entity name=\"Subscriber\" representedClassName=\"Subscriber\" syncable=\"YES\">\n"
+	@"    <attribute name=\"subscriberId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"guid\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <attribute name=\"email\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <relationship name=\"topics\" optional=\"YES\" toMany=\"YES\" deletionRule=\"Nullify\" destinationEntity=\"Topic\" "
+	@"inverseName=\"subscribers\" inverseEntity=\"Topic\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"subscriberId\"/></uniquenessConstraint>"
+	@"<uniquenessConstraint><constraint value=\"guid\"/></uniquenessConstraint></uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"  <entity name=\"Topic\" representedClassName=\"Topic\" syncable=\"YES\">\n"
+	@"    <attribute name=\"code\" attributeType=\"String\"/>\n"
+	@"    <relationship name=\"subscribers\" optional=\"YES\" toMany=\"YES\" deletionRule=\"Nullify\" "
+	@"destinationEntity=\"Subscriber\" inverseName=\"topics\" inverseEntity=\"Subscriber\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"code\"/></uniquenessConstraint>"
+	@"</uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"</model>\n";
+
+/* Each entity's properties, and each relationship's destination. */
+static NSDictionary *
+ORMShapeOf(ORMCDModel *model)
+{
+	NSMutableDictionary *shape = [NSMutableDictionary dictionary];
+	for (ORMCDEntity *entity in model.entities) {
+		NSMutableArray *properties = [NSMutableArray array];
+		for (ORMCDAttribute *attribute in entity.attributes) {
+			[properties addObject:attribute.optional ? [attribute.name stringByAppendingString:@"?"] : attribute.name];
+		}
+		for (ORMCDRelationship *relationship in entity.relationships) {
+			[properties addObject:[NSString stringWithFormat:@"%@ -> %@", relationship.name, relationship.destination]];
+		}
+		[shape setObject:[properties sortedArrayUsingSelector:@selector(compare:)] forKey:entity.name];
+	}
+	return shape;
+}
+
+/* The tables imported are four entity types, two pairs of which the
+ * import says may be one; merged, the model has one Customer kept in
+ * three entities, and the mapping writes back the entities it was read
+ * from. */
+- (void)testTablesOfOneThingAreMergedIntoOneEntityType
+{
+	NSString *why = nil;
+	ORMCDModel *tables = [ORMCDModel modelWithContentsXML:[ORMCustomersModel dataUsingEncoding:NSUTF8StringEncoding]
+	                                               reason:&why];
+	XCTAssertNotNil(tables, @"%@", why);
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Customers"]
+	                                            undoManager:self.undoManager];
+	NSArray *notes = nil;
+	NSString *reason = nil;
+	NSString *mapping = [[[ORMCoreDataImporter alloc] initWithEditor:editor] importCoreDataModel:tables
+	                                                                                      path:@"/tmp/Customers.xcdatamodeld"
+	                                                                                     notes:&notes
+	                                                                                    reason:&reason];
+	XCTAssertNotNil(mapping, @"%@", reason);
+	XCTAssertTrue([notes containsObject:@"CRMCustomer and BillingAccount may be one entity type: both have userId. "
+	                                    @"Merge Entity Types makes them one."],
+	              @"%@", notes);
+	XCTAssertTrue([notes containsObject:@"CRMCustomer and Subscriber may be one entity type: both have Guid. "
+	                                    @"Merge Entity Types makes them one."],
+	              @"%@", notes);
+	ORMEntityMerger *merger = [[ORMEntityMerger alloc] initWithEditor:editor];
+	XCTAssertEqual([[merger candidates] count], 2u);
+	for (NSUInteger i = 0; i < 2; i++) {
+		ORMMergeCandidate *candidate = [[merger candidates] firstObject];
+		XCTAssertEqualObjects(candidate.kept.name, @"CRMCustomer");
+		XCTAssertTrue([merger merge:candidate.absorbed.identifier into:candidate.kept.identifier
+		                   matching:candidate.absorbedRole.identifier with:candidate.keptRole.identifier reason:&reason],
+		              @"%@", reason);
+	}
+	ORMModel *model = editor.model;
+	XCTAssertNil([model objectTypeNamed:@"BillingAccount"]);
+	XCTAssertNil([model objectTypeNamed:@"Subscriber"]);
+	XCTAssertEqual([[merger candidates] count], 0u);
+	ORMObjectType *customer = [model objectTypeNamed:@"CRMCustomer"];
+	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	XCTAssertEqualObjects([[read.joins objectForKey:customer.identifier] valueForKey:@"name"],
+	                      (@[ @"CRMCustomer", @"BillingAccount", @"Subscriber" ]));
+
+	/* The same tables, now the members of one entity type. */
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:model mapping:read];
+	ORMCDModel *written = [mapper map];
+	XCTAssertEqualObjects(ORMShapeOf(written), ORMShapeOf(tables));
+	for (ORMMappingNote *note in mapper.notes) {
+		XCTAssertNotEqual(note.kind, ORMMappingWarning, @"%@", note.text);
+	}
+	/* One step, undone as one. */
+	[self.undoManager undo];
+	XCTAssertNotNil([editor.model objectTypeNamed:@"Subscriber"]);
+	XCTAssertNil([editor.model objectTypeNamed:@"BillingAccount"]);
 }
 
 @end

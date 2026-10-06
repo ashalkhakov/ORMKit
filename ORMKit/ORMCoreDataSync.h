@@ -53,9 +53,12 @@ NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
                    inMapping:(NSString *)mappingId;
 - (void)removeMember:(NSString *)memberId inMapping:(NSString *)mappingId;
 - (void)setOuter:(BOOL)outer ofMember:(NSString *)memberId inMapping:(NSString *)mappingId;
+- (void)setCorrelationOptional:(BOOL)optional ofMember:(NSString *)memberId inMapping:(NSString *)mappingId;
 /* The member has the property of the far role, or not. A role is held by
  * one member at most: holding it takes it from another. */
 - (void)setHeld:(BOOL)held role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId;
+/* What the member holds is in each of its rows, or not. */
+- (void)setRequired:(BOOL)required role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId;
 - (void)setExcluded:(BOOL)excluded source:(NSString *)sourceId inMapping:(NSString *)mappingId;
 - (void)setKept:(BOOL)kept element:(NSString *)path inMapping:(NSString *)mappingId;
 - (void)setBaseline:(ORMCDModel *)model ofMapping:(NSString *)mappingId;

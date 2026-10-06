@@ -150,27 +150,37 @@ store has it, keyed by its correlating values.
 
 ## Reverse engineering
 
-The importer makes an entity type of each entity, as before, and then
-looks for entities that may be one. A candidate pair is two entities each
-unique on an attribute of the same name and type (`userId`, or a GUID
-`externalUserId`). Unique means the identifier, or an attribute with a
-uniqueness constraint. Each candidate is a note of the import.
+The importer makes an entity type of each entity, as before. It then
+notes the pairs that may be one (`ORMEntityMerger -candidates`): two
+entity types, neither a subtype or supertype, each with a one-to-one fact
+type of a value with the same name and data type. The name is a popular
+reference mode's mode (`userId`), or the value type's name (`Guid`). The
+kept one of a pair is the one whose value identifies it, where only one
+does.
 
-**Merge Entity Types** makes one entity type of two, given the attributes
-they correlate by:
-- the second one's correlating fact type is removed;
-- the first one's becomes an identifier (alternate unless it is the
-  preferred one already);
-- every other role the second one played is played by the first one;
-- the second one is removed;
-- in each mapping, the first one maps as Joined, with its own entity as
-  the hub and the second one's as an outer member that holds the second
-  one's roles, under its old name.
+**Merge Entity Types** (`-merge:into:matching:with:reason:`) makes one
+entity type of two, as one change, given the value roles they match by:
+- the absorbed one's fact type of the value goes, with its value type
+  where nothing else plays it;
+- the kept one's becomes an identifier (alternate, unless it is the
+  preferred one);
+- the absorbed one's reference mode, where it is another value, becomes a
+  plain fact type;
+- every other role the absorbed one played is the kept one's. A mandatory
+  one is no longer mandatory, since not every one of the kept type has a
+  row there; the member says its rows have it (`Holds Required="true"`);
+- the absorbed one goes;
+- in each mapping, the kept one maps as Joined. Its entity is the hub, and
+  the absorbed one's is an outer member under its old name, holding its
+  old properties under their old names. Its value's attribute keeps its
+  old name and optionality (`OptionalBy="true"` where rows need not have
+  it, as a table read back may).
 
-The mapping then writes back the same entities: merging changes the
-conceptual model, not the store. The designer has the command for two
-selected entity types. It asks for the correlating attributes and lists
-the import's candidates.
+The mapping then writes back the entities it was read from: merging
+changes the conceptual model, not the store. Refused, with the reason:
+two types that are not plain entity types, values of different data
+types, a fact type that is not one to one, an absorbed type identified by
+several fact types.
 
 ## Steps
 

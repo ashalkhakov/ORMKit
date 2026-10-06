@@ -41,7 +41,9 @@ ORMObjectTypeMappingNames(void)
 @property (nonatomic, readwrite, copy) NSString *correlationId;
 @property (nonatomic, readwrite, copy) NSString *viaId;
 @property (nonatomic, readwrite) BOOL isOuter;
+@property (nonatomic, readwrite) BOOL correlationIsOptional;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *heldRoleIds;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *requiredRoleIds;
 @end
 
 @implementation ORMJoinMember
@@ -126,13 +128,19 @@ ORMObjectTypeMappingNames(void)
 				                                               ? ORMAttribute(member, @"Via")
 				                                               : [(ORMJoinMember *)[members firstObject] identifier]);
 				each.isOuter = [members count] > 0 && ORMBoolAttribute(member, @"Outer", NO);
+				each.correlationIsOptional = [members count] > 0 && ORMBoolAttribute(member, @"OptionalBy", NO);
 				NSMutableArray *held = [NSMutableArray array];
+				NSMutableArray *required = [NSMutableArray array];
 				for (NSXMLElement *holds in ORMChildren(member, CD, @"Holds")) {
 					if (ORMRef(holds) != nil) {
 						[held addObject:ORMRef(holds)];
+						if (ORMBoolAttribute(holds, @"Required", NO)) {
+							[required addObject:ORMRef(holds)];
+						}
 					}
 				}
 				each.heldRoleIds = held;
+				each.requiredRoleIds = required;
 				[members addObject:each];
 			}
 			if ([members count] > 0) {

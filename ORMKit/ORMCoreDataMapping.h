@@ -38,9 +38,15 @@ typedef NS_ENUM(NSInteger, ORMObjectTypeMapping) {
 @property (nonatomic, readonly, copy) NSString *viaId;
 /* Not every instance has a row. */
 @property (nonatomic, readonly) BOOL isOuter;
+/* Its rows need not have what joins them (OptionalBy="true"), as a store
+ * read back may have it: a row without is no instance's. */
+@property (nonatomic, readonly) BOOL correlationIsOptional;
 /* The roles whose properties it has: each the far role, as a property's
  * trace is. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *heldRoleIds;
+/* Those its rows always have, though not every instance has a row: the
+ * properties required in its entity (Holds Required="true"). */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *requiredRoleIds;
 @end
 
 /* What the Core Data model is for, which sets how the conceptual model

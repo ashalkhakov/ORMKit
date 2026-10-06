@@ -305,6 +305,17 @@
 	}];
 }
 
+- (void)setCorrelationOptional:(BOOL)optional ofMember:(NSString *)memberId inMapping:(NSString *)mappingId
+{
+	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
+	if (member == nil || ORMBoolAttribute(member, @"OptionalBy", NO) == optional) {
+		return;
+	}
+	[_editor change:@"Set Joined Entity's Values Optional" with:^{
+		ORMSetAttribute(member, @"OptionalBy", optional ? @"true" : nil);
+	}];
+}
+
 - (void)setHeld:(BOOL)held role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId
 {
 	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
@@ -333,6 +344,20 @@
 		if (held) {
 			[member addChild:ORMNewRef(_editor.document, CD, @"Holds", roleId)];
 		}
+	}];
+}
+
+- (void)setRequired:(BOOL)required role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId
+{
+	NSXMLElement *holds = nil;
+	for (NSXMLElement *each in ORMChildren([self memberElement:memberId inMapping:mappingId], CD, @"Holds")) {
+		holds = [ORMRef(each) isEqualToString:roleId] ? each : holds;
+	}
+	if (holds == nil || ORMBoolAttribute(holds, @"Required", NO) == required) {
+		return;
+	}
+	[_editor change:required ? @"Require in Joined Entity" : @"Make Optional in Joined Entity" with:^{
+		ORMSetAttribute(holds, @"Required", required ? @"true" : nil);
 	}];
 }
 

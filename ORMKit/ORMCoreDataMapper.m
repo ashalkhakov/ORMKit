@@ -831,7 +831,8 @@ ORMReservedNames(void)
 				NSString *source = [member.identifier stringByAppendingFormat:@"/%@", role.identifier];
 				NSString *name = [self claimName:[self candidatesFor:role near:[role oppositeRole] toMany:NO]
 				                          source:source on:entity];
-				ORMCDAttribute *attribute = [self attributeFor:valueType name:name source:source optional:NO
+				ORMCDAttribute *attribute = [self attributeFor:valueType name:name source:source
+				                                      optional:member.correlationIsOptional
 				                                roleConstraint:role.valueConstraint];
 				[entity.attributes addObject:attribute];
 				[roleIds addObject:role.identifier];
@@ -866,6 +867,18 @@ ORMReservedNames(void)
  * pairs of property names. */
 - (void)nameJoins
 {
+	/* What each member's rows always have. */
+	for (NSString *typeId in self.mapping.joins) {
+		for (ORMJoinMember *member in [self.mapping.joins objectForKey:typeId]) {
+			ORMCDEntity *entity = member.identifier != nil ? [_out entityWithSource:member.identifier] : nil;
+			for (ORMCDProperty *property in [entity properties]) {
+				if ([member.requiredRoleIds containsObject:property.source ?: @""]
+				    && !([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany)) {
+					property.optional = NO;
+				}
+			}
+		}
+	}
 	for (ORMCDEntity *entity in _out.entities) {
 		NSString *roles = [entity.userInfo objectForKey:@"ormkit.on"];
 		ORMObjectType *type = [self.model elementWithId:[entity.userInfo objectForKey:@"ormkit.joins"] ?: @""];
