@@ -1232,4 +1232,52 @@
 	}
 }
 
+/* Two entity types that are one thing kept twice (docs/JOINED-ENTITIES.md),
+ * merged from the Model menu: the value they share joins them, and the
+ * Core Data window says where the one left is kept. */
+- (void)testTwoEntityTypesAreMergedFromTheMenu
+{
+	_document = [[ORMDocument alloc] init];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	ORMObjectTypeEditor *types = editor.objectTypeEditor;
+	NSString *crm = [types addEntityTypeNamed:@"CRMCustomer" referenceMode:@"userId" kind:ORMReferenceModePopular
+	                                onDiagram:diagram at:NSMakePoint(100, 100) reason:NULL];
+	NSString *billing = [types addEntityTypeNamed:@"BillingAccount" referenceMode:@"userId" kind:ORMReferenceModePopular
+	                                    onDiagram:diagram at:NSMakePoint(300, 100) reason:NULL];
+	NSString *balance = [types addValueTypeNamed:@"Balance" dataType:@"SignedIntegerNumericDataType" onDiagram:diagram
+	                                          at:NSMakePoint(300, 250) reason:NULL];
+	NSString *owes = [editor.factTypeEditor addFactTypeWithPlayers:@[ billing, balance ] reading:@"{0} owes {1}"
+	                                                     onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	XCTAssertNotNil(owes);
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
+	NSString *mapping = [mappings addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
+	NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Merge Entity Types" action:@selector(mergeEntityTypes:)
+	                                       keyEquivalent:@""];
+	[_controller.canvas selectElements:@[ crm ]];
+	XCTAssertFalse([(id)_controller validateMenuItem:item], @"one is not two");
+	[_controller.canvas selectElements:@[ crm, billing ]];
+	XCTAssertTrue([(id)_controller validateMenuItem:item]);
+	XCTAssertEqual(([[_controller mergesOf:@[ crm, billing ]] count]), 1u);
+	[_controller mergeEntityTypes:nil];
+	XCTAssertEqualObjects([_controller.status stringValue],
+	                      @"BillingAccount is now CRMCustomer, kept in both their entities in each Core Data mapping.");
+	XCTAssertNil([editor.model objectTypeNamed:@"BillingAccount"]);
+
+	ORMCoreDataController *coreData = [[ORMCoreDataController alloc] initWithEditor:editor documentURL:nil];
+	XCTAssertEqualObjects(coreData.mappingId, mapping);
+	NSArray *listed = [coreData valueForKey:@"objectTypes"];
+	NSUInteger row = [[listed valueForKey:@"name"] indexOfObject:@"CRMCustomer"];
+	XCTAssertNotEqual(row, (NSUInteger)NSNotFound);
+	NSTableView *table = [coreData valueForKey:@"typesTable"];
+	[table selectRowIndexes:[NSIndexSet indexSetWithIndex:row] byExtendingSelection:NO];
+	[(id<NSTableViewDelegate>)coreData tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification
+	                                                                    object:table]];
+	XCTAssertEqualObjects([[coreData valueForKey:@"statusLabel"] stringValue],
+	                      @"CRMCustomer is kept in CRMCustomer; BillingAccount (outer, by CRMCustomer_userId).");
+	XCTAssertEqualObjects([[coreData valueForKey:@"typeMappingPopUp"] titleOfSelectedItem], @"Joined");
+}
+
 @end

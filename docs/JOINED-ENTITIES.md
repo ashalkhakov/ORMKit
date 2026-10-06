@@ -182,6 +182,17 @@ two types that are not plain entity types, values of different data
 types, a fact type that is not one to one, an absorbed type identified by
 several fact types.
 
+## In the designer
+
+- **Model > Merge Entity Types**, with two entity types selected, merges
+  them by a value both have one to one: the model's candidate where there
+  is one, else any pair of such values of one data type. With several, an
+  alert asks which; the status line says what became of the absorbed one.
+- In the Core Data window, an object type's mapping can be **Joined**.
+  Choosing it for a type that has no members makes its entity the hub.
+  Selecting a joined type says where it is kept: "CRMCustomer is kept in
+  CRMCustomer; BillingAccount (outer, by userId)".
+
 ## Steps
 
 1. The mapping: `ORMMapJoined`, members read and written, and

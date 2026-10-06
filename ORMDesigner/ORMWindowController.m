@@ -756,6 +756,110 @@ static const double ORMFactBarHeight = 30;
 	}
 }
 
+/* The roles of the values one to one with the type. */
+static NSArray<ORMRole *> *
+ORMOneToOneValues(ORMObjectType *type)
+{
+	NSMutableArray *values = [NSMutableArray array];
+	for (ORMRole *own in type.playedRoles) {
+		ORMRole *far = [own oppositeRole];
+		if (far != nil && own.factType.kind == ORMFactTypeOrdinary && far.player.kind == ORMValueType && own.isUnique
+		    && far.isUnique) {
+			[values addObject:far];
+		}
+	}
+	return values;
+}
+
+- (NSArray<NSArray *> *)mergesOf:(NSArray<NSString *> *)entityTypeIds
+{
+	ORMModel *model = [self editor].model;
+	ORMObjectType *first = [entityTypeIds count] == 2 ? [model elementWithId:[entityTypeIds firstObject]] : nil;
+	ORMObjectType *second = first != nil ? [model elementWithId:[entityTypeIds lastObject]] : nil;
+	if (![first isKindOfClass:[ORMObjectType class]] || ![second isKindOfClass:[ORMObjectType class]] || !first.isEntity
+	    || !second.isEntity || first == second) {
+		return @[];
+	}
+	NSMutableArray *merges = [NSMutableArray array];
+	for (ORMMergeCandidate *candidate in [[[ORMEntityMerger alloc] initWithEditor:[self editor]] candidates]) {
+		NSSet *pair = [NSSet setWithObjects:candidate.kept, candidate.absorbed, nil];
+		if ([pair isEqualToSet:[NSSet setWithObjects:first, second, nil]]) {
+			[merges addObject:@[ candidate.kept, candidate.keptRole, candidate.absorbed, candidate.absorbedRole ]];
+		}
+	}
+	for (ORMRole *kept in ORMOneToOneValues(first)) {
+		for (ORMRole *absorbed in ORMOneToOneValues(second)) {
+			BOOL known = NO;
+			for (NSArray *merge in merges) {
+				known = known || ([merge objectAtIndex:1] == kept && [merge lastObject] == absorbed)
+				        || ([merge objectAtIndex:1] == absorbed && [merge lastObject] == kept);
+			}
+			if (!known && [kept.player.dataType.typeName isEqualToString:absorbed.player.dataType.typeName ?: @""]) {
+				[merges addObject:@[ first, kept, second, absorbed ]];
+			}
+		}
+	}
+	return merges;
+}
+
+- (IBAction)mergeEntityTypes:(id)sender
+{
+	(void)sender;
+	NSMutableArray *types = [NSMutableArray array];
+	for (NSString *element in [self pickedElements]) {
+		ORMObjectType *type = [[self editor].model elementWithId:element];
+		if ([type isKindOfClass:[ORMObjectType class]] && type.isEntity) {
+			[types addObject:type.identifier];
+		}
+	}
+	if ([types count] != 2) {
+		NSBeep();
+		[self say:@"Select the two entity types to merge."];
+		return;
+	}
+	NSArray *merges = [self mergesOf:types];
+	if ([merges count] == 0) {
+		NSBeep();
+		[self say:@"Neither has a value one to one with it that the other has: nothing joins them."];
+		return;
+	}
+	NSArray *chosen = [merges firstObject];
+	if ([merges count] > 1) {
+		/* Which values they share. */
+		NSPopUpButton *choices = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 360, 26) pullsDown:NO];
+		for (NSArray *merge in merges) {
+			[choices addItemWithTitle:[NSString stringWithFormat:@"%@'s %@ is %@'s %@: keep %@",
+			                                                     [[merge objectAtIndex:2] name], [[merge lastObject] player].name,
+			                                                     [[merge firstObject] name], [[merge objectAtIndex:1] player].name,
+			                                                     [[merge firstObject] name]]];
+		}
+		NSAlert *alert = [[NSAlert alloc] init];
+		[alert setMessageText:@"Merge Entity Types"];
+		[alert setInformativeText:@"They are one thing kept twice when they share a value. Which one?"];
+		[alert addButtonWithTitle:@"Merge"];
+		[alert addButtonWithTitle:@"Cancel"];
+		[alert setAccessoryView:choices];
+		if ([alert runModal] != NSAlertFirstButtonReturn) {
+			return;
+		}
+		chosen = [merges objectAtIndex:(NSUInteger)MAX([choices indexOfSelectedItem], 0)];
+	}
+	ORMObjectType *kept = [chosen firstObject];
+	ORMObjectType *absorbed = [chosen objectAtIndex:2];
+	NSString *absorbedName = absorbed.name;
+	NSString *reason = nil;
+	if (![[[ORMEntityMerger alloc] initWithEditor:[self editor]] merge:absorbed.identifier into:kept.identifier
+	                                                           matching:[[chosen lastObject] identifier]
+	                                                               with:[[chosen objectAtIndex:1] identifier]
+	                                                             reason:&reason]) {
+		NSBeep();
+		[self say:reason];
+		return;
+	}
+	[self say:[NSString stringWithFormat:@"%@ is now %@, kept in both their entities in each Core Data mapping.", absorbedName,
+	                                     kept.name]];
+}
+
 - (IBAction)verbalizeModel:(id)sender
 {
 	(void)sender;
@@ -771,6 +875,14 @@ static const double ORMFactBarHeight = 30;
 	if (action == @selector(objectifyFactType:) || action == @selector(unobjectifyFactType:)) {
 		ORMFactType *fact = [[self editor].model elementWithId:[self selectedFactType]];
 		return fact != nil && (action == @selector(objectifyFactType:)) == (fact.objectifyingType == nil);
+	}
+	if (action == @selector(mergeEntityTypes:)) {
+		NSUInteger entities = 0;
+		for (NSString *element in [self pickedElements]) {
+			ORMObjectType *type = [[self editor].model elementWithId:element];
+			entities += [type isKindOfClass:[ORMObjectType class]] && type.isEntity;
+		}
+		return entities == 2;
 	}
 	if (action == @selector(showOnDiagram:) || action == @selector(showRelated:)) {
 		return [[self pickedElements] count] > 0;
