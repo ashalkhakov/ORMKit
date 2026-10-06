@@ -109,10 +109,13 @@ query does.
 
 ## Updates through the join
 
-Production code is generated: an app has no ORMKit at run time. For each
-joined type, the validation files (`<Name>Validation.h/.m`,
-ORMJoinedFacade) get a class of its own, the type's façade over the
-member objects, on a base class `<Name>Joined`:
+An app has none of ORMKit at run time, only ORMRuntime and the model's
+tables ([RUNTIME.md](RUNTIME.md)). For each joined type, the validation
+files (`<Name>Validation.h/.m`, ORMJoinedFacade) declare a class, the
+type's façade over the member objects, on ORMRuntime's `ORMJoinedObject`.
+Its properties are `@dynamic`: `ORMJoinedObject` reads where each is
+kept from the type's table, `joined` in `<Name>.ormplans`, which is also
+what `orm_prepareForSave:` runs for the type.
 
 ```objc
 Customer *ann = [Customer insertInContext:context];

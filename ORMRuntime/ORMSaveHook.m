@@ -2,6 +2,7 @@
 #import "ORMSaveHook.h"
 #import "ORMQueryInterpreter.h"
 #import "ORMValidator.h"
+#import "ORMJoinedObject.h"
 #import <CoreData/CoreData.h>
 
 /* What the property holds, as a set: nothing, one value, or a to-many's
@@ -161,6 +162,16 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
 		}
 	}
 	return YES;
+}
+
+- (void)prepareJoinedInContext:(NSManagedObjectContext *)context
+                       changed:(NSSet *)changed
+                    violations:(NSMutableArray<NSError *> *)violations
+{
+	(void)context;
+	for (NSString *name in [[self.tables.joined allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		[ORMJoinedObject prepareType:[self.tables.joined objectForKey:name] changed:changed violations:violations];
+	}
 }
 
 - (void)checkInContext:(NSManagedObjectContext *)context

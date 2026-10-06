@@ -329,13 +329,90 @@ ORMAreTexts(id list, NSUInteger count)
 
 @end
 
+#pragma mark Joined types
+
+@interface ORMJoinedType ()
+@property (nonatomic, readwrite, copy) NSString *hub;
+@property (nonatomic, readwrite, copy) NSArray<NSDictionary *> *members;
+@property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<NSString *> *> *properties;
+@end
+
+@implementation ORMJoinedType
+
++ (instancetype)typeWithHub:(NSString *)hub
+                    members:(NSArray<NSDictionary *> *)members
+                 properties:(NSDictionary<NSString *, NSArray<NSString *> *> *)properties
+{
+	ORMJoinedType *type = [[self alloc] init];
+	type.hub = hub;
+	type.members = members ?: @[];
+	type.properties = properties ?: @{};
+	return type;
+}
+
+- (NSDictionary *)member:(NSString *)entity
+{
+	for (NSDictionary *member in self.members) {
+		if ([[member objectForKey:@"entity"] isEqualToString:entity]) {
+			return member;
+		}
+	}
+	return nil;
+}
+
+- (id)propertyList
+{
+	return @{ @"hub": self.hub, @"members": self.members, @"properties": self.properties };
+}
+
+/* A member: its entity, the one it joins to, outer, the pairs it joins
+ * on, and what it holds, all names. */
+static BOOL
+ORMIsMember(id member)
+{
+	if (![member isKindOfClass:[NSDictionary class]] || !ORMIsText([member objectForKey:@"entity"])
+	    || !ORMIsText([member objectForKey:@"via"]) || ![[member objectForKey:@"outer"] isKindOfClass:[NSNumber class]]
+	    || !ORMAreTexts([member objectForKey:@"holds"], 0) || ![[member objectForKey:@"on"] isKindOfClass:[NSArray class]]
+	    || [[member objectForKey:@"on"] count] == 0) {
+		return NO;
+	}
+	for (id pair in [member objectForKey:@"on"]) {
+		if (!ORMAreTexts(pair, 2)) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
++ (instancetype)typeWithPropertyList:(id)list error:(NSError **)error
+{
+	id members = [list isKindOfClass:[NSDictionary class]] ? [list objectForKey:@"members"] : nil;
+	id properties = [list isKindOfClass:[NSDictionary class]] ? [list objectForKey:@"properties"] : nil;
+	BOOL valid = ORMIsText([list isKindOfClass:[NSDictionary class]] ? [list objectForKey:@"hub"] : nil)
+	             && [members isKindOfClass:[NSArray class]] && [properties isKindOfClass:[NSDictionary class]];
+	for (id member in valid ? members : @[]) {
+		valid = valid && ORMIsMember(member);
+	}
+	for (id name in valid ? properties : @{}) {
+		valid = valid && ORMIsText(name) && ORMAreTexts([properties objectForKey:name], 2);
+	}
+	if (!valid) {
+		*error = ORMTablesError(@"a joined type is its hub, its members and its properties.");
+		return nil;
+	}
+	return [self typeWithHub:[list objectForKey:@"hub"] members:members properties:properties];
+}
+
+@end
+
 @interface ORMTables ()
 @property (nonatomic, readwrite, copy) NSString *model;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMQueryPlan *> *queries;
 @property (nonatomic, readwrite, copy) NSArray<ORMStoredDerivation *> *derivations;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<ORMRule *> *> *rules;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<NSArray *> *> *ruleBacks;
-/* What a later step's tables say, kept as it is. */
+@property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMJoinedType *> *joined;
+/* What a later format's tables say, kept as it is. */
 @property (nonatomic, copy) NSDictionary *others;
 @end
 
@@ -351,7 +428,18 @@ ORMAreTexts(id list, NSUInteger count)
 	tables.derivations = derivations ?: @[];
 	tables.rules = @{};
 	tables.ruleBacks = @{};
+	tables.joined = @{};
 	tables.others = @{};
+	return tables;
+}
+
+- (ORMTables *)tablesWithJoined:(NSDictionary<NSString *, ORMJoinedType *> *)joined
+{
+	ORMTables *tables = [ORMTables tablesOfModel:self.model queries:self.queries derivations:self.derivations
+	                                       rules:self.rules
+	                                   ruleBacks:self.ruleBacks];
+	tables.joined = joined ?: @{};
+	tables.others = self.others;
 	return tables;
 }
 
@@ -392,6 +480,11 @@ ORMAreTexts(id list, NSUInteger count)
 	}
 	[list setObject:rules forKey:@"rules"];
 	[list setObject:self.ruleBacks forKey:@"ruleBacks"];
+	NSMutableDictionary *joined = [NSMutableDictionary dictionary];
+	for (NSString *name in self.joined) {
+		[joined setObject:[[self.joined objectForKey:name] propertyList] forKey:name];
+	}
+	[list setObject:joined forKey:@"joined"];
 	return list;
 }
 
@@ -464,11 +557,25 @@ ORMAreTexts(id list, NSUInteger count)
 			return nil;
 		}
 	}
+	id joinedLists = [list objectForKey:@"joined"] ?: @{};
+	if (![joinedLists isKindOfClass:[NSDictionary class]]) {
+		*error = ORMTablesError(@"joined types are by their class's name.");
+		return nil;
+	}
+	NSMutableDictionary *joined = [NSMutableDictionary dictionary];
+	for (NSString *name in joinedLists) {
+		ORMJoinedType *type = [ORMJoinedType typeWithPropertyList:[joinedLists objectForKey:name] error:error];
+		if (type == nil) {
+			return nil;
+		}
+		[joined setObject:type forKey:name];
+	}
 	ORMTables *tables = [self tablesOfModel:[list objectForKey:@"model"] queries:queries derivations:derivations
 	                                  rules:rules
 	                              ruleBacks:backLists];
+	tables.joined = joined;
 	NSMutableDictionary *others = [NSMutableDictionary dictionaryWithDictionary:list];
-	[others removeObjectsForKeys:@[ @"format", @"model", @"queries", @"derivations", @"rules", @"ruleBacks" ]];
+	[others removeObjectsForKeys:@[ @"format", @"model", @"queries", @"derivations", @"rules", @"ruleBacks", @"joined" ]];
 	tables.others = others;
 	return tables;
 }

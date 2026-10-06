@@ -190,8 +190,12 @@ Declarations, and calls into the driver:
    ranges) and plans for constraint queries. `ORMValidator` checks them,
    and the validation category calls it. The emitted helpers left are the
    three the joined types' code uses.
-5. **Joined types:** `ORMJoinedObject` and its table. The façade classes
-   are generated as declarations, and `ORMJoinedFacade`'s emitted code goes.
+5. **Joined types** (done). `ORMJoinedObject` is the façade's base class,
+   and each type's members and properties are its table. The façade
+   classes are declarations: typed `@dynamic` properties, and the tables'
+   name. The save hook prepares the types' hub objects. Nothing is
+   emitted but declarations, and the joined tests run the driver on both
+   platforms, through a façade class of their own.
 6. **Queries for apps:** typed methods, and the model-free OData path.
 7. **Remove the emitters.** `-helpers` and its string literals go.
 

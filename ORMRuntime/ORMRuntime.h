@@ -8,3 +8,4 @@
 #import "ORMTables.h"
 #import "ORMSaveHook.h"
 #import "ORMValidator.h"
+#import "ORMJoinedObject.h"

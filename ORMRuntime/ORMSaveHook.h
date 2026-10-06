@@ -21,6 +21,13 @@
  * run against the context's model. */
 - (BOOL)deriveInContext:(NSManagedObjectContext *)context changed:(NSMutableSet *)changed error:(NSError **)error;
 
+/* The joined types' hub objects among those changed (tables.joined): a
+ * new one's rows in its inner members made, a deleted one's deleted, a
+ * changed one's joined again (+[ORMJoinedObject prepareType:...]). */
+- (void)prepareJoinedInContext:(NSManagedObjectContext *)context
+                       changed:(NSSet *)changed
+                    violations:(NSMutableArray<NSError *> *)violations;
+
 /* The rules checked again for each object a change reaches
  * (tables.ruleBacks): their alethic violations added. */
 - (void)checkInContext:(NSManagedObjectContext *)context

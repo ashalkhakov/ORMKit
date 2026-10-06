@@ -12,6 +12,23 @@
 @interface ORMJoinedEntityTests : ORMTestCase
 @end
 
+/* A façade class as the generator writes one (docs/RUNTIME.md), declared
+ * here: the driver's to run, on any platform, under the tables
+ * ORMTestCustomers. */
+@interface ORMTestCustomer : ORMJoinedObject
+@property (nonatomic, strong) NSNumber *balance;
+@end
+
+@implementation ORMTestCustomer
+@dynamic balance;
+
++ (NSString *)tablesName
+{
+	return @"ORMTestCustomers";
+}
+
+@end
+
 @implementation ORMJoinedEntityTests
 {
 	ORMEditor *_editor;
@@ -23,6 +40,10 @@
 	NSManagedObjectContext *_context;
 	ORMQueryPlanner *_planner;
 	ORMQueryInterpreter *_interpreter;
+	/* The façade class the customers are read through, and the driver
+	 * that prepares a save; none: the generated orm_prepareForSave:. */
+	NSString *_customerClass;
+	ORMSaveHook *_hook;
 }
 
 - (void)setUp
@@ -471,7 +492,7 @@ ORMInsert(NSManagedObjectContext *context, NSString *entity, NSDictionary *value
 /* The generated Customer with the user id, of those in the store. */
 - (id)customer:(NSNumber *)userId
 {
-	Class customers = NSClassFromString(@"Customer");
+	Class customers = NSClassFromString(_customerClass ?: @"Customer");
 	SEL allIn = NSSelectorFromString(@"allInContext:");
 	NSArray *(*all)(id, SEL, id) = (NSArray * (*)(id, SEL, id))[customers methodForSelector:allIn];
 	for (id each in all(customers, allIn, _context)) {
@@ -484,6 +505,26 @@ ORMInsert(NSManagedObjectContext *context, NSString *entity, NSDictionary *value
 
 /* The generated code's updates, on the context's queue: through the
  * Customer class, then without it, put right at save. */
+/* What orm_prepareForSave: does: by the driver, or the generated code. */
+- (BOOL)prepareForSave:(NSError **)error
+{
+	if (_hook == nil) {
+		SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
+		BOOL (*prepared)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[_context methodForSelector:prepare];
+		return prepared(_context, prepare, error);
+	}
+	NSMutableSet *changed = [NSMutableSet setWithSet:[_context insertedObjects]];
+	[changed unionSet:[_context updatedObjects]];
+	[changed unionSet:[_context deletedObjects]];
+	if (![_hook deriveInContext:_context changed:changed error:error]) {
+		return NO;
+	}
+	NSMutableArray *violations = [NSMutableArray array];
+	[_hook prepareJoinedInContext:_context changed:changed violations:violations];
+	[_hook checkInContext:_context changed:changed violations:violations];
+	return [ORMValidator report:violations error:error];
+}
+
 - (void)updateCustomersThroughTheJoin
 {
 	id ann = [self customer:@1];
@@ -515,10 +556,8 @@ ORMInsert(NSManagedObjectContext *context, NSString *entity, NSDictionary *value
 	id cy = [self customer:@3];
 	[_context deleteObject:[cy valueForKey:@"object"]];
 	[[bob valueForKey:@"object"] setValue:@22 forKey:@"userId"];
-	SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
-	BOOL (*prepared)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[_context methodForSelector:prepare];
 	NSError *error = nil;
-	XCTAssertTrue(prepared(_context, prepare, &error), @"%@", error);
+	XCTAssertTrue([self prepareForSave:&error], @"%@", error);
 	XCTAssertEqual([[self objectsOf:@"Subscriber"] count], 2u);
 	XCTAssertEqualObjects([[self objectsOf:@"BillingAccount"] valueForKey:@"userId"], @[ @22 ]);
 	XCTAssertTrue([_context save:&error], @"%@", error);
@@ -537,7 +576,7 @@ ORMInsert(NSManagedObjectContext *context, NSString *entity, NSDictionary *value
 	                                                                             name:@"Customers"];
 	NSDictionary *files = [generator files];
 	NSString *header = [files objectForKey:@"CustomersValidation.h"];
-	XCTAssertTrue([header containsString:@"@interface Customer : CustomersJoined"], @"%@", header);
+	XCTAssertTrue([header containsString:@"@interface Customer : ORMJoinedObject"], @"%@", header);
 	XCTAssertTrue([header containsString:@"@property (nonatomic, strong) NSNumber *balance;"], @"%@", header);
 	XCTAssertTrue([header containsString:@"@property (nonatomic, strong) NSSet *topics;"], @"%@", header);
 	XCTAssertTrue([header containsString:@"- (BOOL)orm_prepareForSave:(NSError **)error;"], @"%@", header);
@@ -554,6 +593,43 @@ ORMInsert(NSManagedObjectContext *context, NSString *entity, NSDictionary *value
 	}];
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 #endif
+}
+
+/* Ann, typed, as an app reads her: she paid, and owes again. */
+- (void)payTyped
+{
+	ORMTestCustomer *ann = [self customer:@1];
+	XCTAssertNil(ann.balance);
+	ann.balance = @5;
+	XCTAssertEqualObjects(ann.balance, @5);
+	XCTAssertEqualObjects([[ann rowIn:@"BillingAccount"] valueForKey:@"userId"], @1);
+}
+
+/* The same, through the driver and a façade class of the test's own: the
+ * tables the generator writes run as an app runs them, on any platform. */
+- (void)testTheDriverUpdatesThroughTheJoin
+{
+	[self makeCustomers];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Customers"];
+	ORMTables *tables = [generator tables];
+	ORMJoinedType *customers = [tables.joined objectForKey:@"Customer"];
+	XCTAssertEqualObjects(customers.hub, @"CRMCustomer");
+	XCTAssertEqualObjects([customers.properties objectForKey:@"balance"], (@[ @"balance", @"BillingAccount" ]));
+	tables = [tables tablesWithJoined:@{ @"ORMTestCustomer": customers }];
+	[ORMTables registerTables:tables named:@"ORMTestCustomers"];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]] map];
+	_context = [self storeIn:directory model:[mapped managedObjectModel]];
+	_customerClass = @"ORMTestCustomer";
+	_hook = [[ORMSaveHook alloc] initWithTables:tables];
+	[_context performBlockAndWait:^{
+		[self updateCustomersThroughTheJoin];
+		[self payTyped];
+	}];
+	[ORMTables registerTables:nil named:@"ORMTestCustomers"];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
 #pragma mark Reverse engineering
@@ -823,7 +899,7 @@ ORMCandidateOf(ORMEntityMerger *merger, NSString *one, NSString *other)
 	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
 	                                                                             name:@"Clients"];
 	NSDictionary *files = [generator files];
-	XCTAssertTrue([[files objectForKey:@"ClientsValidation.h"] containsString:@"@interface Client : ClientsJoined"]);
+	XCTAssertTrue([[files objectForKey:@"ClientsValidation.h"] containsString:@"@interface Client : ORMJoinedObject"]);
 #if defined(__APPLE__)
 	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
 	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];

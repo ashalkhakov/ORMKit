@@ -15,10 +15,14 @@
  *     rules = { Person = ( { constraint = "..."; text = "..."; keys = (...);
  *                            deontic = NO; check = {...}; } ); };
  *     ruleBacks = { Employee = ( ( City, ( branches, employees ) ) ); };
+ *     joined = { Customer = { hub = CRMCustomer; members = ( { entity = ...;
+ *                  via = ...; outer = YES; on = ( ( userId, userId ) );
+ *                  holds = ( balance ); } ); properties = { balance =
+ *                  ( balance, BillingAccount ); }; }; };
  *   }
  *
- * What a table of a later step names (joined types) and this one does not
- * read is left as it is. */
+ * What a later format names and this one does not read is left as it
+ * is. */
 
 /* The format the tables are written in; a later one is refused. */
 extern const NSUInteger ORMTablesFormat;
@@ -106,6 +110,22 @@ extern const NSUInteger ORMTablesFormat;
 @property (nonatomic, copy) NSString *remark;
 @end
 
+/* An entity type kept in several entities (docs/JOINED-ENTITIES.md), as
+ * its façade class runs it: its hub, the entity every one has a row in;
+ * its members, each after the one it joins to:
+ * @{ entity, via, outer, on: @[ @[ via's key, its own ] ], holds: @[ key ] };
+ * and the class's properties, by name: @[ key, entity ]. */
+@interface ORMJoinedType : NSObject
++ (instancetype)typeWithHub:(NSString *)hub
+                    members:(NSArray<NSDictionary *> *)members
+                 properties:(NSDictionary<NSString *, NSArray<NSString *> *> *)properties;
+@property (nonatomic, readonly, copy) NSString *hub;
+@property (nonatomic, readonly, copy) NSArray<NSDictionary *> *members;
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSArray<NSString *> *> *properties;
+/* The member that is the entity, or nil. */
+- (NSDictionary *)member:(NSString *)entity;
+@end
+
 @interface ORMTables : NSObject
 + (instancetype)tablesOfModel:(NSString *)model
                       queries:(NSDictionary<NSString *, ORMQueryPlan *> *)queries
@@ -122,6 +142,10 @@ extern const NSUInteger ORMTablesFormat;
 /* The entities whose rules are checked again at save for each object a
  * change reaches, and the ways back to them (as a derivation's). */
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, NSArray<NSArray *> *> *ruleBacks;
+/* The joined entity types, by the name of their façade class. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMJoinedType *> *joined;
+/* The same tables, with these joined types. */
+- (ORMTables *)tablesWithJoined:(NSDictionary<NSString *, ORMJoinedType *> *)joined;
 @property (nonatomic, readonly, copy) NSString *model;
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMQueryPlan *> *queries;
 /* In the order they run: each after those whose facts it reads. */
