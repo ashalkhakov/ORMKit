@@ -213,7 +213,11 @@
 	NSString *library = [directory stringByAppendingPathComponent:@"Generated.dylib"];
 	NSTask *clang = [[NSTask alloc] init];
 	clang.launchPath = @"/usr/bin/xcrun";
+	/* The driver the save hook calls (docs/RUNTIME.md): the framework the
+	 * tests run with. */
+	NSString *frameworks = [[[NSBundle bundleForClass:[ORMTables class]] bundlePath] stringByDeletingLastPathComponent];
 	clang.arguments = [@[ @"clang", @"-fobjc-arc", @"-dynamiclib", @"-framework", @"Foundation", @"-framework", @"CoreData",
+	                      @"-F", frameworks, @"-framework", @"ORMRuntime", [@"-Wl,-rpath," stringByAppendingString:frameworks],
 	                      @"-o", library ] arrayByAddingObjectsFromArray:sources];
 	NSPipe *output = [NSPipe pipe];
 	clang.standardError = output;

@@ -179,8 +179,12 @@ Declarations, and calls into the driver:
    the tests make now goes through it, written as XML and read back, and
    is run from what is read. That found the reader refusing a
    calculation's `value` and `distinct`.
-3. **Derivations and the save hook** in the driver. The generator writes
-   their tables, and `PFXDerive`, `PFXRoots` and `PFXWalk` go.
+3. **Derivations and the save hook** (done). `ORMTables` reads the tables,
+   and `ORMSaveHook` walks back from the changes and derives, asking each
+   plan of the affected objects in memory. The generator writes
+   `<Name>.ormplans` and calls the driver from `orm_prepareForSave:`.
+   `PFXDerive`, `PFXRoots` and `PFXWalk` are gone, and so is the limit to
+   plain chains.
 4. **Rules:** checks as plans, and ring checks as kinds. The validation
    category forwards to the driver.
 5. **Joined types:** `ORMJoinedObject` and its table. The façade classes

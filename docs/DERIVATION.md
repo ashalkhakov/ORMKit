@@ -200,24 +200,30 @@ That takes the place of the dependency order of step 3.
    beyond). Partly derived ones not stored are mapped for their asserted
    facts; queries do not go through them yet (an or of the two).
 6. **Done: saving, derive then check.** `-[NSManagedObjectContext
-   orm_prepareForSave:]` in the generated code (`ORMValidationGenerator`),
-   self-contained: plain Objective-C, nothing of ORMKit at run time.
+   orm_prepareForSave:]` in the generated code (`ORMValidationGenerator`).
+   The derivations are tables, not code ([RUNTIME.md](RUNTIME.md)):
+   `<Name>.ormplans`, run by ORMRuntime's `ORMSaveHook`, which the hook
+   calls.
    - Each plan says the key paths it reads from its root
      (`-[ORMQueryPlan trailsFromRead]`). The generator turns each into the
-     inverse relationships back to the root, and the hook walks those from
-     each changed object (inserted, updated, deleted) to the roots it can
-     affect.
-   - A stored derivation the generated code can work out is a plain chain
-     of steps, to-one or to-many, ending at a value or at objects. It is
-     worked out along the chain for each affected root, and set where it
-     differs. One with conditions on the way, or partly derived, is in the
+     inverse relationships back to the root, and the driver walks those
+     from each changed object (inserted, updated, deleted) to the roots it
+     can affect.
+   - A stored derivation is its plan, from the object the property is of,
+     listing that object and what is derived, both as objects. The driver
+     asks it of each affected root in memory
+     (`-[ORMQueryInterpreter executePlan:ofObjects:inContext:error:]`), so
+     unsaved changes count, and sets the property where it differs.
+     Conditions, nots and counts on the way are the plan's. One partly
+     derived, or one whose plan reads a set it defines, is in the
      generator's notes. One Core Data derives itself (step 5) is left to
      it.
    - Then each constraint query is checked again, with
      `orm_collectViolations:`, for every root a change, a derived one
      included, reaches. An alethic violation refuses the save.
-   - Tested by building the generated code with clang and loading it
-     (macOS): a city renamed, its branches' employees work in the new name.
+   - Tested through the driver, on both platforms, and by building the
+     generated code with clang and loading it (macOS): a city renamed, its
+     branches' employees work in the new name.
    - Apps that cannot generate code ahead of time run the same derivations
      and rules through ORMKit (`ORMDeriver`, `ORMRuleChecker`). The OData
      service's change sets are for later, through ODataKit's hooks.

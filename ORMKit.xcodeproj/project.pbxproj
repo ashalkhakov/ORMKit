@@ -334,6 +334,11 @@
 			fileRef = 5557D9EEE8150701D49CEA64 /* ORMCoreDataMapper.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		5B8283E1E684E5471A49FB2D /* ORMTables.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 62B9AA5A53B21A8FE08D12C0 /* ORMTables.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		5BBEE705353B653764990826 /* ORMIssuesView.xib */ = {
 			isa = PBXBuildFile;
 			fileRef = 80A5F23A270C7CC12A83D9C8 /* ORMIssuesView.xib */;
@@ -516,6 +521,10 @@
 			isa = PBXBuildFile;
 			fileRef = FAEC6D9C026AE82C4B58B9DB /* main.m */;
 		};
+		865877A8C4AA1D2231E76213 /* ORMSaveHook.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 35B947FF1308232DEB74D77C /* ORMSaveHook.m */;
+		};
 		876171EC3771647D4C571D57 /* ORMCoreDataValidation.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 13854F51DC39F0B060914E85 /* ORMCoreDataValidation.m */;
@@ -583,6 +592,10 @@
 			isa = PBXBuildFile;
 			fileRef = 95FF8C6B38934A3200AD848A /* ORMIssueFinder.h */;
 			settings = {ATTRIBUTES = (Public, ); };
+		};
+		A20FC48761C1C37839E917F9 /* ORMTables.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 1D8B30B1C1392AE50C6F7E15 /* ORMTables.m */;
 		};
 		A2CE76FECBD080EA6023129B /* ORMQueryOData.m */ = {
 			isa = PBXBuildFile;
@@ -846,6 +859,11 @@
 			isa = PBXBuildFile;
 			fileRef = 46B1475CEF4268FEC97A1C0C /* ORMODataAnnotator.m */;
 		};
+		F7D2E3B4AD130E07AFF39020 /* ORMSaveHook.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 5CF8FFB59370DA2FA094687C /* ORMSaveHook.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		F9F7C099A2B89E6701324AE8 /* ORMCoreDataValidationTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = E9DB394050558188E00DF4EA /* ORMCoreDataValidationTests.m */;
@@ -1055,6 +1073,12 @@
 			path = ORMConstraintEditor.h;
 			sourceTree = "<group>";
 		};
+		1D8B30B1C1392AE50C6F7E15 /* ORMTables.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMTables.m;
+			sourceTree = "<group>";
+		};
 		1E949A0478DFF0A12FDAF766 /* ORMDocumentWindow.xib */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = file.xib;
@@ -1181,6 +1205,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMModelBrowser.h;
+			sourceTree = "<group>";
+		};
+		35B947FF1308232DEB74D77C /* ORMSaveHook.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMSaveHook.m;
 			sourceTree = "<group>";
 		};
 		3991801820FA2F22C806039D /* ORMCursor.m */ = {
@@ -1316,6 +1346,12 @@
 			path = ORMPopulationGenerator.m;
 			sourceTree = "<group>";
 		};
+		5CF8FFB59370DA2FA094687C /* ORMSaveHook.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMSaveHook.h;
+			sourceTree = "<group>";
+		};
 		5D55BAF9088DA59E042DE3C3 /* ORMSVGSurface.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -1338,6 +1374,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMTestSupport.h;
+			sourceTree = "<group>";
+		};
+		62B9AA5A53B21A8FE08D12C0 /* ORMTables.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMTables.h;
 			sourceTree = "<group>";
 		};
 		63A309D993A10BC9B1C7C889 /* ORMInspectorView.h */ = {
@@ -2161,6 +2203,10 @@
 				EE2EAB4AB59DF719BB76DF6C /* ORMQueryPlan.h */,
 				80509A6A117340DADE0B36D8 /* ORMQueryPlan.m */,
 				1EF48C651F36D9A24CC15F5C /* ORMRuntime.h */,
+				5CF8FFB59370DA2FA094687C /* ORMSaveHook.h */,
+				35B947FF1308232DEB74D77C /* ORMSaveHook.m */,
+				62B9AA5A53B21A8FE08D12C0 /* ORMTables.h */,
+				1D8B30B1C1392AE50C6F7E15 /* ORMTables.m */,
 			);
 			path = ORMRuntime;
 			sourceTree = "<group>";
@@ -2345,6 +2391,8 @@
 				3B864043033EA6D038FE3ABB /* ORMQueryPlan.h */,
 				8388339255EA6691DFA06F47 /* ORMQueryInterpreter.h */,
 				54707845230900C47086D8BC /* ORMCursor.h */,
+				5B8283E1E684E5471A49FB2D /* ORMTables.h */,
+				F7D2E3B4AD130E07AFF39020 /* ORMSaveHook.h */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2638,6 +2686,8 @@
 				475E569D1B0B58FE7A2076C1 /* ORMQueryPlan.m */,
 				99831D34C642FD3CFA4CD5BE /* ORMQueryInterpreter.m */,
 				F15FE67197E1ED375B7D951F /* ORMCursor.m */,
+				A20FC48761C1C37839E917F9 /* ORMTables.m */,
+				865877A8C4AA1D2231E76213 /* ORMSaveHook.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

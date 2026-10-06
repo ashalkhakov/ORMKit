@@ -267,6 +267,10 @@ top of the `.m`:
 - set comparisons through join paths;
 - constraints over the roles of n-ary fact types.
 
+Where the model has stored derivations, the files include
+`<Name>.ormplans`, the tables the save hook runs: the app adds it to its
+resources and links ORMRuntime ([RUNTIME.md](RUNTIME.md)).
+
 The directory is the mapping's `ValidationPath`. **Synchronize** writes the
 code there, generated from the model it has just written, so the names are
 the ones in the `.xcdatamodeld`. `ormtool coredata` writes it as well, and

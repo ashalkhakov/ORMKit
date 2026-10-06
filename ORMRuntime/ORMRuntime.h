@@ -5,3 +5,5 @@
 #import "ORMQueryPlan.h"
 #import "ORMQueryInterpreter.h"
 #import "ORMCursor.h"
+#import "ORMTables.h"
+#import "ORMSaveHook.h"

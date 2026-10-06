@@ -1374,10 +1374,12 @@
 }
 
 
-/* Saving (docs/DERIVATION.md, step 6): the generated code works out a
- * stored derived fact type Core Data cannot ("Employee works in Cityname",
- * two relationships away) for the objects a change reaches: a city renamed,
- * its branches' employees work in the new name. Built and run on macOS. */
+/* Saving (docs/DERIVATION.md, step 6): a stored derived fact type Core
+ * Data cannot work out ("Employee works in Cityname", two relationships
+ * away), for the objects a change reaches: a city renamed, its branches'
+ * employees work in the new name. The generator writes it as tables
+ * (docs/RUNTIME.md), which the driver runs; the generated code, which
+ * calls the driver, is built and run on macOS. */
 - (void)testTheSaveHookWorksOutStoredDerivations
 {
 	NSString *employee = [self typeId:@"Employee"];
@@ -1400,44 +1402,76 @@
 	NSDictionary *files = [generator files];
 	NSString *code = [files objectForKey:@"CompanyValidation.m"];
 	XCTAssertTrue([[files objectForKey:@"CompanyValidation.h"] containsString:@"- (BOOL)orm_prepareForSave:(NSError **)error;"]);
-	XCTAssertTrue([code containsString:@"CompanyDerive(root, @[ @\"branch\", @\"city\", @\"cityname\" ]"], @"%@\n%@",
-	              generator.notes, code);
-	XCTAssertTrue([code containsString:@"@[ @\"City\", @[ @\"branches\", @\"employees\" ] ]"], @"%@", code);
-#if defined(__APPLE__)
+	XCTAssertTrue([code containsString:@"[ORMTables tablesNamed:@\"Company\" error:error]"], @"%@\n%@", generator.notes, code);
+	/* The tables, as the app's resources have them. */
+	NSData *data = [[files objectForKey:@"Company.ormplans"] dataUsingEncoding:NSUTF8StringEncoding];
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+	NSError *error = nil;
+	ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+	XCTAssertNotNil(tables, @"%@", error);
+	XCTAssertEqual([tables.derivations count], 1u, @"%@", generator.notes);
+	ORMStoredDerivation *derivation = [tables.derivations firstObject];
+	XCTAssertEqualObjects(derivation.root, @"Employee");
+	XCTAssertEqualObjects(derivation.kind, @"value");
+	XCTAssertTrue([derivation.backs containsObject:(@[ @"City", @[ @"branches", @"employees" ] ])], @"%@", derivation.backs);
+
+	/* The driver, by the tables: a city renamed, and what reaches it. */
 	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
 	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
-	NSString *why = nil;
-	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
 	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
 	ORMCDModel *mapped = [mapper map];
-	NSString *target = nil;
-	for (ORMCDAttribute *attribute in [mapped entityNamed:@"Employee"].attributes) {
-		target = [attribute.source isEqualToString:[worksIn lastObject]] ? attribute.name : target;
-	}
-	XCTAssertNotNil(target);
+	NSString *target = derivation.target;
 	NSManagedObjectContext *context = [self companyIn:directory model:[mapped managedObjectModel]];
-	SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
-	XCTAssertTrue([context respondsToSelector:prepare]);
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
 	[context performBlockAndWait:^{
-		NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"City"];
-		fetch.predicate = [NSPredicate predicateWithFormat:@"cityname == 'Sydney'"];
-		NSManagedObject *sydney = [[context executeFetchRequest:fetch error:NULL] firstObject];
-		XCTAssertNotNil(sydney);
-		[sydney setValue:@"Sydney Harbour" forKey:@"cityname"];
-		NSError *error = nil;
+		[self rename:@"Sydney" to:@"Sydney Harbour" in:context target:target hook:hook];
+	}];
+#if defined(__APPLE__)
+	/* The same, through the generated code. */
+	NSString *why = nil;
+	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
+	[ORMTables registerTables:tables named:@"Company"];
+	XCTAssertTrue([context respondsToSelector:NSSelectorFromString(@"orm_prepareForSave:")]);
+	[context performBlockAndWait:^{
+		[self rename:@"Sydney Harbour" to:@"Port Jackson" in:context target:target hook:nil];
+	}];
+	[ORMTables registerTables:nil named:@"Company"];
+#endif
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* The city renamed, and the context made ready to save: by the driver,
+ * or (no hook) by the generated orm_prepareForSave:. Its branches'
+ * employees work in the new name, and the context saves. */
+- (void)rename:(NSString *)name
+            to:(NSString *)renamed
+            in:(NSManagedObjectContext *)context
+        target:(NSString *)target
+          hook:(ORMSaveHook *)hook
+{
+	NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"City"];
+	fetch.predicate = [NSPredicate predicateWithFormat:@"cityname == %@", name];
+	NSManagedObject *city = [[context executeFetchRequest:fetch error:NULL] firstObject];
+	XCTAssertNotNil(city);
+	[city setValue:renamed forKey:@"cityname"];
+	NSError *error = nil;
+	if (hook != nil) {
+		NSMutableSet *changed = [NSMutableSet setWithSet:[context updatedObjects]];
+		XCTAssertTrue([hook deriveInContext:context changed:changed error:&error], @"%@", error);
+		XCTAssertGreaterThan([changed count], 1u);
+	} else {
+		SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
 		BOOL (*call)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[context methodForSelector:prepare];
 		XCTAssertTrue(call(context, prepare, &error), @"%@", error);
-		NSFetchRequest *employees = [NSFetchRequest fetchRequestWithEntityName:@"Employee"];
-		employees.predicate = [NSPredicate predicateWithFormat:@"branch.city == %@", sydney];
-		NSArray *there = [context executeFetchRequest:employees error:NULL];
-		XCTAssertGreaterThan([there count], 0u);
-		for (NSManagedObject *each in there) {
-			XCTAssertEqualObjects([each valueForKey:target], @"Sydney Harbour");
-		}
-		XCTAssertTrue([context save:&error], @"%@", error);
-	}];
-	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
-#endif
+	}
+	NSFetchRequest *employees = [NSFetchRequest fetchRequestWithEntityName:@"Employee"];
+	employees.predicate = [NSPredicate predicateWithFormat:@"branch.city == %@", city];
+	NSArray *there = [context executeFetchRequest:employees error:NULL];
+	XCTAssertGreaterThan([there count], 0u);
+	for (NSManagedObject *each in there) {
+		XCTAssertEqualObjects([each valueForKey:target], renamed);
+	}
+	XCTAssertTrue([context save:&error], @"%@", error);
 }
 
 /* Sorted by an attribute maybe there: each employee and maybe their

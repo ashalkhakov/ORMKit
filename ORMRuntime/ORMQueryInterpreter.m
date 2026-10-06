@@ -212,6 +212,10 @@ ORMCompare(id left, NSString *comparison, id right)
 /* The rows of an object the plan reads: a tuple for each way its
  * conditions are met, a value per column. */
 - (NSArray<NSArray *> *)rowsOf:(id)object;
+/* Whether the condition holds of the object, asked of it in memory. */
+- (BOOL)holds:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings;
+/* Whether it aggregates a bag it defines, read with each batch. */
+- (BOOL)readsBags;
 @end
 
 /* The plan's fetch, a batch at a time, in its order. */
@@ -452,6 +456,11 @@ ORMBagKey(ORMPlanValue *value)
 		}
 	}
 	return [self.plan rowsFollowOrder:order key:seek != nil ? [self keyNames] : nil];
+}
+
+- (BOOL)readsBags
+{
+	return [_bagValues count] > 0;
 }
 
 - (BOOL)keeps:(id)object
@@ -1667,6 +1676,43 @@ ORMBagKey(ORMPlanValue *value)
 	result.columnTitles = [plan.columns valueForKey:@"title"];
 	result.rows = rows;
 	return result;
+}
+
+- (ORMQueryResult *)executePlan:(ORMQueryPlan *)plan
+                      ofObjects:(NSArray<NSManagedObject *> *)objects
+                      inContext:(NSManagedObjectContext *)context
+                          error:(NSError **)error
+{
+	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context error:error];
+	if (run == nil) {
+		return nil;
+	}
+	if ([run readsBags]) {
+		if (error != NULL) {
+			*error = ORMInterpreterError(@"The plan aggregates a set it defines, which is read from the store, not "
+			                             @"asked of objects in memory.");
+		}
+		return nil;
+	}
+	NSMutableArray *kept = [NSMutableArray array];
+	NSMutableArray *rows = [NSMutableArray array];
+	for (NSManagedObject *object in objects) {
+		if (![[object entity] isKindOfEntity:run.read]) {
+			continue;
+		}
+		BOOL holds = plan.condition == nil || [run holds:plan.condition object:object bindings:run.bindings];
+		if (run.error != nil) {
+			if (error != NULL) {
+				*error = run.error;
+			}
+			return nil;
+		}
+		if (holds) {
+			[kept addObject:object];
+			[rows addObjectsFromArray:[run rowsOf:object]];
+		}
+	}
+	return [ORMQueryResult resultWithObjects:kept columnTitles:[plan.columns valueForKey:@"title"] rows:rows];
 }
 
 - (NSString *)programForPlan:(ORMQueryPlan *)plan error:(NSError **)error

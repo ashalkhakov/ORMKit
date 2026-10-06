@@ -92,7 +92,7 @@ ORMNumberLiteral(NSString *value)
 	 * works out, each @{ text, root, keys, target, kind, backs }, in the order
 	 * they are worked out; and, by the entity a rule reads, the ways back to
 	 * it from what the rule reads: @[ entity, inverse keys ]. */
-	NSMutableArray<NSDictionary *> *_derivations;
+	NSMutableArray<ORMStoredDerivation *> *_derivations;
 	NSMutableDictionary<NSString *, NSMutableOrderedSet<NSArray *> *> *_ruleBacks;
 	/* The joined entity types' code (docs/JOINED-ENTITIES.md). */
 	ORMJoinedFacade *_joined;
@@ -774,10 +774,31 @@ ORMInDependencyOrder(NSArray<ORMQuery *> *derivations)
 	return ordered;
 }
 
-/* The stored derived fact types the generated code works out at save: those
- * Core Data does not derive itself, whose rule is a plain chain of steps
- * from the first role's player to the second's, the value or objects at
- * its end kept in the property the second role is mapped to. */
+/* The plan's columns for the object read and the node, by object: no
+ * identifier's key, so that a row has the objects themselves, which a
+ * relationship is set to. nil where the plan lists either by no path. */
+static ORMQueryPlan *
+ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
+{
+	NSMutableArray *columns = [NSMutableArray array];
+	for (ORMQueryNode *each in @[ root, node ]) {
+		ORMPlanColumn *column = [plan columnOfNode:each.identifier];
+		if (column == nil || column.value != nil) {
+			return nil;
+		}
+		[columns addObject:[ORMPlanColumn columnTitled:column.title node:column.nodeId path:column.path
+		                                         trail:column.trail
+		                                    identifier:nil]];
+	}
+	return [ORMQueryPlan planReading:plan.entityName where:plan.condition columns:columns sorts:@[] notes:plan.notes
+	                     definitions:plan.definitions];
+}
+
+/* The stored derived fact types worked out at save (docs/DERIVATION.md),
+ * as the tables have them (docs/RUNTIME.md): those Core Data does not
+ * derive itself, whose rule goes from the first role's player, the
+ * property the second role is mapped to set to what it reaches. The
+ * driver asks the rule of each object a change can reach, in memory. */
 - (void)derivations
 {
 	ORMQueryPlanner *planner = nil;
@@ -791,21 +812,13 @@ ORMInDependencyOrder(NSArray<ORMQuery *> *derivations)
 		NSString *why = nil;
 		NSArray *roles = [fact visibleRoles];
 		NSArray *columns = [query derivedColumns];
-		BOOL chain = [roles count] == 2 && [columns count] == 2 && [columns firstObject] == query.root;
-		for (ORMQueryNode *node in chain ? [query nodes] : @[]) {
-			chain = chain && [node.steps count] <= ([node isEqual:[columns lastObject]] ? 0 : 1) && node.comparison == nil
-			        && node.label == nil && !node.combinesWithOr;
-			for (ORMQueryStep *step in node.steps) {
-				chain = chain && step.operatorKind == ORMQueryAnd && step.countComparison == nil;
-			}
-		}
-		NSArray *target = [_bySource objectForKey:[(ORMRole *)[roles lastObject] identifier]];
+		NSArray *target = [roles count] == 2 ? [_bySource objectForKey:[(ORMRole *)[roles lastObject] identifier]] : nil;
 		ORMCDEntity *entity = [target firstObject];
 		ORMCDProperty *property = [target lastObject];
 		if (rule.isPartial) {
 			why = @"partly derived: what is asserted and what is derived are kept in one property";
-		} else if (!chain) {
-			why = @"its rule is not a plain chain of steps from one role's player to the other's";
+		} else if ([roles count] != 2 || [columns count] != 2 || [columns firstObject] != query.root) {
+			why = @"its rule does not go from one role's player to the other's";
 		} else if (property == nil) {
 			why = @"it is mapped to no property";
 		} else if ([property isKindOfClass:[ORMCDAttribute class]] && ((ORMCDAttribute *)property).derivation != nil) {
@@ -813,17 +826,19 @@ ORMInDependencyOrder(NSArray<ORMQuery *> *derivations)
 			continue;
 		}
 		ORMQueryPlan *plan = nil;
-		NSArray *keys = nil;
+		NSArray *trails = nil;
 		if (why == nil) {
 			planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
-			plan = [planner planForQuery:query];
-			ORMPlanColumn *value = [plan.columns count] == 2 ? [plan columnOfNode:[(ORMQueryNode *)[columns lastObject] identifier]] : nil;
-			keys = [plan.notes count] == 0 && value != nil ? [plan trailOfColumn:value] : nil;
-			if (keys == nil || [keys count] == 0 || ![plan.entityName isEqualToString:entity.name]) {
-				why = @"its rule does not plan as a path from the object the property is of";
+			ORMQueryPlan *planned = [planner planForQuery:query];
+			plan = [planned.notes count] == 0 ? ORMObjectColumns(planned, query.root, [columns lastObject]) : nil;
+			trails = [plan trailsFromRead];
+			if (plan == nil || ![plan.entityName isEqualToString:entity.name]) {
+				why = @"its rule does not plan from the object the property is of";
+			} else if ([plan.definitions count] > 0 || trails == nil) {
+				why = @"its rule reads what no path from the object says, which is not asked of it in memory";
 			}
 		}
-		NSArray *backs = why == nil ? [self backsFrom:entity trails:@[ keys ]] : nil;
+		NSArray *backs = why == nil ? [self backsFrom:entity trails:trails] : nil;
 		if (why == nil && backs == nil) {
 			why = @"a relationship on its path has no inverse";
 		}
@@ -833,8 +848,10 @@ ORMInDependencyOrder(NSArray<ORMQuery *> *derivations)
 		}
 		NSString *kind = [property isKindOfClass:[ORMCDAttribute class]] ? @"value"
 			: (((ORMCDRelationship *)property).toMany ? @"objects" : @"object");
-		[_derivations addObject:@{ @"text": what, @"root": entity.name, @"keys": keys, @"target": property.name,
-			                       @"kind": kind, @"backs": backs }];
+		[_derivations addObject:[ORMStoredDerivation derivationWithText:what root:entity.name plan:plan
+		                                                         target:property.name
+		                                                           kind:kind
+		                                                          backs:backs]];
 	}
 }
 
@@ -864,35 +881,26 @@ static NSString *ORMBacksLiteral(NSArray *list)
 	                  @"\tNSMutableSet *changed = [NSMutableSet setWithSet:[self insertedObjects]];\n"
 	                  @"\t[changed unionSet:[self updatedObjects]];\n"
 	                  @"\t[changed unionSet:[self deletedObjects]];\n"];
-	for (NSDictionary *derivation in _derivations) {
-		NSMutableArray *keys = [NSMutableArray array];
-		for (NSString *key in [derivation objectForKey:@"keys"]) {
-			[keys addObject:ORMLiteral(key)];
-		}
-		[out appendFormat:@"\t/* Derived and stored: %@ */\n"
-		                  @"\tfor (NSManagedObject *root in %@Roots(self, changed, %@, %@)) {\n"
-		                  @"\t\tif ([root isDeleted]) {\n"
-		                  @"\t\t\tcontinue;\n"
-		                  @"\t\t}\n"
-		                  @"\t\tif (%@Derive(root, @[ %@ ], %@, @\"%@\")) {\n"
-		                  @"\t\t\t[changed addObject:root];\n"
-		                  @"\t\t}\n"
+	if ([_derivations count] > 0) {
+		[out appendFormat:@"\t/* The stored derived facts, by the model's tables (%@.ormplans). */\n"
+		                  @"\tORMTables *tables = [ORMTables tablesNamed:%@ error:error];\n"
+		                  @"\tif (tables == nil || ![[[ORMSaveHook alloc] initWithTables:tables] deriveInContext:self\n"
+		                  @"\t                                                                         changed:changed\n"
+		                  @"\t                                                                           error:error]) {\n"
+		                  @"\t\treturn NO;\n"
 		                  @"\t}\n",
-		                  ORMCommentText([derivation objectForKey:@"text"]), _prefix, ORMLiteral([derivation objectForKey:@"root"]),
-		                  ORMBacksLiteral([derivation objectForKey:@"backs"]), _prefix, [keys componentsJoinedByString:@", "],
-		                  ORMLiteral([derivation objectForKey:@"target"]), [derivation objectForKey:@"kind"]];
+		                  _name, ORMLiteral(_name)];
 	}
 	[out appendString:@"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n"];
 	[out appendString:[_joined saveStatements]];
 	for (NSString *entityName in [[_ruleBacks allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
 		[out appendFormat:@"\t/* The rules %@ is checked by, again for each a change reaches. */\n"
-		                  @"\tfor (NSManagedObject *root in %@Roots(self, changed, %@, %@)) {\n"
+		                  @"\tfor (NSManagedObject *root in [ORMSaveHook rootsOf:%@ backs:%@ changed:changed inContext:self]) {\n"
 		                  @"\t\tif (![root isDeleted]) {\n"
 		                  @"\t\t\t[(id)root orm_collectViolations:violations deontic:NO];\n"
 		                  @"\t\t}\n"
 		                  @"\t}\n",
-		                  entityName, _prefix, ORMLiteral(entityName),
-		                  ORMBacksLiteral([[_ruleBacks objectForKey:entityName] array])];
+		                  entityName, ORMLiteral(entityName), ORMBacksLiteral([[_ruleBacks objectForKey:entityName] array])];
 	}
 	[out appendFormat:@"\treturn %@Report(violations, error);\n"
 	                  @"}\n\n@end\n",
@@ -1218,67 +1226,6 @@ static NSString *ORMBacksLiteral(NSArray *list)
 		@"\tid value = [object valueForKey:key];\n"
 		@"\treturn value == nil || within([value doubleValue]);\n"
 		@"}\n";
-	if ([self hasSaveHook]) {
-		helpers = [helpers stringByAppendingString:
-			@"/* The objects walking the keys from the object reaches, each a set. */\n"
-			@"static PFX_UNUSED NSSet *\n"
-			@"PFXWalk(NSSet *from, NSArray<NSString *> *keys)\n"
-			@"{\n"
-			@"\tNSSet *at = from;\n"
-			@"\tfor (NSString *key in keys) {\n"
-			@"\t\tNSMutableSet *next = [NSMutableSet set];\n"
-			@"\t\tfor (id object in at) {\n"
-			@"\t\t\t[next unionSet:PFXRelated(object, key)];\n"
-			@"\t\t}\n"
-			@"\t\tat = next;\n"
-			@"\t}\n"
-			@"\treturn at;\n"
-			@"}\n\n"
-			@"/* The objects of the entity a change can affect: those changed, and those each\n"
-			@" * changed object of an entity in backs reaches walking back: @[ entity, keys ]. */\n"
-			@"static PFX_UNUSED NSSet *\n"
-			@"PFXRoots(NSManagedObjectContext *context, NSSet *changed, NSString *entityName, NSArray<NSArray *> *backs)\n"
-			@"{\n"
-			@"\tNSEntityDescription *root = [NSEntityDescription entityForName:entityName inManagedObjectContext:context];\n"
-			@"\tNSMutableSet *roots = [NSMutableSet set];\n"
-			@"\tfor (NSManagedObject *object in changed) {\n"
-			@"\t\tif ([[object entity] isKindOfEntity:root]) {\n"
-			@"\t\t\t[roots addObject:object];\n"
-			@"\t\t}\n"
-			@"\t\tfor (NSArray *back in backs) {\n"
-			@"\t\t\tNSEntityDescription *from = [NSEntityDescription entityForName:[back objectAtIndex:0]\n"
-			@"\t\t\t                                     inManagedObjectContext:context];\n"
-			@"\t\t\tif ([[object entity] isKindOfEntity:from]) {\n"
-			@"\t\t\t\t[roots unionSet:PFXWalk([NSSet setWithObject:object], [back objectAtIndex:1])];\n"
-			@"\t\t\t}\n"
-			@"\t\t}\n"
-			@"\t}\n"
-			@"\treturn roots;\n"
-			@"}\n\n"
-			@"/* The derived value of the root, worked out along keys, set where it differs:\n"
-			@" * a value, an object, or objects. YES when it was set. */\n"
-			@"static PFX_UNUSED BOOL\n"
-			@"PFXDerive(NSManagedObject *root, NSArray<NSString *> *keys, NSString *target, NSString *kind)\n"
-			@"{\n"
-			@"\tNSSet *found = PFXWalk([NSSet setWithObject:root], keys);\n"
-			@"\tid value = nil;\n"
-			@"\tif ([kind isEqualToString:@\"objects\"]) {\n"
-			@"\t\tvalue = found;\n"
-			@"\t\tif ([PFXRelated(root, target) isEqualToSet:found]) {\n"
-			@"\t\t\treturn NO;\n"
-			@"\t\t}\n"
-			@"\t} else {\n"
-			@"\t\t/* One, or none where there are none or several. */\n"
-			@"\t\tvalue = [found count] == 1 ? [found anyObject] : nil;\n"
-			@"\t\tid now = [root valueForKey:target];\n"
-			@"\t\tif (now == value || [now isEqual:value]) {\n"
-			@"\t\t\treturn NO;\n"
-			@"\t\t}\n"
-			@"\t}\n"
-			@"\t[root setValue:value forKey:target];\n"
-			@"\treturn YES;\n"
-			@"}\n\n"];
-	}
 	return [helpers stringByReplacingOccurrencesOfString:@"PFX" withString:_prefix];
 }
 
@@ -1288,7 +1235,12 @@ static NSString *ORMBacksLiteral(NSArray *list)
 	[out appendFormat:@"/* %@Validation.m: generated by ORMKit from %@. Do not edit: it is made again\n"
 	                  @" * with the model. */\n\n",
 	                  _name, ORMCommentText(_model.name ?: @"the ORM model")];
-	[out appendFormat:@"#import \"%@Validation.h\"\n\n", _name];
+	[out appendFormat:@"#import \"%@Validation.h\"\n", _name];
+	if ([self hasSaveHook]) {
+		/* The driver of the model's tables (docs/RUNTIME.md). */
+		[out appendString:@"#import <ORMRuntime/ORMRuntime.h>\n"];
+	}
+	[out appendString:@"\n"];
 	if ([_skipped count] > 0) {
 		[out appendString:@"/* Not checked here:\n"];
 		for (NSString *skipped in _skipped) {
@@ -1358,10 +1310,25 @@ static NSString *ORMBacksLiteral(NSArray *list)
 	return out;
 }
 
+- (ORMTables *)tables
+{
+	return [ORMTables tablesOfModel:_name queries:@{} derivations:_derivations];
+}
+
 - (NSDictionary<NSString *, NSString *> *)files
 {
-	return @{ [_name stringByAppendingString:@"Validation.h"]: [self header],
-		      [_name stringByAppendingString:@"Validation.m"]: [self implementation] };
+	NSMutableDictionary *files = [NSMutableDictionary dictionary];
+	[files setObject:[self header] forKey:[_name stringByAppendingString:@"Validation.h"]];
+	[files setObject:[self implementation] forKey:[_name stringByAppendingString:@"Validation.m"]];
+	if ([_derivations count] > 0) {
+		NSData *data = [NSPropertyListSerialization dataWithPropertyList:[[self tables] propertyList]
+		                                                          format:NSPropertyListXMLFormat_v1_0
+		                                                         options:0
+		                                                           error:NULL];
+		[files setObject:[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding]
+		          forKey:[_name stringByAppendingString:@".ormplans"]];
+	}
+	return files;
 }
 
 - (BOOL)writeToDirectory:(NSString *)directory error:(NSError **)error

@@ -19,11 +19,15 @@ ORMRuntime_HEADER_FILES = \
   ORMRuntime.h \
   ORMQueryPlan.h \
   ORMQueryInterpreter.h \
-  ORMCursor.h
+  ORMCursor.h \
+  ORMTables.h \
+  ORMSaveHook.h
 ORMRuntime_OBJC_FILES = \
   ORMQueryPlan.m \
   ORMQueryInterpreter.m \
-  ORMCursor.m
+  ORMCursor.m \
+  ORMTables.m \
+  ORMSaveHook.m
 
 # As ORMKit's: AddressSanitizer and undefined behaviour, for the tests.
 ifeq ($(SANITIZE),1)
