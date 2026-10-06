@@ -24,13 +24,27 @@
 @implementation ORMOutlineLine
 @end
 
+/* What the first line says the query is for, where it says. */
+@interface ORMOutlineHeader : NSObject
+@property (nonatomic) ORMQueryKind kind;
+@property (nonatomic) BOOL deontic;
+@property (nonatomic, copy) NSString *name;
+@property (nonatomic, copy) NSString *function;
+@property (nonatomic, copy) NSString *calculated;
+@property (nonatomic, strong) ORMFactType *derived;
+@property (nonatomic, strong) ORMOutlineLine *line;
+@end
+
+@implementation ORMOutlineHeader
+@end
+
 static NSString *const ORMComparisons = @"<>|<=|>=|=|<|>";
 
 /* What follows a node's name: label, condition, sort. */
 static NSString *
 ORMNodeTail(void)
 {
-	return [NSString stringWithFormat:@"(\\d*)(?: (%@) ('[^']*'|[^ ]+))?(?: ([↑↓]))?", ORMComparisons];
+	return [NSString stringWithFormat:@"(\\d*)(?: (%@) ('(?:[^']|'')*'|[^ ]+))?(?: ([↑↓]))?", ORMComparisons];
 }
 
 static NSString *
@@ -39,20 +53,25 @@ ORMNodePattern(NSString *name)
 	return [NSString stringWithFormat:@"(✓)?%@%@", [NSRegularExpression escapedPatternForString:name], ORMNodeTail()];
 }
 
+/* What a match's group at the index matched, nil when it matched nothing. */
+static NSString *
+ORMGroup(NSTextCheckingResult *match, NSString *text, NSUInteger index)
+{
+	NSRange range = [match rangeAtIndex:index];
+	return range.location == NSNotFound ? nil : [text substringWithRange:range];
+}
+
 /* The node from a match's five groups at the index. */
 static ORMOutlineNode *
 ORMNodeOf(NSTextCheckingResult *match, NSString *text, NSUInteger first)
 {
-	NSString * (^group)(NSUInteger) = ^NSString *(NSUInteger index) {
-		NSRange range = [match rangeAtIndex:index];
-		return range.location == NSNotFound ? nil : [text substringWithRange:range];
-	};
 	ORMOutlineNode *node = [[ORMOutlineNode alloc] init];
-	node.projected = group(first) != nil;
-	node.label = [group(first + 1) length] > 0 ? group(first + 1) : nil;
-	node.comparison = group(first + 2);
-	node.value = group(first + 3);
-	NSString *sort = group(first + 4);
+	node.projected = ORMGroup(match, text, first) != nil;
+	NSString *label = ORMGroup(match, text, first + 1);
+	node.label = [label length] > 0 ? label : nil;
+	node.comparison = ORMGroup(match, text, first + 2);
+	node.value = ORMGroup(match, text, first + 3);
+	NSString *sort = ORMGroup(match, text, first + 4);
 	node.sort = [sort isEqualToString:@"↑"] ? ORMQueryAscending : [sort isEqualToString:@"↓"] ? ORMQueryDescending
 	                                                                                           : ORMQueryUnsorted;
 	return node;
@@ -73,6 +92,7 @@ ORMAggregateNames(void)
 	/* Conditions comparing with another node, once every node is made:
 	 * @[ node id, comparison, designation, line ]. */
 	NSMutableArray<NSArray *> *_comparisons;
+	ORMOutlineHeader *_header;
 }
 
 - (instancetype)initWithEditor:(ORMEditor *)editor
@@ -138,7 +158,9 @@ ORMAggregateNames(void)
 	}
 	NSString *value = said.value;
 	if ([value hasPrefix:@"'"] && [value hasSuffix:@"'"] && [value length] >= 2) {
-		value = [value substringWithRange:NSMakeRange(1, [value length] - 2)];
+		/* Quoted, a quote in it doubled: "'O''Brien'". */
+		value = [[value substringWithRange:NSMakeRange(1, [value length] - 2)] stringByReplacingOccurrencesOfString:@"''"
+		                                                                                                withString:@"'"];
 	} else {
 		/* Another node, its designation: "Country2 <> Country1". */
 		ORMQueryNode *node = [self node:nodeId];
@@ -287,11 +309,7 @@ ORMAggregateNames(void)
 			[aggregates addObject:under];
 			next++;
 		} else if ([under.text hasSuffix:@":"] && ![under.text hasPrefix:@"+ "]) {
-			NSString *name = [under.text substringToIndex:[under.text length] - 1];
-			current = nil;
-			for (ORMQueryNode *child in children) {
-				current = current == nil && [child.objectType.name isEqualToString:name] ? child.identifier : current;
-			}
+			current = [self childNamed:[under.text substringToIndex:[under.text length] - 1] among:children];
 			if (current == nil) {
 				[self fail:@"the step has no such node" line:under];
 				return NSNotFound;
@@ -361,9 +379,6 @@ ORMAggregateNames(void)
 	if (match == nil) {
 		return [self fail:@"an aggregate is \"count(X) for Y > n\"" line:line];
 	}
-	NSString * (^group)(NSUInteger) = ^NSString *(NSUInteger i) {
-		return [line.text substringWithRange:[match rangeAtIndex:i]];
-	};
 	/* Held while its nodes are walked: their links up are weak. */
 	ORMQuery *query = [self query];
 	ORMQueryStep *step = nil;
@@ -380,18 +395,21 @@ ORMAggregateNames(void)
 	for (ORMQueryNode *at = step.parent; at != nil; at = at.step.parent) {
 		[above addObject:at];
 	}
-	ORMQueryNode *of = [self designated:group(2) among:below];
-	ORMQueryNode *group3 = [self designated:group(3) among:above];
+	NSString *function = ORMGroup(match, line.text, 1);
+	NSString *ofName = ORMGroup(match, line.text, 2);
+	NSString *comparison = ORMGroup(match, line.text, 4);
+	NSString *rest = ORMGroup(match, line.text, 5);
+	ORMQueryNode *of = [self designated:ofName among:below];
+	ORMQueryNode *group3 = [self designated:ORMGroup(match, line.text, 3) among:above];
 	if (of == nil || group3 == nil) {
 		return [self fail:@"what it aggregates is not below the step, or what it is for not above it" line:line];
 	}
-	ORMQueryAggregate aggregate = (ORMQueryAggregate)[ORMAggregateNames() indexOfObject:group(1)];
-	NSString *rest = group(5);
+	ORMQueryAggregate aggregate = (ORMQueryAggregate)[ORMAggregateNames() indexOfObject:function];
 	NSString *pattern2 = [NSString stringWithFormat:@"^(%@)\\((.+?)\\) for (.+)$", names];
 	NSTextCheckingResult *compared = [[NSRegularExpression regularExpressionWithPattern:pattern2 options:0 error:NULL]
 		firstMatchInString:rest options:0 range:NSMakeRange(0, [rest length])];
 	NSString *why = nil;
-	if (![_queries setAggregate:aggregate ofNode:of.identifier comparison:group(4) value:compared != nil ? @"0" : rest
+	if (![_queries setAggregate:aggregate ofNode:of.identifier comparison:comparison value:compared != nil ? @"0" : rest
 	                     ofStep:stepId reason:&why]) {
 		return [self fail:why ?: @"the aggregate cannot be set" line:line];
 	}
@@ -401,7 +419,7 @@ ORMAggregateNames(void)
 	if (compared != nil) {
 		NSString *otherName = [rest substringWithRange:[compared rangeAtIndex:1]];
 		ORMQueryNode *otherGroup = [self designated:[rest substringWithRange:[compared rangeAtIndex:3]] among:above];
-		if (otherGroup == nil || ![[rest substringWithRange:[compared rangeAtIndex:2]] isEqualToString:group(2)]) {
+		if (otherGroup == nil || ![[rest substringWithRange:[compared rangeAtIndex:2]] isEqualToString:ofName]) {
 			return [self fail:@"an aggregate is compared with one of the same node, for a node above" line:line];
 		}
 		if (![_queries setComparedAggregate:(ORMQueryAggregate)[ORMAggregateNames() indexOfObject:otherName]
@@ -410,6 +428,28 @@ ORMAggregateNames(void)
 		}
 	}
 	return YES;
+}
+
+/* The step's node the outline names: "Employee", or "Employee (2)" the
+ * second of its type. nil where there is none. */
+- (NSString *)childNamed:(NSString *)text among:(NSArray<ORMQueryNode *> *)children
+{
+	NSString *name = text;
+	NSUInteger which = 1;
+	NSRegularExpression *numbered = [NSRegularExpression regularExpressionWithPattern:@"^(.+) \\((\\d+)\\)$" options:0
+	                                                                            error:NULL];
+	NSTextCheckingResult *match = [numbered firstMatchInString:text options:0 range:NSMakeRange(0, [text length])];
+	if (match != nil) {
+		name = ORMGroup(match, text, 1);
+		which = (NSUInteger)[ORMGroup(match, text, 2) integerValue];
+	}
+	NSUInteger seen = 0;
+	for (ORMQueryNode *child in children) {
+		if ([child.objectType.name isEqualToString:name] && ++seen == which) {
+			return child.identifier;
+		}
+	}
+	return nil;
 }
 
 #pragma mark The query
@@ -438,28 +478,15 @@ ORMAggregateNames(void)
 	}
 	_lines = lines;
 	/* What it is for. */
-	NSUInteger index = 0;
-	ORMQueryKind kind = ORMQueryList;
-	BOOL deontic = NO;
-	NSString *function = nil;
-	NSString *calculated = nil;
-	ORMOutlineLine *header = [lines firstObject];
-	NSRegularExpression *calculation = [NSRegularExpression
-		regularExpressionWithPattern:@"^(.+) of each (.+) is (value|count|total|avg|max|min)\\((.+)\\) of:$" options:0
-		                       error:NULL];
-	NSTextCheckingResult *calculationMatch = header != nil
-		? [calculation firstMatchInString:header.text options:0 range:NSMakeRange(0, [header.text length])] : nil;
-	if ([header.text isEqualToString:@"It is impossible that:"] || [header.text isEqualToString:@"It is forbidden that:"]) {
-		kind = ORMQueryConstraint;
-		deontic = [header.text isEqualToString:@"It is forbidden that:"];
-		index++;
-	} else if (calculationMatch != nil) {
-		kind = ORMQueryCalculation;
-		name = name ?: [header.text substringWithRange:[calculationMatch rangeAtIndex:1]];
-		function = [header.text substringWithRange:[calculationMatch rangeAtIndex:3]];
-		calculated = [header.text substringWithRange:[calculationMatch rangeAtIndex:4]];
-		index++;
+	_header = [self headerOf:[lines firstObject]];
+	if (_header == nil) {
+		if (reason != NULL) {
+			*reason = _failure;
+		}
+		return nil;
 	}
+	name = name ?: _header.name;
+	NSUInteger index = _header.line != nil ? 1 : 0;
 	ORMOutlineLine *rootLine = index < [lines count] ? [lines objectAtIndex:index] : nil;
 	if (rootLine == nil || rootLine.depth != 0) {
 		if (reason != NULL) {
@@ -491,58 +518,9 @@ ORMAggregateNames(void)
 		}
 		return nil;
 	}
-	__block NSString *made = nil;
 	BOOL done = [_editor group:@"Add Query from Outline" trying:^BOOL {
-		NSString *why = nil;
-		self->_query = [self->_queries addQueryNamed:name ?: [NSString stringWithFormat:@"%@ Query", rootType.name]
-		                                        from:rootType.identifier reason:&why];
-		if (self->_query == nil) {
-			return [self fail:why ?: @"the query cannot be made" line:rootLine];
-		}
-		NSString *root = [self query].root.identifier;
-		if (![self apply:rootSaid to:root line:rootLine]) {
-			return NO;
-		}
-		NSUInteger next = index + 1;
-		if (next < [self->_lines count]) {
-			ORMOutlineLine *first = [self->_lines objectAtIndex:next];
-			if (first.depth != 1 || ![first.text hasPrefix:@"+ "]) {
-				return [self fail:@"a step from the root is indented once, after \"+\"" line:first];
-			}
-			next = [self steps:next from:root];
-			if (next == NSNotFound) {
-				return NO;
-			}
-			if (next < [self->_lines count]) {
-				return [self fail:@"it is under nothing it can be read under" line:[self->_lines objectAtIndex:next]];
-			}
-		}
-		/* Conditions comparing nodes, now there are all of them. */
-		for (NSArray *comparison in self->_comparisons) {
-			ORMQueryNode *other = [self designated:[comparison objectAtIndex:2] among:[[self query] nodes]];
-			if (other == nil
-			    || ![self->_queries setCondition:[comparison objectAtIndex:1] toNode:other.identifier
-			                              ofNode:[comparison firstObject] reason:&why]) {
-				return [self fail:why ?: @"no node of the query is designated so" line:[comparison lastObject]];
-			}
-		}
-		if (kind != ORMQueryList && ![self->_queries setKind:kind ofQuery:self->_query reason:&why]) {
-			return [self fail:why ?: @"the query cannot be one" line:header];
-		}
-		if (kind == ORMQueryConstraint && ![self->_queries setDeontic:deontic ofQuery:self->_query reason:&why]) {
-			return [self fail:why ?: @"the modality cannot be set" line:header];
-		}
-		if (kind == ORMQueryCalculation) {
-			NSArray *functions = @[ @"value", @"count", @"total", @"avg", @"max", @"min" ];
-			ORMQueryNode *of = [self designated:calculated among:[[self query] nodes]];
-			if (of == nil
-			    || ![self->_queries setCalculation:(ORMQueryCalculationFunction)[functions indexOfObject:function]
-			                                ofNode:of.identifier inQuery:self->_query reason:&why]) {
-				return [self fail:why ?: @"what it calculates is no node of the query" line:header];
-			}
-		}
-		made = self->_query;
-		return YES;
+		return [self makeQueryNamed:name ?: [NSString stringWithFormat:@"%@ Query", rootType.name] root:rootType
+		                       said:rootSaid line:rootLine];
 	}];
 	if (!done) {
 		if (reason != NULL) {
@@ -550,7 +528,127 @@ ORMAggregateNames(void)
 		}
 		return nil;
 	}
-	return made;
+	return _query;
 }
+
+/* What the first line says the query is for: a constraint, a
+ * calculation, a derivation; a list where it says none of them, and no
+ * line of its own. nil, and why, where it names what the model has not. */
+- (ORMOutlineHeader *)headerOf:(ORMOutlineLine *)line
+{
+	ORMOutlineHeader *header = [[ORMOutlineHeader alloc] init];
+	header.kind = ORMQueryList;
+	NSString *text = line.text ?: @"";
+	NSRange all = NSMakeRange(0, [text length]);
+	NSRegularExpression *calculation = [NSRegularExpression
+		regularExpressionWithPattern:@"^(.+) of each (.+) is (value|count|total|avg|max|min)\\((.+)\\) of:$" options:0
+		                       error:NULL];
+	NSRegularExpression *derivation = [NSRegularExpression regularExpressionWithPattern:@"^Derivation of \"(.+)\":$"
+	                                                                            options:0
+	                                                                              error:NULL];
+	NSTextCheckingResult *calculated = [calculation firstMatchInString:text options:0 range:all];
+	NSTextCheckingResult *derived = [derivation firstMatchInString:text options:0 range:all];
+	if ([text isEqualToString:@"It is impossible that:"] || [text isEqualToString:@"It is forbidden that:"]) {
+		header.kind = ORMQueryConstraint;
+		header.deontic = [text isEqualToString:@"It is forbidden that:"];
+	} else if (calculated != nil) {
+		header.kind = ORMQueryCalculation;
+		header.name = ORMGroup(calculated, text, 1);
+		header.function = ORMGroup(calculated, text, 3);
+		header.calculated = ORMGroup(calculated, text, 4);
+	} else if ([text isEqualToString:@"Derivation:"]) {
+		header.kind = ORMQueryDerivation;
+	} else if (derived != nil) {
+		header.kind = ORMQueryDerivation;
+		NSString *reading = ORMGroup(derived, text, 1);
+		for (ORMFactType *fact in _editor.model.factTypes) {
+			if ([[[fact primaryReading] expandedText] isEqualToString:reading]) {
+				header.derived = fact;
+			}
+		}
+		if (header.derived == nil) {
+			_failure = [NSString stringWithFormat:@"Line %lu, \"%@\": no fact type of the model reads so.",
+			                                      (unsigned long)line.number, text];
+			return nil;
+		}
+	} else {
+		return header;
+	}
+	header.line = line;
+	return header;
+}
+
+/* The query the lines say, from its root: what the root says, its steps,
+ * the conditions comparing nodes, what the header says it is for. NO,
+ * with why in _failure, where a line cannot be read. */
+- (BOOL)makeQueryNamed:(NSString *)name root:(ORMObjectType *)rootType said:(ORMOutlineNode *)rootSaid
+                  line:(ORMOutlineLine *)rootLine
+{
+	NSString *why = nil;
+	_query = [_queries addQueryNamed:name from:rootType.identifier reason:&why];
+	if (_query == nil) {
+		return [self fail:why ?: @"the query cannot be made" line:rootLine];
+	}
+	NSString *root = [self query].root.identifier;
+	if (![self apply:rootSaid to:root line:rootLine]) {
+		return NO;
+	}
+	NSUInteger next = [_lines indexOfObjectIdenticalTo:rootLine] + 1;
+	if (next < [_lines count]) {
+		ORMOutlineLine *first = [_lines objectAtIndex:next];
+		if (first.depth != 1 || ![first.text hasPrefix:@"+ "]) {
+			return [self fail:@"a step from the root is indented once, after \"+\"" line:first];
+		}
+		next = [self steps:next from:root];
+		if (next == NSNotFound) {
+			return NO;
+		}
+		if (next < [_lines count]) {
+			return [self fail:@"it is under nothing it can be read under" line:[_lines objectAtIndex:next]];
+		}
+	}
+	/* Conditions comparing nodes, now there are all of them. */
+	for (NSArray *comparison in _comparisons) {
+		ORMQueryNode *other = [self designated:[comparison objectAtIndex:2] among:[[self query] nodes]];
+		if (other == nil
+		    || ![_queries setCondition:[comparison objectAtIndex:1] toNode:other.identifier ofNode:[comparison firstObject]
+		                        reason:&why]) {
+			return [self fail:why ?: @"no node of the query is designated so" line:[comparison lastObject]];
+		}
+	}
+	return [self makeQueryWhatItIsFor];
+}
+
+/* The query made what the header says: a constraint and its modality, a
+ * calculation and what it calculates, a derivation and, where no other
+ * query derives it already, its fact type. */
+- (BOOL)makeQueryWhatItIsFor
+{
+	ORMOutlineHeader *header = _header;
+	NSString *why = nil;
+	if (header.kind != ORMQueryList && ![_queries setKind:header.kind ofQuery:_query reason:&why]) {
+		return [self fail:why ?: @"the query cannot be one" line:header.line];
+	}
+	if (header.kind == ORMQueryConstraint && ![_queries setDeontic:header.deontic ofQuery:_query reason:&why]) {
+		return [self fail:why ?: @"the modality cannot be set" line:header.line];
+	}
+	if (header.kind == ORMQueryCalculation) {
+		NSArray *functions = @[ @"value", @"count", @"total", @"avg", @"max", @"min" ];
+		ORMQueryNode *of = [self designated:header.calculated among:[[self query] nodes]];
+		if (of == nil
+		    || ![_queries setCalculation:(ORMQueryCalculationFunction)[functions indexOfObject:header.function]
+		                          ofNode:of.identifier inQuery:_query reason:&why]) {
+			return [self fail:why ?: @"what it calculates is no node of the query" line:header.line];
+		}
+	}
+	/* A copy of a derivation pasted: one derivation to a fact type. */
+	if (header.kind == ORMQueryDerivation && header.derived != nil
+	    && [ORMQuery derivationOf:header.derived inModel:_editor.model] == nil
+	    && ![_queries setDerivedFactType:header.derived.identifier ofQuery:_query reason:&why]) {
+		return [self fail:why ?: @"the fact type cannot be derived so" line:header.line];
+	}
+	return YES;
+}
+
 
 @end

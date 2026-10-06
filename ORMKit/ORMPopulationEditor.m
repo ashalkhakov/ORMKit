@@ -1270,32 +1270,52 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return NO;
 }
 
-/* An edit of the population, then its stored derived facts brought up to
- * date: one change, undone as one, refused as one. An edit inside another
- * is that one's. */
 /* A population added, and the stored derived facts brought up to date
  * with it: one change. */
 - (BOOL)addPopulation:(ORMSamplePopulation *)population reason:(NSString **)reason
 {
-	return [self edit:@"Add Sample Population" with:^BOOL {
+	return [self edit:@"Add Sample Population" reason:reason with:^BOOL {
 		return [self addPopulationNow:population reason:reason];
 	}];
 }
 
-- (BOOL)edit:(NSString *)name with:(BOOL (^)(void))edit
+/* An edit of the population, then its stored derived facts brought up to
+ * date: one change, undone as one, refused as one. An edit inside another
+ * is that one's. */
+- (BOOL)edit:(NSString *)name reason:(NSString **)reason with:(BOOL (^)(void))edit
 {
 	if (_editing > 0 || ![self hasStoredDerivations]) {
 		return edit();
 	}
 	_editing++;
 	BOOL done = [_editor group:name trying:^BOOL {
-		return edit() && [self bringStoredDerivationsUpToDate:NULL];
+		return edit() && [self bringStoredDerivationsUpToDate:reason];
 	}];
 	_editing--;
 	return done;
 }
 
+/* Round after round, till no stored derivation changes: one that reads
+ * another sees what that one stored the round before. Derivations do not
+ * recur, so it ends; the bound guards it all the same. */
 - (BOOL)bringStoredDerivationsUpToDate:(NSString **)reason
+{
+	NSUInteger rounds = [[ORMQuery derivationsInModel:_editor.model] count] + 1;
+	for (NSUInteger round = 0; round < rounds; round++) {
+		BOOL changed = NO;
+		if (![self bringStoredDerivationsOnce:&changed reason:reason]) {
+			return NO;
+		}
+		if (!changed) {
+			return YES;
+		}
+	}
+	return YES;
+}
+
+/* One round: each stored derivation's facts made what its rule derives
+ * from the population as it is. */
+- (BOOL)bringStoredDerivationsOnce:(BOOL *)changed reason:(NSString **)reason
 {
 	ORMDeriver *deriver = [[ORMDeriver alloc] initWithModel:_editor.model];
 	NSDictionary *derived = [deriver derivedFacts];
@@ -1350,6 +1370,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 			}
 		}
 	}
+	*changed = [gone count] > 0 || ![population isEmpty];
 	for (NSString *factInstanceId in gone) {
 		if (![self removeFactNow:factInstanceId reason:reason]) {
 			return NO;
@@ -1362,16 +1383,16 @@ ORMWrapPart(NSString *name, BOOL composite)
                  reason:(NSString **)reason
 {
 	__block NSString *made = nil;
-	[self edit:@"Add Fact" with:^BOOL {
+	BOOL done = [self edit:@"Add Fact" reason:reason with:^BOOL {
 		made = [self addFactNowOf:factTypeId named:textsByRole reason:reason];
 		return made != nil;
 	}];
-	return made;
+	return done ? made : nil;
 }
 
 - (BOOL)removeFact:(NSString *)factInstanceId reason:(NSString **)reason
 {
-	return [self edit:@"Remove Fact" with:^BOOL {
+	return [self edit:@"Remove Fact" reason:reason with:^BOOL {
 		return [self removeFactNow:factInstanceId reason:reason];
 	}];
 }
@@ -1380,21 +1401,21 @@ ORMWrapPart(NSString *name, BOOL composite)
                  reason:(NSString **)reason
 {
 	__block NSString *made = nil;
-	[self edit:@"Edit Fact" with:^BOOL {
+	BOOL done = [self edit:@"Edit Fact" reason:reason with:^BOOL {
 		made = [self setPlayerNow:text ofRole:roleId inFact:factInstanceId reason:reason];
 		return made != nil;
 	}];
-	return made;
+	return done ? made : nil;
 }
 
 - (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason
 {
 	__block NSString *made = nil;
-	[self edit:@"Add Instance" with:^BOOL {
+	BOOL done = [self edit:@"Add Instance" reason:reason with:^BOOL {
 		made = [self addInstanceNowOf:objectTypeId named:text reason:reason];
 		return made != nil;
 	}];
-	return made;
+	return done ? made : nil;
 }
 
 - (NSString *)addInstanceOf:(NSString *)objectTypeId
@@ -1403,23 +1424,23 @@ ORMWrapPart(NSString *name, BOOL composite)
                      reason:(NSString **)reason
 {
 	__block NSString *made = nil;
-	[self edit:@"Add Instance" with:^BOOL {
+	BOOL done = [self edit:@"Add Instance" reason:reason with:^BOOL {
 		made = [self addInstanceNowOf:objectTypeId named:text objectifying:textsByRole reason:reason];
 		return made != nil;
 	}];
-	return made;
+	return done ? made : nil;
 }
 
 - (BOOL)renameInstance:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason
 {
-	return [self edit:@"Rename Instance" with:^BOOL {
+	return [self edit:@"Rename Instance" reason:reason with:^BOOL {
 		return [self renameInstanceNow:instanceId to:text reason:reason];
 	}];
 }
 
 - (BOOL)renameInstance:(NSString *)instanceId role:(NSString *)roleId to:(NSString *)text reason:(NSString **)reason
 {
-	return [self edit:@"Rename Instance" with:^BOOL {
+	return [self edit:@"Rename Instance" reason:reason with:^BOOL {
 		return [self renameInstanceNow:instanceId role:roleId to:text reason:reason];
 	}];
 }
@@ -1429,16 +1450,16 @@ ORMWrapPart(NSString *name, BOOL composite)
                      reason:(NSString **)reason
 {
 	__block NSString *made = nil;
-	[self edit:@"Add Instance" with:^BOOL {
+	BOOL done = [self edit:@"Add Instance" reason:reason with:^BOOL {
 		made = [self addInstanceNowOf:objectTypeId namedByRole:textsByRole reason:reason];
 		return made != nil;
 	}];
-	return made;
+	return done ? made : nil;
 }
 
 - (BOOL)removeInstance:(NSString *)instanceId reason:(NSString **)reason
 {
-	return [self edit:@"Remove Instance" with:^BOOL {
+	return [self edit:@"Remove Instance" reason:reason with:^BOOL {
 		return [self removeInstanceNow:instanceId reason:reason];
 	}];
 }

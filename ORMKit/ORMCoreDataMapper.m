@@ -785,18 +785,27 @@ ORMReservedNames(void)
 			if (member == first) {
 				continue;
 			}
+			/* Nothing can trace to a member without an id: it is left out. */
+			if (member.identifier == nil) {
+				[self note:ORMMappingWarning
+				      text:[NSString stringWithFormat:@"%@'s member %@ has no id: it is left out.", type.name,
+				                                      [member.name length] > 0 ? member.name : @"(unnamed)"]
+				   element:type.identifier];
+				continue;
+			}
 			ORMCDEntity *entity = [[ORMCDEntity alloc] init];
 			entity.name = [self claimEntityName:[member.name length] > 0 ? member.name : type.name
 			                             source:member.identifier];
 			entity.source = member.identifier;
 			entity.codeGenerationType = self.mapping.codeGenerationType;
 			[_out.entities addObject:entity];
-			if (member.identifier != nil) {
-				[entities setObject:entity forKey:member.identifier];
-			}
+			[entities setObject:entity forKey:member.identifier];
 		}
 		for (ORMJoinMember *member in members) {
 			ORMCDEntity *entity = [entities objectForKey:member.identifier ?: @""];
+			if (entity == nil) {
+				continue;
+			}
 			for (NSString *held in member == first ? @[] : member.heldRoleIds) {
 				if ([_heldBy objectForKey:held] == nil) {
 					[_heldBy setObject:entity forKey:held];
@@ -807,7 +816,10 @@ ORMReservedNames(void)
 			if (member == first) {
 				continue;
 			}
-			ORMCDEntity *entity = [entities objectForKey:member.identifier];
+			ORMCDEntity *entity = [entities objectForKey:member.identifier ?: @""];
+			if (entity == nil) {
+				continue;
+			}
 			ORMCDEntity *via = [entities objectForKey:member.viaId ?: @""];
 			NSArray *roles = [self correlationOf:member type:type];
 			NSMutableDictionary *info = [entity.userInfo mutableCopy];

@@ -814,6 +814,24 @@ ORMTrailOf(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
 	return base != nil ? [base arrayByAddingObjectsFromArray:path.keys] : nil;
 }
 
+/* The path's trail, into trails when it has one. */
+static void
+ORMAddTrail(ORMPlanPath *path, NSDictionary *bound, NSMutableSet *trails)
+{
+	NSArray *trail = ORMTrailOf(path, bound);
+	if ([trail count] > 0) {
+		[trails addObject:trail];
+	}
+}
+
+/* Trails in the order of their dotted names. */
+static NSInteger
+ORMCompareTrails(NSArray *a, NSArray *b, void *context)
+{
+	(void)context;
+	return [[a componentsJoinedByString:@"."] compare:[b componentsJoinedByString:@"."]];
+}
+
 /* What the condition reads, into trails; NO where it reads what no path
  * says. */
 static BOOL
@@ -823,15 +841,6 @@ ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet 
 		return YES;
 	}
 	BOOL ok = YES;
-	void (^add)(ORMPlanPath *) = ^(ORMPlanPath *path) {
-		NSArray *trail = ORMTrailOf(path, bound);
-		if (path != nil && trail == nil) {
-			return;
-		}
-		if ([trail count] > 0) {
-			[trails addObject:trail];
-		}
-	};
 	switch (condition.kind) {
 	case ORMPlanAnd:
 	case ORMPlanOr:
@@ -845,19 +854,19 @@ ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet 
 		if (condition.left.bag != nil || condition.right.bag != nil) {
 			return NO;
 		}
-		add(condition.left.path);
-		add(condition.right.path);
+		ORMAddTrail(condition.left.path, bound, trails);
+		ORMAddTrail(condition.right.path, bound, trails);
 		return YES;
 	case ORMPlanNotNull:
 	case ORMPlanIsOf:
-		add(condition.path);
+		ORMAddTrail(condition.path, bound, trails);
 		return YES;
 	case ORMPlanSame:
-		add(condition.path);
-		add(condition.otherPath);
+		ORMAddTrail(condition.path, bound, trails);
+		ORMAddTrail(condition.otherPath, bound, trails);
 		return YES;
 	case ORMPlanAmong:
-		add(condition.path);
+		ORMAddTrail(condition.path, bound, trails);
 		return YES;
 	case ORMPlanExists:
 	case ORMPlanCount:
@@ -925,9 +934,7 @@ ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionar
 			[trails addObject:trail];
 		}
 	}
-	return [[trails allObjects] sortedArrayUsingComparator:^NSComparisonResult(NSArray *a, NSArray *b) {
-		return [[a componentsJoinedByString:@"."] compare:[b componentsJoinedByString:@"."]];
-	}];
+	return [[trails allObjects] sortedArrayUsingFunction:ORMCompareTrails context:NULL];
 }
 
 - (ORMPlanColumn *)columnOfNode:(NSString *)nodeId

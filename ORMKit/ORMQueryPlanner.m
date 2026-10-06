@@ -544,9 +544,9 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	    && [[entity.userInfo objectForKey:@"ormkit.joins"] isEqualToString:node.objectType.identifier]) {
 		NSArray *hops = [_places joinsToHubFrom:entity];
 		if (hops != nil) {
-			return [self through:hops at:at optional:NO then:^ORMPlanCondition *(ORMPlannerPlace *place) {
-				return [self conditionFor:node entity:hub at:place columns:columns];
-			}];
+			NSArray *places = [self enter:hops];
+			ORMPlanCondition *body = [self conditionFor:node entity:hub at:[places lastObject] columns:columns];
+			return [self leave:hops places:places from:at where:body optional:NO];
 		}
 	}
 	NSMutableArray *parts = [NSMutableArray array];
@@ -712,35 +712,54 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 - (ORMPlanCondition *)throughMembers:(NSArray<NSArray *> *)hops step:(ORMQueryStep *)step at:(ORMPlannerPlace *)at
                              columns:(BOOL)columns
 {
-	return [self through:hops at:at optional:step.operatorKind == ORMQueryMaybe
-	                then:^ORMPlanCondition *(ORMPlannerPlace *place) {
-		                return [self plainConditionForStep:step entity:place.entity at:place columns:columns];
-	                }];
+	NSArray *places = [self enter:hops];
+	ORMPlannerPlace *last = [places lastObject];
+	ORMPlanCondition *body = [self plainConditionForStep:step entity:last.entity at:last columns:columns];
+	return [self leave:hops places:places from:at where:body optional:step.operatorKind == ORMQueryMaybe];
 }
 
-/* Each hop a join that binds its row; what is planned from the last row. */
-- (ORMPlanCondition *)through:(NSArray<NSArray *> *)hops
-                           at:(ORMPlannerPlace *)at
-                     optional:(BOOL)optional
-                         then:(ORMPlanCondition * (^)(ORMPlannerPlace *place))then
+/* A place for each hop's row, its variable in scope until left. */
+- (NSArray<ORMPlannerPlace *> *)enter:(NSArray<NSArray *> *)hops
 {
-	NSArray *hop = [hops firstObject];
-	ORMCDEntity *member = [hop firstObject];
-	NSString *variable = [self nextVariable];
-	[_scope addObject:variable];
-	ORMPlannerPlace *place = [ORMPlannerPlace variable:variable entity:member trail:@[]];
-	place.isJoined = YES;
-	ORMPlanCondition *body = [hops count] > 1
-		? [self through:[hops subarrayWithRange:NSMakeRange(1, [hops count] - 1)] at:place optional:optional then:then]
-		: then(place);
-	[_scope removeLastObject];
-	NSMutableArray *pairs = [NSMutableArray array];
-	for (NSArray *names in [hop objectAtIndex:1]) {
-		[pairs addObject:@[ [at.path pathByAddingKey:[names firstObject]], [ORMPlanPath pathFrom:nil keys:@[ [names lastObject] ]] ]];
+	NSMutableArray *places = [NSMutableArray array];
+	for (NSArray *hop in hops) {
+		NSString *variable = [self nextVariable];
+		[_scope addObject:variable];
+		ORMPlannerPlace *place = [ORMPlannerPlace variable:variable entity:[hop firstObject] trail:@[]];
+		place.isJoined = YES;
+		[places addObject:place];
 	}
-	ORMPlanDefinition *rows = [self define:@"member"
-	                                  plan:[ORMQueryPlan planReading:member.name where:nil columns:@[] sorts:@[] notes:@[]]];
-	return [ORMPlanCondition matchesDefinition:rows pairs:pairs binding:variable where:body optional:optional];
+	return places;
+}
+
+/* The hops' places out of scope; each a join that binds its row, by the
+ * values that correlate it with the row before, around what is planned
+ * from the last. */
+- (ORMPlanCondition *)leave:(NSArray<NSArray *> *)hops
+                     places:(NSArray<ORMPlannerPlace *> *)places
+                       from:(ORMPlannerPlace *)at
+                      where:(ORMPlanCondition *)body
+                   optional:(BOOL)optional
+{
+	for (NSUInteger i = [hops count]; i-- > 0;) {
+		[_scope removeLastObject];
+		NSArray *hop = [hops objectAtIndex:i];
+		ORMCDEntity *member = [hop firstObject];
+		ORMPlannerPlace *before = i > 0 ? [places objectAtIndex:i - 1] : at;
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSArray *names in [hop objectAtIndex:1]) {
+			[pairs addObject:@[ [before.path pathByAddingKey:[names firstObject]],
+				                [ORMPlanPath pathFrom:nil keys:@[ [names lastObject] ]] ]];
+		}
+		ORMPlanDefinition *rows = [self define:@"member"
+		                                  plan:[ORMQueryPlan planReading:member.name where:nil columns:@[] sorts:@[] notes:@[]]];
+		body = [ORMPlanCondition matchesDefinition:rows
+		                                     pairs:pairs
+		                                   binding:[[places objectAtIndex:i] path].variable
+		                                     where:body
+		                                  optional:optional];
+	}
+	return body;
 }
 
 - (ORMPlanCondition *)plainConditionForStep:(ORMQueryStep *)step entity:(ORMCDEntity *)entity at:(ORMPlannerPlace *)at

@@ -1,6 +1,5 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMPopulationChecker.h"
-#import "ORMPath.h"
 #import "ORMPopulationStore.h"
 #import "ORMRuleChecker.h"
 #import "ORMDeriver.h"
@@ -158,7 +157,18 @@ ORMRootInstance(ORMInstance *instance)
 	for (NSString *factId in derivedFacts) {
 		ORMFactType *fact = [_model elementWithId:factId];
 		ORMDerivationRule *rule = [fact derivationRule];
-		NSMutableSet *asserted = [NSMutableSet setWithArray:[self factsOf:fact]];
+		/* What is asserted, by the roles derived facts have: a unary's
+		 * truth left out. */
+		NSMutableSet *asserted = [NSMutableSet set];
+		for (NSDictionary *byRole in [self factsOf:fact]) {
+			NSMutableDictionary *visible = [NSMutableDictionary dictionaryWithDictionary:byRole];
+			for (ORMRole *role in fact.roles) {
+				if (role.player.isImplicitBooleanValue) {
+					[visible removeObjectForKey:role.identifier];
+				}
+			}
+			[asserted addObject:visible];
+		}
 		NSMutableArray *derived = [NSMutableArray array];
 		for (ORMDerivedFact *each in [derivedFacts objectForKey:factId]) {
 			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
@@ -185,10 +195,10 @@ ORMRootInstance(ORMInstance *instance)
 			for (NSDictionary *byRole in derived) {
 				missing += [asserted containsObject:byRole] ? 0 : 1;
 			}
-			NSUInteger extra = rule.isPartial ? 0 : [[asserted objectsPassingTest:^BOOL(NSDictionary *byRole, BOOL *stop) {
-				(void)stop;
-				return ![derived containsObject:byRole];
-			}] count];
+			NSUInteger extra = 0;
+			for (NSDictionary *byRole in asserted) {
+				extra += rule.isPartial || [derived containsObject:byRole] ? 0 : 1;
+			}
 			if (missing > 0 || extra > 0) {
 				[self violate:nil fact:fact text:[NSString stringWithFormat:@"\"%@\" is stored out of date: %lu facts its rule "
 				                                                           @"derives are missing, %lu are not derived.",

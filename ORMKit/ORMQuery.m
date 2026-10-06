@@ -526,6 +526,70 @@ ORMReroot(NSXMLElement *target, ORMModel *model, NSString **why)
 	return target;
 }
 
+/* Where the role with the identifier is among the roles. */
+static NSUInteger
+ORMIndexOfRole(NSArray<ORMRole *> *roles, NSString *identifier)
+{
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		if ([[[roles objectAtIndex:i] identifier] isEqualToString:identifier]) {
+			return i;
+		}
+	}
+	return NSNotFound;
+}
+
+/* How many of the tree's elements have the label. */
+static NSUInteger
+ORMLabelUses(NSXMLElement *tree, NSString *label)
+{
+	NSMutableArray *all = [NSMutableArray array];
+	ORMQueryTree(tree, all);
+	NSUInteger uses = 0;
+	for (NSXMLElement *element in all) {
+		uses += [ORMAttribute(element, @"Label") isEqualToString:label] ? 1 : 0;
+	}
+	return uses;
+}
+
+/* The tree's label, wherever it is, another: the same object for both. */
+static void
+ORMRelabel(NSXMLElement *tree, NSString *from, NSString *to)
+{
+	NSMutableArray *all = [NSMutableArray array];
+	ORMQueryTree(tree, all);
+	for (NSXMLElement *element in all) {
+		if ([ORMAttribute(element, @"Label") isEqualToString:from]) {
+			ORMSetAttribute(element, @"Label", to);
+		}
+	}
+}
+
+/* A derivation's node become the query's: the query's label, the rule's
+ * nodes of the same label with it; the rule's own label kept only where
+ * another of its nodes is the same object by it. */
+static void
+ORMMergeLabel(NSXMLElement *tree, NSXMLElement *theirs, NSString *ours, NSXMLElement *into)
+{
+	NSString *label = ORMAttribute(theirs, @"Label");
+	if ([ours length] > 0) {
+		if (label != nil) {
+			ORMRelabel(tree, label, ours);
+		}
+		ORMSetAttribute(into, @"Label", ours);
+	} else if (label != nil && ORMLabelUses(tree, label) < 2) {
+		ORMSetAttribute(into, @"Label", nil);
+	} else {
+		ORMSetAttribute(into, @"Label", label);
+	}
+}
+
+/* Whether the node's steps are alternatives. */
+static BOOL
+ORMCombinesWithOr(NSXMLElement *node)
+{
+	return [ORMAttribute(node, @"Combine") isEqualToString:@"Or"];
+}
+
 /* The step through a derived fact type put as its derivation's path,
  * under the node it is from. nil when done; why otherwise. */
 static NSString *
@@ -583,11 +647,7 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		ORMSetAttribute(element, @"For", nil);
 		ORMSetAttribute(element, @"Sort", nil);
 	}
-	NSUInteger entry = [roles indexOfObjectPassingTest:^BOOL(ORMRole *role, NSUInteger i, BOOL *stop) {
-		(void)i;
-		(void)stop;
-		return [role.identifier isEqualToString:ORMAttribute(step, @"Role")];
-	}];
+	NSUInteger entry = ORMIndexOfRole(roles, ORMAttribute(step, @"Role"));
 	if (entry == NSNotFound) {
 		return [NSString stringWithFormat:@"\"%@\" is gone through by a role it does not show.", what];
 	}
@@ -596,8 +656,21 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	if (root == nil) {
 		return [NSString stringWithFormat:@"\"%@\" cannot be gone through from there: %@.", what, why];
 	}
-	/* The node the step is from is the column it enters by. */
-	for (NSString *name in @[ @"Comparison", @"Value", @"CompareTo", @"Label" ]) {
+	/* The node the step is from is the column it enters by. Steps meet
+	 * there: the rule's with the query's others, which an or keeps apart
+	 * only where one side has but one. */
+	NSArray *moved = ORMChildren(root, Q, @"Step");
+	NSUInteger beside = [ORMChildren(from, Q, @"Step") count] - 1;
+	if ([moved count] > 1 && ORMCombinesWithOr(from) != ORMCombinesWithOr(root)) {
+		if (beside > 0) {
+			return [NSString stringWithFormat:@"\"%@\" is gone through where steps are combined with or, and its rule "
+			                                  @"has several steps there, combined otherwise.",
+			                                  what];
+		}
+		ORMSetAttribute(from, @"Combine", ORMAttribute(root, @"Combine"));
+	}
+	ORMMergeLabel(tree, root, ORMAttribute(from, @"Label"), from);
+	for (NSString *name in @[ @"Comparison", @"Value", @"CompareTo" ]) {
 		NSString *value = ORMAttribute(root, name);
 		if (value == nil) {
 			continue;
@@ -612,18 +685,23 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	/* The step's other nodes are the other columns: what the query says
 	 * of each, with what the rule says. */
 	for (NSXMLElement *node in ORMChildren(step, Q, @"Node")) {
-		NSUInteger index = [roles indexOfObjectPassingTest:^BOOL(ORMRole *role, NSUInteger i, BOOL *stop) {
-			(void)i;
-			(void)stop;
-			return [role.identifier isEqualToString:ORMAttribute(node, @"Role")];
-		}];
+		NSUInteger index = ORMIndexOfRole(roles, ORMAttribute(node, @"Role"));
 		if (index == NSNotFound || index == entry) {
 			continue;
 		}
 		NSXMLElement *column = [columns objectAtIndex:index];
+		NSArray *more = ORMChildren(node, Q, @"Step");
+		NSArray *its = ORMChildren(column, Q, @"Step");
+		if ([more count] > 0 && [its count] > 0 && (ORMCombinesWithOr(node) || ORMCombinesWithOr(column))
+		    && !([more count] == 1 && [its count] == 1)) {
+			return [NSString stringWithFormat:@"\"%@\" is gone through to %@, whose steps there are combined with or.",
+			                                  what, [roles[index] player].name];
+		}
+		ORMMergeLabel(tree, column, ORMAttribute(node, @"Label"), column);
 		for (NSXMLNode *attribute in [node attributes]) {
 			NSString *name = [attribute name];
-			if ([name isEqualToString:@"id"] || [name isEqualToString:@"Role"]) {
+			if ([name isEqualToString:@"id"] || [name isEqualToString:@"Role"] || [name isEqualToString:@"Label"]
+			    || [name isEqualToString:@"Combine"]) {
 				continue;
 			}
 			NSString *theirs = ORMAttribute(column, name);
@@ -635,15 +713,17 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		}
 		ORMRenameNode(tree, ORMAttribute(column, @"id"), ORMAttribute(node, @"id"));
 		ORMSetAttribute(column, @"id", ORMAttribute(node, @"id"));
-		for (NSXMLElement *more in ORMChildren(node, Q, @"Step")) {
-			[more detach];
-			[column addChild:more];
+		if ([its count] == 0) {
+			ORMSetAttribute(column, @"Combine", ORMAttribute(node, @"Combine"));
+		}
+		for (NSXMLElement *each in more) {
+			[each detach];
+			[column addChild:each];
 		}
 	}
 	/* The rule's steps from the entry column go under the node, where the
 	 * step was; the step's not, maybe or count with them, where there is
 	 * one to carry it. */
-	NSArray *moved = ORMChildren(root, Q, @"Step");
 	BOOL qualified = NO;
 	for (NSString *name in ORMStepQualifiers()) {
 		qualified = qualified || ORMAttribute(step, name) != nil;
@@ -670,6 +750,11 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	NSXMLElement *element = nil;
 	for (NSXMLElement *each in ORMChildren([ORMQuery containerIn:[model.modelElement rootDocument]], Q, @"Query")) {
 		element = [ORMAttribute(each, @"id") isEqualToString:self.identifier] ? each : element;
+	}
+	/* A query read from NORMA's rule is not in the document: read again. */
+	if (element == nil && self.kind == ORMQueryDerivation && self.derivedFactType != nil) {
+		NSString *unread = nil;
+		element = ORMDerivationElement(self.derivedFactType, model, &unread);
 	}
 	if (element == nil) {
 		return self;
@@ -1011,7 +1096,8 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	}
 	NSString *value = node.value ?: @"";
 	if (![node isNumeric]) {
-		value = [NSString stringWithFormat:@"'%@'", value];
+		/* Quoted, a quote in it doubled, as SQL does. */
+		value = [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
 	}
 	return [NSString stringWithFormat:@" %@ %@", node.comparison, value];
 }
@@ -1029,6 +1115,24 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	return (NSUInteger)function < [names count] ? [names objectAtIndex:(NSUInteger)function] : @"value";
 }
 
+/* A step's node as the outline names it, above its steps: its type's
+ * name, and which of the step's nodes of that type it is where there are
+ * several ("Employee (2)"). */
+static NSString *
+ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
+{
+	NSUInteger same = 0;
+	NSUInteger which = 0;
+	for (ORMQueryNode *each in step.nodes) {
+		if (each.objectType == node.objectType) {
+			same++;
+			which = each == node ? same : which;
+		}
+	}
+	NSString *name = node.objectType.name ?: @"?";
+	return same > 1 ? [NSString stringWithFormat:@"%@ (%lu)", name, (unsigned long)which] : name;
+}
+
 - (NSString *)outlineText
 {
 	if (self.root == nil) {
@@ -1042,6 +1146,11 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		[out appendFormat:@"%@ of each %@ is %@(%@) of:\n", self.name, self.root.objectType.name ?: @"?",
 		                  [ORMQuery nameOfCalculationFunction:self.calculationFunction],
 		                  [self.calculatedNode designation] ?: @"?"];
+	} else if (self.kind == ORMQueryDerivation && self.derivedFactType != nil) {
+		[out appendFormat:@"Derivation of \"%@\":\n",
+		                  [[self.derivedFactType primaryReading] expandedText] ?: self.derivedFactType.name];
+	} else if (self.kind == ORMQueryDerivation) {
+		[out appendString:@"Derivation:\n"];
 	}
 	[out appendFormat:@"%@\n", [self nodeText:self.root]];
 	[self outlineSteps:self.root indent:1 into:out];
@@ -1077,7 +1186,7 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 				continue;
 			}
 			if (child != [step.nodes firstObject]) {
-				[out appendFormat:@"%@  %@:\n", pad, child.objectType.name];
+				[out appendFormat:@"%@  %@:\n", pad, ORMOutlineNameOf(child, step)];
 			}
 			[self outlineSteps:child indent:indent + 1 into:out];
 		}
@@ -1100,8 +1209,10 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		[variables setObject:variable forKey:node.identifier];
 	}
 	ORMFormula *formula = [self formulaOf:self.root variables:variables];
+	/* A derivation's in the order of its fact type's roles. */
+	NSArray *listed = (self.kind == ORMQueryDerivation ? [self derivedColumns] : nil) ?: [self projectedNodes];
 	NSMutableArray *columns = [NSMutableArray array];
-	for (ORMQueryNode *node in [self projectedNodes]) {
+	for (ORMQueryNode *node in listed) {
 		[columns addObject:[variables objectForKey:node.identifier]];
 	}
 	if ([columns count] == 0) {
@@ -1339,6 +1450,9 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		why = [NSString stringWithFormat:@"%@ derives it already.", other.name];
 	} else if (ORMHasRolePath(fact.element)) {
 		why = @"It has NORMA's own derivation rule.";
+	} else if (other == nil && ORMChild(fact.element, CORE, @"DerivationRule") != nil) {
+		/* A note of its own, which the query's words would replace. */
+		why = @"It has a derivation note of its own: clear it first.";
 	}
 	if (why != nil) {
 		if (reason != NULL) {

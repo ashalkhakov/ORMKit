@@ -215,8 +215,17 @@ ORMEntityNameIn(ORMCDModel *mapped, ORMObjectType *type)
 				[required addObject:property.source];
 			}
 		}
+		/* What it joins to: the member that holds the kept type's value,
+		 * where an earlier merge put it in one; else the hub. */
+		NSString *via = nil;
+		NSArray *members = [mapping.joins objectForKey:kept.identifier];
+		for (ORMJoinMember *member in members) {
+			if (member != [members firstObject] && [member.heldRoleIds containsObject:keptRoleId]) {
+				via = member.identifier;
+			}
+		}
 		[places addObject:@[ mapping, ORMEntityNameIn(mapped, kept), ORMEntityNameIn(mapped, absorbed), names, required,
-		                     @(looseValue), valueName ?: [NSNull null] ]];
+		                     @(looseValue), valueName ?: [NSNull null], via ?: [NSNull null] ]];
 	}
 	BOOL preferred = ORMIdentifies(kept, keptFar);
 	ORMObjectType *valueTypeGone = absorbedFar.player;
@@ -275,7 +284,8 @@ ORMEntityNameIn(ORMCDModel *mapped, ORMObjectType *type)
 				[mappingEditor addMemberNamed:[place objectAtIndex:1] by:nil via:nil outer:NO ofObjectType:kept.identifier
 				                    inMapping:mapping.identifier];
 			}
-			NSString *member = [mappingEditor addMemberNamed:[place objectAtIndex:2] by:by via:nil outer:YES
+			NSString *via = [place objectAtIndex:7] != [NSNull null] ? [place objectAtIndex:7] : nil;
+			NSString *member = [mappingEditor addMemberNamed:[place objectAtIndex:2] by:by via:via outer:YES
 			                                    ofObjectType:kept.identifier inMapping:mapping.identifier];
 			for (NSString *trace in traces) {
 				[mappingEditor setHeld:YES role:trace byMember:member inMapping:mapping.identifier];
@@ -289,8 +299,8 @@ ORMEntityNameIn(ORMCDModel *mapped, ORMObjectType *type)
 			for (NSString *source in names) {
 				[mappingEditor setName:[names objectForKey:source] forSource:source inMapping:mapping.identifier];
 			}
-			if ([place lastObject] != [NSNull null]) {
-				[mappingEditor setName:[place lastObject] forSource:[member stringByAppendingFormat:@"/%@", keptRoleId]
+			if ([place objectAtIndex:6] != [NSNull null]) {
+				[mappingEditor setName:[place objectAtIndex:6] forSource:[member stringByAppendingFormat:@"/%@", keptRoleId]
 				             inMapping:mapping.identifier];
 			}
 			[mappingEditor setName:nil forSource:absorbed.identifier inMapping:mapping.identifier];

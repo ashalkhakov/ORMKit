@@ -131,13 +131,28 @@ ann.balance = nil;         // and deleted, as it keeps nothing else
   empty (nil, or an empty set), where no other member joins to it,
   deletes an outer member's row.
 - Setting a value the members are joined by (a user id, a GUID) sets it
-  on every row joined by it, down the via chain.
+  on every row joined by it, down the via chain. Setting it to nil lets go
+  of those rows: each is deleted, with the rows joined through it, as it
+  is no longer the instance's.
+- A value set in a member before the values that join it (a balance
+  before the user id) has no row to go to: the setter raises
+  `NSInternalInconsistencyException`, as a programming error. Set the
+  values it is joined by first.
 - `orm_prepareForSave:` covers hub objects changed without the class:
   - an inserted one gets its inner members' rows (a violation where it has
     no value to join them by);
-  - a deleted one's rows are deleted;
+  - a deleted one's rows are deleted, found by its values before the
+    change and by those it had when deleted;
   - an updated one's rows, found by its values before the change, are
-    joined again.
+    joined again, or let go of where a value joining them is now nil.
+- What the hook cannot see, it leaves:
+  - a hub object inserted and deleted before the save is in none of the
+    context's sets: rows made for it through the class stay. `-delete`
+    deletes them;
+  - a hub object re-keyed twice before a save, first through the class
+    and then without it: its rows have the value in between, which
+    neither the hub's saved values nor its current ones find. Re-key
+    through the class, or save in between.
 - A correlating value is unique in each member: the mapper gives the
   member a uniqueness constraint on it, which Core Data checks. A
   mandatory role held by an outer member makes it inner (the mapper says
@@ -172,7 +187,9 @@ entity type of two, as one change, given the value roles they match by:
 - the absorbed one goes;
 - in each mapping, the kept one maps as Joined. Its entity is the hub, and
   the absorbed one's is an outer member under its old name, holding its
-  old properties under their old names. Its value's attribute keeps its
+  old properties under their old names. It joins to the member that
+  holds the kept one's value, where an earlier merge put it there (a GUID
+  that came with billing's accounts), else to the hub. Its value's attribute keeps its
   old name and optionality (`OptionalBy="true"` where rows need not have
   it, as a table read back may).
 
@@ -189,9 +206,12 @@ several fact types.
   is one, else any pair of such values of one data type. With several, an
   alert asks which; the status line says what became of the absorbed one.
 - In the Core Data window, an object type's mapping can be **Joined**.
-  Choosing it for a type that has no members makes its entity the hub.
-  Selecting a joined type says where it is kept: "CRMCustomer is kept in
-  CRMCustomer; BillingAccount (outer, by userId)".
+  Choosing it for a type that has no members makes its entity the hub;
+  for one mapped otherwise since, it brings back the members it had.
+  Selecting a joined type says where it is kept, naming the value types
+  each member is correlated by: "CRMCustomer is kept in CRMCustomer;
+  BillingAccount (outer, by CRMCustomer_userId)" for the types an import
+  made.
 
 ## Steps
 

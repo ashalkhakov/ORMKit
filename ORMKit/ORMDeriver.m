@@ -78,12 +78,49 @@ ORMLeafValues(id value, NSMutableArray *into)
 	}
 }
 
-/* Whether a row's value is the text: a number numerically. */
+/* Whether the number is a Boolean, as Core Data gives one. */
+static BOOL
+ORMIsBoolean(id value)
+{
+	return [value isKindOfClass:[NSNumber class]] && strcmp([(NSNumber *)value objCType], @encode(char)) == 0;
+}
+
+/* A row's value as a sample writes it: a Boolean true or false, a date
+ * a day or a moment, UTC. */
+static NSString *
+ORMTextOfValue(id value)
+{
+	if (ORMIsBoolean(value)) {
+		return [value boolValue] ? @"true" : @"false";
+	}
+	if ([value isKindOfClass:[NSDate class]]) {
+		NSDateFormatter *dates = [[NSDateFormatter alloc] init];
+		[dates setLocale:[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"]];
+		[dates setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
+		[dates setDateFormat:@"HH:mm:ss"];
+		BOOL day = [[dates stringFromDate:value] isEqualToString:@"00:00:00"];
+		[dates setDateFormat:day ? @"yyyy-MM-dd" : @"yyyy-MM-dd'T'HH:mm:ss"];
+		return [dates stringFromDate:value];
+	}
+	return [value description];
+}
+
+/* Whether a row's value is the text: a number numerically, a Boolean or a
+ * date as the store reads the text. */
 static BOOL
 ORMValueIsText(id value, NSString *text)
 {
 	if (value == [NSNull null]) {
 		return NO;
+	}
+	if (ORMIsBoolean(value)) {
+		NSString *lower = [[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] lowercaseString];
+		NSArray *said = [value boolValue] ? @[ @"true", @"yes", @"1" ] : @[ @"false", @"no", @"0" ];
+		return [said containsObject:lower];
+	}
+	if ([value isKindOfClass:[NSDate class]]) {
+		NSDate *date = [ORMPopulationStore dateOfText:text];
+		return date != nil && [date isEqualToDate:value];
 	}
 	if ([value isKindOfClass:[NSNumber class]]) {
 		NSDecimalNumber *number = [NSDecimalNumber decimalNumberWithString:text];
@@ -91,7 +128,7 @@ ORMValueIsText(id value, NSString *text)
 		       && [number compare:[NSDecimalNumber decimalNumberWithDecimal:[(NSNumber *)value decimalValue]]]
 		              == NSOrderedSame;
 	}
-	return [[value description] isEqualToString:text];
+	return [ORMTextOfValue(value) isEqualToString:text];
 }
 
 /* Whether a row's value is the instance, by what identifies it: a value
@@ -230,7 +267,7 @@ ORMRowValueIs(id value, ORMInstance *instance)
 				}
 				if (player == nil && role.player.kind == ORMValueType) {
 					/* A value the population has no instance of. */
-					player = [value description];
+					player = ORMTextOfValue(value);
 				}
 				if (player == nil) {
 					players = nil;

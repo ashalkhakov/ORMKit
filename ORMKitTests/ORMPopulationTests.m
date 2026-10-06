@@ -278,6 +278,13 @@
 	return nil;
 }
 
+/* The texts of what the checker finds wrong in the model's population. */
+static NSArray *
+ORMViolationTexts(ORMModel *model)
+{
+	return [[[[ORMPopulationChecker alloc] initWithModel:model] violations] valueForKey:@"text"];
+}
+
 /* Derived facts in a sample population (docs/DERIVATION.md): the Company
  * sample's "Employee reports to Employee", from the branch one works for
  * and the other heads, derived from its population as its instances;
@@ -318,17 +325,17 @@
 	for (ORMDerivedFact *fact in derived) {
 		XCTAssertTrue([fact isOfInstances], @"%@", fact.players);
 	}
-	NSArray *(^texts)(void) = ^NSArray * {
-		return [[[[ORMPopulationChecker alloc] initWithModel:editor.model] violations] valueForKey:@"text"];
-	};
-	NSArray *before = texts();
+	NSArray *before = ORMViolationTexts(editor.model);
 	/* Each employee reports to one head at most: holds. Each head is
 	 * reported to by one employee at most: does not, being derived. */
 	NSArray *roles = [[editor.model elementWithId:reports] roles];
 	XCTAssertNotNil([editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[0] identifier] ] reason:&reason]);
-	XCTAssertEqual([texts() count], [before count], @"%@", texts());
-	XCTAssertNotNil([editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[1] identifier] ] reason:&reason]);
-	XCTAssertGreaterThan([texts() count], [before count], @"%@", texts());
+	NSArray *texts = ORMViolationTexts(editor.model);
+	XCTAssertEqual([texts count], [before count], @"%@", texts);
+	NSString *oneReporter = [editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[1] identifier] ] reason:&reason];
+	XCTAssertNotNil(oneReporter);
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertGreaterThan([texts count], [before count], @"%@", texts);
 
 	/* Asserted, though fully derived. */
 	ORMDerivedFact *some = [derived firstObject];
@@ -337,19 +344,22 @@
 		[named setObject:[editor.populationEditor nameOf:[some.players objectForKey:roleId]] forKey:roleId];
 	}
 	XCTAssertNotNil([editor.populationEditor addFactOf:reports named:named reason:&reason], @"%@", reason);
-	XCTAssertTrue([texts() containsObject:@"\"Employee reports to Employee\" is derived: its facts are not asserted."],
-	              @"%@", texts());
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertTrue([texts containsObject:@"\"Employee reports to Employee\" is derived: its facts are not asserted."], @"%@",
+	              texts);
 	/* Stored, with one fact of many written: out of date. */
 	XCTAssertTrue([editor.factTypeEditor setDerivationPartial:NO stored:YES of:reports reason:&reason], @"%@", reason);
 	NSString *stale = [NSString stringWithFormat:@"\"Employee reports to Employee\" is stored out of date: %lu facts its "
 	                                             @"rule derives are missing, 0 are not derived.",
 	                                             (unsigned long)[derived count] - 1];
-	XCTAssertTrue([texts() containsObject:stale], @"%@", texts());
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertTrue([texts containsObject:stale], @"%@", texts);
 
 	/* Brought up to date: each derived fact stored, once. */
 	XCTAssertTrue([editor.populationEditor bringStoredDerivationsUpToDate:&reason], @"%@", reason);
 	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count]);
-	XCTAssertFalse([[texts() componentsJoinedByString:@"\n"] containsString:@"stored out of date"], @"%@", texts());
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertFalse([[texts componentsJoinedByString:@"\n"] containsString:@"stored out of date"], @"%@", texts);
 	/* A new employee of a branch with a head: their report is stored with
 	 * the edit, and undone with it. */
 	heads = [self factReading:@"Employee heads Branch" in:editor.model];
@@ -365,6 +375,29 @@
 	[self.undoManager undo];
 	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count]);
 	XCTAssertEqual([[[self factReading:@"Employee works for Branch" in:editor.model] instances] count], working);
+
+	/* Stored from what another stores: "Employee answers to Employee", each
+	 * report. A new report is stored, and its answer with it, in one edit.
+	 * A head is reported to by several again, as the store can keep. */
+	[editor.elementEditor deleteElements:@[ oneReporter ]];
+	NSString *answers = [editor.factTypeEditor addFactTypeWithPlayers:@[ employee, employee ] reading:@"{0} answers to {1}"
+	                                                        onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
+	NSString *a = [queries addQueryNamed:@"Answering" from:employee reason:NULL];
+	NSString *from = [ORMQuery queryWithId:a inModel:editor.model].root.identifier;
+	NSString *to = [self step:queries from:from through:[[[(ORMFactType *)[editor.model elementWithId:reports] roles] firstObject]
+	                                                      identifier]
+	                       in:a in:editor];
+	[queries setProjected:YES ofNode:to];
+	XCTAssertTrue([queries setKind:ORMQueryDerivation ofQuery:a reason:&reason], @"%@", reason);
+	XCTAssertTrue([queries setDerivedFactType:answers ofQuery:a reason:&reason], @"%@", reason);
+	XCTAssertTrue([editor.factTypeEditor setDerivationPartial:NO stored:YES of:answers reason:&reason], @"%@", reason);
+	XCTAssertTrue([editor.populationEditor bringStoredDerivationsUpToDate:&reason], @"%@", reason);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:answers] instances] count], [derived count]);
+	XCTAssertNotNil([editor.populationEditor addFactOf:worksFor.identifier named:joins reason:&reason], @"%@", reason);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count] + 1);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:answers] instances] count], [derived count] + 1);
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertFalse([[texts componentsJoinedByString:@"\n"] containsString:@"stored out of date"], @"%@", texts);
 }
 
 /* NORMA's own rule (docs/DERIVATION.md): CinemaTickets derives "Session

@@ -54,7 +54,6 @@ static char ORMTemporaryDirectoryKey;
 	NSManagedObjectContext *_context;
 	/* "role instance" to the facts the instance plays the role in. */
 	NSMutableDictionary<NSString *, NSMutableArray<ORMPopulationFact *> *> *_played;
-	NSDateFormatter *_dates;
 	/* The facts an absorbed object type's parts were read from: kept in
 	 * the attributes of those that absorb it. */
 	NSHashTable<ORMPopulationFact *> *_reached;
@@ -512,7 +511,7 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 		return [@[ @"false", @"no", @"0" ] containsObject:lower] ? @NO : nil;
 	}
 	if ([attributeType isEqualToString:@"Date"]) {
-		return [self dateOf:trimmed];
+		return [ORMPopulationStore dateOfText:trimmed];
 	}
 	if ([attributeType isEqualToString:@"Binary"]) {
 		return [text dataUsingEncoding:NSUTF8StringEncoding];
@@ -526,18 +525,16 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 	return text;
 }
 
-/* A date as NORMA's samples write one: a day, a moment, or a time. */
-- (NSDate *)dateOf:(NSString *)text
+/* A date as NORMA's samples write one: a day, a moment, or a time, UTC. */
++ (NSDate *)dateOfText:(NSString *)text
 {
-	if (_dates == nil) {
-		_dates = [[NSDateFormatter alloc] init];
-		[_dates setLocale:[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"]];
-		[_dates setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
-	}
+	NSDateFormatter *dates = [[NSDateFormatter alloc] init];
+	[dates setLocale:[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"]];
+	[dates setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
 	for (NSString *format in @[ @"yyyy-MM-dd'T'HH:mm:ss", @"yyyy-MM-dd HH:mm:ss", @"yyyy-MM-dd'T'HH:mm",
 	                            @"yyyy-MM-dd HH:mm", @"yyyy-MM-dd", @"HH:mm:ss", @"HH:mm" ]) {
-		[_dates setDateFormat:format];
-		NSDate *date = [_dates dateFromString:text];
+		[dates setDateFormat:format];
+		NSDate *date = [dates dateFromString:text];
 		if (date != nil) {
 			return date;
 		}

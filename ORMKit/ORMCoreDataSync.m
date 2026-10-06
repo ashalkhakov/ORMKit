@@ -261,6 +261,17 @@
 	if ([self mappingElement:mappingId] == nil || [name length] == 0) {
 		return nil;
 	}
+	NSXMLElement *was = nil;
+	for (NSXMLElement *each in ORMChildren([self mappingElement:mappingId], CD, @"ObjectTypeMapping")) {
+		was = [ORMRef(each) isEqualToString:objectTypeId] ? each : was;
+	}
+	/* Joined again, after it was mapped otherwise: its members, kept all
+	 * along, are back; its hub, the first, is not added twice. */
+	NSXMLElement *hub = ![ORMAttribute(was, @"As") isEqualToString:@"Joined"] ? ORMChild(was, CD, @"Member") : nil;
+	if (hub != nil) {
+		[self setMapping:ORMMapJoined ofObjectType:objectTypeId inMapping:mappingId];
+		return ORMAttribute(hub, @"id");
+	}
 	__block NSString *created = nil;
 	[_editor group:@"Add Joined Entity" with:^{
 		[self setMapping:ORMMapJoined ofObjectType:objectTypeId inMapping:mappingId];

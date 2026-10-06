@@ -709,6 +709,67 @@ ORMNumberLiteral(NSString *value)
 	return [backs array];
 }
 
+/* The fact types the query steps through. */
+static NSSet<ORMFactType *> *
+ORMFactTypesRead(ORMQuery *query)
+{
+	NSMutableSet *read = [NSMutableSet set];
+	for (ORMQueryNode *node in [query nodes]) {
+		for (ORMQueryStep *step in node.steps) {
+			if (step.factType != nil) {
+				[read addObject:step.factType];
+			}
+		}
+	}
+	return read;
+}
+
+/* The derivations in dependency order (docs/DERIVATION.md, step 3): each
+ * after those deriving the fact types it reads. A recursive one is refused,
+ * so the order exists; were there a cycle, its derivations would come last,
+ * as they were listed. */
+static NSArray<ORMQuery *> *
+ORMInDependencyOrder(NSArray<ORMQuery *> *derivations)
+{
+	NSMutableSet *derived = [NSMutableSet set];
+	for (ORMQuery *query in derivations) {
+		if (query.derivedFactType != nil) {
+			[derived addObject:query.derivedFactType];
+		}
+	}
+	/* What each waits for: the fact types read that another derives. */
+	NSMutableArray *waits = [NSMutableArray array];
+	for (ORMQuery *query in derivations) {
+		NSMutableSet *wait = [NSMutableSet setWithSet:ORMFactTypesRead(query)];
+		[wait intersectSet:derived];
+		if (query.derivedFactType != nil) {
+			[wait removeObject:query.derivedFactType];
+		}
+		[waits addObject:wait];
+	}
+	NSMutableArray *ordered = [NSMutableArray array];
+	NSMutableIndexSet *left = [NSMutableIndexSet indexSetWithIndexesInRange:NSMakeRange(0, [derivations count])];
+	for (BOOL progress = YES; progress && [left count] > 0;) {
+		progress = NO;
+		for (NSUInteger i = [left firstIndex]; i != NSNotFound; i = [left indexGreaterThanIndex:i]) {
+			if ([[waits objectAtIndex:i] count] > 0) {
+				continue;
+			}
+			ORMQuery *query = [derivations objectAtIndex:i];
+			[ordered addObject:query];
+			[left removeIndex:i];
+			for (NSMutableSet *wait in waits) {
+				if (query.derivedFactType != nil) {
+					[wait removeObject:query.derivedFactType];
+				}
+			}
+			progress = YES;
+		}
+	}
+	[ordered addObjectsFromArray:[derivations objectsAtIndexes:left]];
+	return ordered;
+}
+
 /* The stored derived fact types the generated code works out at save: those
  * Core Data does not derive itself, whose rule is a plain chain of steps
  * from the first role's player to the second's, the value or objects at
@@ -716,7 +777,7 @@ ORMNumberLiteral(NSString *value)
 - (void)derivations
 {
 	ORMQueryPlanner *planner = nil;
-	for (ORMQuery *query in [ORMQuery derivationsInModel:_model]) {
+	for (ORMQuery *query in ORMInDependencyOrder([ORMQuery derivationsInModel:_model])) {
 		ORMFactType *fact = query.derivedFactType;
 		ORMDerivationRule *rule = fact.isDerived ? [fact derivationRule] : nil;
 		if (!rule.isStored) {
@@ -773,6 +834,22 @@ ORMNumberLiteral(NSString *value)
 	}
 }
 
+/* The paths back from a changed object to the roots it reaches, as an
+   array literal of @[ entity, @[ key, ... ] ]. */
+static NSString *ORMBacksLiteral(NSArray *list)
+{
+	NSMutableArray *items = [NSMutableArray array];
+	for (NSArray *back in list) {
+		NSMutableArray *keys = [NSMutableArray array];
+		for (NSString *key in [back lastObject]) {
+			[keys addObject:ORMLiteral(key)];
+		}
+		[items addObject:[NSString stringWithFormat:@"@[ %@, @[ %@ ] ]", ORMLiteral([back firstObject]),
+		                                            [keys componentsJoinedByString:@", "]]];
+	}
+	return [items count] > 0 ? [NSString stringWithFormat:@"@[ %@ ]", [items componentsJoinedByString:@", "]] : @"@[]";
+}
+
 /* The context's category: what orm_prepareForSave: does. */
 - (NSString *)saveHook
 {
@@ -783,18 +860,6 @@ ORMNumberLiteral(NSString *value)
 	                  @"\tNSMutableSet *changed = [NSMutableSet setWithSet:[self insertedObjects]];\n"
 	                  @"\t[changed unionSet:[self updatedObjects]];\n"
 	                  @"\t[changed unionSet:[self deletedObjects]];\n"];
-	NSString *(^backs)(NSArray *) = ^NSString *(NSArray *list) {
-		NSMutableArray *items = [NSMutableArray array];
-		for (NSArray *back in list) {
-			NSMutableArray *keys = [NSMutableArray array];
-			for (NSString *key in [back lastObject]) {
-				[keys addObject:ORMLiteral(key)];
-			}
-			[items addObject:[NSString stringWithFormat:@"@[ %@, @[ %@ ] ]", ORMLiteral([back firstObject]),
-			                                            [keys componentsJoinedByString:@", "]]];
-		}
-		return [items count] > 0 ? [NSString stringWithFormat:@"@[ %@ ]", [items componentsJoinedByString:@", "]] : @"@[]";
-	};
 	for (NSDictionary *derivation in _derivations) {
 		NSMutableArray *keys = [NSMutableArray array];
 		for (NSString *key in [derivation objectForKey:@"keys"]) {
@@ -810,7 +875,7 @@ ORMNumberLiteral(NSString *value)
 		                  @"\t\t}\n"
 		                  @"\t}\n",
 		                  ORMCommentText([derivation objectForKey:@"text"]), _prefix, ORMLiteral([derivation objectForKey:@"root"]),
-		                  backs([derivation objectForKey:@"backs"]), _prefix, [keys componentsJoinedByString:@", "],
+		                  ORMBacksLiteral([derivation objectForKey:@"backs"]), _prefix, [keys componentsJoinedByString:@", "],
 		                  ORMLiteral([derivation objectForKey:@"target"]), [derivation objectForKey:@"kind"]];
 	}
 	[out appendString:@"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n"];
@@ -823,7 +888,7 @@ ORMNumberLiteral(NSString *value)
 		                  @"\t\t}\n"
 		                  @"\t}\n",
 		                  entityName, _prefix, ORMLiteral(entityName),
-		                  backs([[_ruleBacks objectForKey:entityName] array])];
+		                  ORMBacksLiteral([[_ruleBacks objectForKey:entityName] array])];
 	}
 	[out appendFormat:@"\treturn %@Report(violations, error);\n"
 	                  @"}\n\n@end\n",

@@ -43,11 +43,14 @@ A derivation is a query of its own kind, naming the fact type it derives:
   player, and there is one column for each role the reading shows.
 - The fact type says it is derived as NORMA says it, so that NORMA reads
   the model the same way:
-  - a `DerivationRule` with `DerivationCompleteness` and `DerivationStorage`;
+  - a `DerivationRule`, fully derived and not stored unless the inspector
+    says otherwise (NORMA leaves its defaults out:
+    `DerivationCompleteness`, `DerivationStorage`);
   - an `InformalRule`, the query's verbalization. NORMA shows it as the
     rule, and keeps it.
 - A fact type has at most one derivation. Removing the query leaves the
-  fact type asserted, with no rule.
+  fact type asserted, with no rule. A fact type with a derivation note of
+  its own is not given a query: the query's words would replace the note.
 
 NORMA's own rules, role paths with projections, are read as queries
 (step 8), so both kinds run. Such a query is not in the document. NORMA's
@@ -98,8 +101,10 @@ columns past the step, sorting, not and maybe, OData.
   reversed ("Employee heads Branch that employs Employee").
 - **The step's nodes** are the derivation's columns for the other roles,
   with what the query says of them and what the rule says, and their own
-  steps go on from there. The derivation's other nodes are its own: fresh
-  ids, its labels apart from the query's.
+  steps go on from there. Where the query labels a node the rule labels
+  too, the rule's nodes of that label take the query's. The derivation's
+  other nodes are its own: fresh ids, its labels apart from the query's,
+  and a label only one of its nodes has is dropped.
 - **Not, maybe, a count** on the step go to the first step of the path.
 
 Refused, with a note, and not run:
@@ -107,7 +112,11 @@ Refused, with a note, and not run:
   or one that branches where the step has not, maybe or a count;
 - a fact type NORMA derives by a rule that is not plain (above), or by
   its note alone;
-- a derivation through itself, which ConQuer has no fixpoint for.
+- steps that meet with or on one side and not the other, where the side
+  with or would take more than one: "A or (b and c)" has no way to be
+  said yet;
+- a derivation through itself, which ConQuer has no fixpoint for. Past 16
+  rounds of expansion a query is taken to be one.
 
 ## Core Data, and keeping stored ones up to date
 
@@ -152,7 +161,10 @@ their own. The hook skips them, and rules read their saved values.
 
 The OData service does the same at the end of a change set, through
 ODataKit's service hooks, before the transaction commits. Sample
-populations do it after each change (step 3).
+populations do it after each change, all of them at once: every stored
+derivation is derived again, round after round, until a round changes
+nothing. One that reads another sees, a round later, what that one stored.
+That takes the place of the dependency order of step 3.
 
 ## The designer
 
