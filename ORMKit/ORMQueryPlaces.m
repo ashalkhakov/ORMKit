@@ -190,6 +190,16 @@
 			[parts addObject:@[ property.name ]];
 			continue;
 		}
+		if (property == nil) {
+			/* A part absorbed into the entity (a City's State, as its
+			 * country and code): by its own parts. */
+			NSArray *inner = [self identifyingPartsOfAbsorbed:role.player base:role.identifier on:entity];
+			if (inner == nil) {
+				return nil;
+			}
+			[parts addObjectsFromArray:inner];
+			continue;
+		}
 		ORMCDRelationship *relationship = [property isKindOfClass:[ORMCDRelationship class]] ? (ORMCDRelationship *)property : nil;
 		ORMCDEntity *destination = relationship != nil && !relationship.toMany ? [_coreData entityNamed:relationship.destination] : nil;
 		if (destination == nil) {
@@ -204,6 +214,47 @@
 		for (NSArray *keys in inner) {
 			[parts addObject:[@[ relationship.name ] arrayByAddingObjectsFromArray:keys]];
 		}
+	}
+	return parts;
+}
+
+- (NSArray<NSArray<NSString *> *> *)identifyingPartsOfAbsorbed:(ORMObjectType *)type
+                                                          base:(NSString *)base
+                                                            on:(ORMCDEntity *)entity
+{
+	NSArray<ORMRole *> *roles = [type.preferredIdentifier allRoles];
+	if ([roles count] == 0) {
+		return nil;
+	}
+	NSMutableArray *parts = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		NSString *source = [base stringByAppendingFormat:@"/%@", role.identifier];
+		ORMCDProperty *property = [self propertyOf:entity source:source];
+		if ([property isKindOfClass:[ORMCDAttribute class]]) {
+			[parts addObject:@[ property.name ]];
+			continue;
+		}
+		if ([property isKindOfClass:[ORMCDRelationship class]]) {
+			ORMCDRelationship *to = (ORMCDRelationship *)property;
+			ORMCDEntity *reached = !to.toMany ? [_coreData entityNamed:to.destination] : nil;
+			ORMCDAttribute *key = reached != nil ? [self identifierOf:role.player on:reached] : nil;
+			NSArray *inner = reached != nil && key == nil ? [self identifyingPartsOf:role.player on:reached] : nil;
+			if (key != nil) {
+				[parts addObject:@[ to.name, key.name ]];
+			} else if (inner != nil) {
+				for (NSArray *keys in inner) {
+					[parts addObject:[@[ to.name ] arrayByAddingObjectsFromArray:keys]];
+				}
+			} else {
+				return nil;
+			}
+			continue;
+		}
+		NSArray *inner = [self identifyingPartsOfAbsorbed:role.player base:source on:entity];
+		if (inner == nil) {
+			return nil;
+		}
+		[parts addObjectsFromArray:inner];
 	}
 	return parts;
 }

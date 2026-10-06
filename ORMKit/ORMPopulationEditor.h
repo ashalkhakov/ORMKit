@@ -48,8 +48,10 @@
 - (instancetype)initWithEditor:(ORMEditor *)editor;
 @property (nonatomic, readonly, weak) ORMEditor *editor;
 
-/* Adds the instances, as one change; refused, with nothing added, when one
- * names what is not there or is not of the type its role's player is. */
+/* Adds the instances, as one change, the stored derived facts
+ * (docs/DERIVATION.md) brought up to date with them; refused, with nothing
+ * added, when one names what is not there or is not of the type its role's
+ * player is. */
 - (BOOL)addPopulation:(ORMSamplePopulation *)population reason:(NSString **)reason;
 /* Removes every instance, fact instance and role instance: the model with
  * no population. */

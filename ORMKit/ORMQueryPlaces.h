@@ -45,6 +45,13 @@
  * "university.code"). nil where one attribute does, or a part is not
  * found. */
 - (NSArray<NSArray<NSString *> *> *)identifyingPartsOf:(ORMObjectType *)type on:(ORMCDEntity *)entity;
+/* An absorbed type's identifying values on the entity absorbing it under
+ * the trace base: their key paths, in its identifier's order, a part
+ * absorbed in turn by its own, an entity by its identifier. nil where one
+ * is missing. */
+- (NSArray<NSArray<NSString *> *> *)identifyingPartsOfAbsorbed:(ORMObjectType *)type
+                                                          base:(NSString *)base
+                                                            on:(ORMCDEntity *)entity;
 /* The properties an absorbed object type's parts are on the entity: @[ the
  * trace below the base ("/role/role"), the property ], its own and its
  * ancestors'. */

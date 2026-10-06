@@ -240,7 +240,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	for (NSArray *column in _columns) {
 		ORMQueryNode *node = [column firstObject];
 		ORMPlannerPlace *place = [column objectAtIndex:1];
-		id identifier = [column lastObject];
+		id identifier = [column objectAtIndex:2];
 		NSString *title = [node designation];
 		ORMQueryNode *above = node.step.parent;
 		if ([titles countForObject:title] > 1 && above != nil) {
@@ -249,8 +249,11 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		ORMPlanColumn *planned = [ORMPlanColumn columnTitled:title node:node.identifier path:place.path
 		                                               trail:[place.trail valueForKey:@"name"]
 		                                          identifier:identifier != [NSNull null] ? [identifier name] : nil];
-		/* An object no one attribute identifies: by the values that do. */
-		if (identifier == [NSNull null] && place.entity != nil) {
+		/* An object no one attribute identifies: by the values that do; an
+		 * absorbed one by its parts, given. */
+		if ([column count] > 3) {
+			planned.identifierParts = [column objectAtIndex:3];
+		} else if (identifier == [NSNull null] && place.entity != nil) {
 			planned.identifierParts = [_places identifyingPartsOf:node.objectType on:place.entity];
 		}
 		[columns addObject:planned];
@@ -317,7 +320,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 			}
 		}
 		ORMPlannerPlace *place = [column objectAtIndex:1];
-		id identifier = [column lastObject];
+		id identifier = [column objectAtIndex:2];
 		BOOL one = column != nil && (place.entity == nil || identifier != [NSNull null]);
 		for (ORMCDProperty *property in place.trail) {
 			one = one && !([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany);
@@ -352,7 +355,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	NSMutableArray *paths = [NSMutableArray array];
 	for (NSArray *column in _columns) {
 		ORMPlannerPlace *place = [column objectAtIndex:1];
-		id identifier = [column lastObject];
+		id identifier = [column objectAtIndex:2];
 		if ([place isRead] || place.path.variable != nil || (place.entity != nil && identifier == [NSNull null])) {
 			return @[];
 		}
@@ -1085,7 +1088,14 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		                                      node.objectType.name, node.value ?: @""]];
 	}
 	if (columns && node.isProjected) {
-		[self column:node place:[at adding:firstPart entity:nil] identifier:nil];
+		/* By its identifying values, all of them, as an entity no one
+		 * attribute identifies is listed. */
+		NSArray *identifying = [_places identifyingPartsOfAbsorbed:node.objectType base:base on:entity];
+		if (identifying != nil && _bagNodes == nil) {
+			[_columns addObject:@[ node, at, [NSNull null], identifying ]];
+		} else {
+			[self column:node place:[at adding:firstPart entity:nil] identifier:nil];
+		}
 	}
 	/* Where it is, as its parts are: what another occurrence is compared
 	 * with, part by part. */

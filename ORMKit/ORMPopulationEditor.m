@@ -416,7 +416,7 @@ ORMHasInvariantForm(ORMObjectType *type)
 	return ORMEnsureChild(_editor.document, [_editor xml:elementId], CORE, @"Instances");
 }
 
-- (BOOL)addPopulation:(ORMSamplePopulation *)population reason:(NSString **)reason
+- (BOOL)addPopulationNow:(ORMSamplePopulation *)population reason:(NSString **)reason
 {
 	NSMutableDictionary *types = [NSMutableDictionary dictionary];
 	if (![self check:population types:types reason:reason]) {
@@ -825,7 +825,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 		      reason:reason];
 		return nil;
 	}
-	return [self addPopulation:population reason:reason] ? created : nil;
+	return [self addPopulationNow:population reason:reason] ? created : nil;
 }
 
 - (NSString *)addFactNowOf:(NSString *)factTypeId named:(NSDictionary<NSString *, NSString *> *)textsByRole
@@ -977,7 +977,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 		      reason:reason];
 		return nil;
 	}
-	return [self addPopulation:population reason:reason] ? created : nil;
+	return [self addPopulationNow:population reason:reason] ? created : nil;
 }
 
 /* What identifies the type, as the table names it: "Booking Nr". */
@@ -1135,7 +1135,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 			NSString *had = [self modelIdOf:[named objectForKey:roleId] in:population];
 			[parts setObject:had ?: [named objectForKey:roleId] forKey:roleId];
 		}
-		if (![population isEmpty] && ![self addPopulation:population reason:reason]) {
+		if (![population isEmpty] && ![self addPopulationNow:population reason:reason]) {
 			return NO;
 		}
 		NSMutableArray *old = [NSMutableArray array];
@@ -1273,6 +1273,15 @@ ORMWrapPart(NSString *name, BOOL composite)
 /* An edit of the population, then its stored derived facts brought up to
  * date: one change, undone as one, refused as one. An edit inside another
  * is that one's. */
+/* A population added, and the stored derived facts brought up to date
+ * with it: one change. */
+- (BOOL)addPopulation:(ORMSamplePopulation *)population reason:(NSString **)reason
+{
+	return [self edit:@"Add Sample Population" with:^BOOL {
+		return [self addPopulationNow:population reason:reason];
+	}];
+}
+
 - (BOOL)edit:(NSString *)name with:(BOOL (^)(void))edit
 {
 	if (_editing > 0 || ![self hasStoredDerivations]) {
@@ -1346,7 +1355,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 			return NO;
 		}
 	}
-	return [population isEmpty] || [self addPopulation:population reason:reason];
+	return [population isEmpty] || [self addPopulationNow:population reason:reason];
 }
 
 - (NSString *)addFactOf:(NSString *)factTypeId named:(NSDictionary<NSString *, NSString *> *)textsByRole

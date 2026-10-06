@@ -672,7 +672,7 @@
 	NSString *samples = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
 		stringByDeletingLastPathComponent];
 	NSMutableArray *paths = [NSMutableArray array];
-	for (NSString *name in @[ @"Company.orm", @"University.orm", @"UMLandORM.orm" ]) {
+	for (NSString *name in @[ @"Company.orm", @"University.orm", @"UMLandORM.orm", @"Customers.orm" ]) {
 		[paths addObject:[[samples stringByAppendingPathComponent:@"Samples"] stringByAppendingPathComponent:name]];
 	}
 	for (NSString *name in [@[ @"StockMate.orm", @"WorkMate.orm" ] arrayByAddingObjectsFromArray:[self activeFactsFixtures]]) {
@@ -732,7 +732,10 @@
 	NSDictionary *expected = @{
 		@"Company.orm": @{ @"Q1": @[ @1, @3 ], @"Q2": @[ @1, @3, @4 ], @"Q3": @[ @102 ], @"Q4": @[ @2 ],
 		                   @"Q5": @[ @1, @4 ], @"Payroll": @[ @52, @7 ], @"Polyglots": @[ @1 ],
-		                   @"Lives near work": @[ @21 ] },
+		                   @"Lives near work": @[ @21 ], @"Workplace": @[ @1, @2, @3, @4, @5, @10, @21 ],
+		                   @"Works where": @[ @1, @2, @3, @4, @5, @10, @21 ], @"Branch country": @[ @7, @52, @101, @102 ],
+		                   @"Australian branches": @[ @7, @52 ] },
+		@"Customers.orm": @{ @"Owing": @[ @1, @2, @3 ], @"Mailing list": @[ @1, @3 ], @"Readers": @[ @"deals", @"news" ] },
 		@"University.orm": @{ @"Q1": @[ @430, @715, @720 ], @"Q2": @[ @720 ], @"Q3": @[ @430, @503, @651, @715, @720 ] },
 		@"UMLandORM.orm": @{ @"Rooms lacking a facility": @[], @"Coauthored papers": @[ @1 ] },
 	};

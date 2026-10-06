@@ -438,7 +438,10 @@ into the entities that use it, and its parts become their attributes. Going
 through it is then a join on those parts' values, as the paper's SQL S1 joins
 Employee and Branch on city name, state code and country. No relationship
 connects the two entities, so the plan defines the joined set and compares
-the parts with its objects':
+the parts with its objects'. A listed absorbed node is listed by all its
+identifying values, in its reference scheme's order, a part absorbed in turn
+by its own, and an entity among them by its identifier: a City as its name,
+its state's country and its state's code.
 
 ```
 ✓Employee                        let join1 = read Branch where nr = 52

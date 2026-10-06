@@ -123,7 +123,7 @@
 	for (NSMenuItem *item in [menu itemArray]) {
 		[titles addObject:[item isSeparatorItem] ? @"-" : [item title]];
 	}
-	XCTAssertEqualObjects(titles, (@[ @"Company", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
+	XCTAssertEqualObjects(titles, (@[ @"Company", @"Customers", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
 	XCTAssertEqual([[[menu itemWithTitle:@"ActiveFacts"] submenu] numberOfItems], (NSInteger)29);
 	NSMenuItem *company = [menu itemWithTitle:@"Company"];
 	XCTAssertEqual([company action], @selector(openSample:));
@@ -135,7 +135,7 @@
 	XCTAssertNil([document fileURL]);
 	XCTAssertEqualObjects([document displayName], @"Company");
 	XCTAssertFalse([document isDocumentEdited]);
-	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)8);
+	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)12);
 	ORMWindowController *controller = [[document windowControllers] firstObject];
 	XCTAssertEqualObjects([[controller.canvas diagram] name], @"Company");
 	[document close];
