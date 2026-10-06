@@ -2,7 +2,12 @@
 #import "ORMEditor.h"
 
 /* Constraints of every kind, over roles by id, and preferred identifiers.
- * Usually reached as an editor's constraintEditor. */
+ * Usually reached as an editor's constraintEditor.
+ *
+ * A constraint drawn as a shape of its own (external uniqueness and
+ * mandatory, set comparisons, ring, frequency, value comparison) is shown,
+ * as it is added, on every diagram that shows all its fact types, in the
+ * same change: one undo takes both, as NORMA shows one it adds. */
 @interface ORMConstraintEditor : NSObject
 - (instancetype)initWithEditor:(ORMEditor *)editor;
 @property (nonatomic, readonly, weak) ORMEditor *editor;

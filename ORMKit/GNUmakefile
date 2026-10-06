@@ -5,9 +5,14 @@ include $(GNUSTEP_MAKEFILES)/common.make
 # builds the same sources as ORMKit.framework (.tools/genxcodeproj.py reads
 # the lists below).
 LIBRARY_NAME = ORMKit
-# Foundation only: NSXML for the files, NSGeometry for the diagrams. What
-# draws lives in ORMDesigner.
+# No AppKit: NSXML for the files, NSGeometry for the diagrams, Core Data for
+# queries and populations in a store. What draws lives in ORMDesigner.
+# ODataKit for the OData requests.
 ORMKit_NEEDS_GUI = no
+include ../odatakit.make
+ORMKit_INCLUDE_DIRS += $(ODATAKIT_INCLUDE_DIRS)
+ORMKit_LIB_DIRS += $(ODATAKIT_LIB_DIRS)
+ORMKit_LIBRARIES_DEPEND_UPON += $(ODATAKIT_LIBS)
 ORMKit_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
 ORMKit_HEADER_FILES = \
   ORMKit.h \
@@ -24,6 +29,10 @@ ORMKit_HEADER_FILES = \
   ORMConstraintEditor.h \
   ORMDiagramEditor.h \
   ORMElementEditor.h \
+  ORMPopulationEditor.h \
+  ORMPopulationStore.h \
+  ORMPopulationChecker.h \
+  ORMPopulationGenerator.h \
   ORMPath.h \
   ORMLogic.h \
   ORMVerbalizer.h \
@@ -37,8 +46,16 @@ ORMKit_HEADER_FILES = \
   ORMCoreDataSync.h \
   ORMCoreDataImport.h \
   ORMCoreDataValidation.h \
+  ORMODataAnnotator.h \
   ORMQuery.h \
-  ORMQueryFetch.h
+  ORMCDModel+CoreData.h \
+  ORMQueryPlan.h \
+  ORMQueryPlanner.h \
+  ORMQueryInterpreter.h \
+  ORMQueryOData.h \
+  ORMCursor.h \
+  ORMRuleChecker.h \
+  ORMIssueFinder.h
 ORMKit_OBJC_FILES = \
   ORMXML.m \
   ORMModel.m \
@@ -54,6 +71,10 @@ ORMKit_OBJC_FILES = \
   ORMConstraintEditor.m \
   ORMDiagramEditor.m \
   ORMElementEditor.m \
+  ORMPopulationEditor.m \
+  ORMPopulationStore.m \
+  ORMPopulationChecker.m \
+  ORMPopulationGenerator.m \
   ORMPath.m \
   ORMLogic.m \
   ORMVerbalizer.m \
@@ -67,8 +88,17 @@ ORMKit_OBJC_FILES = \
   ORMCoreDataSync.m \
   ORMCoreDataImport.m \
   ORMCoreDataValidation.m \
+  ORMODataAnnotator.m \
   ORMQuery.m \
-  ORMQueryFetch.m
+  ORMCDModel+CoreData.m \
+  ORMQueryPlaces.m \
+  ORMQueryPlan.m \
+  ORMQueryPlanner.m \
+  ORMQueryInterpreter.m \
+  ORMCursor.m \
+  ORMRuleChecker.m \
+  ORMIssueFinder.m \
+  ORMQueryOData.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the
 # moment it happens, instead of whatever allocation later notices.

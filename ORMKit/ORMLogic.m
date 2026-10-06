@@ -28,6 +28,7 @@
 @property (nonatomic, readwrite, copy) NSString *functionName;
 @property (nonatomic, readwrite, copy) NSArray<ORMTerm *> *arguments;
 @property (nonatomic, readwrite) BOOL isAggregate;
+@property (nonatomic, readwrite, strong) ORMTerm *group;
 @end
 
 @implementation ORMTerm
@@ -43,6 +44,16 @@
 {
 	ORMTerm *term = [[self alloc] init];
 	term.constant = constant;
+	return term;
+}
+
++ (instancetype)termWithFunction:(NSString *)name
+                       arguments:(NSArray<ORMTerm *> *)arguments
+                       aggregate:(BOOL)aggregate
+                           group:(ORMTerm *)group
+{
+	ORMTerm *term = [self termWithFunction:name arguments:arguments aggregate:aggregate];
+	term.group = group;
 	return term;
 }
 
@@ -161,6 +172,9 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 	}
 	for (ORMTerm *argument in term.arguments) {
 		ORMAddTermVariables(argument, variables);
+	}
+	if (term.group != nil) {
+		ORMAddTermVariables(term.group, variables);
 	}
 }
 

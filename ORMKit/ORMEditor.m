@@ -37,6 +37,7 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	ORMConstraintEditor *_constraintEditor;
 	ORMDiagramEditor *_diagramEditor;
 	ORMElementEditor *_elementEditor;
+	ORMPopulationEditor *_populationEditor;
 	/* A step of a group changed the document: the projection is read again
 	 * when it is next asked for, not after every step. */
 	BOOL _stale;
@@ -128,6 +129,14 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	return _elementEditor;
 }
 
+- (ORMPopulationEditor *)populationEditor
+{
+	if (_populationEditor == nil) {
+		_populationEditor = [[ORMPopulationEditor alloc] initWithEditor:self];
+	}
+	return _populationEditor;
+}
+
 #pragma mark Its file
 
 - (BOOL)writesExpandedData
@@ -163,7 +172,10 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	return _model;
 }
 
-- (void)change:(NSString *)name with:(void (^)(void))change
+/* A change, or a group of them; undone in one step. With rollback, a
+ * change that says it was refused leaves the document as it was, and no
+ * step to undo. */
+- (BOOL)apply:(NSString *)name rollback:(BOOL)rollback with:(BOOL (^)(void))change
 {
 	/* The projection the change starts from is held for it: its objects'
 	 * links to one another are weak. */
@@ -172,19 +184,31 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	/* A step of a group is read back for the next, and the group as a
 	 * whole normalized, from the readings it started with. */
 	if (_depth > 0) {
+		NSXMLDocument *before = rollback ? ORMCopyDocument(_document) : nil;
+		BOOL done;
 		/* What the step made is read when the next step, or the caller,
 		 * asks; the projection before it is let go of then. */
 		@autoreleasepool {
-			change();
+			done = change();
+		}
+		if (!done && before != nil) {
+			_document = before;
 		}
 		_stale = YES;
-		return;
+		return done;
 	}
 	[_normalizer rememberUnaryReadings];
 	NSXMLDocument *before = ORMCopyDocument(_document);
 	BOOL hadChanges = _hasChanges;
 	_depth++;
-	change();
+	BOOL done = change();
+	if (!done && rollback) {
+		_depth--;
+		_document = before;
+		_hasChanges = hadChanges;
+		[self reread];
+		return NO;
+	}
 	[_normalizer normalize];
 	_depth--;
 	/* A manager that does not group by event (a document's that edits
@@ -204,11 +228,25 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	if (self.changed != nil) {
 		self.changed();
 	}
+	return done;
+}
+
+- (void)change:(NSString *)name with:(void (^)(void))change
+{
+	[self apply:name rollback:NO with:^BOOL {
+		change();
+		return YES;
+	}];
 }
 
 - (void)group:(NSString *)name with:(void (^)(void))operations
 {
 	[self change:name with:operations];
+}
+
+- (BOOL)group:(NSString *)name trying:(BOOL (^)(void))operations
+{
+	return [self apply:name rollback:YES with:operations];
 }
 
 /* Undo and redo alike: the document and whether it had changes, swapped

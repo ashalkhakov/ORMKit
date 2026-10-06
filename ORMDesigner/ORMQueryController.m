@@ -7,7 +7,7 @@ ORMComparisonTitles(void)
 	return @[ @"—", @"=", @"<>", @"<", @"<=", @">", @">=" ];
 }
 
-@interface ORMQueryController ()
+@interface ORMQueryController () <NSTabViewDelegate>
 @property (nonatomic, strong) IBOutlet NSPopUpButton *queryPopUp;
 @property (nonatomic, strong) IBOutlet NSTextField *nameField;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *startAtPopUp;
@@ -23,12 +23,29 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSTextField *labelField;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *aggregatePopUp;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *aggregateNodePopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *groupPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *comparedPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *comparedGroupPopUp;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *sortPopUp;
 @property (nonatomic, strong) IBOutlet NSButton *removeStepButton;
 @property (nonatomic, strong) IBOutlet NSTextView *verbalizationView;
 @property (nonatomic, strong) IBOutlet NSTextView *fetchView;
+@property (nonatomic, strong) IBOutlet NSTextView *requestView;
 @property (nonatomic, strong) IBOutlet NSTextField *statusLabel;
+@property (nonatomic, strong) IBOutlet NSTabView *tabs;
+@property (nonatomic, strong) IBOutlet NSTableView *resultsTable;
+@property (nonatomic, strong) IBOutlet NSTextField *resultsLabel;
+/* What the query is for (docs/RULES.md): its kind; a constraint's
+ * modality; a calculation's function and node. */
+@property (nonatomic, strong) IBOutlet NSPopUpButton *kindPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *modalityPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *functionPopUp;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *ofPopUp;
+@property (nonatomic, strong) IBOutlet NSButton *buildCheck;
 @end
+
+/* The most rows the Results tab reads: a page of the plan's objects. */
+static const NSUInteger ORMResultsPage = 200;
 
 @implementation ORMQueryController
 {
@@ -36,6 +53,8 @@ ORMComparisonTitles(void)
 	 * roles' links to one another are weak, so it is held until the next is
 	 * read. */
 	ORMModel *_model;
+	/* The rules were not checked last time, the window hidden. */
+	BOOL _rulesUnchecked;
 	ORMQuery *_query;
 	/* Node and step ids -> what they are in the query as now read. */
 	NSMutableDictionary<NSString *, id> *_items;
@@ -48,6 +67,12 @@ ORMComparisonTitles(void)
 	/* The outline is being filled: what it says of its selection is its
 	 * old one, not the user's. */
 	BOOL _reloading;
+	/* The sample population in a store, made again when the model changes,
+	 * and the rows the query reads from it. */
+	ORMPopulationStore *_store;
+	NSManagedObjectContext *_context;
+	ORMQueryResult *_result;
+	NSString *_resultsNote;
 }
 
 - (instancetype)initWithEditor:(ORMEditor *)editor
@@ -69,6 +94,7 @@ ORMComparisonTitles(void)
 	[self.roles setTarget:self];
 	[self.roles setDoubleAction:@selector(addStep:)];
 	[self.fetchView setFont:[NSFont userFixedPitchFontOfSize:[NSFont smallSystemFontSize]]];
+	[self.requestView setFont:[NSFont userFixedPitchFontOfSize:[NSFont smallSystemFontSize]]];
 	[self modelDidChange];
 }
 
@@ -90,10 +116,20 @@ ORMComparisonTitles(void)
 	[_statusLabel setStringValue:message ?: @""];
 }
 
+- (void)showWindow:(id)sender
+{
+	[super showWindow:sender];
+	if (_rulesUnchecked) {
+		[self modelDidChange];
+	}
+}
+
 - (void)modelDidChange
 {
 	ORMModel *model = self.editor.model;
 	_model = model;
+	_store = nil;
+	_context = nil;
 	NSArray *queries = [ORMQuery queriesInModel:model];
 	if (self.queryId != nil && [ORMQuery queryWithId:self.queryId inModel:model] == nil) {
 		self.queryId = nil;
@@ -102,8 +138,18 @@ ORMComparisonTitles(void)
 		self.queryId = [[queries firstObject] identifier];
 	}
 	[_queryPopUp removeAllItems];
+	/* Checking the rules builds a store of the whole population: not for a
+	 * window no one sees. Shown again, it checks them. */
+	BOOL seen = [self isWindowLoaded] && [[self window] isVisible];
+	_rulesUnchecked = !seen;
+	NSSet *broken = seen ? [self brokenRules] : [NSSet set];
 	for (ORMQuery *query in queries) {
-		[_queryPopUp addItemWithTitle:query.name];
+		/* A rule or a calculation says so beside its name, and whether the
+		 * sample population breaks it. */
+		BOOL breaks = [broken containsObject:query.identifier];
+		NSString *kind = query.kind == ORMQueryConstraint ? (breaks ? @" (rule, broken)" : @" (rule)")
+			: (query.kind == ORMQueryCalculation ? (breaks ? @" (calculation, broken)" : @" (calculation)") : @"");
+		[_queryPopUp addItemWithTitle:[query.name stringByAppendingString:kind]];
 		[[_queryPopUp lastItem] setRepresentedObject:query.identifier];
 		if ([query.identifier isEqualToString:self.queryId]) {
 			[_queryPopUp selectItem:[_queryPopUp lastItem]];
@@ -126,6 +172,7 @@ ORMComparisonTitles(void)
 	_query = self.queryId != nil ? [ORMQuery queryWithId:self.queryId inModel:model] : nil;
 	[_nameField setStringValue:_query.name ?: @""];
 	[_nameField setEnabled:_query != nil];
+	[self showKind];
 	[_items removeAllObjects];
 	[_children removeAllObjects];
 	for (ORMQueryNode *node in [_query nodes]) {
@@ -173,6 +220,11 @@ ORMComparisonTitles(void)
 {
 	[_verbalizationView setString:[self verbalizationText]];
 	[_fetchView setString:[self fetchText]];
+	[_requestView setString:[self requestText]];
+	_result = nil;
+	if ([[[self.tabs selectedTabViewItem] identifier] isEqual:@"results"]) {
+		[self showResults];
+	}
 	[self say:_query == nil ? @"Choose an object type to start a query from, and New."
 	       : (_query.isComplete ? @"" : @"Something this query went through is no longer in the model.")];
 }
@@ -186,18 +238,206 @@ ORMComparisonTitles(void)
 	return [ORMVerbalizer plainTextOfSentences:sentences];
 }
 
+/* The request to the service ODataKit makes of the mapping. */
+- (NSString *)requestText
+{
+	if (_query == nil) {
+		return @"";
+	}
+	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	NSError *error = nil;
+	ORMQueryOData *odata = [ORMQueryOData requestForQuery:_query model:self.editor.model mapping:mapping error:&error];
+	if (odata == nil) {
+		return [NSString stringWithFormat:@"No request: %@", [error localizedDescription]];
+	}
+	NSMutableString *text = [NSMutableString stringWithString:[odata requestText]];
+	for (NSString *note in odata.notes) {
+		[text appendFormat:@"\nNote: %@", note];
+	}
+	return text;
+}
+
 - (NSString *)fetchText
 {
 	if (_query == nil) {
 		return @"";
 	}
 	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
-	ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:_query model:self.editor.model mapping:mapping];
-	NSMutableString *text = [NSMutableString stringWithString:[fetch objectiveCSource]];
-	for (NSString *note in fetch.notes) {
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
+	ORMQueryPlan *plan = [planner planForQuery:_query];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	NSError *error = nil;
+	NSString *program = plan.entityName != nil ? [interpreter programForPlan:plan error:&error] : nil;
+	/* The plan, and how the interpreter runs it against a store. */
+	NSMutableString *text = [NSMutableString stringWithFormat:@"%@\n\n%@", [plan text],
+	                                                          program ?: [error localizedDescription] ?: @""];
+	for (NSString *note in plan.notes) {
 		[text appendFormat:@"\nNote: %@", note];
 	}
 	return text;
+}
+
+#pragma mark Results
+
+/* Whether the model has a sample population to read. */
+- (BOOL)hasPopulation
+{
+	for (ORMObjectType *type in self.editor.model.objectTypes) {
+		if ([[type instances] count] > 0) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* The sample population in a store of the mapped model, made once for the
+ * model as it is. */
+- (NSManagedObjectContext *)populationContext:(ORMCDModel *)coreData error:(NSError **)error
+{
+	if (_context == nil) {
+		_store = [[ORMPopulationStore alloc] initWithModel:self.editor.model coreData:coreData];
+		_context = [_store newContextWithError:error];
+	}
+	return _context;
+}
+
+/* The rules and value calculations the sample population breaks, by id:
+ * marked in the list. */
+- (NSSet<NSString *> *)brokenRules
+{
+	if (![self hasPopulation]) {
+		return [NSSet set];
+	}
+	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMRuleChecker *checker = [[ORMRuleChecker alloc] initWithModel:self.editor.model mapping:mapping];
+	if ([checker.rules count] == 0 && [checker.valueCalculations count] == 0) {
+		return [NSSet set];
+	}
+	NSManagedObjectContext *context = [self populationContext:checker.coreData error:NULL];
+	NSArray *violations = context != nil ? [checker violationsInContext:context limit:1 error:NULL] : nil;
+	return [NSSet setWithArray:[violations valueForKeyPath:@"rule.identifier"] ?: @[]];
+}
+
+- (ORMQueryResult *)result
+{
+	if (_result != nil || _query == nil) {
+		return _result;
+	}
+	_resultsNote = nil;
+	if (![self hasPopulation]) {
+		_resultsNote = @"The model has no sample population: Make Up a Population gives it one.";
+		return nil;
+	}
+	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
+	NSError *error = nil;
+	if ([self populationContext:planner.coreData error:&error] == nil) {
+		_resultsNote = [NSString stringWithFormat:@"The population cannot be put in a store: %@", [error localizedDescription]];
+		return nil;
+	}
+	ORMQueryPlan *plan = [planner planForQuery:_query];
+	if (plan.entityName == nil) {
+		_resultsNote = @"The query reads nothing yet.";
+		return nil;
+	}
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:_store.managedObjectModel];
+	ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:_context error:&error];
+	_result = [cursor nextPage:ORMResultsPage error:&error];
+	if (_result == nil) {
+		_resultsNote = [NSString stringWithFormat:@"The query cannot be run: %@", [error localizedDescription]];
+		return nil;
+	}
+	/* A rule's rows are its violations. */
+	BOOL rule = _query.kind == ORMQueryConstraint;
+	NSUInteger found = rule && [_result.columnTitles count] == 0 ? [_result.objects count] : [_result.rows count];
+	NSMutableString *note = [NSMutableString stringWithFormat:@"%lu %@ %@ the sample population%@.", (unsigned long)found,
+	                                                          rule ? (found == 1 ? @"violation" : @"violations")
+	                                                               : (found == 1 ? @"row" : @"rows"),
+	                                                          rule ? @"of the rule in" : @"of",
+	                                                          [cursor atEnd] ? @"" : @", the first page"];
+	if ([_store.notes count] > 0) {
+		[note appendFormat:@" Not in the store: %@", [_store.notes componentsJoinedByString:@" "]];
+	}
+	_resultsNote = note;
+	return _result;
+}
+
+/* The rows in the table, a column each of the plan's columns. */
+- (void)showResults
+{
+	ORMQueryResult *result = [self result];
+	NSTableView *table = self.resultsTable;
+	NSArray *titles = result.columnTitles ?: @[];
+	while ([[table tableColumns] count] > MAX([titles count], (NSUInteger)1)) {
+		[table removeTableColumn:[[table tableColumns] lastObject]];
+	}
+	while ([[table tableColumns] count] < [titles count]) {
+		NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:
+			[NSString stringWithFormat:@"%lu", (unsigned long)[[table tableColumns] count]]];
+		[column setWidth:160];
+		[[column dataCell] setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
+		[table addTableColumn:column];
+	}
+	for (NSUInteger i = 0; i < [[table tableColumns] count]; i++) {
+		NSTableColumn *column = [[table tableColumns] objectAtIndex:i];
+		[column setIdentifier:[NSString stringWithFormat:@"%lu", (unsigned long)i]];
+		[[column headerCell] setStringValue:i < [titles count] ? [titles objectAtIndex:i] : @""];
+	}
+	[table reloadData];
+	[self.resultsLabel setStringValue:_resultsNote ?: @""];
+}
+
+- (void)tabView:(NSTabView *)tabView didSelectTabViewItem:(NSTabViewItem *)item
+{
+	(void)tabView;
+	if ([[item identifier] isEqual:@"results"]) {
+		[self showResults];
+	}
+}
+
+/* A value as a cell shows it: none as a dash. */
+static NSString *
+ORMCellText(id value)
+{
+	if (value == nil || value == [NSNull null]) {
+		return @"—";
+	}
+	if ([value isKindOfClass:[NSArray class]]) {
+		/* An object by the values identifying it: "BSc, U1". */
+		NSMutableArray *parts = [NSMutableArray array];
+		for (id part in value) {
+			[parts addObject:ORMCellText(part)];
+		}
+		return [parts componentsJoinedByString:@", "];
+	}
+	if ([value isKindOfClass:[NSDate class]]) {
+		NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+		[formatter setDateFormat:@"yyyy-MM-dd HH:mm"];
+		[formatter setTimeZone:[NSTimeZone timeZoneForSecondsFromGMT:0]];
+		return [formatter stringFromDate:value];
+	}
+	return [value description];
+}
+
+- (IBAction)makeUpPopulation:(id)sender
+{
+	(void)sender;
+	ORMPopulationGenerator *generator = [[ORMPopulationGenerator alloc] initWithModel:self.editor.model];
+	ORMSamplePopulation *population = [generator population];
+	__block BOOL added = NO;
+	__block NSString *reason = nil;
+	/* Refused, the population there stays. */
+	[self.editor group:@"Make Up a Sample Population" trying:^BOOL {
+		[self.editor.populationEditor removePopulation];
+		added = [self.editor.populationEditor addPopulation:population reason:&reason];
+		return added;
+	}];
+	if (!added) {
+		[self say:[NSString stringWithFormat:@"No population: %@", reason]];
+		return;
+	}
+	[self say:[generator.notes count] > 0 ? [generator.notes componentsJoinedByString:@" "]
+	                                      : @"A sample population that meets the constraints."];
 }
 
 #pragma mark Selection
@@ -238,7 +478,7 @@ ORMComparisonTitles(void)
 		[control setEnabled:node != nil];
 	}
 	for (NSControl *control in @[ _operatorPopUp, _aggregatePopUp, _aggregateNodePopUp, _countComparisonPopUp, _countField,
-	                              _removeStepButton ]) {
+	                              _removeStepButton, _groupPopUp, _comparedPopUp, _comparedGroupPopUp ]) {
 		[control setEnabled:step != nil];
 	}
 	[_listCheck setState:node.isProjected ? NSControlStateValueOn : NSControlStateValueOff];
@@ -268,11 +508,92 @@ ORMComparisonTitles(void)
 			[below addObjectsFromArray:next.nodes];
 		}
 	}
+	/* What it is for, and what it is compared with: the nodes above. */
+	[_groupPopUp removeAllItems];
+	[_comparedGroupPopUp removeAllItems];
+	for (ORMQueryNode *above = step.parent; above != nil; above = above.step.parent) {
+		[_groupPopUp addItemWithTitle:[above designation]];
+		[[_groupPopUp lastItem] setRepresentedObject:above.identifier];
+		if (above == step.groupNode) {
+			[_groupPopUp selectItem:[_groupPopUp lastItem]];
+		}
+		[_comparedGroupPopUp addItemWithTitle:[@"for " stringByAppendingString:[above designation]]];
+		[[_comparedGroupPopUp lastItem] setRepresentedObject:above.identifier];
+		if (above == step.comparedGroupNode) {
+			[_comparedGroupPopUp selectItem:[_comparedGroupPopUp lastItem]];
+		}
+	}
+	[_comparedPopUp selectItemAtIndex:step.comparesAggregates ? (NSInteger)step.comparedAggregate + 1 : 0];
+	[_countField setHidden:step.comparesAggregates];
+	[_comparedGroupPopUp setHidden:!step.comparesAggregates];
 	_available = node != nil ? [ORMQuery rolesFrom:node.objectType] : @[];
 	[_roles reloadData];
 }
 
+/* What the query is for, and what only its kind has. */
+- (void)showKind
+{
+	ORMQueryKind kind = _query != nil ? _query.kind : ORMQueryList;
+	[_kindPopUp setEnabled:_query != nil];
+	[_kindPopUp selectItemAtIndex:kind];
+	[_modalityPopUp setEnabled:kind == ORMQueryConstraint];
+	[_modalityPopUp selectItemAtIndex:_query.isDeontic ? 1 : 0];
+	[_functionPopUp setEnabled:kind == ORMQueryCalculation];
+	[_functionPopUp selectItemAtIndex:kind == ORMQueryCalculation ? _query.calculationFunction : 0];
+	/* What a calculation can be of: every node below the root. */
+	[_ofPopUp removeAllItems];
+	[_ofPopUp addItemWithTitle:@"—"];
+	for (ORMQueryNode *node in kind == ORMQueryCalculation ? [_query nodes] : @[]) {
+		if (node == _query.root) {
+			continue;
+		}
+		[_ofPopUp addItemWithTitle:[node designation]];
+		[[_ofPopUp lastItem] setRepresentedObject:node.identifier];
+		if (node == _query.calculatedNode) {
+			[_ofPopUp selectItem:[_ofPopUp lastItem]];
+		}
+	}
+	[_ofPopUp setEnabled:kind == ORMQueryCalculation];
+}
+
 #pragma mark Actions
+
+- (void)kindChanged:(id)sender
+{
+	(void)sender;
+	NSString *reason = nil;
+	if (self.queryId == nil
+	    || ![[self queries] setKind:(ORMQueryKind)[_kindPopUp indexOfSelectedItem] ofQuery:self.queryId reason:&reason]) {
+		NSBeep();
+		[self say:reason ?: @"Choose a query first."];
+	}
+}
+
+- (void)modalityChanged:(id)sender
+{
+	(void)sender;
+	NSString *reason = nil;
+	if (![[self queries] setDeontic:[_modalityPopUp indexOfSelectedItem] == 1 ofQuery:self.queryId reason:&reason]) {
+		NSBeep();
+		[self say:reason ?: @"Only a constraint is alethic or deontic."];
+	}
+}
+
+- (void)calculationChanged:(id)sender
+{
+	(void)sender;
+	NSString *nodeId = [[_ofPopUp selectedItem] representedObject];
+	if (nodeId == nil) {
+		[self say:@"Choose the node the calculation is of."];
+		return;
+	}
+	NSString *reason = nil;
+	if (![[self queries] setCalculation:(ORMQueryCalculationFunction)[_functionPopUp indexOfSelectedItem] ofNode:nodeId
+	                            inQuery:self.queryId reason:&reason]) {
+		NSBeep();
+		[self say:reason ?: @"Only a calculation computes a value."];
+	}
+}
 
 - (NSString *)addQueryFrom:(NSString *)objectTypeId
 {
@@ -345,6 +666,52 @@ ORMComparisonTitles(void)
 	_selectedId = step;
 	[self modelDidChange];
 	return step;
+}
+
+- (BOOL)buildsFromDiagram
+{
+	return [_buildCheck state] == NSControlStateValueOn;
+}
+
+- (NSString *)followRole:(ORMRole *)role
+{
+	ORMQueryNode *node = [self selectedNode];
+	if (node == nil) {
+		[self say:@"Select the node to go on from."];
+		return nil;
+	}
+	/* The role it enters by: one the node's object type plays, the role
+	 * clicked the far end where it can be. By id: the role may be another
+	 * projection's. */
+	role = [_model elementWithId:role.identifier] ?: role;
+	NSArray *playable = [[ORMQuery rolesFrom:node.objectType] valueForKey:@"identifier"];
+	ORMRole *entry = nil;
+	for (ORMRole *each in role.factType.roles) {
+		if ([playable containsObject:each.identifier] && (entry == nil || entry == role)) {
+			entry = each;
+		}
+	}
+	if (entry == nil) {
+		NSBeep();
+		[self say:[NSString stringWithFormat:@"%@ plays no role of \"%@\".", node.objectType.name,
+		                                     [[role.factType primaryReading] expandedText] ?: role.factType.name]];
+		return nil;
+	}
+	NSString *step = [self addStepThrough:entry];
+	if (step == nil) {
+		return nil;
+	}
+	ORMQueryStep *added = [_items objectForKey:step];
+	ORMQueryNode *reached = [added.nodes firstObject];
+	for (ORMQueryNode *each in added.nodes) {
+		if ([each.role.identifier isEqualToString:role.identifier]) {
+			reached = each;
+		}
+	}
+	if (reached != nil) {
+		[self selectElement:reached.identifier];
+	}
+	return reached.identifier ?: step;
 }
 
 - (void)addStep:(id)sender
@@ -475,6 +842,36 @@ ORMComparisonTitles(void)
 	}
 }
 
+- (void)groupChanged:(id)sender
+{
+	(void)sender;
+	ORMQueryStep *step = [self selectedStep];
+	NSString *nodeId = [[_groupPopUp selectedItem] representedObject];
+	NSString *reason = nil;
+	if (step != nil && nodeId != nil && ![[self queries] setGroupNode:nodeId ofStep:step.identifier reason:&reason]) {
+		NSBeep();
+		[self say:reason];
+	}
+}
+
+/* A value, or another aggregate of the same node for a node above. */
+- (void)comparedChanged:(id)sender
+{
+	(void)sender;
+	ORMQueryStep *step = [self selectedStep];
+	if (step == nil) {
+		return;
+	}
+	NSInteger index = [_comparedPopUp indexOfSelectedItem];
+	NSString *nodeId = index > 0 ? ([[_comparedGroupPopUp selectedItem] representedObject] ?: step.parent.identifier) : nil;
+	NSString *reason = nil;
+	if (![[self queries] setComparedAggregate:(ORMQueryAggregate)MAX(0, index - 1) group:nodeId ofStep:step.identifier
+	                                   reason:&reason]) {
+		NSBeep();
+		[self say:reason ?: @"Set the step's aggregate first."];
+	}
+}
+
 #pragma mark The outline
 
 /* Items are node and step ids: a node's children its steps, a step's
@@ -548,9 +945,14 @@ ORMComparisonTitles(void)
 		                              range:NSMakeRange(0, [reading length])];
 	}
 	NSString *operator = step.operatorKind == ORMQueryNot ? @"not " : step.operatorKind == ORMQueryMaybe ? @"maybe " : @"";
+	NSString *group = step.groupNode != step.parent ? [@" for " stringByAppendingString:[step.groupNode designation]] : @"";
+	NSString *compared = step.comparesAggregates
+		? [NSString stringWithFormat:@"%@(%@) for %@", [ORMQuery nameOfAggregate:step.comparedAggregate],
+		                             [step.aggregateNode designation], [step.comparedGroupNode designation]]
+		: step.aggregateValue ?: @"";
 	NSString *count = step.countComparison != nil
-		? [NSString stringWithFormat:@"   %@(%@) %@ %@", [ORMQuery nameOfAggregate:step.aggregate],
-		                             [step.aggregateNode designation], step.countComparison, step.aggregateValue ?: @""]
+		? [NSString stringWithFormat:@"   %@(%@)%@ %@ %@", [ORMQuery nameOfAggregate:step.aggregate],
+		                             [step.aggregateNode designation], group, step.countComparison, compared]
 		: @"";
 	return [NSString stringWithFormat:@"+ %@%@%@", operator, reading, count];
 }
@@ -584,14 +986,20 @@ ORMComparisonTitles(void)
 
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView
 {
-	(void)tableView;
+	if (tableView == self.resultsTable) {
+		return (NSInteger)[_result.rows count];
+	}
 	return (NSInteger)[_available count];
 }
 
 /* "lives in City", as the step would read. */
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
-	(void)tableView;
+	if (tableView == self.resultsTable) {
+		NSArray *values = [_result.rows objectAtIndex:(NSUInteger)row];
+		NSUInteger index = (NSUInteger)[[column identifier] integerValue];
+		return index < [values count] ? ORMCellText([values objectAtIndex:index]) : @"";
+	}
 	(void)column;
 	ORMRole *role = [_available objectAtIndex:(NSUInteger)row];
 	if (role.factType.kind == ORMFactTypeSubtype) {

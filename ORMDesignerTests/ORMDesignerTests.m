@@ -5,6 +5,11 @@
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
+#import "ORMInsertPalette.h"
+#import "ORMIssuesView.h"
+#import "ORMSearchNavigator.h"
+#import "ORMPopulationView.h"
+#import "ORMSampleMenu.h"
 #import "ORMWindowController.h"
 
 /* The designer driven as a modeller would: a NORMA file opened, elements
@@ -18,6 +23,16 @@
 {
 	ORMDocument *_document;
 	ORMWindowController *_controller;
+}
+
+/* The document and its window let go of: XCTest keeps every test case to
+ * the end of the run. */
+- (void)tearDown
+{
+	[_document close];
+	_document = nil;
+	_controller = nil;
+	[super tearDown];
 }
 
 - (void)setUp
@@ -67,6 +82,65 @@
 	XCTAssertEqualObjects(saved, [NSData dataWithContentsOfFile:[self fixturePath:@"StockMate.orm"]]);
 }
 
+/* Each of NORMA's diagram pages is in the popup under the canvas, and
+ * shown, its shapes in view, when picked. */
+- (void)testEachDiagramPageIsShown
+{
+	[self open:@"StockMate.orm"];
+	[[_controller window] setContentSize:NSMakeSize(900, 600)];
+	NSPopUpButton *pages = _controller.diagramPopup;
+	XCTAssertEqual([pages numberOfItems], (NSInteger)4);
+	XCTAssertEqual([pages indexOfSelectedItem], (NSInteger)0);
+	for (NSInteger i = [pages numberOfItems] - 1; i >= 0; i--) {
+		[pages selectItemAtIndex:i];
+		[_controller chooseDiagram:pages];
+		ORMDiagram *diagram = [_controller.canvas diagram];
+		XCTAssertEqualObjects(diagram.name, [pages itemTitleAtIndex:i]);
+		XCTAssertEqualObjects(diagram.name, [_controller.diagramPopup titleOfSelectedItem]);
+		NSRect visible = [_controller.canvas visibleRect];
+		NSUInteger seen = 0;
+		for (ORMShape *shape in diagram.shapes) {
+			seen += NSIntersectsRect(visible, shape.bounds) ? 1 : 0;
+		}
+		XCTAssertTrue(seen > 0, @"%@: none of %lu shapes in %@", diagram.name, (unsigned long)[diagram.shapes count],
+		              NSStringFromRect(visible));
+	}
+}
+
+/* File > Open Sample: the samples, then ActiveFacts's in a submenu; one
+ * opens as an untitled copy named as the sample, its queries ready. */
+- (void)testASampleOpensAsAnUntitledCopy
+{
+	NSString *root = [[[[self fixturePath:@"ActiveFacts"] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
+	NSArray *models = [[ORMSampleMenu modelsIn:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples"]]]
+		arrayByAddingObject:[NSURL fileURLWithPath:[self fixturePath:@"StockMate.orm"]]];
+	NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Open Sample"];
+	[ORMSampleMenu fillMenu:menu
+	             withModels:models
+	                folders:@[ [NSURL fileURLWithPath:[self fixturePath:@"ActiveFacts"]] ]];
+	NSMutableArray *titles = [NSMutableArray array];
+	for (NSMenuItem *item in [menu itemArray]) {
+		[titles addObject:[item isSeparatorItem] ? @"-" : [item title]];
+	}
+	XCTAssertEqualObjects(titles, (@[ @"Company", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
+	XCTAssertEqual([[[menu itemWithTitle:@"ActiveFacts"] submenu] numberOfItems], (NSInteger)29);
+	NSMenuItem *company = [menu itemWithTitle:@"Company"];
+	XCTAssertEqual([company action], @selector(openSample:));
+
+	NSUInteger before = [[[NSDocumentController sharedDocumentController] documents] count];
+	[[[ORMAppDelegate alloc] init] openSample:company];
+	ORMDocument *document = [[[NSDocumentController sharedDocumentController] documents] lastObject];
+	XCTAssertEqual([[[NSDocumentController sharedDocumentController] documents] count], before + 1);
+	XCTAssertNil([document fileURL]);
+	XCTAssertEqualObjects([document displayName], @"Company");
+	XCTAssertFalse([document isDocumentEdited]);
+	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)8);
+	ORMWindowController *controller = [[document windowControllers] firstObject];
+	XCTAssertEqualObjects([[controller.canvas diagram] name], @"Company");
+	[document close];
+}
+
 - (void)testSelectingShowsTheInspectorAndVerbalization
 {
 	[self open:@"StockMate.orm"];
@@ -103,6 +177,444 @@
 	ORMObjectType *added = [_document.editor.model objectTypeNamed:@"EntityType"];
 	XCTAssertNotNil(added);
 	XCTAssertNotNil([[_controller.canvas diagram] shapeForSubject:added.identifier]);
+}
+
+/* The navigator (docs/WINDOW.md): Outline and Insert tabs; a row of the
+ * palette chosen arms the canvas's tool, and a tool chosen elsewhere selects
+ * its row; an object type is placed in one go, as a drop places it. */
+- (void)testTheNavigatorInsertsOnTheCanvas
+{
+	[self open:@"StockMate.orm"];
+	NSTabView *tabs = [_controller valueForKey:@"leftTabView"];
+	XCTAssertEqual([tabs numberOfTabViewItems], 4);
+	ORMInsertPalette *palette = [_controller valueForKey:@"insertPalette"];
+	XCTAssertNotNil(palette.table);
+	XCTAssertEqual([palette.table numberOfRows], (NSInteger)[[ORMInsertPalette items] count]);
+	NSUInteger value = 0;
+	NSArray *items = [ORMInsertPalette items];
+	for (NSUInteger i = 0; i < [items count]; i++) {
+		if ([[[items objectAtIndex:i] lastObject] integerValue] == ORMToolValueType) {
+			value = i;
+		}
+	}
+	[palette.table selectRowIndexes:[NSIndexSet indexSetWithIndex:value] byExtendingSelection:NO];
+	XCTAssertEqual(_controller.canvas.tool, ORMToolValueType);
+	[_controller.canvas useTool:ORMToolPointer];
+	XCTAssertEqual([palette.table selectedRow], 0);
+	XCTAssertTrue([_controller.canvas placeTool:ORMToolEntityType at:NSMakePoint(40, 40)]);
+	ORMObjectType *added = [_document.editor.model objectTypeNamed:@"EntityType"];
+	XCTAssertNotNil([[_controller.canvas diagram] shapeForSubject:added.identifier]);
+	XCTAssertFalse([_controller.canvas placeTool:ORMToolFactType at:NSMakePoint(40, 40)]);
+}
+
+/* Search and Issues: a sentence found chosen shows what it says, on the
+ * page that shows it; an issue chosen, its element; a rule's, the Queries
+ * window on it. */
+- (void)testTheNavigatorSearchesAndListsIssues
+{
+	[self open:@"StockMate.orm"];
+	ORMSearchNavigator *search = [_controller valueForKey:@"searchNavigator"];
+	[search searchFor:@"barcode"];
+	XCTAssertTrue([search.found count] > 0);
+	[_controller openDiagram:[[_document.editor.model.diagrams lastObject] identifier]];
+	[search.outline selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+	NSString *chosen = [[search.found firstObject] firstObject];
+	XCTAssertNotNil([[_controller.canvas diagram] shapeForSubject:chosen] ?: _controller.inspector.elementId);
+	XCTAssertEqualObjects(_controller.inspector.elementId, chosen);
+
+	ORMIssuesView *issues = [_controller valueForKey:@"issuesView"];
+	issues.editor = _document.editor;
+	[issues reload];
+	XCTAssertTrue([issues.issues count] > 0);
+	XCTAssertTrue([[issues.summary stringValue] length] > 0);
+	NSUInteger row = 0;
+	for (NSUInteger i = 0; i < [issues.issues count]; i++) {
+		if ([_document.editor.model elementWithId:[[issues.issues objectAtIndex:i] elementId]] != nil) {
+			row = i;
+			break;
+		}
+	}
+	[issues.table selectRowIndexes:[NSIndexSet indexSetWithIndex:row] byExtendingSelection:NO];
+	XCTAssertEqualObjects(_controller.inspector.elementId, [[issues.issues objectAtIndex:row] elementId]);
+}
+
+/* The top bar aligns the shapes selected: one change, one undo. */
+- (void)testTheTopBarAlignsTheSelection
+{
+	[self open:@"StockMate.orm"];
+	ORMModel *model = _document.editor.model;
+	NSString *product = [[model objectTypeNamed:@"Product"] identifier];
+	NSString *barcode = [[model objectTypeNamed:@"Barcode"] identifier];
+	[_controller.canvas selectElements:@[ product, barcode ]];
+	XCTAssertEqual([_controller.canvas.selectedShapes count], 2u);
+	double before = NSMinX([[[_controller.canvas diagram] shapeForSubject:barcode] bounds]);
+	NSButton *left = [[NSButton alloc] init];
+	[left setTag:ORMAlignLeft];
+	[_controller alignSelection:left];
+	NSRect a = [[[_controller.canvas diagram] shapeForSubject:product] bounds];
+	NSRect b = [[[_controller.canvas diagram] shapeForSubject:barcode] bounds];
+	XCTAssertEqual(NSMinX(a), NSMinX(b));
+	[[_document undoManager] undo];
+	XCTAssertEqual(NSMinX([[[_controller.canvas diagram] shapeForSubject:barcode] bounds]), before);
+}
+
+/* The tabs under the canvas: the Population tab shows the selection's
+ * population, a row added by naming its cells, a cell edited, a row
+ * removed; each one change. */
+- (void)testThePopulationTabEditsTheSelectedFactType
+{
+	[self open:@"StockMate.orm"];
+	/* Each change its own step to undo, as no event loop groups them. */
+	[[_document undoManager] setGroupsByEvent:NO];
+	[_document.editor.populationEditor removePopulation];
+	ORMModel *model = _document.editor.model;
+	ORMFactType *barcode = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:@"Product has Barcode"]) {
+			barcode = fact;
+		}
+	}
+	XCTAssertNotNil(barcode);
+	[_controller.canvas selectElements:@[ barcode.identifier ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	XCTAssertEqualObjects(population.elementId, barcode.identifier);
+	XCTAssertEqual([population.table numberOfColumns], 2);
+	XCTAssertEqual([population.table numberOfRows], 0);
+	[population addRow:nil];
+	XCTAssertEqual([population.table numberOfRows], 1);
+	[population setText:@"7" atRow:0 column:0];
+	XCTAssertEqual([[[_document.editor.model elementWithId:barcode.identifier] instances] count], 0u);
+	[population setText:@"4006381333931" atRow:0 column:1];
+	XCTAssertEqual([[[_document.editor.model elementWithId:barcode.identifier] instances] count], 1u);
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"7");
+	[population setText:@"8" atRow:0 column:0];
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"8");
+	[[_document undoManager] undo];
+	[population reload];
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"7");
+	[population.table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+	[population removeRows:nil];
+	XCTAssertEqual([population.table numberOfRows], 0);
+	/* Fact entry is a tab of its own: focusing it shows it. */
+	[_controller focusFactEditor:nil];
+	XCTAssertEqualObjects([[[_controller valueForKey:@"lowerTabView"] selectedTabViewItem] identifier], @"facts");
+}
+
+/* An object type's instances are added as the user does it: + opens the
+ * new row's cell for typing, and ending the edit adds the instance. */
+- (void)testPlusOpensANewInstanceForTyping
+{
+	[self open:@"StockMate.orm"];
+	[_controller.factEditor setStringValue:@"Person(.id) has Name()"];
+	XCTAssertTrue([_controller addFactFromEditor]);
+	ORMObjectType *person = [_document.editor.model objectTypeNamed:@"Person"];
+	XCTAssertNotNil(person);
+	[_controller.canvas selectElements:@[ person.identifier ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	XCTAssertEqualObjects(population.elementId, person.identifier);
+	NSTableView *table = population.table;
+	[[_controller valueForKey:@"lowerTabView"] selectTabViewItemWithIdentifier:@"population"];
+	XCTAssertEqualObjects([table window], [_controller window]);
+	XCTAssertFalse([table isHiddenOrHasHiddenAncestor]);
+	/* A click on a cell opens it only when its cell is editable. */
+	for (NSTableColumn *column in [table tableColumns]) {
+		XCTAssertTrue([[column dataCell] isEditable]);
+	}
+	[population addRow:nil];
+	XCTAssertEqual([table numberOfRows], 1);
+	/* What the window does a moment after a change leaves it open. */
+	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.8]];
+	XCTAssertEqual([table editedRow], 0);
+	NSText *editor = [table currentEditor];
+	XCTAssertNotNil(editor);
+	[editor setString:@"1"];
+	[[table window] makeFirstResponder:nil];
+	XCTAssertEqual([[[_document.editor.model objectTypeNamed:@"Person"] instances] count], 1u);
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"1");
+
+	/* The same again: refused, and said why. */
+	[population addRow:nil];
+	[[table currentEditor] setString:@"1"];
+	[[table window] makeFirstResponder:nil];
+	XCTAssertEqual([[[_document.editor.model objectTypeNamed:@"Person"] instances] count], 1u);
+	XCTAssertEqualObjects([population.status stringValue], @"There is already a Person 1.");
+
+	/* The refused row stays, as typed, to put right or remove. */
+	XCTAssertEqual([table numberOfRows], 2);
+	XCTAssertEqualObjects([population textAtRow:1 column:0], @"1");
+	[table selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+	[population removeRows:nil];
+	XCTAssertEqual([table numberOfRows], 1);
+
+	/* An existing row edited: Person 1 is Person 5. */
+	/* GNUstep edits only a selected row, as a double-click leaves it. */
+	[table selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+	[table editColumn:0 row:0 withEvent:nil select:YES];
+	XCTAssertEqual([table editedRow], 0);
+	[[table currentEditor] setString:@"5"];
+	[[table window] makeFirstResponder:nil];
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"5");
+	XCTAssertEqual([[[_document.editor.model objectTypeNamed:@"Person"] instances] count], 1u);
+}
+
+/* An object type identified by several values has a column for each: a
+ * new row is added once each is named, and shows as named. */
+- (void)testAnInstanceIdentifiedBySeveralValuesHasAColumnEach
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *building = [editor.objectTypeEditor addEntityTypeNamed:@"Building" referenceMode:@"nr"
+	                                                           kind:ORMReferenceModePopular onDiagram:diagram
+	                                                             at:ORMAutomaticPlacement reason:NULL];
+	NSString *roomNr = [editor.objectTypeEditor addValueTypeNamed:@"RoomNr" dataType:nil onDiagram:diagram
+	                                                           at:ORMAutomaticPlacement reason:NULL];
+	NSString *room = [editor.objectTypeEditor addEntityTypeNamed:@"Room" referenceMode:nil kind:ORMReferenceModePopular
+	                                                   onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	NSMutableArray *identifying = [NSMutableArray array];
+	for (NSArray *pair in @[ @[ building, @"{0} is in {1}" ], @[ roomNr, @"{0} has {1}" ] ]) {
+		NSString *fact = [editor.factTypeEditor addFactTypeWithPlayers:@[ room, pair[0] ] reading:pair[1] onDiagram:diagram
+		                                                            at:ORMAutomaticPlacement reason:NULL];
+		NSArray *roles = [[editor.model elementWithId:fact] roles];
+		XCTAssertTrue([editor.constraintEditor setUnique:YES role:[roles[0] identifier] reason:NULL]);
+		[identifying addObject:[roles[1] identifier]];
+	}
+	NSString *unique = [editor.constraintEditor addUniquenessConstraintOverRoles:identifying reason:NULL];
+	XCTAssertTrue([editor.constraintEditor setPreferredIdentifier:unique reason:NULL]);
+
+	[_controller.canvas selectElements:@[ room ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	XCTAssertEqualObjects(population.elementId, room);
+	NSTableView *table = population.table;
+	XCTAssertEqual([table numberOfColumns], 2);
+	XCTAssertEqualObjects([[[[table tableColumns] lastObject] headerCell] stringValue], @"RoomNr");
+	[population addRow:nil];
+	[population setText:@"1" atRow:0 column:0];
+	XCTAssertEqual([[[editor.model elementWithId:room] instances] count], 0u);
+	[population setText:@"101" atRow:0 column:1];
+	XCTAssertEqual([[[editor.model elementWithId:room] instances] count], 1u);
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"1");
+	XCTAssertEqualObjects([population textAtRow:0 column:1], @"101");
+}
+
+/* What the review found of the canvas and the table: a role clicked is
+ * forgotten when the selection comes from elsewhere; the left button waits
+ * while the middle one pans; a Space let go in another window is
+ * forgotten with the window's focus; rows removed together are one undo. */
+- (void)testTheCanvasAndTheTableKeepTheirStateStraight
+{
+	[self open:@"StockMate.orm"];
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMCanvasView *canvas = _controller.canvas;
+	ORMModel *model = _document.editor.model;
+	ORMFactType *barcode = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:@"Product has Barcode"]) {
+			barcode = fact;
+		}
+	}
+	NSRect box = [[[canvas diagram] shapeForSubject:barcode.identifier] bounds];
+	NSPoint role = NSMakePoint(NSMinX(box) + NSWidth(box) / 4, NSMidY(box));
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertNotNil(canvas.clickedRole);
+	NSString *product = [[model objectTypeNamed:@"Product"] identifier];
+	[canvas selectElements:@[ product ]];
+	XCTAssertNil(canvas.clickedRole);
+
+	/* The middle button pans; a left press meanwhile changes nothing. */
+	NSWindow *window = [canvas window];
+	NSPoint at = [canvas convertPoint:role toView:nil];
+	NSEvent *(^other)(NSEventType) = ^NSEvent *(NSEventType type) {
+		return [NSEvent mouseEventWithType:type location:at modifierFlags:0 timestamp:0 windowNumber:[window windowNumber]
+		                           context:nil eventNumber:0 clickCount:1 pressure:1];
+	};
+	[canvas otherMouseDown:other(NSEventTypeOtherMouseDown)];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqualObjects([canvas selectedElements], @[ product ]);
+	[canvas otherMouseUp:other(NSEventTypeOtherMouseUp)];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqualObjects([canvas selectedElements], @[ barcode.identifier ]);
+
+	/* Space held, then the window loses its focus: a click selects. */
+	[canvas keyDown:[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+	                             windowNumber:[window windowNumber] context:nil characters:@" "
+	              charactersIgnoringModifiers:@" " isARepeat:NO keyCode:49]];
+	[[NSNotificationCenter defaultCenter] postNotificationName:NSWindowDidResignKeyNotification object:window];
+	[canvas selectElements:@[]];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqualObjects([canvas selectedElements], @[ barcode.identifier ]);
+
+	/* Two facts removed at once: one undo brings both back. */
+	[_document.editor.populationEditor removePopulation];
+	NSArray *roles = [barcode visibleRoles];
+	for (NSArray *pair in @[ @[ @"1", @"11" ], @[ @"2", @"22" ] ]) {
+		NSDictionary *named = @{ [roles[0] identifier]: pair[0], [roles[1] identifier]: pair[1] };
+		XCTAssertNotNil([_document.editor.populationEditor addFactOf:barcode.identifier named:named reason:NULL]);
+	}
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	[population reload];
+	XCTAssertEqual([population.table numberOfRows], 2);
+	[population.table selectRowIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, 2)] byExtendingSelection:NO];
+	[population removeRows:nil];
+	XCTAssertEqual([population.table numberOfRows], 0);
+	[[_document undoManager] undo];
+	[population reload];
+	XCTAssertEqual([population.table numberOfRows], 2);
+}
+
+/* A mouse event at a point of the canvas, in diagram points. */
+- (NSEvent *)event:(NSEventType)type at:(NSPoint)point
+{
+	ORMCanvasView *canvas = _controller.canvas;
+	return [NSEvent mouseEventWithType:type location:[canvas convertPoint:point toView:nil] modifierFlags:0 timestamp:0
+	                      windowNumber:[[canvas window] windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+}
+
+/* As NORMA: the first click on a fact type's role box selects the fact type
+ * (its population shown), the next the role. What is selected is dragged
+ * together, a press on a fact type's role box among it too. */
+- (void)testClicksSelectFactTypesAndDragTheSelection
+{
+	[self open:@"StockMate.orm"];
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMModel *model = _document.editor.model;
+	ORMFactType *barcode = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:@"Product has Barcode"]) {
+			barcode = fact;
+		}
+	}
+	ORMCanvasView *canvas = _controller.canvas;
+	ORMShape *factShape = [[canvas diagram] shapeForSubject:barcode.identifier];
+	XCTAssertNotNil(factShape);
+	/* The first role box's middle. */
+	NSRect box = factShape.bounds;
+	NSPoint role = NSMakePoint(NSMinX(box) + NSWidth(box) / 4, NSMidY(box));
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqualObjects([canvas selectedElements], @[ barcode.identifier ]);
+	XCTAssertNotNil(canvas.clickedRole);
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	XCTAssertEqualObjects(population.elementId, barcode.identifier);
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:role]];
+	XCTAssertEqual([canvas.selectedRoles count], 1u);
+	/* A role selected still shows its fact type's population. */
+	[population reload];
+	XCTAssertEqual([population.table numberOfColumns], 2);
+
+	/* Product and the fact type selected; dragged by the fact type. */
+	NSString *product = [[model objectTypeNamed:@"Product"] identifier];
+	[canvas selectElements:@[ product, barcode.identifier ]];
+	NSRect productBefore = [[[canvas diagram] shapeForSubject:product] bounds];
+	NSRect factBefore = factShape.bounds;
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role]];
+	XCTAssertEqual([canvas.selectedShapes count], 2u);
+	NSPoint to = NSMakePoint(role.x + 30, role.y + 20);
+	[canvas mouseDragged:[self event:NSEventTypeLeftMouseDragged at:to]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:to]];
+	NSRect productAfter = [[[canvas diagram] shapeForSubject:product] bounds];
+	NSRect factAfter = [[[canvas diagram] shapeForSubject:barcode.identifier] bounds];
+	XCTAssertEqualWithAccuracy(NSMinX(productAfter) - NSMinX(productBefore), 30.0, 0.5);
+	XCTAssertEqualWithAccuracy(NSMinY(productAfter) - NSMinY(productBefore), 20.0, 0.5);
+	XCTAssertEqualWithAccuracy(NSMinX(factAfter) - NSMinX(factBefore), 30.0, 0.5);
+	[[_document undoManager] undo];
+	XCTAssertEqual(NSMinX([[[canvas diagram] shapeForSubject:product] bounds]), NSMinX(productBefore));
+}
+
+/* As drawing programs: a drag with Space held pans the drawing, what was
+ * under the pointer staying under it, nothing selected or moved; so does
+ * the middle button. A plain drag on nothing draws a band. */
+- (void)testSpaceDragPansAndADragOnNothingSelects
+{
+	[self open:@"StockMate.orm"];
+	ORMCanvasView *canvas = _controller.canvas;
+	NSScrollView *scroll = [canvas enclosingScrollView];
+	XCTAssertNotNil(scroll);
+	/* Somewhere in the middle, so there is room to pan every way. */
+	NSRect all = [canvas bounds];
+	NSRect visible = [canvas visibleRect];
+	[canvas scrollPoint:NSMakePoint(NSMidX(all) - NSWidth(visible) / 2, NSMidY(all) - NSHeight(visible) / 2)];
+	visible = [canvas visibleRect];
+	XCTAssertLessThan(NSWidth(visible), NSWidth(all));
+	/* A point in view, well away from every shape. */
+	NSPoint empty = NSZeroPoint;
+	BOOL found = NO;
+	for (double y = NSMinY(visible) + 40; y < NSMaxY(visible) - 40 && !found; y += 10) {
+		for (double x = NSMinX(visible) + 40; x < NSMaxX(visible) - 40 && !found; x += 10) {
+			NSRect around = NSMakeRect(x - 20, y - 20, 40, 40);
+			found = YES;
+			for (ORMShape *shape in [canvas diagram].shapes) {
+				if (NSIntersectsRect(around, shape.bounds)) {
+					found = NO;
+				}
+			}
+			empty = NSMakePoint(x, y);
+		}
+	}
+	XCTAssertTrue(found);
+	NSMutableArray *before = [NSMutableArray array];
+	for (ORMShape *shape in [canvas diagram].shapes) {
+		[before addObject:[NSValue valueWithRect:shape.bounds]];
+	}
+	NSPoint down = [canvas convertPoint:empty toView:nil];
+	NSPoint up = NSMakePoint(down.x - 40, down.y - 30);
+	NSWindow *window = [canvas window];
+	NSEvent *(^space)(NSEventType) = ^NSEvent *(NSEventType type) {
+		return [NSEvent keyEventWithType:type location:NSZeroPoint modifierFlags:0 timestamp:0
+		                    windowNumber:[window windowNumber] context:nil characters:@" "
+		     charactersIgnoringModifiers:@" " isARepeat:NO keyCode:49];
+	};
+	[canvas keyDown:space(NSEventTypeKeyDown)];
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:empty]];
+	NSEvent *drag = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDragged location:up modifierFlags:0 timestamp:0
+	                               windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+	[canvas mouseDragged:drag];
+	NSEvent *release = [NSEvent mouseEventWithType:NSEventTypeLeftMouseUp location:up modifierFlags:0 timestamp:0
+	                                  windowNumber:[window windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+	[canvas mouseUp:release];
+	[canvas keyUp:space(NSEventTypeKeyUp)];
+	NSPoint under = [canvas convertPoint:up fromView:nil];
+	XCTAssertEqualWithAccuracy(under.x, empty.x, 0.5);
+	XCTAssertEqualWithAccuracy(under.y, empty.y, 0.5);
+	XCTAssertFalse(NSEqualRects([canvas visibleRect], visible));
+	XCTAssertEqual([[canvas selectedElements] count], 0u);
+	NSUInteger i = 0;
+	for (ORMShape *shape in [canvas diagram].shapes) {
+		XCTAssertTrue(NSEqualRects(shape.bounds, [before[i++] rectValue]));
+	}
+
+	/* The middle button pans too. */
+	visible = [canvas visibleRect];
+	NSEvent *(^other)(NSEventType, NSPoint) = ^NSEvent *(NSEventType type, NSPoint at) {
+		return [NSEvent mouseEventWithType:type location:at modifierFlags:0 timestamp:0 windowNumber:[window windowNumber]
+		                           context:nil eventNumber:0 clickCount:1 pressure:1];
+	};
+	[canvas otherMouseDown:other(NSEventTypeOtherMouseDown, up)];
+	[canvas otherMouseDragged:other(NSEventTypeOtherMouseDragged, down)];
+	[canvas otherMouseUp:other(NSEventTypeOtherMouseUp, down)];
+	XCTAssertFalse(NSEqualRects([canvas visibleRect], visible));
+
+	/* A plain drag on nothing draws a band: around a shape in view, it
+	 * selects it. */
+	visible = [canvas visibleRect];
+	ORMShape *inView = nil;
+	for (ORMShape *shape in [canvas diagram].shapes) {
+		if (NSContainsRect(NSInsetRect(visible, 40, 40), shape.bounds)) {
+			inView = shape;
+		}
+	}
+	XCTAssertNotNil(inView);
+	NSPoint corner = NSMakePoint(NSMinX(inView.bounds) - 5, NSMinY(inView.bounds) - 5);
+	NSPoint far = NSMakePoint(NSMaxX(inView.bounds) + 5, NSMaxY(inView.bounds) + 5);
+	[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:corner]];
+	[canvas mouseDragged:[self event:NSEventTypeLeftMouseDragged at:far]];
+	[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:far]];
+	XCTAssertTrue([[canvas selectedShapes] containsObject:inView.identifier], @"%@", [canvas selectedShapes]);
 }
 
 - (void)testTheFactEditorAddsToTheDiagram
@@ -243,7 +755,7 @@
 	XCTAssertTrue([[built outlineText] rangeOfString:@"Location"].location != NSNotFound, @"%@", [built outlineText]);
 	XCTAssertTrue([[queries verbalizationText] hasPrefix:@"List each Warehouse where"], @"%@",
 	              [queries verbalizationText]);
-	XCTAssertTrue([[queries fetchText] rangeOfString:@"fetchRequestWithEntityName:@\"Warehouse\""].location != NSNotFound,
+	XCTAssertTrue([[queries fetchText] rangeOfString:@"fetch Warehouse"].location != NSNotFound,
 	              @"%@", [queries fetchText]);
 	/* The window is the XIB's, its outlets connected: what it shows is what
 	 * the controller says. */
@@ -255,6 +767,39 @@
 	[[_document undoManager] undo];
 	[queries modelDidChange];
 	XCTAssertEqual([[ORMQuery queryWithId:query inModel:editor.model].root.steps count], 0u);
+}
+
+/* A sample's query run on its own population, then on a made-up one: the
+ * Results tab shows the rows, and undoing brings the sample's back. */
+- (void)testAQueryRunsOnASamplePopulation
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	NSURL *company = [NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]];
+	_document = [ORMDocument sampleWithContentsOfURL:company error:NULL];
+	XCTAssertNotNil(_document);
+	ORMEditor *editor = _document.editor;
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	/* Each change its own step to undo, as no event loop groups them. */
+	[[_document undoManager] setGroupsByEvent:NO];
+	/* Each employee: the sample's seven, then as many as were made up. */
+	[queries addQueryFrom:[[editor.model objectTypeNamed:@"Employee"] identifier]];
+	XCTAssertEqual([[[queries result] rows] count], (NSUInteger)7);
+	[queries makeUpPopulation:nil];
+	ORMQueryResult *result = [queries result];
+	XCTAssertNotNil(result);
+	XCTAssertEqualObjects(result.columnTitles, @[ @"Employee" ]);
+	XCTAssertEqual([result.rows count], (NSUInteger)5);
+	NSTabView *tabs = [queries valueForKey:@"tabs"];
+	[tabs selectTabViewItemWithIdentifier:@"results"];
+	NSTableView *table = [queries valueForKey:@"resultsTable"];
+	XCTAssertEqual([table numberOfRows], (NSInteger)[result.rows count]);
+	XCTAssertEqual([[table tableColumns] count], [result.columnTitles count]);
+	[[_document undoManager] undo];
+	XCTAssertEqual([[[queries result] rows] count], (NSUInteger)7);
 }
 
 /* The menu bar comes from MainMenu.xib, with what the XIB cannot hold set
@@ -353,7 +898,188 @@
 	XCTAssertEqualObjects(made.countComparison, @">");
 	XCTAssertEqual(made.countValue, 2u);
 	XCTAssertEqualObjects(made.aggregateNode.objectType.name, @"Location");
-	XCTAssertTrue([[queries fetchText] rangeOfString:@"ascending:NO"].location != NSNotFound, @"%@", [queries fetchText]);
+	XCTAssertTrue([[queries fetchText] rangeOfString:@"sorted by"].location != NSNotFound, @"%@", [queries fetchText]);
+	XCTAssertTrue([[queries requestText] rangeOfString:@"GET Warehouses?$filter="].location != NSNotFound,
+	              @"%@", [queries requestText]);
+	XCTAssertTrue([[queries requestText] rangeOfString:@"$orderby="].location != NSNotFound, @"%@", [queries requestText]);
+	XCTAssertEqualObjects([[[queries valueForKey:@"requestView"] textStorage] string], [queries requestText]);
+}
+
+/* An aggregate compared with another, for a node above, set from the
+ * window: the branches whose employees earn more than their average. */
+- (void)testAnAggregateIsComparedWithAnotherFromTheWindow
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	ORMEditor *editor = _document.editor;
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Branch"] identifier]];
+	/* The role the selected node plays in the fact type read so. */
+	ORMRole *(^through)(NSString *, NSString *) = ^ORMRole *(NSString *verb, NSString *player) {
+		for (ORMRole *role in [queries availableRoles]) {
+			NSString *reading = [[role.factType primaryReading] text] ?: @"";
+			for (ORMRole *other in role.factType.roles) {
+				if (other != role && [other.player.name isEqualToString:player]
+				    && [reading rangeOfString:verb].location != NSNotFound) {
+					return role;
+				}
+			}
+		}
+		return nil;
+	};
+	[queries addStepThrough:through(@"works for", @"Employee")];
+	ORMQueryStep *employs = [[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject];
+	[queries selectElement:[[employs.nodes firstObject] identifier]];
+	NSString *earns = [queries addStepThrough:through(@"earns", @"Salary")];
+	XCTAssertEqualObjects(queries.selectedId, earns);
+	[[queries valueForKey:@"aggregatePopUp"] selectItemWithTitle:@"max"];
+	[[queries valueForKey:@"countComparisonPopUp"] selectItemWithTitle:@">"];
+	[[queries valueForKey:@"countField"] setStringValue:@"0"];
+	[queries performSelector:@selector(countChanged:) withObject:nil];
+	[[queries valueForKey:@"comparedPopUp"] selectItemWithTitle:@"avg"];
+	[[queries valueForKey:@"comparedGroupPopUp"] selectItemWithTitle:@"for Branch"];
+	[queries performSelector:@selector(comparedChanged:) withObject:nil];
+	ORMQuery *built = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertTrue([[built outlineText] hasSuffix:@"max(Salary) for Employee > avg(Salary) for Branch\n"], @"%@",
+	              [built outlineText]);
+	XCTAssertTrue([[queries valueForKey:@"countField"] isHidden]);
+	/* On the sample's company: 52 and 7 have such employees. */
+	NSMutableSet *branches = [NSMutableSet set];
+	for (NSArray *row in [[queries result] rows]) {
+		[branches addObject:[row firstObject]];
+	}
+	XCTAssertEqualObjects(branches, ([NSSet setWithArray:@[ @52, @7 ]]), @"%@", [queries fetchText]);
+}
+
+/* A rule and a calculation from the window (docs/RULES.md): the sample's
+ * rule says what breaks it; a query made a calculation of each branch's
+ * total salary lists every branch and its total. */
+- (void)testARuleAndACalculationFromTheWindow
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	ORMEditor *editor = _document.editor;
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	[queries window];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	for (ORMQuery *query in [ORMQuery queriesInModel:editor.model]) {
+		if ([query.name isEqualToString:@"Lives near work"]) {
+			queries.queryId = query.identifier;
+		}
+	}
+	[queries modelDidChange];
+	/* Unseen, the rules are not checked: that builds a store of the
+	 * population. Shown, they are, and Gus breaks this one. */
+	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:@"Lives near work (rule)"]);
+	[queries showWindow:nil];
+	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:@"Lives near work (rule, broken)"]);
+	XCTAssertEqual([[queries valueForKey:@"kindPopUp"] indexOfSelectedItem], (NSInteger)ORMQueryConstraint);
+	XCTAssertEqual([[queries valueForKey:@"modalityPopUp"] indexOfSelectedItem], 1);
+	XCTAssertFalse([[queries valueForKey:@"functionPopUp"] isEnabled]);
+	[[queries valueForKey:@"tabs"] selectTabViewItemWithIdentifier:@"results"];
+	XCTAssertEqualObjects([[queries valueForKey:@"resultsLabel"] stringValue],
+	                      @"1 violation of the rule in the sample population.");
+
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Branch"] identifier]];
+	ORMRole *(^through)(NSString *, NSString *) = ^ORMRole *(NSString *verb, NSString *player) {
+		for (ORMRole *role in [queries availableRoles]) {
+			NSString *reading = [[role.factType primaryReading] text] ?: @"";
+			for (ORMRole *other in role.factType.roles) {
+				if (other != role && [other.player.name isEqualToString:player]
+				    && [reading rangeOfString:verb].location != NSNotFound) {
+					return role;
+				}
+			}
+		}
+		return nil;
+	};
+	[queries addStepThrough:through(@"works for", @"Employee")];
+	ORMQueryStep *employs = [[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject];
+	[queries selectElement:[[employs.nodes firstObject] identifier]];
+	[queries addStepThrough:through(@"earns", @"Salary")];
+	[[queries valueForKey:@"kindPopUp"] selectItemWithTitle:@"Calculation"];
+	[queries performSelector:@selector(kindChanged:) withObject:nil];
+	XCTAssertTrue([[queries valueForKey:@"functionPopUp"] isEnabled]);
+	XCTAssertFalse([[queries valueForKey:@"modalityPopUp"] isEnabled]);
+	[[queries valueForKey:@"functionPopUp"] selectItemWithTitle:@"total"];
+	[[queries valueForKey:@"ofPopUp"] selectItemWithTitle:@"Salary"];
+	[queries performSelector:@selector(calculationChanged:) withObject:nil];
+	ORMQuery *built = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqual(built.kind, ORMQueryCalculation);
+	XCTAssertEqual(built.calculationFunction, ORMCalculationTotal);
+	XCTAssertEqualObjects([built.calculatedNode designation], @"Salary");
+	NSSet *totals = [NSSet setWithArray:@[ @[ @52, @1100000 ], @[ @7, @1150000 ], @[ @101, @50000 ], @[ @102, @50000 ] ]];
+	XCTAssertEqualObjects([NSSet setWithArray:[[queries result] rows]], totals, @"%@", [queries fetchText]);
+	/* Undone, a list again. */
+	[[_document undoManager] undo];
+	XCTAssertEqual([ORMQuery queryWithId:query inModel:editor.model].kind, ORMQueryCalculation);
+	XCTAssertNil([ORMQuery queryWithId:query inModel:editor.model].calculatedNode);
+	[[_document undoManager] undo];
+	XCTAssertEqual([ORMQuery queryWithId:query inModel:editor.model].kind, ORMQueryList);
+	/* Shown, it is closed: an open window outlives the test (and on GNUstep
+	 * the next main menu does not load). */
+	[queries close];
+}
+
+/* Building a query from the diagram, as NORMA builds paths: each role box
+ * clicked adds a step from the node selected through its fact type, and
+ * goes on from the node of the role clicked. */
+- (void)testAQueryIsBuiltByClickingRoleBoxes
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	[_controller window];
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMModel *model = _document.editor.model;
+	ORMRole *(^roleOf)(NSString *, NSString *) = ^ORMRole *(NSString *reading, NSString *player) {
+		for (ORMFactType *fact in [model ordinaryFactTypes]) {
+			if ([[[fact primaryReading] expandedText] isEqualToString:reading]) {
+				for (ORMRole *role in fact.roles) {
+					if ([role.player.name isEqualToString:player]) {
+						return role;
+					}
+				}
+			}
+		}
+		return nil;
+	};
+	[_controller showQueries:nil];
+	ORMQueryController *queries = [_controller valueForKey:@"queryController"];
+	NSString *query = [queries addQueryFrom:[[model objectTypeNamed:@"Employee"] identifier]];
+	XCTAssertNotNil(query);
+	/* Branch's role of "Employee works for Branch": to the branch. */
+	NSString *branch = [queries followRole:roleOf(@"Employee works for Branch", @"Branch")];
+	XCTAssertEqualObjects([[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText],
+	                      @"✓Employee\n  + works for Branch\n");
+	XCTAssertEqualObjects(queries.selectedId, branch);
+	/* Then City's role of "Branch is located in City", from the branch. */
+	[queries followRole:roleOf(@"Branch is located in City", @"City")];
+	XCTAssertEqualObjects([[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText],
+	                      @"✓Employee\n  + works for Branch\n    + is located in City\n");
+	/* A role the node's object type cannot reach from there: refused. */
+	XCTAssertNil([queries followRole:roleOf(@"Car is of CarModel", @"CarModel")]);
+	/* From the canvas, the checkbox on. */
+	[(NSButton *)[queries valueForKey:@"buildCheck"] setState:NSControlStateValueOn];
+	[queries selectElement:[[ORMQuery queryWithId:query inModel:_document.editor.model].root identifier]];
+	[_controller.canvas selectRole:[roleOf(@"Employee speaks Language", @"Language") identifier]];
+	XCTAssertTrue([[[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText]
+	                  rangeOfString:@"  + speaks Language\n"].location != NSNotFound,
+	              @"%@", [[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText]);
 }
 
 - (void)testEveryMenuItemHasSomewhereToGo

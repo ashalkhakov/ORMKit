@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCanvasView.h"
+#import "ORMInsertPalette.h"
 
 /* What a gesture is doing, between mouse down and up. */
 typedef NS_ENUM(NSInteger, ORMGesture) {
@@ -8,6 +9,7 @@ typedef NS_ENUM(NSInteger, ORMGesture) {
 	ORMGestureBand,
 	ORMGestureSubtype,
 	ORMGestureConnect,
+	ORMGesturePan,
 };
 
 /* What is under a point: the shape, and the role box when it is one. */
@@ -32,6 +34,13 @@ static const double ORMCanvasMargin = 240.0;
 	ORMGesture _gesture;
 	NSPoint _down;
 	NSPoint _at;
+	/* Where a pan last had the pointer, in the window: the drawing moves
+	 * under it. */
+	NSPoint _panFrom;
+	/* Space held down: a drag pans, as in drawing programs. */
+	BOOL _spaceHeld;
+	/* The pan is the middle button's, not a Space-drag's. */
+	BOOL _panByOtherButton;
 	ORMHit *_downHit;
 	NSString *_hover;
 	NSTextField *_renamer;
@@ -48,6 +57,8 @@ static const double ORMCanvasMargin = 240.0;
 	_pickedPlayers = [NSMutableArray array];
 	_zoom = 1.5;
 	[self addTrackingRect:[self bounds] owner:self userData:NULL assumeInside:NO];
+	/* What the Insert palette drags here. */
+	[self registerForDraggedTypes:@[ ORMInsertDragType ]];
 }
 
 - (instancetype)initWithFrame:(NSRect)frame
@@ -237,6 +248,20 @@ static const double ORMCanvasMargin = 240.0;
 	return elements;
 }
 
+- (void)selectRole:(NSString *)roleId
+{
+	ORMRole *role = [self.editor.model elementWithId:roleId];
+	ORMShape *shape = [role isKindOfClass:[ORMRole class]] ? [[self diagram] shapeForSubject:role.factType.identifier] : nil;
+	[_selectedShapes removeAllObjects];
+	[_selectedRoles removeAllObjects];
+	if (shape != nil) {
+		[_selectedShapes addObject:shape.identifier];
+		[_selectedRoles addObject:roleId];
+	}
+	_clickedRole = [roleId copy];
+	[self selectionChanged];
+}
+
 - (void)selectionChanged
 {
 	[self setNeedsDisplay:YES];
@@ -245,6 +270,7 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)clearSelection
 {
+	_clickedRole = nil;
 	[_selectedShapes removeAllObjects];
 	[_selectedRoles removeAllObjects];
 	[self selectionChanged];
@@ -252,6 +278,8 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)selectElements:(NSArray<NSString *> *)elementIds
 {
+	/* Not a click: no role was clicked to follow. */
+	_clickedRole = nil;
 	[_selectedShapes removeAllObjects];
 	[_selectedRoles removeAllObjects];
 	ORMDiagram *diagram = [self diagram];
@@ -413,8 +441,18 @@ static const double ORMCanvasMargin = 240.0;
 	NSPoint point = [self pointOf:event];
 	_down = point;
 	_at = point;
+	if (_gesture == ORMGesturePan) {
+		/* A pan with the middle button: the left one waits for it. */
+		return;
+	}
+	_panFrom = [event locationInWindow];
+	if (_spaceHeld) {
+		[self beginPan];
+		return;
+	}
 	ORMHit *hit = [self hitAt:point];
 	_downHit = hit;
+	_clickedRole = [hit.role.identifier copy];
 	BOOL extend = ([event modifierFlags] & (NSEventModifierFlagShift | NSEventModifierFlagCommand)) != 0;
 	if ([event clickCount] == 2 && hit != nil) {
 		[self doubleClick:hit];
@@ -426,7 +464,7 @@ static const double ORMCanvasMargin = 240.0;
 		break;
 	case ORMToolEntityType:
 	case ORMToolValueType:
-		[self createObjectTypeAt:point value:self.tool == ORMToolValueType];
+		[self placeTool:self.tool at:point];
 		break;
 	case ORMToolFactType:
 		[self factTypeToolDown:hit at:point];
@@ -445,18 +483,58 @@ static const double ORMCanvasMargin = 240.0;
 			[self refuse:@"Drag from a role box to the object type that plays it."];
 		}
 		break;
-	case ORMToolNote: {
-		NSString *reason = nil;
-		NSString *note = [self.editor.elementEditor addNote:@"Note" attachedTo:@[] onDiagram:self.diagramId at:point reason:&reason];
-		[self finishTool];
-		[self selectElements:note != nil ? @[ note ] : @[]];
+	case ORMToolNote:
+		[self placeTool:ORMToolNote at:point];
 		break;
-	}
 	default:
 		[self constraintToolDown:hit];
 		break;
 	}
 	[self setNeedsDisplay:YES];
+}
+
+- (BOOL)placeTool:(ORMCanvasTool)tool at:(NSPoint)point
+{
+	switch (tool) {
+	case ORMToolEntityType:
+	case ORMToolValueType:
+		[self createObjectTypeAt:point value:tool == ORMToolValueType];
+		return YES;
+	case ORMToolNote: {
+		NSString *reason = nil;
+		NSString *note = [self.editor.elementEditor addNote:@"Note" attachedTo:@[] onDiagram:self.diagramId at:point reason:&reason];
+		[self finishTool];
+		[self selectElements:note != nil ? @[ note ] : @[]];
+		return YES;
+	}
+	default:
+		return NO;
+	}
+}
+
+#pragma mark Dropped from the Insert palette
+
+- (ORMCanvasTool)droppedTool:(id<NSDraggingInfo>)sender
+{
+	NSString *text = [[sender draggingPasteboard] stringForType:ORMInsertDragType];
+	return text != nil ? (ORMCanvasTool)[text integerValue] : ORMToolPointer;
+}
+
+- (NSDragOperation)draggingEntered:(id<NSDraggingInfo>)sender
+{
+	ORMCanvasTool tool = [self droppedTool:sender];
+	return tool == ORMToolEntityType || tool == ORMToolValueType || tool == ORMToolNote ? NSDragOperationCopy
+	                                                                                  : NSDragOperationNone;
+}
+
+- (NSDragOperation)draggingUpdated:(id<NSDraggingInfo>)sender
+{
+	return [self draggingEntered:sender];
+}
+
+- (BOOL)performDragOperation:(id<NSDraggingInfo>)sender
+{
+	return [self placeTool:[self droppedTool:sender] at:[self convertPoint:[sender draggingLocation] fromView:nil]];
 }
 
 - (void)pointerDown:(ORMHit *)hit extend:(BOOL)extend
@@ -473,19 +551,26 @@ static const double ORMCanvasMargin = 240.0;
 	NSString *shapeId = hit.shape.identifier;
 	if (hit.role != nil) {
 		NSString *roleId = hit.role.identifier;
+		BOOL selected = [_selectedShapes containsObject:shapeId];
 		if (extend) {
 			if ([_selectedRoles containsObject:roleId]) {
 				[_selectedRoles removeObject:roleId];
 			} else {
 				[_selectedRoles addObject:roleId];
 			}
+			if (!selected) {
+				[_selectedShapes addObject:shapeId];
+			}
+		} else if (selected && [_selectedShapes count] > 1) {
+			/* Part of what is selected: the drag moves it all. */
+		} else if (!selected) {
+			/* As NORMA: the first click the fact type, the next a role. */
+			[_selectedShapes removeAllObjects];
+			[_selectedRoles removeAllObjects];
+			[_selectedShapes addObject:shapeId];
 		} else if (![_selectedRoles containsObject:roleId]) {
 			[_selectedRoles removeAllObjects];
 			[_selectedRoles addObject:roleId];
-			[_selectedShapes removeAllObjects];
-		}
-		if (![_selectedShapes containsObject:shapeId]) {
-			[_selectedShapes addObject:shapeId];
 		}
 		[self selectionChanged];
 		_gesture = ORMGestureMove;
@@ -508,6 +593,12 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)mouseDragged:(NSEvent *)event
 {
+	if (_gesture == ORMGesturePan) {
+		if (!_panByOtherButton) {
+			[self panTo:[event locationInWindow]];
+		}
+		return;
+	}
 	_at = [self pointOf:event];
 	[self autoscroll:event];
 	if (_gesture == ORMGestureConnect || _gesture == ORMGestureSubtype) {
@@ -519,6 +610,10 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)mouseUp:(NSEvent *)event
 {
+	if (_gesture == ORMGesturePan && _panByOtherButton) {
+		/* The middle button's pan goes on. */
+		return;
+	}
 	_at = [self pointOf:event];
 	ORMGesture gesture = _gesture;
 	_gesture = ORMGestureNone;
@@ -540,14 +635,81 @@ static const double ORMCanvasMargin = 240.0;
 	case ORMGestureConnect:
 		[self finishConnect];
 		break;
+	case ORMGesturePan:
+		[self endPan];
+		break;
 	case ORMGestureNone:
 		break;
 	}
 	[self setNeedsDisplay:YES];
 }
 
+/* A pan: with Space held down, or with the middle button; the scroll
+ * wheel and the trackpad pan as any scroll view does. A plain drag on
+ * nothing draws a band, as the HIG and the Finder have it. */
+- (void)beginPan
+{
+	_gesture = ORMGesturePan;
+	[[NSCursor closedHandCursor] push];
+}
+
+- (void)endPan
+{
+	_gesture = ORMGestureNone;
+	_panByOtherButton = NO;
+	[NSCursor pop];
+}
+
+- (void)otherMouseDown:(NSEvent *)event
+{
+	if (_gesture != ORMGestureNone) {
+		/* Another gesture has the canvas: the middle button waits. */
+		return;
+	}
+	_panFrom = [event locationInWindow];
+	_panByOtherButton = YES;
+	[self beginPan];
+}
+
+- (void)otherMouseDragged:(NSEvent *)event
+{
+	if (_gesture == ORMGesturePan && _panByOtherButton) {
+		[self panTo:[event locationInWindow]];
+	}
+}
+
+- (void)otherMouseUp:(NSEvent *)event
+{
+	(void)event;
+	if (_gesture == ORMGesturePan && _panByOtherButton) {
+		[self endPan];
+	}
+}
+
+/* The drawing scrolled so that what was under the pointer stays under it,
+ * as far as there is drawing to show. */
+- (void)panTo:(NSPoint)location
+{
+	NSScrollView *scroll = [self enclosingScrollView];
+	NSClipView *clip = [scroll contentView];
+	if (clip == nil) {
+		return;
+	}
+	NSPoint from = [clip convertPoint:_panFrom fromView:nil];
+	NSPoint to = [clip convertPoint:location fromView:nil];
+	_panFrom = location;
+	NSRect visible = [clip bounds];
+	NSRect document = [[clip documentView] frame];
+	NSPoint origin = NSMakePoint(NSMinX(visible) - (to.x - from.x), NSMinY(visible) - (to.y - from.y));
+	origin.x = MAX(NSMinX(document), MIN(origin.x, NSMaxX(document) - NSWidth(visible)));
+	origin.y = MAX(NSMinY(document), MIN(origin.y, NSMaxY(document) - NSHeight(visible)));
+	[clip scrollToPoint:origin];
+	[scroll reflectScrolledClipView:clip];
+}
+
 - (void)selectInBand
 {
+	_clickedRole = nil;
 	NSRect band = NSMakeRect(MIN(_down.x, _at.x), MIN(_down.y, _at.y), fabs(_at.x - _down.x), fabs(_at.y - _down.y));
 	if (NSWidth(band) < 2 && NSHeight(band) < 2) {
 		return;
@@ -777,7 +939,12 @@ static const double ORMCanvasMargin = 240.0;
 
 - (IBAction)chooseTool:(id)sender
 {
-	self.tool = (ORMCanvasTool)[sender tag];
+	[self useTool:(ORMCanvasTool)[sender tag]];
+}
+
+- (void)useTool:(ORMCanvasTool)tool
+{
+	self.tool = tool;
 	NSDictionary *hints = @{
 		@(ORMToolEntityType): @"Click where the entity type goes.",
 		@(ORMToolValueType): @"Click where the value type goes.",
@@ -868,6 +1035,13 @@ static const double ORMCanvasMargin = 240.0;
 	unichar key = [characters length] > 0 ? [characters characterAtIndex:0] : 0;
 	NSUInteger flags = [event modifierFlags];
 	double step = (flags & NSEventModifierFlagShift) ? 10 : 1;
+	if (key == ' ') {
+		if (!_spaceHeld) {
+			_spaceHeld = YES;
+			[[NSCursor openHandCursor] set];
+		}
+		return;
+	}
 	switch (key) {
 	case NSDeleteCharacter:
 	case NSBackspaceCharacter:
@@ -923,6 +1097,58 @@ static const double ORMCanvasMargin = 240.0;
 	[super keyDown:event];
 }
 
+- (void)keyUp:(NSEvent *)event
+{
+	NSString *characters = [event charactersIgnoringModifiers];
+	if ([characters isEqualToString:@" "]) {
+		_spaceHeld = NO;
+		[[NSCursor arrowCursor] set];
+		return;
+	}
+	[super keyUp:event];
+}
+
+/* Space let go elsewhere: no pan is armed. */
+- (void)forgetSpace
+{
+	if (_spaceHeld) {
+		_spaceHeld = NO;
+		[[NSCursor arrowCursor] set];
+	}
+}
+
+- (BOOL)resignFirstResponder
+{
+	[self forgetSpace];
+	return [super resignFirstResponder];
+}
+
+/* Another window made key keeps this one's first responder, but takes
+ * the keys: a Space let go there never reaches the canvas. */
+- (void)viewWillMoveToWindow:(NSWindow *)window
+{
+	NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+	if ([self window] != nil) {
+		[center removeObserver:self name:NSWindowDidResignKeyNotification object:[self window]];
+	}
+	if (window != nil) {
+		[center addObserver:self selector:@selector(windowDidResignKey:) name:NSWindowDidResignKeyNotification
+		             object:window];
+	}
+	[super viewWillMoveToWindow:window];
+}
+
+- (void)dealloc
+{
+	[[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+- (void)windowDidResignKey:(NSNotification *)notification
+{
+	(void)notification;
+	[self forgetSpace];
+}
+
 - (void)nudge:(NSSize)delta
 {
 	if ([_selectedShapes count] > 0) {
@@ -957,6 +1183,7 @@ static const double ORMCanvasMargin = 240.0;
 - (IBAction)selectAll:(id)sender
 {
 	(void)sender;
+	_clickedRole = nil;
 	[_selectedShapes removeAllObjects];
 	for (ORMShape *shape in [self diagram].shapes) {
 		[_selectedShapes addObject:shape.identifier];

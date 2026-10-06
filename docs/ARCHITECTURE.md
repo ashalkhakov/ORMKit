@@ -1,21 +1,31 @@
 # Architecture
 
 ORMKit is an Object-Role Modeling (ORM2) toolkit for macOS and GNUstep: a
-Foundation-only library that reads, edits, verbalizes and maps NORMA's `.orm`
+library with no AppKit that reads, edits, verbalizes and maps NORMA's `.orm`
 files, a command line tool over it, and ORMDesigner, a document-based diagram
 editor. It follows the shape of WorkflowKit (the XML document is the model)
 and RDLKit (library, designer, tests, CI, AppImage).
 
 ```
-ORMKit/            the library: Foundation and NSXML only
+ORMKit/            the library: Foundation, NSXML, Core Data and ODataKit; no AppKit
 ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
 Tools/ormtool/     check, verbalize, normalize, draw as SVG, and map to and from Core Data from a shell
 ORMDesigner/       the editor (AppKit): its windows and menu bar XIBs, springs and struts
 ORMDesignerTests/  the editor driven through its window, headless
-docs/              this, and COREDATA-MAPPING.md
+docs/              this, and the documents below
 .github/ .tools/ Scripts/   CI, the GNUstep docker image, AppImage packaging
 Prototype/         the first single-window sketch (NU*), kept for reference
 ```
+
+The other documents:
+- [COREDATA-MAPPING.md](COREDATA-MAPPING.md): the mapping to Core Data, both ways;
+- [ODATA.md](ODATA.md): the model served with ODataKit, and queries as requests to it;
+- [QUERIES.md](QUERIES.md): conceptual queries, their plans, and the two backends;
+- [CURSORS.md](CURSORS.md): how a plan is read, as a tree of cursors;
+- [RULES.md](RULES.md): queries as constraints and calculations;
+- [POPULATIONS.md](POPULATIONS.md): sample populations, made up and edited;
+- [WINDOW.md](WINDOW.md): the designer's document window;
+- [VERBALIZATION.md](VERBALIZATION.md): the FORML templates.
 
 ## The XML document is the model
 
@@ -84,16 +94,26 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMJoinPathBuilder` | join paths written as NORMA keeps them, from logic: the fact types walked and the variables playing their roles |
 | `ORMPath` | NORMA's role paths (join paths, derivation rules), calculations, sample populations, cardinality |
 | `ORMLogic` | sequences, join paths and derivations as logic: variables, fact atoms, and/or/xor/not |
-| `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something (VERBALIZATION.md); plain text and HTML |
+| `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something ([VERBALIZATION.md](VERBALIZATION.md)); plain text and HTML |
 | `ORMCDModel` | a Core Data model's `contents`, read and written as Xcode does |
-| `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways (COREDATA-MAPPING.md) |
+| `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)) |
 | `ORMCoreDataImporter` | a Core Data model brought into ORM, with a mapping back to it |
-| `ORMQuery`, `ORMQueryEditor`, `ORMQueryFetch` | conceptual queries after ConQuer, as logic and as Core Data fetch requests (QUERIES.md) |
+| `ORMQuery`, `ORMQueryEditor` | conceptual queries after ConQuer, as logic ([QUERIES.md](QUERIES.md)) |
+| `ORMQueryPlanner`, `ORMQueryPlan` | a query planned against a mapping: public, a property list |
+| `ORMQueryInterpreter`, `ORMQueryOData` | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
+| `ORMPopulationEditor`, `ORMPopulationChecker`, `ORMPopulationGenerator`, `ORMPopulationStore` | sample populations: written as NORMA keeps them, checked, made up, and put in a Core Data store for queries ([POPULATIONS.md](POPULATIONS.md)) |
+| `ORMCursor` | the cursors a plan is read through, page by page, and keyset paging ([CURSORS.md](CURSORS.md)) |
+| `ORMRuleChecker` | queries that are rules: constraints and calculations, checked on a population ([RULES.md](RULES.md)) |
+| `ORMIssueFinder` | what is wrong with a model, as the designer's Issues navigator lists it |
+| `ORMODataAnnotator` | the mapping's annotations for ODataKit: keys, descriptions, validation terms ([ODATA.md](ODATA.md)) |
 | `ORMCoreDataValidation` | the constraints Core Data cannot enforce, as an Objective-C category on each entity's class |
 
-ORMKit has no AppKit and no Core Data: the Core Data side is Xcode's source
-format, so mapping works the same on both platforms, and Apple's `momc` (in
-the tests, on a Mac) is the judge of what it writes.
+ORMKit has no AppKit. The mapping writes Core Data's source format, as
+Xcode does, so it works the same on both platforms, and `momc` (Apple's on a
+Mac, FreeCoreData's on GNUstep) is the judge of what it writes. Core Data
+itself is linked for what runs: queries against a store, and sample
+populations put in one (FreeCoreData on GNUstep). ODataKit is linked for
+queries sent to a service.
 
 `ORMLogic` follows the meaning Franconi and Halpin give ORM in *ORM Abstract
 Syntax and Semantics* (normative specification and glossary,
@@ -106,9 +126,12 @@ disagree, the specification is right.
 ## The editor
 
 `ORMDocument` (NSDocument) holds an editor on its undo manager.
-`ORMWindowController` lays out the window in code: the model browser, the
-diagram with NORMA's Fact Editor and the verbalization of the selection
-below it, the inspector, tools across the top. `ORMCanvasView` draws through
+`ORMWindowController` runs the document window (`ORMDocumentWindow.xib`,
+[WINDOW.md](WINDOW.md)): a navigator on the left (the model browser,
+`ORMInsertPalette`, `ORMSearchNavigator`, `ORMIssuesView`, each an
+`ORMPane` with its own XIB), alignment across the top, the diagram, tabs
+under it (the verbalization, NORMA's Fact Editor, `ORMPopulationView`), and
+the inspector. `ORMQueryController` is the Queries window. `ORMCanvasView` draws through
 `ORMRenderer` (plain functions of the projection, in diagram points) and
 turns gestures into editor operations, one per gesture. `ORMInspectorView`
 is built from rows that know where their value lives and which operation
@@ -132,6 +155,9 @@ Working and tested on both platforms:
 - verbalization of object types, fact types and every constraint kind;
 - the Core Data mapping and three-way synchronization, import from Core
   Data, and validation code for what Core Data cannot enforce;
+- the mapping annotated for ODataKit to serve: entity sets, keys
+  (surrogates where needed), descriptions, validation terms; conceptual
+  queries as requests to that service ([ODATA.md](ODATA.md));
 - ORMDesigner: opening NORMA's diagrams, selecting, moving, the tools, the
   fact editor, the inspector, verbalization, PDF/PNG/HTML export, the Core
   Data window, the query builder.
@@ -143,16 +169,18 @@ Not done yet:
   a layered layout (WorkflowKit's `WKDLayout` is the one to port) instead
   of the grid-and-spiral `arrangeDiagram:`; printing across pages.
 - **NORMA features kept but not edited**: derivation rules (only their
-  free-text note), constraint join paths, sample populations, NORMA's model
-  error checks.
+  free-text note), constraint join paths, most of NORMA's model error checks
+  (the Issues navigator has the basic ones, and readings that do not read).
+  Sample populations are edited by hand in the Population tab, except an
+  objectifying type's instances identified otherwise than by their fact
+  ([POPULATIONS.md](POPULATIONS.md#not-done-yet)).
 - **Verbalization**: wording checked against NORMA's report only by eye.
 - **Core Data**: per-relationship deletion rule overrides; watching the
-  `.xcdatamodeld` for changes; validating with FreeCoreData's `momc` in the
-  GNUstep job, and a live `NSManagedObjectModel` preview with FreeCoreData;
-  validation code for what needs a fetch (uniqueness across objects,
-  frequencies over several roles) and for set comparisons through join
-  paths; class names that clash with the SDK's (`Comment` and `Component`
-  are Carbon types, so a class of that name does not compile).
+  `.xcdatamodeld` for changes; a live `NSManagedObjectModel` preview with
+  FreeCoreData; validation code for what needs a fetch (uniqueness across
+  objects, frequencies over several roles) and for set comparisons through
+  join paths; class names that clash with the SDK's (`Comment` and
+  `Component` are Carbon types, so a class of that name does not compile).
 
 ### Assumptions to check against NORMA
 

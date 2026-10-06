@@ -7,7 +7,8 @@ set -euo pipefail
 
 WORKSPACE_DIR=$(pwd)
 LOCAL_PREFIX="${GNUSTEP_PREFIX:-/opt/gnustep-prefix}"
-LINUXDEPLOY="${LINUXDEPLOY:-/usr/local/lib/linuxdeploy/AppRun}"
+# Where Scripts/install-linuxdeploy.sh puts it: somewhere the job can write.
+LINUXDEPLOY="${LINUXDEPLOY:-${LINUXDEPLOY_DIR:-${RUNNER_TEMP:-/tmp}/linuxdeploy}/AppRun}"
 
 # 1. Copy tracked AppImage metadata/runtime assets into AppDir.
 "${WORKSPACE_DIR}/Scripts/appimage/install-assets.sh" "${WORKSPACE_DIR}" "AppDir"
@@ -20,7 +21,8 @@ for bin in "${ELF_BINS[@]}"; do
 done
 
 # 3. Run the linuxdeploy process.
-export OUTPUT="ORMKit-Linux-${APP_VERSION:-dev}-$(uname -m).AppImage"
+# No -Linux: every AppImage is, and appimage.github.io refuses the name.
+export OUTPUT="ORMKit-${APP_VERSION:-dev}-$(uname -m).AppImage"
 export APPIMAGE_EXTRACT_AND_RUN=1
 export NO_VALIDATE=1
 export LDAI_RUNTIME_FILE="${LDAI_RUNTIME_FILE:-/tmp/appimage-runtime/runtime-x86_64}"

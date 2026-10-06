@@ -34,35 +34,6 @@
 	return [[editor.model elementWithId:factId] roles];
 }
 
-/* What Apple's model compiler says of the model, on a Mac; nil elsewhere
- * or when it accepts it. */
-- (NSString *)momcRejects:(ORMCDModel *)model
-{
-#if defined(__APPLE__)
-	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
-	NSString *package = [directory stringByAppendingPathComponent:@"Test.xcdatamodeld"];
-	NSError *error = nil;
-	if (![model writeToPackage:package error:&error]) {
-		return [error localizedDescription];
-	}
-	NSTask *task = [[NSTask alloc] init];
-	task.launchPath = @"/usr/bin/xcrun";
-	task.arguments = @[ @"momc", package, [directory stringByAppendingPathComponent:@"Test.momd"] ];
-	NSPipe *pipe = [NSPipe pipe];
-	task.standardError = pipe;
-	task.standardOutput = pipe;
-	[task launch];
-	NSData *output = [[pipe fileHandleForReading] readDataToEndOfFile];
-	[task waitUntilExit];
-	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
-	NSString *text = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
-	return [task terminationStatus] == 0 ? nil : text;
-#else
-	(void)model;
-	return nil;
-#endif
-}
-
 #pragma mark ORM to Core Data
 
 - (ORMCDModel *)map:(NSString *)fixture configuring:(void (^)(ORMEditor *editor, NSString *mapping))configure

@@ -10,7 +10,10 @@
 /* ORMKit from the command line: what CI smoke-tests, and what scripts use.
  *
  *   ormtool verbalize [--html] model.orm     the model as FORML sentences
- *   ormtool check model.orm                  what the model holds, and whether it reads
+ *   ormtool check model.orm                  what the model holds, and whether it reads;
+ *                                            its sample population against its
+ *                                            constraints and constraint queries
+ *                                            (1 when it breaks an alethic one)
  *   ormtool normalize model.orm [out.orm]    NORMA's derived data brought up to date
  *   ormtool coredata model.orm Out.xcdatamodeld [mapping name]
  *                                            the model mapped to Core Data, with the mapping's report;
@@ -24,7 +27,10 @@
  *                                            directory, one file a diagram
  *   ormtool query model.orm [query name] [mapping name]
  *                                            the model's queries (or the named one): ConQuer's
- *                                            outline, the FORML, and the Core Data fetch request
+ *                                            outline, the FORML, the OData request to the service
+ *                                            ODataKit makes of the mapping, the plan, how the
+ *                                            interpreter runs it against a Core Data store, and
+ *                                            the rows it finds in the sample population
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -40,7 +46,7 @@ static int
 ORMUsage(void)
 {
 	fputs("usage: ormtool verbalize [--html] model.orm\n"
-	      "       ormtool check model.orm\n"
+	      "       ormtool check model.orm      (1 when the sample population breaks an alethic constraint)\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
 	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n"
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
@@ -105,6 +111,49 @@ ORMImport(NSArray<NSString *> *args)
 	return 0;
 }
 
+/* The rows the plan finds in the model's sample population, as a table;
+ * nil when it has none. */
+static NSString *
+ORMRowsText(ORMModel *model, ORMQueryPlanner *planner, ORMQueryPlan *plan)
+{
+	BOOL populated = NO;
+	for (ORMObjectType *type in model.objectTypes) {
+		populated = populated || [[type instances] count] > 0;
+	}
+	if (!populated || plan.entityName == nil) {
+		return nil;
+	}
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMQueryResult *result = context != nil
+		? [[[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel] executePlan:plan inContext:context
+		                                                                              error:&error]
+		: nil;
+	if (result == nil) {
+		return [NSString stringWithFormat:@"\nno rows: %@\n", [error localizedDescription]];
+	}
+	NSMutableArray *lines = [NSMutableArray arrayWithObject:[result.columnTitles componentsJoinedByString:@" | "]];
+	for (NSArray *row in result.rows) {
+		NSMutableArray *cells = [NSMutableArray array];
+		for (id value in row) {
+			/* An object identified by several values: "BSc, UQ". */
+			id shown = value;
+			if ([value isKindOfClass:[NSArray class]]) {
+				NSMutableArray *parts = [NSMutableArray array];
+				for (id part in value) {
+					[parts addObject:part == [NSNull null] ? @"-" : [part description]];
+				}
+				shown = [parts componentsJoinedByString:@", "];
+			}
+			[cells addObject:shown == [NSNull null] ? @"-" : [shown description]];
+		}
+		[lines addObject:[cells componentsJoinedByString:@" | "]];
+	}
+	return [NSString stringWithFormat:@"\nsample population: %lu %@\n%@\n", (unsigned long)[result.rows count],
+	                                  [result.rows count] == 1 ? @"row" : @"rows", [lines componentsJoinedByString:@"\n"]];
+}
+
 int
 main(int argc, const char *argv[])
 {
@@ -145,7 +194,20 @@ main(int argc, const char *argv[])
 			          model.name, (unsigned long)[[model visibleObjectTypes] count],
 			          (unsigned long)[[model ordinaryFactTypes] count], (unsigned long)[model.constraints count],
 			          (unsigned long)[model.diagrams count], (unsigned long)shapes]);
-			return 0;
+			/* The sample population against the constraints and the rules. */
+			ORMPopulationChecker *checker = [[ORMPopulationChecker alloc] initWithModel:model];
+			NSUInteger broken = 0;
+			for (ORMPopulationViolation *violation in [checker violations]) {
+				BOOL deontic = violation.rule != nil ? violation.rule.isDeontic
+				                                     : violation.constraint.modality == ORMDeontic;
+				broken += deontic ? 0 : 1;
+				ORMPrint([NSString stringWithFormat:@"%@: %@\n", deontic ? @"breaks (deontic)" : @"breaks",
+				                                    violation.text]);
+			}
+			for (NSString *note in [checker unchecked]) {
+				ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
+			}
+			return broken > 0 ? 1 : 0;
 		}
 		if ([command isEqualToString:@"normalize"]) {
 			[editor group:@"Normalize" with:^{
@@ -232,12 +294,21 @@ main(int argc, const char *argv[])
 				ORMPrint([NSString stringWithFormat:@"%@\n\n%@\n", query.name, [query outlineText]]);
 				ORMPrint([ORMVerbalizer plainTextOfSentences:[[[ORMVerbalizer alloc] initWithModel:model]
 				                                                 sentencesForQuery:query]]);
-				ORMQueryFetch *fetch = [[ORMQueryFetch alloc] initWithQuery:query model:model mapping:mapping];
-				ORMPrint([NSString stringWithFormat:@"\n%@", [fetch objectiveCSource]]);
-				for (NSString *note in fetch.notes) {
+				NSError *refused = nil;
+				ORMQueryOData *odata = [ORMQueryOData requestForQuery:query model:model mapping:mapping error:&refused];
+				ORMPrint([NSString stringWithFormat:@"\n%@", odata != nil ? [odata requestText]
+				                                                     : [NSString stringWithFormat:@"no request: %@\n",
+				                                                                                  [refused localizedDescription]]]);
+				for (NSString *note in odata.notes) {
 					ORMPrint([NSString stringWithFormat:@"note: %@\n", note]);
 				}
-				ORMPrint(@"\n");
+				ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:mapping];
+				ORMQueryPlan *plan = [planner planForQuery:query];
+				ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc]
+					initWithModel:[planner.coreData managedObjectModel]];
+				NSString *program = plan.entityName != nil ? [interpreter programForPlan:plan error:NULL] : nil;
+				ORMPrint([NSString stringWithFormat:@"\n%@\n\n%@\n", [plan text], program ?: @""]);
+				ORMPrint([ORMRowsText(model, planner, plan) ?: @"" stringByAppendingString:@"\n"]);
 			}
 			if (!found) {
 				fprintf(stderr, "ormtool: %s\n", [args count] > 2 ? "no query of that name" : "the model has no queries");

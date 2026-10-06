@@ -8,6 +8,7 @@
         <customObject id="-2" userLabel="File's Owner" customClass="ORMAppDelegate">
             <connections>
                 <outlet property="mainMenu" destination="mainMenu" id="mainMenuOutlet"/>
+                <outlet property="sampleMenu" destination="openSampleMenu" id="sampleMenuOutlet"/>
             </connections>
         </customObject>
         <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
@@ -48,6 +49,9 @@
                                 <connections>
                                     <action selector="openDocument:" target="-1" id="openAction"/>
                                 </connections>
+                            </menuItem>
+                            <menuItem title="Open Sample" id="openSample">
+                                <menu key="submenu" title="Open Sample" id="openSampleMenu"/>
                             </menuItem>
                             <menuItem isSeparatorItem="YES" id="separator2"/>
                             <menuItem title="Close" keyEquivalent="w" id="close">
@@ -417,6 +421,12 @@ CA
                                 <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES" shift="YES"/>
                                 <connections>
                                     <action selector="newQueryFromSelection:" target="-1" id="newQueryfromSelectionAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem isSeparatorItem="YES" id="querySeparator"/>
+                            <menuItem title="Make Up a Sample Population" id="makeUpPopulation">
+                                <connections>
+                                    <action selector="makeUpPopulation:" target="-1" id="makeUpPopulationAction"/>
                                 </connections>
                             </menuItem>
                         </items>

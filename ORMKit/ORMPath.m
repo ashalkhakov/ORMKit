@@ -61,11 +61,12 @@
 
 @interface ORMInstance ()
 @property (nonatomic, readwrite, weak) ORMObjectType *objectType;
-@property (nonatomic, copy) NSString *value;
+@property (nonatomic, readwrite, copy) NSString *value;
 /* The role instances that identify an entity instance, by id, and the
  * supertype instance a subtype instance is. */
 @property (nonatomic, copy) NSArray<NSString *> *identifyingRoleInstances;
 @property (nonatomic, copy) NSString *supertypeInstanceId;
+@property (nonatomic, copy) NSString *objectifiedInstanceId;
 @end
 
 @interface ORMFactInstance ()
@@ -122,6 +123,31 @@
 
 @implementation ORMInstance
 
+- (NSDictionary<NSString *, ORMInstance *> *)identifyingInstancesByRole
+{
+	NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+	NSDictionary *roleInstances = [self.model.extras objectForKey:@"roleInstances"];
+	for (NSString *roleInstance in self.identifyingRoleInstances) {
+		NSArray *pair = [roleInstances objectForKey:roleInstance];
+		if (pair != nil && [pair lastObject] != self) {
+			[byRole setObject:[pair lastObject] forKey:[[pair firstObject] identifier]];
+		}
+	}
+	return byRole;
+}
+
+- (ORMFactInstance *)objectifiedInstance
+{
+	ORMFactInstance *fact = self.objectifiedInstanceId != nil ? [self.model elementWithId:self.objectifiedInstanceId] : nil;
+	return [fact isKindOfClass:[ORMFactInstance class]] ? fact : nil;
+}
+
+- (ORMInstance *)supertypeInstance
+{
+	ORMInstance *supertype = self.supertypeInstanceId != nil ? [self.model elementWithId:self.supertypeInstanceId] : nil;
+	return [supertype isKindOfClass:[ORMInstance class]] ? supertype : nil;
+}
+
 - (NSString *)displayText
 {
 	if (self.value != nil) {
@@ -140,6 +166,17 @@
 		return [supertype isKindOfClass:[ORMInstance class]] ? [supertype displayText] : @"?";
 	}
 	NSMutableArray *parts = [NSMutableArray array];
+	ORMFactInstance *objectified = [self objectifiedInstance];
+	if (objectified != nil) {
+		/* The fact it is: its players, in the fact type's order. */
+		for (ORMRole *role in objectified.factType.roles) {
+			ORMInstance *player = [objectified.instancesByRole objectForKey:role.identifier];
+			if (player != nil && !player.objectType.isImplicitBooleanValue) {
+				[parts addObject:[player displayText]];
+			}
+		}
+		return [NSString stringWithFormat:@"(%@)", [parts componentsJoinedByString:@", "]];
+	}
 	NSDictionary *roleInstances = [model.extras objectForKey:@"roleInstances"];
 	for (NSString *roleInstance in self.identifyingRoleInstances) {
 		ORMInstance *identifying = [[roleInstances objectForKey:roleInstance] lastObject];
@@ -531,7 +568,9 @@
 				instance.value = ORMChildText(element, CORE, @"Value") ?: @"";
 			} else if ([local isEqualToString:@"EntityTypeSubtypeInstance"]) {
 				instance.supertypeInstanceId = ORMRef(ORMChild(element, CORE, @"SupertypeInstance"));
+				instance.objectifiedInstanceId = ORMRef(ORMChild(element, CORE, @"ObjectifiedInstance"));
 			} else {
+				instance.objectifiedInstanceId = ORMRef(ORMChild(element, CORE, @"ObjectifiedInstance"));
 				NSMutableArray *identifying = [NSMutableArray array];
 				for (NSXMLElement *ref in ORMChildren(ORMChild(element, CORE, @"RoleInstances"), CORE,
 				                                      @"EntityTypeRoleInstance")) {

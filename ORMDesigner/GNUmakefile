@@ -4,7 +4,8 @@ APP_NAME = ORMDesigner
 ORMDesigner_NEEDS_GUI = yes
 # ORMDesignerCompat.h: current AppKit names gnustep-gui spells the old way.
 ORMDesigner_OBJCFLAGS += -fobjc-arc -fblocks -Wall -Werror=logical-not-parentheses -include ORMDesignerCompat.h
-ORMDesigner_INCLUDE_DIRS = -I../ORMKit
+include ../odatakit.make
+ORMDesigner_INCLUDE_DIRS = -I../ORMKit $(ODATAKIT_INCLUDE_DIRS)
 ORMDesigner_OBJC_FILES = \
   main.m \
   ORMAppDelegate.m \
@@ -15,10 +16,18 @@ ORMDesigner_OBJC_FILES = \
   ORMInspectorView.m \
   ORMModelBrowser.m \
   ORMCoreDataController.m \
-  ORMQueryController.m
+  ORMQueryController.m \
+  ORMSampleMenu.m \
+  ORMPane.m \
+  ORMInsertPalette.m \
+  ORMIssuesView.m \
+  ORMSearchNavigator.m \
+  ORMPopulationView.m \
+  ThirdParty/DMTabBar/DMTabBar.m \
+  ThirdParty/DMTabBar/DMTabBarItem.m
 # ORMKit is built in the tree beside this one and not installed.
-ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR)
-ORMDesigner_OBJC_LIBS += -lORMKit -ldispatch
+ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+ORMDesigner_OBJC_LIBS += -lORMKit $(ODATAKIT_LIBS) -ldispatch
 # The icon GNUstep shows in the About panel, on windows and in the dock
 # tile; the AppImage installs the same file as its desktop icon.
 ORMDesigner_APPLICATION_ICON = ORMDesigner.png
@@ -31,7 +40,17 @@ ORMDesigner_RESOURCE_FILES = \
   MainMenu.xib \
   ORMQueryWindow.xib \
   ORMCoreDataWindow.xib \
-  ORMDocumentWindow.xib
+  ORMDocumentWindow.xib \
+  ORMInsertPalette.xib \
+  ORMIssuesView.xib \
+  ORMSearchNavigator.xib \
+  ORMPopulationView.xib \
+  ThirdParty/DMTabBar/LICENSE-DMTabBar.txt \
+  ../Samples \
+  ../ORMKitTests/Fixtures/ActiveFacts \
+  ../ORMKitTests/Fixtures/StockMate.orm
+# The samples (File > Open Sample): Resources/Samples and Resources/ActiveFacts
+# copied in as folders, the latter with its license, and StockMate.
 # The app delegate loads the menu bar itself (-[ORMAppDelegate loadMainMenu]),
 # to set what a XIB cannot hold.
 ORMDesigner_MAIN_MODEL_FILE =

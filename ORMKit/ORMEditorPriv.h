@@ -5,6 +5,7 @@
 #import "ORMConstraintEditor.h"
 #import "ORMDiagramEditor.h"
 #import "ORMElementEditor.h"
+#import "ORMPopulationEditor.h"
 #import "ORMModelPriv.h"
 #import "ORMXML.h"
 

@@ -26,6 +26,7 @@ NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
 - (void)setValidationPath:(NSString *)path ofMapping:(NSString *)mappingId;
 - (void)setScope:(ORMMappingScope)scope ids:(NSArray<NSString *> *)ids ofMapping:(NSString *)mappingId;
 - (void)setMaterializesIdentifiers:(BOOL)flag ofMapping:(NSString *)mappingId;
+- (void)setServesOData:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setFlattensSubtypes:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setValueSetsAsEntities:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setAbsorbsIdentifierTypes:(BOOL)flag ofMapping:(NSString *)mappingId;

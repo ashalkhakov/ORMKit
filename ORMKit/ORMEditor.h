@@ -1,7 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMDiagram.h"
 
-@class ORMObjectTypeEditor, ORMFactTypeEditor, ORMConstraintEditor, ORMDiagramEditor, ORMElementEditor;
+@class ORMObjectTypeEditor, ORMFactTypeEditor, ORMConstraintEditor, ORMDiagramEditor, ORMElementEditor,
+	ORMPopulationEditor;
 
 /* Every change to an ORM model goes through an editor: the editing
  * session over one document.
@@ -60,6 +61,9 @@ BOOL ORMIsAutomaticPlacement(NSPoint point);
 
 /* A change made of several operations, undone as one. */
 - (void)group:(NSString *)name with:(void (^)(void))operations;
+/* The same, for operations that may be refused part way: when the block
+ * returns NO, the document is as it was before, with no step to undo. */
+- (BOOL)group:(NSString *)name trying:(BOOL (^)(void))operations;
 
 /* The editing itself, each kind of element by an object of its own; each
  * makes its changes through this editor, as undoable steps of it. */
@@ -68,6 +72,7 @@ BOOL ORMIsAutomaticPlacement(NSPoint point);
 @property (nonatomic, readonly, strong) ORMConstraintEditor *constraintEditor;
 @property (nonatomic, readonly, strong) ORMDiagramEditor *diagramEditor;
 @property (nonatomic, readonly, strong) ORMElementEditor *elementEditor;
+@property (nonatomic, readonly, strong) ORMPopulationEditor *populationEditor;
 
 @end
 
@@ -77,3 +82,4 @@ BOOL ORMIsAutomaticPlacement(NSPoint point);
 #import "ORMConstraintEditor.h"
 #import "ORMDiagramEditor.h"
 #import "ORMElementEditor.h"
+#import "ORMPopulationEditor.h"

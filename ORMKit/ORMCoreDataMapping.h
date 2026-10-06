@@ -63,6 +63,13 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 
 /* Reference modes as attributes (id, code), in uniqueness constraints. */
 @property (nonatomic, readonly) BOOL materializesIdentifiers;
+/* userInfo for ODataKit to serve the model by: entity sets, keys (a
+ * surrogate where the identifier is not of attributes), descriptions and
+ * validation terms. ORMODataAnnotator.h. */
+@property (nonatomic, readonly) BOOL servesOData;
+/* The namespace of the service's types (ODataService's namespaceName):
+ * OData.type is in it. "Default" unless set. */
+@property (nonatomic, readonly, copy) NSString *odataNamespace;
 /* Subtypes' properties in their supertype's entity, not entities of their
  * own. The style's unless set. */
 @property (nonatomic, readonly) BOOL flattensSubtypes;

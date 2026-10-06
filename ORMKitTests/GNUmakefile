@@ -18,13 +18,16 @@ ORMKitTests_OBJC_FILES = \
   ORMSVGTests.m \
   ORMVerbalizerTests.m \
   ORMCoreDataTests.m \
+  ORMODataTests.m \
   ORMCoreDataImportTests.m \
   ORMCoreDataValidationTests.m \
-  ORMQueryTests.m
+  ORMQueryTests.m \
+  ORMPopulationTests.m
 ORMKitTests_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
-ORMKitTests_INCLUDE_DIRS = -I../ORMKit
-ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR)
-ORMKitTests_BUNDLE_LIBS += -lORMKit -lXCTest -ldispatch
+include ../odatakit.make
+ORMKitTests_INCLUDE_DIRS = -I../ORMKit $(ODATAKIT_INCLUDE_DIRS)
+ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+ORMKitTests_BUNDLE_LIBS += -lORMKit $(ODATAKIT_SERVICE_LIBS) $(ODATAKIT_LIBS) -lXCTest -ldispatch
 ORMKitTests_NEEDS_GUI = no
 
 # AddressSanitizer. The bundle is dlopened by an xctest binary that is not
@@ -35,7 +38,11 @@ ADDITIONAL_OBJCFLAGS += -fsanitize=address -fno-omit-frame-pointer -g
 ADDITIONAL_LDFLAGS += -fsanitize=address
 ASAN_ARCH := $(shell uname -m)
 ASAN_LIB := $(shell $(CC) -print-file-name=libclang_rt.asan-$(ASAN_ARCH).so)
-SANITIZE_ENV := LD_PRELOAD="$(ASAN_LIB)" ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:handle_abort=1
+# Memory freed goes back to the system, and the quarantine is small: the
+# suite's peaks (a generated population for each ActiveFacts model, the
+# OData service) otherwise stay resident and outgrow an 8 GB machine.
+SANITIZE_ENV := LD_PRELOAD="$(ASAN_LIB)" \
+  ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:handle_abort=1:allocator_release_to_os_interval_ms=100:quarantine_size_mb=64
 endif
 
 ifeq ($(UBSAN),1)
@@ -55,12 +62,13 @@ XCTEST ?= xctest
 # bundle, so they need no RESOURCE_FILES entry -- but the tests run from a
 # source tree, not an installed bundle. Bounded: a hang costs TEST_TIMEOUT
 # seconds, not the job's whole budget.
-# Twenty minutes: under AddressSanitizer the suite takes most of ten (the
-# constraint sentences and the import round trip are the slow ones).
-TEST_TIMEOUT ?= 1200
+# Forty minutes: under AddressSanitizer the suite takes over twenty (the
+# verbalizer's read-back, the query tests and the import round trip are
+# the slow ones); CI's job allows ninety.
+TEST_TIMEOUT ?= 2400
 
 .PHONY: run-tests
 run-tests: all
 	$(SANITIZE_ENV) \
-	LD_LIBRARY_PATH="$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$$LD_LIBRARY_PATH" \
+	LD_LIBRARY_PATH="$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$(if $(ODATAKIT),$(ODATAKIT)/obj:)$$LD_LIBRARY_PATH" \
 	  timeout -s ABRT $(TEST_TIMEOUT) $(XCTEST) $(BUNDLE_NAME).bundle

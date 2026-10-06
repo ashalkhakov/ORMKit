@@ -6,8 +6,9 @@
 
 @class ORMDocument;
 
-/* A document's window: the model browser on the left, the diagram with the
- * fact editor and the verbalization of the selection in the middle, the
+/* A document's window: the model browser on the left, the diagram (its
+ * pages as tabs under it) with the fact editor and the verbalization of the
+ * selection in the middle, the
  * inspector on the right, the tools across the top and a status line at the
  * bottom. ORMDocumentWindow.xib, without Auto Layout (gnustep-gui has none):
  * panes keep their place with springs and struts. */
@@ -60,4 +61,10 @@
  * object type. */
 - (IBAction)showQueries:(id)sender;
 - (IBAction)newQueryFromSelection:(id)sender;
+/* Query > Make Up a Sample Population. */
+- (IBAction)makeUpPopulation:(id)sender;
+/* The shapes selected, lined up as the sender's tag says (ORMAlignment). */
+- (IBAction)alignSelection:(id)sender;
+/* The diagram shown on the canvas, its page chosen. */
+- (void)openDiagram:(NSString *)diagramId;
 @end

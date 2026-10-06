@@ -104,11 +104,64 @@
 	return _undoManager;
 }
 
+/* XCTest keeps every test case to the end of the run: what one holds (an
+ * undo manager's copies of the document, each change's) is let go of when
+ * it is done. */
+- (void)tearDown
+{
+	[_undoManager removeAllActions];
+	_undoManager = nil;
+	[super tearDown];
+}
+
 - (ORMEditor *)newEditor
 {
 	_undoManager = [[NSUndoManager alloc] init];
 	[_undoManager setGroupsByEvent:NO];
 	return [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Test"] undoManager:_undoManager];
+}
+
+/* What Apple's model compiler says of the model, on a Mac; nil elsewhere
+ * or when it accepts it. */
+- (NSString *)momcRejects:(ORMCDModel *)model
+{
+	/* Apple's through xcrun; elsewhere FreeCoreData's, wherever PATH has it. */
+	NSString *launch = nil;
+	NSArray *arguments = nil;
+#if defined(__APPLE__)
+	launch = @"/usr/bin/xcrun";
+	arguments = @[ @"momc" ];
+#else
+	for (NSString *directory in [[[[NSProcessInfo processInfo] environment] objectForKey:@"PATH"] componentsSeparatedByString:@":"]) {
+		NSString *candidate = [directory stringByAppendingPathComponent:@"momc"];
+		if ([[NSFileManager defaultManager] isExecutableFileAtPath:candidate]) {
+			launch = candidate;
+			arguments = @[];
+			break;
+		}
+	}
+#endif
+	if (launch == nil) {
+		return nil;
+	}
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	NSString *package = [directory stringByAppendingPathComponent:@"Test.xcdatamodeld"];
+	NSError *error = nil;
+	if (![model writeToPackage:package error:&error]) {
+		return [error localizedDescription];
+	}
+	NSTask *task = [[NSTask alloc] init];
+	task.launchPath = launch;
+	task.arguments = [arguments arrayByAddingObjectsFromArray:@[ package, [directory stringByAppendingPathComponent:@"Test.momd"] ]];
+	NSPipe *pipe = [NSPipe pipe];
+	task.standardError = pipe;
+	task.standardOutput = pipe;
+	[task launch];
+	NSData *output = [[pipe fileHandleForReading] readDataToEndOfFile];
+	[task waitUntilExit];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+	NSString *text = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
+	return [task terminationStatus] == 0 ? nil : text;
 }
 
 @end

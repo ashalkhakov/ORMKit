@@ -44,7 +44,7 @@ mkdir -p "$DEPS_PATH"
 # patch invalidates the cached prefix. A branch name builds whatever is on it
 # that day and the cache will not notice.
 GNUSTEP_PATCHES_URL=${GNUSTEP_PATCHES_URL:-https://github.com/ashalkhakov/gnustep-patches.git}
-GNUSTEP_PATCHES_REF=${GNUSTEP_PATCHES_REF:-6eee3cc7bc1c751b88877b3fe4a6581517cccecb}
+GNUSTEP_PATCHES_REF=${GNUSTEP_PATCHES_REF:-00a9c890134abe3e752d49545556a228cb8b7122}
 GNUSTEP_PATCHES_DIR="$DEPS_PATH/gnustep-patches"
 
 install_gnustep_patches() {
@@ -80,6 +80,10 @@ install_libobjc2() {
     cd "$DEPS_PATH"
     git clone -q --recursive https://github.com/gnustep/libobjc2.git
     cd libobjc2
+    # ARC's fixes: a stack block retained is not copied away and leaked
+    # with what it captured (every completion handler that captures
+    # another), and an autorelease taken back is the callee's own.
+    apply_gnustep_patches libobjc2
     mkdir -p build && cd build
     cmake -DTESTS=off \
           -DCMAKE_BUILD_TYPE=RelWithDebInfo \

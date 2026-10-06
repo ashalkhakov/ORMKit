@@ -59,14 +59,21 @@ would have made it. See [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPING.md).
 
 ## Building
 
-macOS:
+ORMKit links [ODataKit](https://github.com/ashalkhakov/ODataKit), checked out
+beside this repository as `../ODataKit` ([docs/ODATA.md](docs/ODATA.md)).
+
+macOS, through the workspace, which builds ODataKit's frameworks too:
 
 ```sh
-xcodebuild -project ORMKit.xcodeproj -scheme ORMDesigner build
-xcodebuild -project ORMKit.xcodeproj -scheme ORMKitTests test
+xcodebuild -workspace ORMKit.xcworkspace -scheme ORMDesigner build
+xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests -destination 'platform=macOS' test
 ```
 
-GNUstep (clang, libobjc2, gnustep-2.0 runtime, tools-xctest):
+GNUstep (clang, libobjc2, gnustep-2.0 runtime, tools-xctest), with
+[FreeCoreData](https://github.com/ashalkhakov/gnustep-coredata) (its `Tools/momc`
+too) and then ODataKit built and installed first, at the commits CI pins
+(`FREECOREDATA_REF`, `ODATAKIT_REF` in `.github/workflows/ci.yml`; GNUstep
+itself with the fixes `GNUSTEP_PATCHES_REF` names applied):
 
 ```sh
 . /path/to/GNUstep.sh
@@ -75,7 +82,7 @@ make -C ORMKitTests run-tests
 xvfb-run -a make -C ORMDesignerTests run-tests
 ```
 
-or in docker: `.tools/gnustep.sh make -C ORMKitTests run-tests`.
+or in docker, in an image that has them: `.tools/gnustep.sh make -C ORMKitTests run-tests`.
 
 ## ormtool
 
@@ -96,8 +103,16 @@ standard output or a file, or every diagram into a directory, a file each.
 else into a new model, with what ORM cannot say on standard error.
 `validation` writes code that checks the constraints Core Data cannot enforce:
 a category on each entity's class, called from its `validateForInsert:` and
-`validateForUpdate:`. `query` prints a conceptual query (docs/QUERIES.md) as
-ConQuer's outline, in FORML, and as a Core Data fetch request.
+`validateForUpdate:`. `query` prints a conceptual query ([docs/QUERIES.md](docs/QUERIES.md)) as
+ConQuer's outline, in FORML, as a request to the OData service ODataKit makes
+of the mapping, as its plan with the fetches that run it, and as the rows it
+finds in the model's sample population.
+
+[Samples/](Samples/README.md) has models to start from: the schemas of
+Halpin's papers on conceptual queries and on UML and ORM, with the papers'
+queries. Queries run on a model's sample population, kept in the `.orm` as
+NORMA keeps it, or made up to meet the constraints
+([docs/POPULATIONS.md](docs/POPULATIONS.md)).
 
 ## License
 
@@ -106,4 +121,8 @@ are Clifford Heath's ActiveFacts examples, under the MIT license
 (`ORMKitTests/Fixtures/ActiveFacts/LICENSE.txt`); those in
 `ORMKitTests/Fixtures/NORMA` are NORMA's sample and test models, under the
 Common Public License 1.0 (`ORMKitTests/Fixtures/NORMA/LICENSE.txt`). Neither
-is part of the library.
+is part of the library. The models in `Samples/` are ORMKit's own, of
+schemas Halpin's papers publish; StockMate, which ORMDesigner also bundles,
+is its author's, used with their leave. ORMDesigner's tab bars are Daniele
+Margutti's DMTabBar, under the MIT license
+(`ORMDesigner/ThirdParty/DMTabBar/LICENSE-DMTabBar.txt`, also in the app).

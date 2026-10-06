@@ -191,6 +191,191 @@
 	XCTAssertEqual([[editor.model elementWithId:frequency] maxFrequency], (NSUInteger)3);
 }
 
+/* A constraint drawn as a shape of its own is shown, as it is added, on the
+ * diagrams that show its fact types, as NORMA shows one: in the same
+ * change, so one undo takes both. A fact type no diagram shows, none. */
+- (void)testAddedConstraintsAreShownWhereTheirFactTypesAre
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *name = [editor.objectTypeEditor addValueTypeNamed:@"Name" dataType:@"VariableLengthTextDataType" onDiagram:nil
+	                                        at:NSZeroPoint reason:NULL];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *namedId = [self fact:@[ person, name ] reading:@"{0} has {1}" in:editor];
+	NSString *bornId = [self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor];
+	NSArray *named = [[editor.model elementWithId:namedId] roles];
+	NSArray *born = [[editor.model elementWithId:bornId] roles];
+	NSString *reason = nil;
+	NSString *external = [editor.constraintEditor addUniquenessConstraintOverRoles:@[ [named[1] identifier], [born[1] identifier] ]
+	                                                                        reason:&reason];
+	XCTAssertNotNil(external, @"%@", reason);
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	XCTAssertNotNil([diagram shapeForSubject:external]);
+	NSString *exclusion = [editor.constraintEditor addSetComparisonConstraint:ORMExclusionConstraint
+	                                                                sequences:@[ @[ [named[0] identifier] ], @[ [born[0] identifier] ] ]
+	                                                                   reason:&reason];
+	XCTAssertNotNil([[editor.model.diagrams firstObject] shapeForSubject:exclusion], @"%@", reason);
+	/* One step: the constraint and its shape. */
+	[self.undoManager undo];
+	XCTAssertNil([editor.model elementWithId:exclusion]);
+	XCTAssertNil([[editor.model.diagrams firstObject] shapeForSubject:exclusion]);
+	XCTAssertNotNil([[editor.model.diagrams firstObject] shapeForSubject:external]);
+	/* A ring, a shape of its own too. */
+	NSString *knowsId = [self fact:@[ person, person ] reading:@"{0} knows {1}" in:editor];
+	NSArray *knows = [[editor.model elementWithId:knowsId] roles];
+	NSString *ring = [editor.constraintEditor addRingConstraint:ORMRingIrreflexive
+	                                                  overRoles:@[ [knows[0] identifier], [knows[1] identifier] ]
+	                                                     reason:&reason];
+	XCTAssertNotNil([[editor.model.diagrams firstObject] shapeForSubject:ring], @"%@", reason);
+	/* Over a fact type no diagram shows: no shape. */
+	NSString *likedId = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, person ] reading:@"{0} likes {1}" onDiagram:nil
+	                                                               at:NSZeroPoint reason:&reason];
+	NSArray *likes = [[editor.model elementWithId:likedId] roles];
+	NSString *hidden = [editor.constraintEditor addRingConstraint:ORMRingIrreflexive
+	                                                    overRoles:@[ [likes[0] identifier], [likes[1] identifier] ]
+	                                                       reason:&reason];
+	XCTAssertNotNil(hidden, @"%@", reason);
+	XCTAssertNil([[editor.model.diagrams firstObject] shapeForSubject:hidden]);
+}
+
+/* The issues an issue navigator lists: the model's own errors, what its
+ * population breaks, what the mapping warns of; errors first. */
+- (void)testIssuesAreFound
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *thing = [self entity:@"Thing" mode:nil in:editor];
+	NSString *likes = [self fact:@[ person, thing ] reading:@"{0} likes {1}" in:editor];
+	NSArray *issues = [[[ORMIssueFinder alloc] initWithModel:editor.model mapping:nil] issues];
+	NSArray *texts = [issues valueForKey:@"text"];
+	XCTAssertTrue([texts containsObject:@"Thing has no reference scheme: nothing identifies it."], @"%@", texts);
+	XCTAssertTrue([texts containsObject:@"\"Person likes Thing\" has no uniqueness constraint."], @"%@", texts);
+	ORMIssue *first = [issues firstObject];
+	XCTAssertEqual(first.severity, ORMIssueError);
+	XCTAssertTrue(([@[ thing, likes ] containsObject:first.elementId]), @"%@", first.elementId);
+	NSArray *roles = [[editor.model elementWithId:likes] roles];
+	XCTAssertNotNil([editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[0] identifier] ] reason:NULL]);
+	texts = [[[[ORMIssueFinder alloc] initWithModel:editor.model mapping:nil] issues] valueForKey:@"text"];
+	XCTAssertFalse([texts containsObject:@"\"Person likes Thing\" has no uniqueness constraint."], @"%@", texts);
+
+	/* The Company sample: Gus breaks its deontic rule, a warning. */
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	NSString *path = [[root stringByAppendingPathComponent:@"Samples"] stringByAppendingPathComponent:@"Company.orm"];
+	ORMModel *company = [ORMModel modelOfDocument:ORMParseDocument([NSData dataWithContentsOfFile:path], NULL) reason:NULL];
+	NSArray *found = [[[ORMIssueFinder alloc] initWithModel:company mapping:nil] issues];
+	ORMIssue *gus = nil;
+	for (ORMIssue *issue in found) {
+		if ([issue.text hasPrefix:@"Lives near work:"]) {
+			gus = issue;
+		}
+	}
+	XCTAssertNotNil(gus, @"%@", [found valueForKey:@"text"]);
+	XCTAssertEqual(gus.severity, ORMIssueWarning);
+	XCTAssertEqualObjects(gus.area, @"Population");
+	for (ORMIssue *issue in found) {
+		XCTAssertNotEqual(issue.severity, ORMIssueError, @"%@", issue.text);
+	}
+}
+
+/* Readings that do not read, as NORMA finds them in a file: the wrong
+ * placeholders, an order missing a role, two fact types read the same way;
+ * and a reading with no words but its players, a warning. */
+- (void)testReadingsThatDoNotReadAreIssues
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *thing = [self entity:@"Thing" mode:@"code" in:editor];
+	NSString *likes = [self fact:@[ person, thing ] reading:@"{0} likes {1}" in:editor];
+	NSString *twice = [self fact:@[ person, thing ] reading:@"{0} likes  {1}" in:editor];
+	NSString *hates = [self fact:@[ person, thing ] reading:@"{0} hates {1}" in:editor];
+	NSString *owns = [self fact:@[ person, thing ] reading:@"{0} owns {1}" in:editor];
+	NSString *bare = [self fact:@[ person, thing ] reading:@"{0} is near {1}" in:editor];
+	NSArray *before = [[[[ORMIssueFinder alloc] initWithModel:editor.model mapping:nil] issues] valueForKey:@"text"];
+	XCTAssertTrue([before containsObject:@"\"Person likes  Thing\" reads the same as \"Person likes Thing\", another fact type."],
+	              @"%@", before);
+
+	/* What the editor would not write, written into a copy of the file. */
+	NSXMLDocument *document = [editor.document copy];
+	ORMModel *model = [ORMModel modelOfDocument:document reason:NULL];
+	NSXMLElement *(^data)(NSString *) = ^NSXMLElement *(NSString *factId) {
+		ORMReading *reading = [[model elementWithId:factId] primaryReading];
+		return ORMChild(reading.element, ORMCoreNamespace, @"Data");
+	};
+	[data(hates) setStringValue:@"{0} hates {2}"];
+	[data(bare) setStringValue:@"{0} {1}"];
+	ORMReadingOrder *order = [[[model elementWithId:owns] readingOrders] firstObject];
+	NSXMLElement *sequence = ORMChild(order.element, ORMCoreNamespace, @"RoleSequence");
+	[sequence removeChildAtIndex:1];
+	model = [ORMModel modelOfDocument:document reason:NULL];
+	NSArray *issues = [[[ORMIssueFinder alloc] initWithModel:model mapping:nil] issues];
+	NSMutableDictionary *about = [NSMutableDictionary dictionary];
+	for (ORMIssue *issue in issues) {
+		if ([issue.text rangeOfString:@"read"].location != NSNotFound) {
+			about[issue.elementId] = issue;
+		}
+	}
+	XCTAssertEqual([about[hates] severity], ORMIssueError);
+	XCTAssertTrue([[about[hates] text] hasPrefix:@"The reading \"{0} hates {2}\" of"], @"%@", [about[hates] text]);
+	XCTAssertEqual([about[owns] severity], ORMIssueError, @"%@", [issues valueForKey:@"text"]);
+	XCTAssertTrue([[about[owns] text] rangeOfString:@"does not place its roles"].location != NSNotFound);
+	XCTAssertEqual([about[bare] severity], ORMIssueWarning, @"%@", [issues valueForKey:@"text"]);
+	XCTAssertEqual([about[twice] severity], ORMIssueError);
+	XCTAssertNil(about[likes]);
+
+	/* NORMA's own files read. */
+	ORMModel *stock = [ORMModel modelOfDocument:ORMParseDocument([NSData dataWithContentsOfFile:[self fixturePath:@"StockMate.orm"]], NULL)
+	                                     reason:NULL];
+	for (ORMIssue *issue in [[[ORMIssueFinder alloc] initWithModel:stock mapping:nil] issues]) {
+		XCTAssertTrue([issue.text rangeOfString:@"read"].location == NSNotFound, @"%@", issue.text);
+	}
+}
+
+/* NORMA's alignment: edges to the outermost, centres to the first,
+ * spacing even between the outermost two; what a shape carries moves with
+ * it; one change, one undo. */
+- (void)testShapesAreAligned
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *a = [self entity:@"A" mode:@"id" in:editor];
+	NSString *b = [self entity:@"B" mode:@"id" in:editor];
+	NSString *c = [self entity:@"C" mode:@"id" in:editor];
+	NSString *fact = [self fact:@[ a, b ] reading:@"{0} knows {1}" in:editor];
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	NSString *(^shape)(NSString *) = ^NSString *(NSString *element) {
+		return [[[editor.model.diagrams firstObject] shapeForSubject:element] identifier];
+	};
+	NSRect (^bounds)(NSString *) = ^NSRect(NSString *element) {
+		return [[[editor.model.diagrams firstObject] shapeForSubject:element] bounds];
+	};
+	[editor.diagramEditor setBounds:NSMakeRect(10, 10, 60, 30) ofShape:shape(a)];
+	[editor.diagramEditor setBounds:NSMakeRect(100, 50, 80, 30) ofShape:shape(b)];
+	[editor.diagramEditor setBounds:NSMakeRect(300, 200, 40, 20) ofShape:shape(c)];
+	(void)diagram;
+	NSString *reason = nil;
+	XCTAssertFalse(([editor.diagramEditor alignShapes:@[ shape(a) ] as:ORMAlignLeft reason:&reason]));
+	XCTAssertFalse(([editor.diagramEditor alignShapes:@[ shape(a), shape(b) ] as:ORMDistributeAcross reason:&reason]));
+	XCTAssertTrue(([editor.diagramEditor alignShapes:@[ shape(a), shape(b), shape(c) ] as:ORMAlignLeft reason:&reason]));
+	XCTAssertEqual(NSMinX(bounds(b)), 10.0);
+	XCTAssertEqual(NSMinX(bounds(c)), 10.0);
+	[self.undoManager undo];
+	XCTAssertEqual(NSMinX(bounds(b)), 100.0);
+	XCTAssertEqual(NSMinX(bounds(c)), 300.0);
+	XCTAssertTrue(([editor.diagramEditor alignShapes:@[ shape(b), shape(a) ] as:ORMAlignCentres reason:&reason]));
+	XCTAssertEqual(NSMidX(bounds(a)), NSMidX(bounds(b)));
+	XCTAssertEqual(NSMidX(bounds(b)), 140.0);
+	XCTAssertTrue(([editor.diagramEditor alignShapes:@[ shape(a), shape(b), shape(c) ] as:ORMDistributeDown reason:&reason]));
+	double first = NSMidY(bounds(a)), middle = NSMidY(bounds(b)), last = NSMidY(bounds(c));
+	XCTAssertEqualWithAccuracy(middle - first, last - middle, 0.001);
+	/* A fact type's reading moves with it. */
+	NSRect reading = [[[[[editor.model.diagrams firstObject] shapeForSubject:fact] relativeShapes] firstObject] bounds];
+	NSRect factBounds = bounds(fact);
+	XCTAssertTrue(([editor.diagramEditor alignShapes:@[ shape(a), shape(fact) ] as:ORMAlignTop reason:&reason]));
+	double moved = NSMinY(bounds(fact)) - NSMinY(factBounds);
+	NSRect readingNow = [[[[[editor.model.diagrams firstObject] shapeForSubject:fact] relativeShapes] firstObject] bounds];
+	XCTAssertEqualWithAccuracy(NSMinY(readingNow) - NSMinY(reading), moved, 0.001);
+}
+
 - (void)testSubtypingRefusesCycles
 {
 	ORMEditor *editor = [self newEditor];
@@ -230,6 +415,24 @@
 	for (ORMFactType *link in editor.model.factTypes) {
 		XCTAssertNotEqual(link.kind, ORMFactTypeImplied);
 	}
+}
+
+/* A role an objectified fact type plays is drawn to its outline: no shape
+ * of its own, and arranging keeps the two together. */
+- (void)testAnObjectifiedFactTypeIsWhereItsRolesAreDrawn
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *visit = [self fact:@[ person, country ] reading:@"{0} visited {1}" in:editor];
+	NSString *visitType = [editor.factTypeEditor objectifyFactType:visit named:@"Visit" reason:NULL];
+	NSString *period = [self entity:@"Period" mode:@"days" in:editor];
+	[self fact:@[ visitType, period ] reading:@"{0} took {1}" in:editor];
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	XCTAssertNil([diagram shapeForSubject:visitType]);
+	[editor.diagramEditor arrangeDiagram:diagram.identifier];
+	NSRect extent = [[editor.model.diagrams firstObject] extent];
+	XCTAssertTrue(NSWidth(extent) < 8 * 72 && NSHeight(extent) < 8 * 72, @"%@", NSStringFromRect(extent));
 }
 
 - (void)testDeletingCascades

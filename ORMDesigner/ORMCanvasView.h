@@ -56,6 +56,11 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
 - (NSArray<NSString *> *)selectedElements;
 /* Selects the shapes on this diagram for the elements. */
 - (void)selectElements:(NSArray<NSString *> *)elementIds;
+/* A role box selected, as a second click on it selects it. */
+- (void)selectRole:(NSString *)roleId;
+/* The role box the last click was on, whatever it selected: the first
+ * click on a fact type selects the fact type, the next a role. */
+@property (nonatomic, readonly, copy) NSString *clickedRole;
 - (void)clearSelection;
 
 /* After the editor changed the model: the projection is new. */
@@ -71,6 +76,11 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
  * placed at the point (or wherever there is room), its name in edit. */
 - (void)createObjectTypeAt:(NSPoint)point value:(BOOL)value;
 - (IBAction)chooseTool:(id)sender;
+/* The same, the tool given: what the Insert palette chooses. */
+- (void)useTool:(ORMCanvasTool)tool;
+/* What the tool puts at the point, in one click: an entity or value type,
+ * or a note. NO for a tool that takes more (a fact type, a constraint). */
+- (BOOL)placeTool:(ORMCanvasTool)tool at:(NSPoint)point;
 - (IBAction)delete:(id)sender;
 - (IBAction)removeFromDiagram:(id)sender;
 - (IBAction)toggleUniqueness:(id)sender;

@@ -3,15 +3,22 @@
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
 #import "ORMQueryController.h"
+#import "ORMInsertPalette.h"
+#import "ORMIssuesView.h"
+#import "ORMSearchNavigator.h"
+#import "ORMPopulationView.h"
+#import "ORMPane.h"
+#import "ThirdParty/DMTabBar/DMTabBar.h"
 
 static const double ORMFactBarHeight = 30;
 
-@interface ORMWindowController ()
+@interface ORMWindowController () <ORMInsertPaletteDelegate, ORMNavigatorDelegate>
 @property (nonatomic, readwrite, strong) IBOutlet ORMCanvasView *canvas;
 @property (nonatomic, readwrite, strong) IBOutlet ORMInspectorView *inspector;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextView *verbalization;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *factEditor;
 @property (nonatomic, readwrite, strong) IBOutlet NSPopUpButton *diagramPopup;
+@property (nonatomic, strong) IBOutlet NSView *diagramTabsBar;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextField *status;
 @property (nonatomic, strong) IBOutlet NSOutlineView *browserOutline;
 @property (nonatomic, strong) IBOutlet NSView *toolBar;
@@ -22,12 +29,26 @@ static const double ORMFactBarHeight = 30;
 @property (nonatomic, strong) IBOutlet NSScrollView *inspectorScroll;
 @property (nonatomic, strong) IBOutlet NSSplitView *columnsSplit;
 @property (nonatomic, strong) IBOutlet NSSplitView *middleSplit;
+/* The navigator (docs/WINDOW.md): its tab bar and tabs, and the hosts of
+ * the panes put in them. */
+@property (nonatomic, strong) IBOutlet NSView *leftTabBar;
+@property (nonatomic, strong) IBOutlet NSTabView *leftTabView;
+@property (nonatomic, strong) IBOutlet NSView *insertHost;
+@property (nonatomic, strong) IBOutlet NSView *searchHost;
+@property (nonatomic, strong) IBOutlet NSView *issuesHost;
+@property (nonatomic, strong) ORMInsertPalette *insertPalette;
+@property (nonatomic, strong) ORMSearchNavigator *searchNavigator;
+@property (nonatomic, strong) ORMIssuesView *issuesView;
+/* The tabs under the canvas, and the Population tab's pane. */
+@property (nonatomic, strong) IBOutlet NSView *lowerTabBar;
+@property (nonatomic, strong) IBOutlet NSTabView *lowerTabView;
+@property (nonatomic, strong) IBOutlet NSView *populationHost;
+@property (nonatomic, strong) ORMPopulationView *populationView;
 @end
 
 @implementation ORMWindowController
 {
 	__weak ORMDocument *_document;
-	NSMutableArray<NSButton *> *_toolButtons;
 	ORMCoreDataController *_coreData;
 	ORMQueryController *_queries;
 	/* What the verbalization shows when nothing is selected: the model, or
@@ -39,7 +60,6 @@ static const double ORMFactBarHeight = 30;
 {
 	if ((self = [super initWithWindowNibName:@"ORMDocumentWindow"])) {
 		_document = document;
-		_toolButtons = [NSMutableArray array];
 		[self window];
 	}
 	return self;
@@ -58,29 +78,105 @@ static const double ORMFactBarHeight = 30;
 	return button;
 }
 
-/* The tools across the top: made here, each as wide as its title is in
- * the font the platform has. */
-- (void)makeToolButtons
+/* The navigator's tabs, as RDLDesigner's (docs/WINDOW.md): a badge each,
+ * its name the tool tip; and the panes put in them. */
+- (void)makeNavigator
 {
-	NSArray *tools = @[ @[ @"Select", @(ORMToolPointer) ], @[ @"Entity", @(ORMToolEntityType) ],
-	                    @[ @"Value", @(ORMToolValueType) ], @[ @"Fact", @(ORMToolFactType) ],
-	                    @[ @"Subtype", @(ORMToolSubtype) ], @[ @"Role →", @(ORMToolConnectRole) ],
-	                    @[ @"Unique", @(ORMToolUniqueness) ], @[ @"Or", @(ORMToolInclusiveOr) ],
-	                    @[ @"Excl", @(ORMToolExclusion) ], @[ @"Xor", @(ORMToolExclusiveOr) ],
-	                    @[ @"⊆", @(ORMToolSubset) ], @[ @"=", @(ORMToolEquality) ],
-	                    @[ @"Freq", @(ORMToolFrequency) ], @[ @"Ring", @(ORMToolRing) ], @[ @"Note", @(ORMToolNote) ] ];
-	double x = 6;
-	for (NSArray *tool in tools) {
-		NSString *title = [tool objectAtIndex:0];
-		/* The rounded bezel takes about 14 points a side. */
-		double width = MAX(36, ceil([title sizeWithAttributes:@{ NSFontAttributeName: [NSFont systemFontOfSize:[NSFont smallSystemFontSize]] }].width) + 30);
-		NSButton *button = [self button:title action:@selector(toolClicked:) frame:NSMakeRect(x, 4, width, 26)];
-		[button setButtonType:NSButtonTypePushOnPushOff];
-		[button setTag:[[tool objectAtIndex:1] integerValue]];
-		[self.toolBar addSubview:button];
-		[_toolButtons addObject:button];
-		x += width + 2;
+	DMTabBar *bar = (DMTabBar *)self.leftTabBar;
+	if ([bar isKindOfClass:[DMTabBar class]]) {
+		NSMutableArray *items = [NSMutableArray array];
+		NSUInteger tag = 0;
+		for (NSArray *page in @[ @[ @"O", @"Outline", @0.47, @0.53, @0.64 ], @[ @"I", @"Insert", @0.32, @0.60, @0.53 ],
+		                         @[ @"S", @"Search", @0.36, @0.49, @0.72 ], @[ @"!", @"Issues", @0.72, @0.42, @0.40 ] ]) {
+			DMTabBarItem *item = [DMTabBarItem tabBarItemWithIcon:ORMTabBadge([page objectAtIndex:0],
+			                                                                  [[page objectAtIndex:2] doubleValue],
+			                                                                  [[page objectAtIndex:3] doubleValue],
+			                                                                  [[page objectAtIndex:4] doubleValue])
+			                                                  tag:tag++];
+			item.toolTip = [page objectAtIndex:1];
+			[items addObject:item];
+		}
+		bar.tabBarItems = items;
+		[bar setTarget:self action:@selector(navigatorTabChanged:)];
+		bar.selectedIndex = 0;
 	}
+	self.insertPalette = [[ORMInsertPalette alloc] initWithFrame:[self.insertHost bounds]];
+	self.insertPalette.delegate = self;
+	ORMFillHost(self.insertHost, self.insertPalette);
+	self.searchNavigator = [[ORMSearchNavigator alloc] initWithFrame:[self.searchHost bounds]];
+	self.searchNavigator.delegate = self;
+	ORMFillHost(self.searchHost, self.searchNavigator);
+	self.issuesView = [[ORMIssuesView alloc] initWithFrame:[self.issuesHost bounds]];
+	self.issuesView.delegate = self;
+	ORMFillHost(self.issuesHost, self.issuesView);
+}
+
+/* The issues found again a moment after the model changes, as RDLDesigner's
+ * problems pane does: a burst of changes finds them once. */
+- (void)scheduleIssues
+{
+	[NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(findIssues) object:nil];
+	[self performSelector:@selector(findIssues) withObject:nil afterDelay:0.5];
+}
+
+- (void)findIssues
+{
+	self.issuesView.editor = [self editor];
+	[self.issuesView reload];
+}
+
+/* An element chosen in a navigator: shown, on a page that shows it; a
+ * query's id, the Queries window on it. */
+- (void)navigatorDidChooseElement:(NSString *)elementId
+{
+	ORMModel *model = [self editor].model;
+	if ([model elementWithId:elementId] == nil) {
+		if ([ORMQuery queryWithId:elementId inModel:model] != nil) {
+			ORMQueryController *queries = [self queryController];
+			queries.queryId = elementId;
+			[queries showWindow:self];
+			[queries modelDidChange];
+		}
+		return;
+	}
+	if ([[_canvas diagram] shapeForSubject:elementId] == nil) {
+		for (ORMDiagram *diagram in model.diagrams) {
+			if ([diagram shapeForSubject:elementId] != nil) {
+				[self openDiagram:diagram.identifier];
+				break;
+			}
+		}
+	}
+	[self showElement:elementId];
+}
+
+/* The bar's item chosen: its tab. The sender is the bar, not the item. */
+- (void)navigatorTabChanged:(id)sender
+{
+	if (![sender isKindOfClass:[DMTabBar class]]) {
+		return;
+	}
+	NSInteger index = (NSInteger)[(DMTabBar *)sender selectedIndex];
+	if (index >= 0 && index < [self.leftTabView numberOfTabViewItems]) {
+		[self.leftTabView selectTabViewItemAtIndex:index];
+	}
+}
+
+/* The top bar's alignment (docs/WINDOW.md): the shapes selected, lined up
+ * as the button's tag says (ORMAlignment). */
+- (IBAction)alignSelection:(id)sender
+{
+	NSString *reason = nil;
+	if (![[self editor].diagramEditor alignShapes:_canvas.selectedShapes as:(ORMAlignment)[sender tag] reason:&reason]) {
+		NSBeep();
+		[self say:reason];
+	}
+}
+
+- (void)insertPalette:(ORMInsertPalette *)palette didChooseTool:(ORMCanvasTool)tool
+{
+	(void)palette;
+	[self.canvas useTool:tool];
 }
 
 - (void)filterBrowser:(id)sender
@@ -126,7 +222,8 @@ static const double ORMFactBarHeight = 30;
 - (void)windowDidLoad
 {
 	[super windowDidLoad];
-	[self makeToolButtons];
+	[self makeNavigator];
+	[self makeLowerTabs];
 	[self.browserOutline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
 	_browser = [[ORMModelBrowser alloc] initWithOutlineView:self.browserOutline];
 	_browser.delegate = self;
@@ -153,6 +250,66 @@ static const double ORMFactBarHeight = 30;
 	[self layoutColumns:self.columnsSplit];
 	[self layoutMiddle:self.middleSplit];
 	[self editorDidChange];
+}
+
+#pragma mark The tabs under the canvas
+
+/* Verbalization, Fact entry and Population (docs/WINDOW.md): a badge each
+ * on the bar under the canvas, the page popup on its right. */
+- (void)makeLowerTabs
+{
+	DMTabBar *bar = (DMTabBar *)self.lowerTabBar;
+	if ([bar isKindOfClass:[DMTabBar class]]) {
+		NSMutableArray *items = [NSMutableArray array];
+		NSUInteger tag = 0;
+		for (NSArray *page in @[ @[ @"V", @"Verbalization", @0.47, @0.53, @0.64 ], @[ @"F", @"Fact entry", @0.32, @0.60, @0.53 ],
+		                         @[ @"P", @"Population", @0.70, @0.48, @0.32 ] ]) {
+			DMTabBarItem *item = [DMTabBarItem tabBarItemWithIcon:ORMTabBadge([page objectAtIndex:0],
+			                                                                  [[page objectAtIndex:2] doubleValue],
+			                                                                  [[page objectAtIndex:3] doubleValue],
+			                                                                  [[page objectAtIndex:4] doubleValue])
+			                                                  tag:tag++];
+			item.toolTip = [page objectAtIndex:1];
+			[items addObject:item];
+		}
+		bar.tabBarItems = items;
+		[bar setTarget:self action:@selector(lowerTabChanged:)];
+		bar.selectedIndex = 0;
+	}
+	self.populationView = [[ORMPopulationView alloc] initWithFrame:[self.populationHost bounds]];
+	ORMFillHost(self.populationHost, self.populationView);
+}
+
+- (void)lowerTabChanged:(id)sender
+{
+	if (![sender isKindOfClass:[DMTabBar class]]) {
+		return;
+	}
+	[self showLowerTab:(NSInteger)[(DMTabBar *)sender selectedIndex]];
+}
+
+/* The tab under the canvas, and its badge selected. */
+- (void)showLowerTab:(NSInteger)index
+{
+	if (index < 0 || index >= [self.lowerTabView numberOfTabViewItems]) {
+		return;
+	}
+	[self.lowerTabView selectTabViewItemAtIndex:index];
+	if ([[[self.lowerTabView selectedTabViewItem] identifier] isEqual:@"population"]) {
+		/* What it skipped while hidden: the checker's violations. */
+		[self.populationView reload];
+	}
+	DMTabBar *bar = (DMTabBar *)self.lowerTabBar;
+	if ([bar isKindOfClass:[DMTabBar class]] && (NSInteger)bar.selectedIndex != index) {
+		bar.selectedIndex = (NSUInteger)index;
+	}
+}
+
+/* The Population tab's element: the one selected, when it has one. */
+- (void)showPopulationOf:(NSString *)elementId
+{
+	self.populationView.editor = [self editor];
+	self.populationView.elementId = elementId;
 }
 
 #pragma mark Splits
@@ -219,6 +376,9 @@ static const double ORMFactBarHeight = 30;
 	_browser.editor = editor;
 	_coreData.editor = editor;
 	_queries.editor = editor;
+	self.searchNavigator.editor = editor;
+	[self.searchNavigator reload];
+	[self scheduleIssues];
 	if (_canvas.diagramId == nil || [editor.model elementWithId:_canvas.diagramId] == nil) {
 		_canvas.diagramId = [[editor.model.diagrams firstObject] identifier];
 	}
@@ -229,6 +389,8 @@ static const double ORMFactBarHeight = 30;
 - (void)modelChanged
 {
 	ORMModel *model = [self editor].model;
+	[self.searchNavigator reload];
+	[self scheduleIssues];
 	if ([model elementWithId:_canvas.diagramId] == nil) {
 		_canvas.diagramId = [[model.diagrams firstObject] identifier];
 	}
@@ -266,6 +428,7 @@ static const double ORMFactBarHeight = 30;
 	if ([elements count] == 0 && _inspector.elementId != nil) {
 		elements = @[ _inspector.elementId ];
 	}
+	[self showPopulationOf:[elements firstObject]];
 	NSMutableArray *sentences = [NSMutableArray array];
 	if ([elements count] == 0 && _verbalizesModel) {
 		[sentences addObjectsFromArray:[verbalizer sentencesForModel]];
@@ -328,6 +491,20 @@ static const double ORMFactBarHeight = 30;
 
 - (void)canvasSelectionDidChange:(ORMCanvasView *)canvas
 {
+	/* The Queries window building from the diagram: a role box clicked
+	 * extends the query; an object type, with no query yet, starts one. */
+	if (_queries != nil && [[_queries window] isVisible] && _queries.buildsFromDiagram) {
+		NSString *roleId = canvas.clickedRole;
+		ORMRole *role = roleId != nil ? [[self editor].model elementWithId:roleId] : nil;
+		if ([role isKindOfClass:[ORMRole class]]) {
+			[_queries followRole:role];
+		} else if (_queries.queryId == nil && [[canvas selectedElements] count] == 1) {
+			id element = [[self editor].model elementWithId:[[canvas selectedElements] firstObject]];
+			if ([element isKindOfClass:[ORMObjectType class]]) {
+				[_queries addQueryFrom:[element identifier]];
+			}
+		}
+	}
 	NSArray *elements = [canvas selectedElements];
 	_inspector.elementId = [elements firstObject];
 	[self showVerbalization];
@@ -344,9 +521,7 @@ static const double ORMFactBarHeight = 30;
 
 - (void)canvasToolDidChange:(ORMCanvasView *)canvas
 {
-	for (NSButton *button in _toolButtons) {
-		[button setState:[button tag] == canvas.tool ? NSControlStateValueOn : NSControlStateValueOff];
-	}
+	[self.insertPalette showTool:canvas.tool];
 }
 
 - (void)inspector:(ORMInspectorView *)inspector say:(NSString *)message
@@ -384,11 +559,6 @@ static const double ORMFactBarHeight = 30;
 }
 
 #pragma mark Actions
-
-- (void)toolClicked:(id)sender
-{
-	[_canvas chooseTool:sender];
-}
 
 - (void)zoomCanvasIn:(id)sender
 {
@@ -448,6 +618,7 @@ static const double ORMFactBarHeight = 30;
 - (IBAction)focusFactEditor:(id)sender
 {
 	(void)sender;
+	[self showLowerTab:1];
 	[[self window] makeFirstResponder:_factEditor];
 }
 
@@ -724,6 +895,15 @@ static const double ORMFactBarHeight = 30;
 	ORMQueryController *controller = [self queryController];
 	[controller addQueryFrom:type.identifier];
 	[controller showWindow:self];
+}
+
+/* The sample population made up, and the queries shown to run on it. */
+- (IBAction)makeUpPopulation:(id)sender
+{
+	ORMQueryController *controller = [self queryController];
+	[controller makeUpPopulation:sender];
+	[controller showWindow:self];
+	[self say:@"A sample population: the Queries window's Results tab runs each query on it."];
 }
 
 - (IBAction)importCoreData:(id)sender
