@@ -237,6 +237,8 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 @property (nonatomic, readwrite, strong) ORMQueryPlan *plan;
 @property (nonatomic, readwrite, strong) ORMPlanDefinition *definition;
 @property (nonatomic, readwrite, copy) NSArray<NSArray<ORMPlanPath *> *> *pairs;
+@property (nonatomic, readwrite, copy) NSString *boundVariable;
+@property (nonatomic, readwrite) BOOL isOptional;
 @end
 
 @implementation ORMPlanCondition
@@ -398,6 +400,19 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 	return condition;
 }
 
++ (instancetype)matchesDefinition:(ORMPlanDefinition *)definition
+                            pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs
+                          binding:(NSString *)variable
+                            where:(ORMPlanCondition *)condition
+                         optional:(BOOL)optional
+{
+	ORMPlanCondition *matches = [self matchesDefinition:definition pairs:pairs outer:nil];
+	matches.boundVariable = variable;
+	matches.operand = condition;
+	matches.isOptional = optional;
+	return matches;
+}
+
 + (instancetype)among:(ORMPlanPath *)path trail:(NSArray<NSString *> *)keys from:(ORMPlanPath *)base
 {
 	ORMPlanCondition *condition = [self among:path trail:keys];
@@ -435,6 +450,12 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 			[inner removeObject:self.variable];
 		}
 		[free unionSet:inner];
+		/* What is asked of the object it binds. */
+		NSMutableSet *bound = [NSMutableSet setWithSet:[self.operand freeVariables] ?: [NSSet set]];
+		if (self.boundVariable != nil) {
+			[bound removeObject:self.boundVariable];
+		}
+		[free unionSet:bound];
 		return free;
 	}
 	if (self.operand != nil) {
@@ -517,6 +538,13 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 		NSMutableArray *pairs = [NSMutableArray array];
 		for (NSArray *pair in self.pairs) {
 			[pairs addObject:[NSString stringWithFormat:@"%@ = %@", [pair firstObject], [pair lastObject]]];
+		}
+		if (self.boundVariable != nil) {
+			return [NSString stringWithFormat:@"%@ %@ in %@ with %@%@", self.isOptional ? @"maybe" : @"some",
+			                                  self.boundVariable, self.definition.name ?: @"[a plan]",
+			                                  [pairs componentsJoinedByString:@", "],
+			                                  self.operand != nil ? [@" has " stringByAppendingString:[self.operand wrapped]]
+			                                                      : @""];
 		}
 		if (self.definition != nil) {
 			return [NSString stringWithFormat:@"%@ in %@%@", [pairs componentsJoinedByString:@", "], self.definition.name,
@@ -1085,6 +1113,12 @@ ORMConditionList(ORMPlanCondition *condition)
 		}
 		[list setObject:pairs forKey:@"pairs"];
 	}
+	if (condition.boundVariable != nil) {
+		[list setObject:condition.boundVariable forKey:@"binding"];
+	}
+	if (condition.isOptional) {
+		[list setObject:@YES forKey:@"optional"];
+	}
 	return list;
 }
 
@@ -1337,6 +1371,13 @@ ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined
 		}
 		condition.pairs = pairs;
 	}
+	id binding = [list objectForKey:@"binding"];
+	if (binding != nil && !ORMPlanIsName(binding)) {
+		*error = ORMPlanError([NSString stringWithFormat:@"%@ is no variable's name.", binding]);
+		return nil;
+	}
+	condition.boundVariable = binding;
+	condition.isOptional = [[list objectForKey:@"optional"] boolValue];
 	return condition;
 }
 

@@ -22,6 +22,15 @@
  * objectifying type, the role its proxy stands for; to it, the fact type's
  * entity, as from that role). */
 + (NSString *)sourceOfRole:(ORMRole *)role;
+/* Where a joined entity type's member has the property traced to the
+ * source (docs/JOINED-ENTITIES.md): the hops from the entity to it, each
+ * @[ member entity, @[ @[ the name on the entity before, its own ], ... ],
+ * @(outer) ]. nil where no member has it, or the member is not reached
+ * from the entity. */
+- (NSArray<NSArray *> *)joinsTo:(NSString *)source from:(ORMCDEntity *)entity;
+/* From a member to its hub, the other way: the hops, as above. nil for
+ * anything else. */
+- (NSArray<NSArray *> *)joinsToHubFrom:(ORMCDEntity *)member;
 /* The property of the name, its own or an ancestor's. */
 - (ORMCDProperty *)property:(NSString *)name of:(ORMCDEntity *)entity;
 /* The entity's name and its subentities', at any depth. */

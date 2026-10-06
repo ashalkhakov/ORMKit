@@ -71,23 +71,31 @@ The mapping notes what it cannot make:
 
 A node of the type is at the hub. A step to a property another member
 holds goes first to that member's row, by its correlation. The plan does
-this with a join that binds the matched object, not one that only checks a
-row exists (as the join through an absorbed type does):
+this with a join that binds the matched row, where the join through an
+absorbed type only checks that a row exists:
 
 ```
+let member1 = read BillingAccount
 read CRMCustomer
-where some BillingAccount as m1 with userId = self.userId has m1.balance > 100
-list self (userId), m1.balance
+where some x1 in member1 with userId = userId has x1.balance > 100
+list self (userId), x1.balance
 ```
 
-- An inner member's join is *some*. An outer member's is *maybe* when the
-  step is: listed when it is there, nothing asked when it is not.
-- A member reached via another goes through that one first.
-- `ORMPlanMatches` gains a variable: `matches ... as m1` binds each matching
-  object, and `maybe matches ... as m1` binds it or leaves it unbound. The
-  interpreter fetches the member's rows for the batch's values, as it does
-  for a join already. The OData backend sends them as the paged join
-  requests it already makes.
+- A step is *some* row; under maybe, *maybe*, the row or none; under not,
+  no row. An outer member is no different: the step asks for its row.
+- A member reached via another goes through that one first: one join for
+  each hop (the hub, then Subscriber by Guid).
+- A node of the type reached at a member, the destination of a
+  relationship (Topic's subscribers), goes back to the hub first. Its
+  steps go from there, as any node of the type's do.
+- `ORMPlanMatches` has a `boundVariable`, its `operand` asked of the row,
+  and `isOptional`. The interpreter reads the member's rows for each batch
+  of the objects read, where the join's values are theirs, or probes for
+  each object. The OData backend reads them for each page as it reads a
+  correlated join's, with what the condition and the columns read of them,
+  and binds them as it makes the rows.
+- A query is not sorted by a member's value: no fetch of the hub sorts by
+  it. The plan says so in a note.
 
 ## The sample population
 

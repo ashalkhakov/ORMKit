@@ -12,6 +12,9 @@
 @property (nonatomic, strong) ORMCDEntity *entity;
 /* The plan it was reached in: 0 the query's, 1 a join's in it, ... */
 @property (nonatomic) NSUInteger level;
+/* A joined entity type's member's object (docs/JOINED-ENTITIES.md): no
+ * path from the object read reaches it. */
+@property (nonatomic) BOOL isJoined;
 /* An object type absorbed into the entity: no object of its own, but its
  * parts, @[ the trace below the base ("/role"), the part's place ], in
  * the order the entity has them. nil for others. */
@@ -35,6 +38,7 @@
 	place.path = [self.path pathByAddingKey:property.name];
 	place.trail = [self.trail arrayByAddingObject:property];
 	place.entity = entity;
+	place.isJoined = self.isJoined;
 	return place;
 }
 
@@ -44,6 +48,7 @@
 	place.path = [self.path pathByAddingCast:entity.name];
 	place.trail = self.trail;
 	place.entity = entity;
+	place.isJoined = self.isJoined;
 	return place;
 }
 
@@ -317,9 +322,11 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		for (ORMCDProperty *property in place.trail) {
 			one = one && !([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany);
 		}
-		if (!one) {
+		if (!one || place.isJoined) {
 			[self note:[NSString stringWithFormat:@"%@ is sorted by, but %@.", [node designation],
-			                                      column == nil ? @"not listed" : @"not one value for each result"]];
+			                                      column == nil ? @"not listed"
+			                                      : place.isJoined ? @"it is a joined entity's, which a fetch does not sort by"
+			                                                       : @"not one value for each result"]];
 			continue;
 		}
 		ORMPlanPath *path = [place pathFromRead];
@@ -527,6 +534,18 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 - (ORMPlanCondition *)conditionFor:(ORMQueryNode *)node entity:(ORMCDEntity *)entity at:(ORMPlannerPlace *)at
                            columns:(BOOL)columns
 {
+	/* A joined entity type's object reached at a member (a relationship's
+	 * destination): it is the hub's row, which its steps go from. */
+	ORMCDEntity *hub = entity != nil ? [_places entityOf:node.objectType] : nil;
+	if (hub != nil && entity != hub
+	    && [[entity.userInfo objectForKey:@"ormkit.joins"] isEqualToString:node.objectType.identifier]) {
+		NSArray *hops = [_places joinsToHubFrom:entity];
+		if (hops != nil) {
+			return [self through:hops at:at optional:NO then:^ORMPlanCondition *(ORMPlannerPlace *place) {
+				return [self conditionFor:node entity:hub at:place columns:columns];
+			}];
+		}
+	}
 	NSMutableArray *parts = [NSMutableArray array];
 	ORMCDAttribute *identifier = [_places identifierOf:node.objectType on:entity];
 	if (columns) {
@@ -662,9 +681,76 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	return [ORMPlanValue aggregate:function of:node.identifier in:bag where:group.identifier is:groupPath];
 }
 
+/* What the step's property is traced by, on the entity it starts from: a
+ * unary's implicit role, a binary's far role, an n-ary or objectified fact
+ * type's inverse. nil for a subtype link. */
+- (NSString *)sourceOfStep:(ORMQueryStep *)step
+{
+	if ([step isSubtyping]) {
+		return nil;
+	}
+	if ([step.nodes count] == 0) {
+		for (ORMRole *role in step.factType.roles) {
+			if (role != step.entryRole) {
+				return [ORMQueryPlaces sourceOfRole:role];
+			}
+		}
+		return nil;
+	}
+	if ([step.nodes count] == 1) {
+		return [ORMQueryPlaces sourceOfRole:[(ORMQueryNode *)[step.nodes firstObject] role]];
+	}
+	return [step.factType.identifier stringByAppendingFormat:@".%@", step.entryRole.identifier];
+}
+
+/* Through a joined entity type's members to the one that has the step's
+ * property: each hop a join that binds its row, by the values that
+ * correlate it; the step planned from the last. Maybe: or none. */
+- (ORMPlanCondition *)throughMembers:(NSArray<NSArray *> *)hops step:(ORMQueryStep *)step at:(ORMPlannerPlace *)at
+                             columns:(BOOL)columns
+{
+	return [self through:hops at:at optional:step.operatorKind == ORMQueryMaybe
+	                then:^ORMPlanCondition *(ORMPlannerPlace *place) {
+		                return [self plainConditionForStep:step entity:place.entity at:place columns:columns];
+	                }];
+}
+
+/* Each hop a join that binds its row; what is planned from the last row. */
+- (ORMPlanCondition *)through:(NSArray<NSArray *> *)hops
+                           at:(ORMPlannerPlace *)at
+                     optional:(BOOL)optional
+                         then:(ORMPlanCondition * (^)(ORMPlannerPlace *place))then
+{
+	NSArray *hop = [hops firstObject];
+	ORMCDEntity *member = [hop firstObject];
+	NSString *variable = [self nextVariable];
+	[_scope addObject:variable];
+	ORMPlannerPlace *place = [ORMPlannerPlace variable:variable entity:member trail:@[]];
+	place.isJoined = YES;
+	ORMPlanCondition *body = [hops count] > 1
+		? [self through:[hops subarrayWithRange:NSMakeRange(1, [hops count] - 1)] at:place optional:optional then:then]
+		: then(place);
+	[_scope removeLastObject];
+	NSMutableArray *pairs = [NSMutableArray array];
+	for (NSArray *names in [hop objectAtIndex:1]) {
+		[pairs addObject:@[ [at.path pathByAddingKey:[names firstObject]], [ORMPlanPath pathFrom:nil keys:@[ [names lastObject] ]] ]];
+	}
+	ORMPlanDefinition *rows = [self define:@"member"
+	                                  plan:[ORMQueryPlan planReading:member.name where:nil columns:@[] sorts:@[] notes:@[]]];
+	return [ORMPlanCondition matchesDefinition:rows pairs:pairs binding:variable where:body optional:optional];
+}
+
 - (ORMPlanCondition *)plainConditionForStep:(ORMQueryStep *)step entity:(ORMCDEntity *)entity at:(ORMPlannerPlace *)at
                                     columns:(BOOL)columns
 {
+	/* A property another member of the entity's join has. */
+	NSString *held = [self sourceOfStep:step];
+	if (held != nil && entity != nil && [_places propertyOf:entity source:held] == nil) {
+		NSArray *hops = [_places joinsTo:held from:entity];
+		if (hops != nil) {
+			return [self throughMembers:hops step:step at:at columns:columns];
+		}
+	}
 	if ([step isSubtyping]) {
 		return [self subtypeStep:step entity:entity at:at columns:columns];
 	}

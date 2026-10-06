@@ -74,6 +74,55 @@
 	return role.identifier;
 }
 
+- (NSArray<NSArray *> *)joinsTo:(NSString *)source from:(ORMCDEntity *)entity
+{
+	ORMCDEntity *at = source != nil ? [[_bySource objectForKey:source] firstObject] : nil;
+	NSMutableArray *hops = [NSMutableArray array];
+	while (at != nil && at != entity && [hops count] < 16) {
+		NSString *via = [at.userInfo objectForKey:@"ormkit.via"];
+		NSString *on = [at.userInfo objectForKey:@"ormkit.on"];
+		if (via == nil || [on length] == 0) {
+			return nil;
+		}
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSString *pair in [on componentsSeparatedByString:@","]) {
+			NSArray *names = [pair componentsSeparatedByString:@" "];
+			if ([names count] != 2) {
+				return nil;
+			}
+			[pairs addObject:names];
+		}
+		[hops insertObject:@[ at, pairs, @([[at.userInfo objectForKey:@"ormkit.outer"] isEqualToString:@"YES"]) ]
+		           atIndex:0];
+		at = [_coreData entityNamed:via];
+	}
+	return at == entity && [hops count] > 0 ? hops : nil;
+}
+
+- (NSArray<NSArray *> *)joinsToHubFrom:(ORMCDEntity *)member
+{
+	NSMutableArray *hops = [NSMutableArray array];
+	ORMCDEntity *at = member;
+	while ([at.userInfo objectForKey:@"ormkit.via"] != nil && [hops count] < 16) {
+		NSString *on = [at.userInfo objectForKey:@"ormkit.on"];
+		ORMCDEntity *via = [_coreData entityNamed:[at.userInfo objectForKey:@"ormkit.via"]];
+		if (via == nil || [on length] == 0) {
+			return nil;
+		}
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSString *pair in [on componentsSeparatedByString:@","]) {
+			NSArray *names = [pair componentsSeparatedByString:@" "];
+			if ([names count] != 2) {
+				return nil;
+			}
+			[pairs addObject:@[ [names lastObject], [names firstObject] ]];
+		}
+		[hops addObject:@[ via, pairs, @NO ]];
+		at = via;
+	}
+	return [hops count] > 0 ? hops : nil;
+}
+
 - (ORMCDProperty *)property:(NSString *)name of:(ORMCDEntity *)entity
 {
 	for (ORMCDEntity *at = entity; at != nil; at = [self parentOf:at]) {

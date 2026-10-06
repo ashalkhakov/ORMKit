@@ -1,5 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
+#import <CoreData/CoreData.h>
+#import <ODataKit/ODataTransport.h>
+#import <ODataService/ODataService.h>
 
 /* An entity type kept in several entities (docs/JOINED-ENTITIES.md): a
  * Customer, identified by its user id and also by a GUID, whose name is the
@@ -210,6 +213,164 @@
 	XCTAssertTrue([[mapper.notes valueForKey:@"text"]
 		containsObject:@"BillingAccount has a row for each Customer: it holds a mandatory role of it, so it is joined as "
 	                   @"inner."]);
+}
+
+#pragma mark Queries
+
+/* The node a new step from the node reaches. */
+- (NSString *)step:(ORMQueryEditor *)queries from:(NSString *)nodeId through:(NSString *)roleId in:(NSString *)queryId
+{
+	NSString *reason = nil;
+	NSString *step = [queries addStepTo:nodeId through:roleId reason:&reason];
+	XCTAssertNotNil(step, @"%@", reason);
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:queryId inModel:_editor.model] nodes]) {
+		if ([node.step.identifier isEqualToString:step]) {
+			return node.identifier;
+		}
+	}
+	return nil;
+}
+
+- (NSString *)stepOf:(NSString *)nodeId in:(NSString *)queryId
+{
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:queryId inModel:_editor.model] nodes]) {
+		if ([node.identifier isEqualToString:nodeId]) {
+			return node.step.identifier;
+		}
+	}
+	return nil;
+}
+
+/* The customers in their three stores: Ann (1) owes 50 and reads the news,
+ * Bob (2) has no account and does not subscribe, Cy (3) owes 500 and reads
+ * the news and the deals. */
+- (NSManagedObjectContext *)storeIn:(NSString *)directory model:(NSManagedObjectModel *)model
+{
+	NSError *error = nil;
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+	                                                    URL:[NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"Customers.sqlite"]]
+	                                                options:nil error:&error], @"%@", error);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	context.persistentStoreCoordinator = coordinator;
+	[context performBlockAndWait:^{
+		NSManagedObject *(^make)(NSString *, NSDictionary *) = ^NSManagedObject *(NSString *entity, NSDictionary *values) {
+			NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
+			[object setValuesForKeysWithDictionary:values];
+			return object;
+		};
+		NSManagedObject *news = make(@"Topic", @{ @"code": @"news" });
+		NSManagedObject *deals = make(@"Topic", @{ @"code": @"deals" });
+		make(@"CRMCustomer", @{ @"userId": @1, @"name": @"Ann", @"guid": @"g1" });
+		make(@"CRMCustomer", @{ @"userId": @2, @"name": @"Bob", @"guid": @"g2" });
+		make(@"CRMCustomer", @{ @"userId": @3, @"name": @"Cy", @"guid": @"g3" });
+		make(@"BillingAccount", @{ @"userId": @1, @"balance": @50 });
+		make(@"BillingAccount", @{ @"userId": @3, @"balance": @500 });
+		make(@"Subscriber", @{ @"guid": @"g1", @"email": @"ann@example.test", @"topics": [NSSet setWithObject:news] });
+		make(@"Subscriber", @{ @"guid": @"g3", @"email": @"cy@example.test",
+		                       @"topics": [NSSet setWithObjects:news, deals, nil] });
+		NSError *saved = nil;
+		XCTAssertTrue([context save:&saved], @"%@", saved);
+	}];
+	return context;
+}
+
+/* A query of customers reads the hub, and goes to each other member by
+ * what correlates it: the billing account by user id, the subscriber by
+ * GUID through the hub, which has both. A step there is some row; maybe,
+ * the row or none; not, no row. */
+- (void)testQueriesJoinTheMembers
+{
+	[self makeCustomers];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *context = [self storeIn:directory model:[planner.coreData managedObjectModel]];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:_editor];
+	NSString *customer = [[_editor.model objectTypeNamed:@"Customer"] identifier];
+	NSSet *(^rows)(NSString *) = ^NSSet *(NSString *queryId) {
+		ORMQueryPlan *plan = [planner planForQuery:[ORMQuery queryWithId:queryId inModel:_editor.model]];
+		XCTAssertEqualObjects(plan.notes, @[], @"%@", [plan text]);
+		__block ORMQueryResult *result = nil;
+		__block NSError *error = nil;
+		[context performBlockAndWait:^{
+			result = [interpreter executePlan:plan inContext:context error:&error];
+		}];
+		XCTAssertNotNil(result, @"%@\n%@", error, [plan text]);
+		/* The same, from the service the model is served by. */
+		ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+		XCTAssertNotNil(odata, @"%@", error);
+		XCTAssertEqualObjects(odata.notes, @[], @"%@", [odata requestText]);
+		ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:context.persistentStoreCoordinator
+		                                                                     serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+		ORMQueryODataCursor *cursor = [odata cursorWithTransport:(id<ODataTransport>)service
+		                                             serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+		NSMutableArray *served = [NSMutableArray array];
+		for (NSUInteger guard = 0; cursor != nil && guard < 10 && ![cursor atEnd]; guard++) {
+			dispatch_semaphore_t done = dispatch_semaphore_create(0);
+			[cursor nextPage:2 completion:^(ORMQueryResult *page, NSError *failed) {
+				XCTAssertNotNil(page, @"%@\n%@", failed, [odata requestText]);
+				[served addObjectsFromArray:page.rows ?: @[]];
+				dispatch_semaphore_signal(done);
+			}];
+			XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC))), 0);
+		}
+		XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:result.rows ?: @[]], @"%@\n%@", [plan text],
+		                      [odata requestText]);
+		return [NSSet setWithArray:result.rows ?: @[]];
+	};
+
+	NSString *plain = [queries addQueryNamed:@"All" from:customer reason:NULL];
+	XCTAssertEqual([rows(plain) count], 3u);
+	/* What they owe: those with an account. */
+	NSString *q = [queries addQueryNamed:@"Owing" from:customer reason:NULL];
+	NSString *root = [ORMQuery queryWithId:q inModel:_editor.model].root.identifier;
+	NSString *owes = [self step:queries from:root through:[[_facts objectForKey:@"balance"] firstObject] in:q];
+	[queries setProjected:YES ofNode:owes];
+	XCTAssertEqualObjects(rows(q), ([NSSet setWithObjects:@[ @1, @50 ], @[ @3, @500 ], nil]));
+	ORMQueryPlan *plan = [planner planForQuery:[ORMQuery queryWithId:q inModel:_editor.model]];
+	XCTAssertTrue([[plan text] containsString:@"some x1 in member1 with userId = userId has x1.balance is set"],
+	              @"%@", [plan text]);
+	NSError *read = nil;
+	ORMQueryPlan *again = [ORMQueryPlan planWithPropertyList:[plan propertyList] error:&read];
+	XCTAssertEqualObjects([again text], [plan text], @"%@", read);
+	/* Maybe: everyone, with what they owe if they have an account. */
+	[queries setOperator:ORMQueryMaybe ofStep:[self stepOf:owes in:q]];
+	XCTAssertEqualObjects(rows(q), ([NSSet setWithObjects:@[ @1, @50 ], @[ @2, [NSNull null] ], @[ @3, @500 ], nil]));
+	/* Not: those without. */
+	[queries setOperator:ORMQueryNot ofStep:[self stepOf:owes in:q]];
+	XCTAssertEqualObjects(rows(q), [NSSet setWithObject:@[ @2 ]]);
+	/* Some, more than 100: Cy, by name. */
+	[queries setOperator:ORMQueryAnd ofStep:[self stepOf:owes in:q]];
+	[queries setProjected:NO ofNode:owes];
+	XCTAssertTrue([queries setCondition:@">" value:@"100" ofNode:owes reason:NULL]);
+	NSString *named = [self step:queries from:root through:[[_facts objectForKey:@"name"] firstObject] in:q];
+	[queries setProjected:YES ofNode:named];
+	XCTAssertEqualObjects(rows(q), ([NSSet setWithObject:@[ @3, @"Cy" ]]));
+
+	/* Through the hub's GUID to the subscriber: e-mails, and topics. */
+	NSString *m = [queries addQueryNamed:@"Mailing" from:customer reason:NULL];
+	root = [ORMQuery queryWithId:m inModel:_editor.model].root.identifier;
+	NSString *email = [self step:queries from:root through:[[_facts objectForKey:@"email"] firstObject] in:m];
+	[queries setProjected:YES ofNode:email];
+	XCTAssertEqualObjects(rows(m), ([NSSet setWithObjects:@[ @1, @"ann@example.test" ], @[ @3, @"cy@example.test" ], nil]));
+	NSString *t = [queries addQueryNamed:@"Deals" from:customer reason:NULL];
+	root = [ORMQuery queryWithId:t inModel:_editor.model].root.identifier;
+	NSString *topic = [self step:queries from:root through:[[_facts objectForKey:@"topics"] firstObject] in:t];
+	XCTAssertTrue([queries setCondition:@"=" value:@"deals" ofNode:topic reason:NULL]);
+	XCTAssertEqualObjects(rows(t), [NSSet setWithObject:@[ @3 ]]);
+	/* From a topic, its subscribers are customers: each the hub's row,
+	 * listed by user id, with its name. */
+	NSString *r = [queries addQueryNamed:@"Readers" from:[[_editor.model objectTypeNamed:@"Topic"] identifier]
+	                              reason:NULL];
+	root = [ORMQuery queryWithId:r inModel:_editor.model].root.identifier;
+	NSString *reader = [self step:queries from:root through:[[_facts objectForKey:@"topics"] lastObject] in:r];
+	[queries setProjected:YES ofNode:reader];
+	NSString *readerName = [self step:queries from:reader through:[[_facts objectForKey:@"name"] firstObject] in:r];
+	[queries setProjected:YES ofNode:readerName];
+	XCTAssertEqualObjects(rows(r), ([NSSet setWithObjects:@[ @"news", @1, @"Ann" ], @[ @"news", @3, @"Cy" ],
+	                                                      @[ @"deals", @3, @"Cy" ], nil]));
 }
 
 @end
