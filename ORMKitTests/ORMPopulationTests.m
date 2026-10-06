@@ -367,6 +367,97 @@
 	XCTAssertEqual([[[self factReading:@"Employee works for Branch" in:editor.model] instances] count], working);
 }
 
+/* NORMA's own rule (docs/DERIVATION.md): CinemaTickets derives "Session
+ * has Seat" by a role path, the session's cinema's rows' seats. Read as a
+ * query, its projections not in outline order, it derives each seat of each
+ * session's cinema from a generated population; a query through the fact
+ * type finds the same. */
+- (void)testNormasRulesDeriveAsQueriesDo
+{
+	NSData *data = [NSData dataWithContentsOfFile:[self fixturePath:@"ActiveFacts/CinemaTickets.orm"]];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
+	[editor.populationEditor removePopulation];
+	ORMPopulationGenerator *generator = [[ORMPopulationGenerator alloc] initWithModel:editor.model];
+	NSString *reason = nil;
+	XCTAssertTrue([editor.populationEditor addPopulation:[generator population] reason:&reason], @"%@", reason);
+	ORMModel *model = editor.model;
+	ORMFactType *hasSeat = [model elementWithId:@"_90E3EEDA-78D3-4EF4-86E2-70894A2D1104"];
+	ORMQuery *rule = nil;
+	for (ORMQuery *query in [ORMQuery derivationsInModel:model]) {
+		rule = query.derivedFactType == hasSeat ? query : rule;
+	}
+	XCTAssertNotNil(rule);
+	XCTAssertEqualObjects(rule.name, @"SessionHasSeat");
+	XCTAssertEqualObjects([[rule derivedColumns] valueForKeyPath:@"objectType.name"], (@[ @"Session", @"Seat" ]));
+	XCTAssertNil([ORMQuery derivationOf:hasSeat inModel:model], @"not a query of the document");
+
+	/* Rows and seats are entities of their own: an application's store
+	 * absorbs a Row into its Seats, and joins on it are not planned. */
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
+	[mappings setStyle:ORMStyleEntities ofMapping:[mappings addCoreDataMappingNamed:@"Test" path:@"Test.xcdatamodeld"]];
+	model = editor.model;
+	hasSeat = [model elementWithId:hasSeat.identifier];
+
+	/* Each seat of each session's cinema: a row's cinema, a seat's row,
+	 * what identifies them. */
+	ORMFactType *session = [model elementWithId:@"_6C4EA5E7-22CD-49A2-80F0-E024D2014110"];
+	NSString *rowsCinema = @"_F5EE5A4F-2B2B-4A86-A513-3E7125DCAFC2";
+	NSString *seatsRow = @"_D52FD4FD-18B9-4D0C-8BA2-276E6D542133";
+	ORMObjectType *cinema = [model objectTypeNamed:@"Cinema"];
+	NSMutableSet *expected = [NSMutableSet set];
+	for (ORMFactInstance *each in [session instances]) {
+		ORMInstance *at = nil;
+		for (ORMRole *role in session.roles) {
+			at = role.player == cinema ? [each.instancesByRole objectForKey:role.identifier] : at;
+		}
+		for (ORMInstance *row in [[model objectTypeNamed:@"Row"] instances]) {
+			if ([[row identifyingInstancesByRole] objectForKey:rowsCinema] != at) {
+				continue;
+			}
+			for (ORMInstance *seat in [[model objectTypeNamed:@"Seat"] instances]) {
+				if ([[seat identifyingInstancesByRole] objectForKey:seatsRow] == row) {
+					[expected addObject:@[ each.identifier, seat.identifier ]];
+				}
+			}
+		}
+	}
+	XCTAssertGreaterThan([expected count], 0u);
+	ORMDeriver *deriver = [[ORMDeriver alloc] initWithModel:model];
+	NSArray *derived = [[deriver derivedFacts] objectForKey:hasSeat.identifier];
+	XCTAssertEqualObjects([deriver notes], @[]);
+	NSMutableSet *found = [NSMutableSet set];
+	NSArray *roles = [hasSeat visibleRoles];
+	for (ORMDerivedFact *fact in derived) {
+		XCTAssertTrue([fact isOfInstances], @"%@", fact.players);
+		ORMInstance *of = [fact.players objectForKey:[roles[0] identifier]];
+		[found addObject:@[ [[of objectifiedInstance] identifier] ?: @"?",
+		                    [[fact.players objectForKey:[roles[1] identifier]] identifier] ]];
+	}
+	XCTAssertEqualObjects(found, expected);
+
+	/* A query from Session through it: its rule put in its place. */
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *q = [queries addQueryNamed:@"Seats" from:[[roles[0] player] identifier] reason:NULL];
+	NSString *start = [ORMQuery queryWithId:q inModel:editor.model].root.identifier;
+	NSString *seat = [self step:queries from:start through:[roles[0] identifier] in:q in:editor];
+	[queries setProjected:YES ofNode:seat];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc]
+		initWithModel:editor.model
+		      mapping:[[ORMCoreDataMapping mappingsOfDocument:editor.document] firstObject]];
+	ORMQueryPlan *plan = [planner planForQuery:[ORMQuery queryWithId:q inModel:editor.model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:editor.model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+	__block ORMQueryResult *result = nil;
+	[context performBlockAndWait:^{
+		result = [interpreter executePlan:plan inContext:context error:NULL];
+	}];
+	XCTAssertEqual([[NSSet setWithArray:result.rows] count], [expected count], @"%@", [plan text]);
+}
+
 /* An entity type identified by the facts it plays in, not one value: the
  * roles of its preferred identifier and their players. */
 - (NSString *)entity:(NSString *)name identifiedBy:(NSArray<NSString *> *)players readings:(NSArray<NSString *> *)readings

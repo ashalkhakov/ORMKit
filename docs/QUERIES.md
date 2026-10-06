@@ -190,6 +190,7 @@ identified (a name, a state, a country).
 | `✓Branch ↓` | the results in descending (↑ ascending) order of that node |
 | `+ or ...` | the node's steps are alternatives, not all required |
 | `+ is Professor` | a subtype link, from the supertype or from the subtype |
+| `Session + has Cinema` | a link fact type: from an objectifying type to a player of its fact, or back; planned as the objectified fact type's entity's relationship |
 | `City1` | a label: nodes of one object type with the same label are the same object |
 | `Country2 <> Country1` | a condition comparing two nodes of the same object type |
 

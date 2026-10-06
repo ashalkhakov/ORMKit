@@ -38,39 +38,79 @@ ORMIdentifiedInstance(ORMInstance *instance)
 	return instance;
 }
 
+/* The values that identify an instance, in its preferred identifier's
+ * order, each part's own taken apart the same way: a value type
+ * instance's value; an entity's identifying instances', or, for an
+ * objectifying type's, its fact's players in those roles. nil where one
+ * is missing. */
+static NSArray<NSString *> *
+ORMIdentifyingValues(ORMInstance *instance)
+{
+	instance = ORMIdentifiedInstance(instance);
+	if (instance.value != nil) {
+		return @[ instance.value ];
+	}
+	NSArray *roles = [instance.objectType.preferredIdentifier allRoles];
+	NSDictionary *identifying = [instance identifyingInstancesByRole];
+	NSDictionary *players = [[instance objectifiedInstance] instancesByRole];
+	NSMutableArray *values = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		ORMInstance *part = [identifying objectForKey:role.identifier] ?: [players objectForKey:role.identifier];
+		NSArray *own = part != nil ? ORMIdentifyingValues(part) : nil;
+		if (own == nil) {
+			return nil;
+		}
+		[values addObjectsFromArray:own];
+	}
+	return [values count] > 0 ? values : nil;
+}
+
+/* A row's value taken apart: its parts' values, in order. */
+static void
+ORMLeafValues(id value, NSMutableArray *into)
+{
+	if ([value isKindOfClass:[NSArray class]]) {
+		for (id part in (NSArray *)value) {
+			ORMLeafValues(part, into);
+		}
+	} else {
+		[into addObject:value ?: [NSNull null]];
+	}
+}
+
+/* Whether a row's value is the text: a number numerically. */
+static BOOL
+ORMValueIsText(id value, NSString *text)
+{
+	if (value == [NSNull null]) {
+		return NO;
+	}
+	if ([value isKindOfClass:[NSNumber class]]) {
+		NSDecimalNumber *number = [NSDecimalNumber decimalNumberWithString:text];
+		return ![number isEqualToNumber:[NSDecimalNumber notANumber]]
+		       && [number compare:[NSDecimalNumber decimalNumberWithDecimal:[(NSNumber *)value decimalValue]]]
+		              == NSOrderedSame;
+	}
+	return [[value description] isEqualToString:text];
+}
+
 /* Whether a row's value is the instance, by what identifies it: a value
- * as such (a number numerically), an entity by its identifying values, a
- * list of them where there are several, in its preferred identifier's
- * order. */
+ * as such, an entity by its identifying values, a list of them where
+ * there are several, parts of parts in line. */
 static BOOL
 ORMRowValueIs(id value, ORMInstance *instance)
 {
 	if (value == nil || value == [NSNull null] || instance == nil) {
 		return NO;
 	}
-	instance = ORMIdentifiedInstance(instance);
-	if (instance.value != nil) {
-		if ([value isKindOfClass:[NSNumber class]]) {
-			NSDecimalNumber *text = [NSDecimalNumber decimalNumberWithString:instance.value];
-			return ![text isEqualToNumber:[NSDecimalNumber notANumber]]
-			       && [text compare:[NSDecimalNumber decimalNumberWithDecimal:[(NSNumber *)value decimalValue]]]
-			              == NSOrderedSame;
-		}
-		return [[value description] isEqualToString:instance.value];
-	}
-	NSArray *roles = [instance.objectType.preferredIdentifier allRoles];
-	NSDictionary *identifying = [instance identifyingInstancesByRole];
-	if ([roles count] == 0) {
+	NSArray *texts = ORMIdentifyingValues(instance);
+	NSMutableArray *leaves = [NSMutableArray array];
+	ORMLeafValues(value, leaves);
+	if (texts == nil || [texts count] != [leaves count]) {
 		return NO;
 	}
-	if ([roles count] == 1) {
-		return ORMRowValueIs(value, [identifying objectForKey:[[roles firstObject] identifier]]);
-	}
-	if (![value isKindOfClass:[NSArray class]] || [(NSArray *)value count] != [roles count]) {
-		return NO;
-	}
-	for (NSUInteger i = 0; i < [roles count]; i++) {
-		if (!ORMRowValueIs([(NSArray *)value objectAtIndex:i], [identifying objectForKey:[[roles objectAtIndex:i] identifier]])) {
+	for (NSUInteger i = 0; i < [texts count]; i++) {
+		if (!ORMValueIsText([leaves objectAtIndex:i], [texts objectAtIndex:i])) {
 			return NO;
 		}
 	}
@@ -117,12 +157,7 @@ ORMRowValueIs(id value, ORMInstance *instance)
 		return _facts;
 	}
 	_notes = [NSMutableArray array];
-	NSMutableArray *derivations = [NSMutableArray array];
-	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
-		if (query.kind == ORMQueryDerivation && query.derivedFactType != nil) {
-			[derivations addObject:query];
-		}
-	}
+	NSArray *derivations = [ORMQuery derivationsInModel:_model];
 	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
 	_facts = facts;
 	if ([derivations count] == 0) {
@@ -148,7 +183,17 @@ ORMRowValueIs(id value, ORMInstance *instance)
 			[self note:query text:[plan.notes componentsJoinedByString:@" "]];
 			continue;
 		}
-		if ([plan.columns count] != [roles count]) {
+		/* Each role's column in the row, by its node. */
+		NSArray *columns = [query derivedColumns];
+		NSMutableArray *at = [NSMutableArray array];
+		for (ORMQueryNode *node in columns) {
+			ORMPlanColumn *column = [plan columnOfNode:node.identifier];
+			NSUInteger index = column != nil ? [plan.columns indexOfObject:column] : NSNotFound;
+			if (index != NSNotFound) {
+				[at addObject:@(index)];
+			}
+		}
+		if ([plan.columns count] != [roles count] || [at count] != [roles count]) {
 			[self note:query text:[NSString stringWithFormat:@"it lists %lu, and \"%@\" has %lu roles.",
 			                                                 (unsigned long)[plan.columns count],
 			                                                 [[fact primaryReading] expandedText] ?: fact.name,
@@ -171,7 +216,7 @@ ORMRowValueIs(id value, ORMInstance *instance)
 			NSMutableArray *key = [NSMutableArray array];
 			for (NSUInteger i = 0; i < [roles count]; i++) {
 				ORMRole *role = [roles objectAtIndex:i];
-				id value = [row objectAtIndex:i];
+				id value = [row objectAtIndex:[[at objectAtIndex:i] unsignedIntegerValue]];
 				if (value == [NSNull null]) {
 					players = nil;
 					break;

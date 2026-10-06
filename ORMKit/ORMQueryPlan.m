@@ -902,6 +902,16 @@ ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionar
 	}];
 }
 
+- (ORMPlanColumn *)columnOfNode:(NSString *)nodeId
+{
+	for (ORMPlanColumn *column in self.columns) {
+		if ([column.nodeId isEqualToString:nodeId]) {
+			return column;
+		}
+	}
+	return nil;
+}
+
 - (NSArray<NSString *> *)trailOfColumn:(ORMPlanColumn *)column
 {
 	if (column.value != nil || column.path == nil) {

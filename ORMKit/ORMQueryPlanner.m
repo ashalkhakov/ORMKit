@@ -603,7 +603,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 {
 	ORMQueryNode *above = node.step.parent;
 	ORMCDEntity *entity = above != nil ? [_places entityOf:above.objectType] : nil;
-	ORMCDProperty *property = entity != nil ? [_places propertyOf:entity source:node.role.identifier] : nil;
+	ORMCDProperty *property = entity != nil ? [_places propertyOf:entity source:[ORMQueryPlaces sourceOfRole:node.role]] : nil;
 	if ([property isKindOfClass:[ORMCDAttribute class]]) {
 		return (ORMCDAttribute *)property;
 	}
@@ -671,7 +671,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	if ([step.nodes count] == 0) {
 		/* A unary: its attribute is true. */
 		for (ORMRole *role in step.factType.roles) {
-			ORMCDProperty *property = role != step.entryRole ? [_places propertyOf:entity source:role.identifier] : nil;
+			ORMCDProperty *property = role != step.entryRole ? [_places propertyOf:entity source:[ORMQueryPlaces sourceOfRole:role]] : nil;
 			if ([property isKindOfClass:[ORMCDAttribute class]]) {
 				return [ORMPlanCondition compare:[ORMPlanValue valueAtPath:[at.path pathByAddingKey:property.name]]
 				                      comparison:@"=" with:[ORMPlanValue constant:@"true" type:@"Boolean"]];
@@ -684,7 +684,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	}
 	if ([step.nodes count] == 1) {
 		ORMQueryNode *node = [step.nodes firstObject];
-		ORMCDProperty *property = [_places propertyOf:entity source:node.role.identifier];
+		ORMCDProperty *property = [_places propertyOf:entity source:[ORMQueryPlaces sourceOfRole:node.role]];
 		if (property != nil) {
 			return [self binaryStep:step node:node property:property at:at columns:columns];
 		}
@@ -822,7 +822,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	}
 	NSMutableArray *parts = [NSMutableArray array];
 	for (ORMQueryNode *node in step.nodes) {
-		ORMCDProperty *rolePlace = [_places propertyOf:factEntity source:node.role.identifier];
+		ORMCDProperty *rolePlace = [_places propertyOf:factEntity source:[ORMQueryPlaces sourceOfRole:node.role]];
 		if (rolePlace == nil) {
 			[self note:[NSString stringWithFormat:@"%@'s role in \"%@\" maps to nothing.", node.objectType.name,
 			                                      [[fact primaryReading] expandedText] ?: fact.name]];
@@ -850,7 +850,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		for (ORMQueryNode *above = step.aggregateNode; above != nil && start == nil; above = above.step.parent) {
 			if (above == node) {
 				start = node;
-				firstHop = [_places propertyOf:factEntity source:node.role.identifier];
+				firstHop = [_places propertyOf:factEntity source:[ORMQueryPlaces sourceOfRole:node.role]];
 			}
 		}
 	}
@@ -939,7 +939,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	}
 	for (ORMQueryStep *step in node.steps) {
 		for (ORMQueryNode *next in step.nodes) {
-			ORMCDProperty *property = [_places propertyOf:entity source:next.role.identifier];
+			ORMCDProperty *property = [_places propertyOf:entity source:[ORMQueryPlaces sourceOfRole:next.role]];
 			if ([property isKindOfClass:[ORMCDAttribute class]] && next == target) {
 				return @[ property ];
 			}

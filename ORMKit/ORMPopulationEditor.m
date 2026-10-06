@@ -1165,8 +1165,8 @@ ORMWrapPart(NSString *name, BOOL composite)
  * the population (docs/DERIVATION.md). */
 - (BOOL)hasStoredDerivations
 {
-	for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
-		if (query.kind == ORMQueryDerivation && [query.derivedFactType derivationRule].isStored) {
+	for (ORMQuery *query in [ORMQuery derivationsInModel:_editor.model]) {
+		if ([query.derivedFactType derivationRule].isStored) {
 			return YES;
 		}
 	}

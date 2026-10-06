@@ -87,6 +87,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, weak) ORMQueryStep *step;
 /* Ticked: listed in the result. */
 @property (nonatomic, readonly) BOOL isProjected;
+/* A derivation's column: the role of its fact type it is, where the query
+ * says (a NORMA rule's projections are not in outline order); nil for the
+ * role at its place. */
+@property (nonatomic, readonly, weak) ORMRole *derivedRole;
 /* A condition on it: "=", "<>", "<", "<=", ">", ">=", and the value, as
  * typed (an entity's is its identifier's). nil for none. */
 @property (nonatomic, readonly, copy) NSString *comparison;
@@ -166,12 +170,22 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 + (ORMQuery *)queryWithId:(NSString *)identifier inModel:(ORMModel *)model;
 /* The derivation of the fact type, if a query derives it. */
 + (ORMQuery *)derivationOf:(ORMFactType *)factType inModel:(ORMModel *)model;
+/* The model's derivations: its derivation queries, and the rules NORMA
+ * keeps as a role path, read as queries where one is plain (one path, no
+ * split, calculation, condition, negation or outer join, each role
+ * projected), for fact types no query derives. Such a query is not in the
+ * document: its id is the rule's path's. */
++ (NSArray<ORMQuery *> *)derivationsInModel:(ORMModel *)model;
+/* A derivation's ticked nodes, in the order of its fact type's roles: each
+ * the role its node says it is, else the one at its place; nil when they
+ * are not one of each role. */
+- (NSArray<ORMQueryNode *> *)derivedColumns;
 /* The query as the planner plans it (docs/DERIVATION.md): each step through
  * a derived fact type that is not stored put as its derivation's path, the
  * derivation's columns for the step's roles the step's nodes. The query
  * itself where there is none; nil, and why in notes, where a step cannot
- * be expanded (a rule NORMA keeps as a path, a derivation through itself,
- * a path that is not plain). */
+ * be expanded (a rule NORMA keeps as a path that is not plain, a
+ * derivation through itself, a path that is not plain). */
 - (ORMQuery *)expandedInModel:(ORMModel *)model notes:(NSMutableArray<NSString *> *)notes;
 /* The roles a query can go on through from a node of the type: those it
  * and its supertypes play, its subtype links included, its reference mode

@@ -61,6 +61,19 @@
 	return [place lastObject];
 }
 
++ (NSString *)sourceOfRole:(ORMRole *)role
+{
+	if (role.proxiedRole != nil) {
+		return role.proxiedRole.identifier;
+	}
+	for (ORMRole *other in role.factType.roles) {
+		if (other != role && other.proxiedRole != nil) {
+			return [other.proxiedRole.factType.identifier stringByAppendingFormat:@".%@", other.proxiedRole.identifier];
+		}
+	}
+	return role.identifier;
+}
+
 - (ORMCDProperty *)property:(NSString *)name of:(ORMCDEntity *)entity
 {
 	for (ORMCDEntity *at = entity; at != nil; at = [self parentOf:at]) {

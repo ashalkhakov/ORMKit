@@ -2,10 +2,10 @@
 
 A fact type is *derived* when its facts follow from others: "Person is a
 grandparent of Person" from "Person is a parent of Person", taken twice.
-Halpin marks one with an asterisk, and NORMA keeps its rule. ORMKit reads
-NORMA's rule and verbalizes it, but nothing runs it: a query cannot go
-through a derived fact type, the population checker ignores one, and the
-Core Data mapping stores it like any other.
+Halpin marks one with an asterisk, and NORMA keeps its rule. Before this
+work, ORMKit read NORMA's rule and verbalized it, but nothing ran it: a
+query could not go through a derived fact type, the population checker
+ignored one, and the Core Data mapping stored it like any other.
 
 A conceptual query ([QUERIES.md](QUERIES.md)) is the rule. After the
 constraints and calculations of [RULES.md](RULES.md), a query can be a
@@ -49,8 +49,22 @@ A derivation is a query of its own kind, naming the fact type it derives:
 - A fact type has at most one derivation. Removing the query leaves the
   fact type asserted, with no rule.
 
-NORMA's own rules, role paths with projections, are read as now. Step 8
-turns them into queries, so that both kinds run.
+NORMA's own rules, role paths with projections, are read as queries
+(step 8), so both kinds run. Such a query is not in the document. NORMA's
+rule stays the authority, and the designer shows it as NORMA's. A rule
+reads as one when it is plain:
+- one path, with no split, calculation or condition;
+- no negation, value condition, correlation or outer join;
+- one projected point for each role.
+
+The path's root is the root node. Each role it joins by is a step from the
+node the path is at, with a node for each of the fact type's other roles,
+and the role it goes on by is where the path then is. The projected nodes
+say which role each is (`For`): a projection need not be in outline order.
+A hop through a link fact type is a step through it, whichever way NORMA
+names it. CinemaTickets names the role the proxy stands for; WaiterTips
+joins by the objectified role and goes on by the link fact type's.
+Anything else is refused, with a note that says why.
 
 ## What they mean
 
@@ -91,7 +105,8 @@ columns past the step, sorting, not and maybe, OData.
 Refused, with a note, and not run:
 - a path that is not plain binary steps where it has to be turned around,
   or one that branches where the step has not, maybe or a count;
-- a fact type NORMA derives by its own rule (step 8);
+- a fact type NORMA derives by a rule that is not plain (above), or by
+  its note alone;
 - a derivation through itself, which ConQuer has no fixpoint for.
 
 ## Core Data, and keeping stored ones up to date
@@ -199,12 +214,20 @@ populations do it after each change (step 3).
    in order. A derived fact type's inspector says what derives it (the
    query, NORMA's rule or its note), and has Partly Derived and Stored. A
    query's words are its own there: the normalizer keeps them.
-8. **NORMA's rules as queries:** a role path with projections is read into
-   a derivation query, so NORMA's rules run too. For path-shaped queries, the
-   role path is written back.
+8. **Done: NORMA's rules as queries.** A plain role path with projections
+   is read as a derivation query (`+[ORMQuery derivationsInModel:]`).
+   Expansion, ORMDeriver, the Core Data mapping and the save hook take it
+   as they take the document's. A derivation's columns are matched to roles
+   by node (`-derivedColumns`, `-[ORMQueryPlan columnOfNode:]`), not by
+   place. Queries go through link fact types, so a path from an objectifying
+   type reaches its fact's players. ORMDeriver matches a composite
+   identifier part by part, an objectified fact's players included.
+   CinemaTickets' "Session has Seat" is the test.
 
 ## Not here, for later
 
+- Writing a query back as NORMA's role path, so that NORMA runs a
+  path-shaped derivation too. NORMA reads the informal rule meanwhile.
 - Recursive derivations (a fixpoint).
 - Subtype derivation rules ("each Grandparent is a Person who ..."), which
   NORMA keeps the same way. The same query kind would do, with `Of` a

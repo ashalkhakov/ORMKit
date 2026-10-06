@@ -1570,15 +1570,15 @@ ORMDeletionRule(ORMRole *far)
 - (void)mapStoredDerivations
 {
 	ORMQueryPlanner *planner = nil;
-	for (ORMQuery *query in [ORMQuery queriesInModel:self.model]) {
-		ORMFactType *fact = query.kind == ORMQueryDerivation ? query.derivedFactType : nil;
+	for (ORMQuery *query in [ORMQuery derivationsInModel:self.model]) {
+		ORMFactType *fact = query.derivedFactType;
 		ORMDerivationRule *rule = fact.isDerived ? [fact derivationRule] : nil;
 		if (!rule.isStored || ![self isMappable:fact]) {
 			continue;
 		}
 		NSString *what = [[fact primaryReading] expandedText] ?: fact.name;
 		NSArray *roles = [fact visibleRoles];
-		NSArray *columns = [query projectedNodes];
+		NSArray *columns = [query derivedColumns];
 		/* A plain chain from the first role's player to the second's. */
 		BOOL chain = !rule.isPartial && [roles count] == 2 && [columns count] == 2 && [columns firstObject] == query.root;
 		for (ORMQueryNode *node in chain ? [query nodes] : @[]) {
@@ -1594,7 +1594,7 @@ ORMDeletionRule(ORMRole *far)
 		if ([attribute isKindOfClass:[ORMCDAttribute class]]) {
 			planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_out];
 			ORMQueryPlan *plan = [planner planForQuery:query];
-			ORMPlanColumn *value = [plan.columns count] == 2 ? [plan.columns lastObject] : nil;
+			ORMPlanColumn *value = [plan.columns count] == 2 ? [plan columnOfNode:[(ORMQueryNode *)[columns lastObject] identifier]] : nil;
 			/* Through one to-one: a to-many would bind a variable, and Core
 			 * Data derives through one relationship at most. */
 			if ([plan.notes count] == 0 && value != nil && value.path.variable == nil && [value.identifierParts count] == 0

@@ -17,6 +17,11 @@
 /* The property traced to the source, if the entity has it (its own or an
  * ancestor's). */
 - (ORMCDProperty *)propertyOf:(ORMCDEntity *)entity source:(NSString *)source;
+/* The source a step's node's role is traced by: its own id; a link fact
+ * type's, what it stands for in the objectified fact type (from the
+ * objectifying type, the role its proxy stands for; to it, the fact type's
+ * entity, as from that role). */
++ (NSString *)sourceOfRole:(ORMRole *)role;
 /* The property of the name, its own or an ancestor's. */
 - (ORMCDProperty *)property:(NSString *)name of:(ORMCDEntity *)entity;
 /* The entity's name and its subentities', at any depth. */

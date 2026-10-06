@@ -712,8 +712,8 @@ ORMNumberLiteral(NSString *value)
 - (void)derivations
 {
 	ORMQueryPlanner *planner = nil;
-	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
-		ORMFactType *fact = query.kind == ORMQueryDerivation ? query.derivedFactType : nil;
+	for (ORMQuery *query in [ORMQuery derivationsInModel:_model]) {
+		ORMFactType *fact = query.derivedFactType;
 		ORMDerivationRule *rule = fact.isDerived ? [fact derivationRule] : nil;
 		if (!rule.isStored) {
 			continue;
@@ -721,7 +721,7 @@ ORMNumberLiteral(NSString *value)
 		NSString *what = [[fact primaryReading] expandedText] ?: fact.name;
 		NSString *why = nil;
 		NSArray *roles = [fact visibleRoles];
-		NSArray *columns = [query projectedNodes];
+		NSArray *columns = [query derivedColumns];
 		BOOL chain = [roles count] == 2 && [columns count] == 2 && [columns firstObject] == query.root;
 		for (ORMQueryNode *node in chain ? [query nodes] : @[]) {
 			chain = chain && [node.steps count] <= ([node isEqual:[columns lastObject]] ? 0 : 1) && node.comparison == nil
@@ -748,7 +748,8 @@ ORMNumberLiteral(NSString *value)
 		if (why == nil) {
 			planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
 			plan = [planner planForQuery:query];
-			keys = [plan.notes count] == 0 && [plan.columns count] == 2 ? [plan trailOfColumn:[plan.columns lastObject]] : nil;
+			ORMPlanColumn *value = [plan.columns count] == 2 ? [plan columnOfNode:[(ORMQueryNode *)[columns lastObject] identifier]] : nil;
+			keys = [plan.notes count] == 0 && value != nil ? [plan trailOfColumn:value] : nil;
 			if (keys == nil || [keys count] == 0 || ![plan.entityName isEqualToString:entity.name]) {
 				why = @"its rule does not plan as a path from the object the property is of";
 			}

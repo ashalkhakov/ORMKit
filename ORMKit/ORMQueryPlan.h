@@ -273,6 +273,8 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* The key path of a column from the object read, its identifier left
  * out; nil for one computed, or past a join. */
 - (NSArray<NSString *> *)trailOfColumn:(ORMPlanColumn *)column;
+/* The column of a ticked node of the query, by its id; nil for none. */
+- (ORMPlanColumn *)columnOfNode:(NSString *)nodeId;
 /* Whether equal rows are of objects read one after another, the objects
  * in the order (each part a key path from the object read; the key's
  * parts last, when it is given): a prefix of the order determines the
