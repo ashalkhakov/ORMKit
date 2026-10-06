@@ -825,24 +825,43 @@ ORMOneToOneValues(ORMObjectType *type)
 	}
 	NSArray *chosen = [merges firstObject];
 	if ([merges count] > 1) {
-		/* Which values they share. */
-		NSPopUpButton *choices = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 360, 26) pullsDown:NO];
+		/* Which values they share: a pop-up where the alert takes one
+		 * (gnustep-gui's does not), else a button each, the first three. */
+		NSMutableArray *titles = [NSMutableArray array];
 		for (NSArray *merge in merges) {
-			[choices addItemWithTitle:[NSString stringWithFormat:@"%@'s %@ is %@'s %@: keep %@",
-			                                                     [[merge objectAtIndex:2] name], [[merge lastObject] player].name,
-			                                                     [[merge firstObject] name], [[merge objectAtIndex:1] player].name,
-			                                                     [[merge firstObject] name]]];
+			[titles addObject:[NSString stringWithFormat:@"%@'s %@ is %@'s %@: keep %@",
+			                                             [[merge objectAtIndex:2] name], [[merge lastObject] player].name,
+			                                             [[merge firstObject] name], [[merge objectAtIndex:1] player].name,
+			                                             [[merge firstObject] name]]];
 		}
 		NSAlert *alert = [[NSAlert alloc] init];
 		[alert setMessageText:@"Merge Entity Types"];
 		[alert setInformativeText:@"They are one thing kept twice when they share a value. Which one?"];
-		[alert addButtonWithTitle:@"Merge"];
-		[alert addButtonWithTitle:@"Cancel"];
-		[alert setAccessoryView:choices];
-		if ([alert runModal] != NSAlertFirstButtonReturn) {
-			return;
+		NSPopUpButton *choices = nil;
+		NSUInteger shown = 0;
+		if ([alert respondsToSelector:@selector(setAccessoryView:)]) {
+			choices = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(0, 0, 360, 26) pullsDown:NO];
+			[choices addItemsWithTitles:titles];
+			[alert addButtonWithTitle:@"Merge"];
+			[alert performSelector:@selector(setAccessoryView:) withObject:choices];
+		} else {
+			for (; shown < [titles count] && shown < 3; shown++) {
+				[alert addButtonWithTitle:[titles objectAtIndex:shown]];
+			}
 		}
-		chosen = [merges objectAtIndex:(NSUInteger)MAX([choices indexOfSelectedItem], 0)];
+		[alert addButtonWithTitle:@"Cancel"];
+		NSInteger answer = [alert runModal] - NSAlertFirstButtonReturn;
+		if (choices != nil) {
+			if (answer != 0) {
+				return;
+			}
+			chosen = [merges objectAtIndex:(NSUInteger)MAX([choices indexOfSelectedItem], 0)];
+		} else {
+			if (answer < 0 || (NSUInteger)answer >= shown) {
+				return;
+			}
+			chosen = [merges objectAtIndex:(NSUInteger)answer];
+		}
 	}
 	ORMObjectType *kept = [chosen firstObject];
 	ORMObjectType *absorbed = [chosen objectAtIndex:2];
