@@ -23,6 +23,7 @@ The other documents:
 - [QUERIES.md](QUERIES.md): conceptual queries, their plans, and the two backends;
 - [CURSORS.md](CURSORS.md): how a plan is read, as a tree of cursors;
 - [RULES.md](RULES.md): queries as constraints and calculations;
+- [RUNTIME.md](RUNTIME.md): what apps run: the model's plans as tables, and a small driver;
 - [POPULATIONS.md](POPULATIONS.md): sample populations, made up and edited;
 - [WINDOW.md](WINDOW.md): the designer's document window;
 - [VERBALIZATION.md](VERBALIZATION.md): the FORML templates.
