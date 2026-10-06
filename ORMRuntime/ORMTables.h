@@ -12,10 +12,13 @@
  *     derivations = ( { text = "..."; root = Employee; plan = {...};
  *                       target = worksIn; kind = value;
  *                       backs = ( ( City, ( branches, employees ) ) ); } );
+ *     rules = { Person = ( { constraint = "..."; text = "..."; keys = (...);
+ *                            deontic = NO; check = {...}; } ); };
+ *     ruleBacks = { Employee = ( ( City, ( branches, employees ) ) ); };
  *   }
  *
- * What a table of a later step names (rules, joined types) and this one
- * does not read is left as it is. */
+ * What a table of a later step names (joined types) and this one does not
+ * read is left as it is. */
 
 /* The format the tables are written in; a later one is refused. */
 extern const NSUInteger ORMTablesFormat;
@@ -45,10 +48,80 @@ extern const NSUInteger ORMTablesFormat;
                              backs:(NSArray<NSArray *> *)backs;
 @end
 
+/* What a rule asks of an object (docs/RUNTIME.md), as a tree: a few kinds
+ * the driver knows, and plans for the rest.
+ *
+ *   { present = key; }                 the property holds something: a
+ *                                      to-many not empty, anything else set
+ *   { true = key; }                    a unary's attribute is true
+ *   { all = (...); } { any = (...); } { not = {...}; }
+ *   { count = (...); atMost = 1; }     how many of the checks hold (or
+ *                                      exactly = 1)
+ *   { sets = (a, b); relation = disjoint; }   the related objects' sets
+ *                                      (subset, equal)
+ *   { ring = (acyclic, ...); key = k; }       each ring property of the
+ *                                      relationship from the entity to itself
+ *   { compare = (a, b); comparison = ">="; }  when both are set
+ *   { within = key; ranges = ( { min = 0; max = 17; } ); }   when set; a
+ *                                      bound left out is none, minOpen and
+ *                                      maxOpen YES where it is not reached
+ *   { plan = {...}; }                  the plan reads the object: its
+ *                                      condition holds of it */
+@interface ORMRuleCheck : NSObject
++ (instancetype)checkWithPropertyList:(id)list error:(NSError **)error;
+- (id)propertyList;
+/* "present", "true", "all", "any", "not", "count", "sets", "ring",
+ * "compare", "within", "plan". */
+@property (nonatomic, readonly, copy) NSString *kind;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *keys;
+@property (nonatomic, readonly, copy) NSArray<ORMRuleCheck *> *operands;
+/* count's bound, and whether it is exact; sets' relation, ring's
+ * properties, compare's comparison. */
+@property (nonatomic, readonly) NSUInteger number;
+@property (nonatomic, readonly) BOOL exactly;
+@property (nonatomic, readonly, copy) NSString *relation;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *properties;
+@property (nonatomic, readonly, copy) NSString *comparison;
+/* within's: each @{ min, minOpen, max, maxOpen }, numbers. */
+@property (nonatomic, readonly, copy) NSArray<NSDictionary *> *ranges;
+@property (nonatomic, readonly, strong) ORMQueryPlan *plan;
+@end
+
+/* A rule an entity's objects are checked by: the constraint's name, what
+ * it says, the properties it is about, whether it is an obligation to be
+ * told of (deontic) rather than enforced, and its check, which a valid
+ * object meets. */
+@interface ORMRule : NSObject
++ (instancetype)ruleNamed:(NSString *)constraint
+                     text:(NSString *)text
+                     keys:(NSArray<NSString *> *)keys
+                  deontic:(BOOL)deontic
+                    check:(ORMRuleCheck *)check;
+@property (nonatomic, readonly, copy) NSString *constraint;
+@property (nonatomic, readonly, copy) NSString *text;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *keys;
+@property (nonatomic, readonly) BOOL deontic;
+@property (nonatomic, readonly, strong) ORMRuleCheck *check;
+/* How far the check sees, to read. */
+@property (nonatomic, copy) NSString *remark;
+@end
+
 @interface ORMTables : NSObject
 + (instancetype)tablesOfModel:(NSString *)model
                       queries:(NSDictionary<NSString *, ORMQueryPlan *> *)queries
                   derivations:(NSArray<ORMStoredDerivation *> *)derivations;
+/* The same, with rules. */
++ (instancetype)tablesOfModel:(NSString *)model
+                      queries:(NSDictionary<NSString *, ORMQueryPlan *> *)queries
+                  derivations:(NSArray<ORMStoredDerivation *> *)derivations
+                        rules:(NSDictionary<NSString *, NSArray<ORMRule *> *> *)rules
+                    ruleBacks:(NSDictionary<NSString *, NSArray<NSArray *> *> *)ruleBacks;
+/* Each entity's rules, by its name; a subentity's objects meet its
+ * ancestors' too. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSArray<ORMRule *> *> *rules;
+/* The entities whose rules are checked again at save for each object a
+ * change reaches, and the ways back to them (as a derivation's). */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSArray<NSArray *> *> *ruleBacks;
 @property (nonatomic, readonly, copy) NSString *model;
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMQueryPlan *> *queries;
 /* In the order they run: each after those whose facts it reads. */

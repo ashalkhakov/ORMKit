@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMSaveHook.h"
 #import "ORMQueryInterpreter.h"
+#import "ORMValidator.h"
 #import <CoreData/CoreData.h>
 
 /* What the property holds, as a set: nothing, one value, or a to-many's
@@ -160,6 +161,22 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
 		}
 	}
 	return YES;
+}
+
+- (void)checkInContext:(NSManagedObjectContext *)context
+               changed:(NSSet *)changed
+            violations:(NSMutableArray<NSError *> *)violations
+{
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:self.tables];
+	for (NSString *entity in [[self.tables.ruleBacks allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		for (NSManagedObject *root in [ORMSaveHook rootsOf:entity backs:[self.tables.ruleBacks objectForKey:entity]
+		                                           changed:changed
+		                                         inContext:context]) {
+			if (![root isDeleted]) {
+				[violations addObjectsFromArray:[validator violationsOf:root deontic:NO]];
+			}
+		}
+	}
 }
 
 @end

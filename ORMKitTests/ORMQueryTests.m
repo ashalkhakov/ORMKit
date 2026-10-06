@@ -1430,7 +1430,6 @@
 	/* The same, through the generated code. */
 	NSString *why = nil;
 	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
-	[ORMTables registerTables:tables named:@"Company"];
 	XCTAssertTrue([context respondsToSelector:NSSelectorFromString(@"orm_prepareForSave:")]);
 	[context performBlockAndWait:^{
 		[self rename:@"Sydney Harbour" to:@"Port Jackson" in:context target:target hook:nil];
@@ -2119,14 +2118,28 @@
 	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model
 	                                                                         mapping:[self mapping]
 	                                                                            name:@"Company"];
-	NSString *code = [[generator files] objectForKey:@"CompanyValidation.m"];
-	XCTAssertTrue([code rangeOfString:@"evaluateWithObject:self]"].location != NSNotFound, @"%@", code);
-	XCTAssertTrue([code rangeOfString:@"Lives near work"].location != NSNotFound);
+	/* A rule of the tables: its plan, which no valid Employee is read by. */
+	ORMTables *tables = [generator tables];
+	ORMRule *rule = [[tables.rules objectForKey:@"Employee"] lastObject];
+	XCTAssertEqualObjects(rule.constraint, @"Lives near work");
+	XCTAssertEqualObjects(rule.check.kind, @"not");
+	XCTAssertEqualObjects([[rule.check.operands firstObject] kind], @"plan");
 	/* At save, again for each Employee a change reaches (docs/DERIVATION.md). */
-	XCTAssertTrue([code rangeOfString:@"Checked from Employee, and by orm_prepareForSave: for each Employee a change reaches."]
-	                  .location != NSNotFound, @"%@", code);
-	XCTAssertTrue([code rangeOfString:@"/* The rules Employee is checked by, again for each a change reaches. */"].location
-	                  != NSNotFound, @"%@", code);
+	XCTAssertEqualObjects(rule.remark, @"Checked from Employee, and by orm_prepareForSave: for each Employee a change reaches.");
+	XCTAssertNotNil([tables.ruleBacks objectForKey:@"Employee"]);
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	__block NSArray *invalid = nil;
+	[context performBlockAndWait:^{
+		NSMutableArray *found = [NSMutableArray array];
+		for (NSManagedObject *each in [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Employee"]
+		                                                     error:NULL]) {
+			if (![validator validate:each error:NULL]) {
+				[found addObject:[each valueForKey:@"nr"]];
+			}
+		}
+		invalid = found;
+	}];
+	XCTAssertEqualObjects(invalid, @[ @21 ]);
 	NSString *notes = [generator.notes componentsJoinedByString:@"\n"];
 	XCTAssertTrue([notes rangeOfString:@"Lives near work"].location == NSNotFound, @"%@", notes);
 

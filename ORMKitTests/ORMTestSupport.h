@@ -43,7 +43,8 @@
 - (NSArray<NSString *> *)allNormaFiles;
 #if defined(__APPLE__)
 /* Generated code (ORMValidationGenerator's files) built as a library and
- * loaded, the class headers it imports stubbed. NO, with clang's word,
+ * loaded, the class headers it imports stubbed, and the tables among them
+ * registered (+[ORMTables registerTables:named:]). NO, with clang's word,
  * where it does not build. */
 - (BOOL)load:(NSDictionary<NSString *, NSString *> *)files in:(NSString *)directory why:(NSString **)why;
 #endif

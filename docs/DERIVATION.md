@@ -218,9 +218,10 @@ That takes the place of the dependency order of step 3.
      derived, or one whose plan reads a set it defines, is in the
      generator's notes. One Core Data derives itself (step 5) is left to
      it.
-   - Then each constraint query is checked again, with
-     `orm_collectViolations:`, for every root a change, a derived one
-     included, reaches. An alethic violation refuses the save.
+   - Then each constraint query is checked again by the driver
+     (`-[ORMSaveHook checkInContext:changed:violations:]`), for every root
+     a change, a derived one included, reaches. An alethic violation
+     refuses the save.
    - Tested through the driver, on both platforms, and by building the
      generated code with clang and loading it (macOS): a city renamed, its
      branches' employees work in the new name.

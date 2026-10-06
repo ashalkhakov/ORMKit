@@ -185,8 +185,11 @@ Declarations, and calls into the driver:
    `<Name>.ormplans` and calls the driver from `orm_prepareForSave:`.
    `PFXDerive`, `PFXRoots` and `PFXWalk` are gone, and so is the limit to
    plain chains.
-4. **Rules:** checks as plans, and ring checks as kinds. The validation
-   category forwards to the driver.
+4. **Rules** (done). Each rule is a check: a few kinds the driver knows
+   (presence, counts, set comparisons, ring properties, comparisons,
+   ranges) and plans for constraint queries. `ORMValidator` checks them,
+   and the validation category calls it. The emitted helpers left are the
+   three the joined types' code uses.
 5. **Joined types:** `ORMJoinedObject` and its table. The façade classes
    are generated as declarations, and `ORMJoinedFacade`'s emitted code goes.
 6. **Queries for apps:** typed methods, and the model-free OData path.

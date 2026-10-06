@@ -12,21 +12,6 @@
 #import "ORMQuery.h"
 #import "ORMPath.h"
 
-/* One check: a condition that holds of a valid object, said in Objective-C
- * over self, with what to say when it does not. */
-@interface ORMValidationRule : NSObject
-@property (nonatomic, copy) NSString *constraint;
-@property (nonatomic, copy) NSString *text;
-@property (nonatomic, copy) NSString *condition;
-@property (nonatomic, copy) NSArray<NSString *> *keys;
-@property (nonatomic) BOOL deontic;
-/* What the code's comment says besides: how far the check sees. */
-@property (nonatomic, copy) NSString *remark;
-@end
-
-@implementation ORMValidationRule
-@end
-
 /* An Objective-C string literal's contents. */
 static NSString *
 ORMEscaped(NSString *text)
@@ -58,20 +43,16 @@ ORMCommentText(NSString *text)
 	return [text stringByReplacingOccurrencesOfString:@"*/" withString:@"* /"];
 }
 
-/* A number as a C literal, or nil when the bound is not one. */
-static NSString *
-ORMNumberLiteral(NSString *value)
+/* A bound as a number, or nil when it is not one. */
+static NSNumber *
+ORMBound(NSString *value)
 {
 	NSScanner *scanner = [NSScanner scannerWithString:value ?: @""];
 	double number = 0;
 	if (![scanner scanDouble:&number] || ![scanner isAtEnd]) {
 		return nil;
 	}
-	return [value rangeOfString:@"."].location == NSNotFound
-	               && [value rangeOfCharacterFromSet:[NSCharacterSet characterSetWithCharactersInString:@"eE"]].location
-	                      == NSNotFound
-		? [value stringByAppendingString:@".0"]
-		: value;
+	return @(number);
 }
 
 @implementation ORMValidationGenerator
@@ -84,14 +65,14 @@ ORMNumberLiteral(NSString *value)
 	/* Property source (the far role) -> @[ entity, property ]. */
 	NSMutableDictionary<NSString *, NSArray *> *_bySource;
 	/* Entity name -> its rules. */
-	NSMutableDictionary<NSString *, NSMutableArray<ORMValidationRule *> *> *_rules;
+	NSMutableDictionary<NSString *, NSMutableArray<ORMRule *> *> *_rules;
 	NSMutableArray<NSString *> *_notes;
 	NSMutableArray<NSString *> *_skipped;
 	NSUInteger _ruleCount;
 	/* What the save hook does (docs/DERIVATION.md): the stored derivations it
-	 * works out, each @{ text, root, keys, target, kind, backs }, in the order
-	 * they are worked out; and, by the entity a rule reads, the ways back to
-	 * it from what the rule reads: @[ entity, inverse keys ]. */
+	 * works out, in the order they are worked out; and, by the entity a rule
+	 * reads, the ways back to it from what the rule reads: @[ entity,
+	 * inverse keys ]. */
 	NSMutableArray<ORMStoredDerivation *> *_derivations;
 	NSMutableDictionary<NSString *, NSMutableOrderedSet<NSArray *> *> *_ruleBacks;
 	/* The joined entity types' code (docs/JOINED-ENTITIES.md). */
@@ -247,21 +228,16 @@ ORMNumberLiteral(NSString *value)
 	return [(ORMCDProperty *)[place lastObject] name];
 }
 
-/* Whether the property holds anything: a unary's attribute true, a to-many
- * not empty, anything else set. */
-- (NSString *)presenceOf:(NSArray *)place
+/* The check that the property holds anything: a unary's attribute true, a
+ * to-many not empty, anything else set. */
+- (NSDictionary *)presenceOf:(NSArray *)place
 {
 	ORMCDProperty *property = [place lastObject];
 	ORMRole *source = [_model elementWithId:property.source];
 	if ([property isKindOfClass:[ORMCDAttribute class]] && source.player.isImplicitBooleanValue) {
-		return [NSString stringWithFormat:@"%@True(self, %@)", _prefix, ORMLiteral(property.name)];
+		return @{ @"true": property.name };
 	}
-	return [NSString stringWithFormat:@"%@Present(self, %@)", _prefix, ORMLiteral(property.name)];
-}
-
-- (NSString *)relatedOf:(NSArray *)place
-{
-	return [NSString stringWithFormat:@"%@Related(self, %@)", _prefix, ORMLiteral([self keyOf:place])];
+	return @{ @"present": property.name };
 }
 
 #pragma mark The rules
@@ -288,25 +264,24 @@ ORMNumberLiteral(NSString *value)
 	return [texts count] > 0 ? [texts componentsJoinedByString:@" "] : constraint.name;
 }
 
-- (void)add:(NSString *)condition to:(ORMCDEntity *)entity for:(ORMConstraint *)constraint keys:(NSArray *)keys
+- (void)add:(NSDictionary *)check to:(ORMCDEntity *)entity for:(ORMConstraint *)constraint keys:(NSArray *)keys
 {
-	[self add:condition to:entity named:constraint.name ?: constraint.identifier text:[self textOf:constraint]
+	[self add:check to:entity named:constraint.name ?: constraint.identifier text:[self textOf:constraint]
 	     keys:keys deontic:constraint.modality == ORMDeontic];
 }
 
-- (void)add:(NSString *)condition
-         to:(ORMCDEntity *)entity
-      named:(NSString *)name
-       text:(NSString *)text
-       keys:(NSArray *)keys
-    deontic:(BOOL)deontic
+/* A rule of the entity's, its check as the tables have it. */
+- (ORMRule *)add:(NSDictionary *)list
+              to:(ORMCDEntity *)entity
+           named:(NSString *)name
+            text:(NSString *)text
+            keys:(NSArray *)keys
+         deontic:(BOOL)deontic
 {
-	ORMValidationRule *rule = [[ORMValidationRule alloc] init];
-	rule.constraint = name;
-	rule.text = text;
-	rule.condition = condition;
-	rule.keys = keys;
-	rule.deontic = deontic;
+	NSError *error = nil;
+	ORMRuleCheck *check = [ORMRuleCheck checkWithPropertyList:list error:&error];
+	NSAssert(check != nil, @"%@", error);
+	ORMRule *rule = [ORMRule ruleNamed:name text:text keys:keys deontic:deontic check:check];
 	NSMutableArray *rules = [_rules objectForKey:entity.name];
 	if (rules == nil) {
 		rules = [NSMutableArray array];
@@ -314,6 +289,7 @@ ORMNumberLiteral(NSString *value)
 	}
 	[rules addObject:rule];
 	_ruleCount++;
+	return rule;
 }
 
 - (void)skip:(ORMConstraint *)constraint because:(NSString *)why
@@ -346,7 +322,7 @@ ORMNumberLiteral(NSString *value)
 	for (NSArray *place in places) {
 		[terms addObject:[self presenceOf:place]];
 	}
-	[self add:[terms componentsJoinedByString:@" || "] to:entity for:constraint keys:[self keysOf:places]];
+	[self add:@{ @"any": terms } to:entity for:constraint keys:[self keysOf:places]];
 }
 
 - (void)exclusion:(ORMConstraint *)constraint
@@ -359,8 +335,7 @@ ORMNumberLiteral(NSString *value)
 			[terms addObject:[self presenceOf:place]];
 		}
 		/* With a disjunctive mandatory over the same roles: exactly one. */
-		NSString *bound = constraint.exclusiveOrPartner != nil ? @"== 1" : @"<= 1";
-		[self add:[NSString stringWithFormat:@"(%@) %@", [terms componentsJoinedByString:@" + "], bound]
+		[self add:@{ @"count": terms, constraint.exclusiveOrPartner != nil ? @"exactly" : @"atMost": @1 }
 		       to:entity
 		      for:constraint
 		     keys:[self keysOf:places]];
@@ -371,12 +346,11 @@ ORMNumberLiteral(NSString *value)
 		NSMutableArray *terms = [NSMutableArray array];
 		for (NSUInteger i = 0; i < [places count]; i++) {
 			for (NSUInteger j = i + 1; j < [places count]; j++) {
-				[terms addObject:[NSString stringWithFormat:@"![%@ intersectsSet:%@]",
-				                                            [self relatedOf:[places objectAtIndex:i]],
-				                                            [self relatedOf:[places objectAtIndex:j]]]];
+				[terms addObject:@{ @"sets": @[ [self keyOf:[places objectAtIndex:i]], [self keyOf:[places objectAtIndex:j]] ],
+					                @"relation": @"disjoint" }];
 			}
 		}
-		[self add:[terms componentsJoinedByString:@" && "] to:entity for:constraint keys:[self keysOf:places]];
+		[self add:@{ @"all": terms } to:entity for:constraint keys:[self keysOf:places]];
 		return;
 	}
 	[self skip:constraint because:@"its arguments are not properties of one entity"];
@@ -391,24 +365,26 @@ ORMNumberLiteral(NSString *value)
 	NSMutableArray *terms = [NSMutableArray array];
 	if (places != nil) {
 		for (NSUInteger i = 0; i + 1 < [places count]; i++) {
-			NSString *a = [self presenceOf:[places objectAtIndex:i]];
-			NSString *b = [self presenceOf:[places objectAtIndex:i + 1]];
-			[terms addObject:equality ? [NSString stringWithFormat:@"%@ == %@", a, b]
-			                          : [NSString stringWithFormat:@"(!%@ || %@)", a, b]];
+			NSDictionary *a = [self presenceOf:[places objectAtIndex:i]];
+			NSDictionary *b = [self presenceOf:[places objectAtIndex:i + 1]];
+			/* The first only where the second; equal, the other way too. */
+			[terms addObject:@{ @"any": @[ @{ @"not": a }, b ] }];
+			if (equality) {
+				[terms addObject:@{ @"any": @[ @{ @"not": b }, a ] }];
+			}
 		}
 	} else if ((places = [self pairPlaces:constraint entity:&entity]) != nil) {
 		for (NSUInteger i = 0; i + 1 < [places count]; i++) {
-			NSString *a = [self relatedOf:[places objectAtIndex:i]];
-			NSString *b = [self relatedOf:[places objectAtIndex:i + 1]];
-			[terms addObject:[NSString stringWithFormat:equality ? @"[%@ isEqualToSet:%@]" : @"[%@ isSubsetOfSet:%@]",
-			                                            a, b]];
+			[terms addObject:@{ @"sets": @[ [self keyOf:[places objectAtIndex:i]], [self keyOf:[places objectAtIndex:i + 1]] ],
+				                @"relation": equality ? @"equal" : @"subset" }];
 		}
 	}
 	if ([terms count] == 0) {
 		[self skip:constraint because:@"its arguments are not properties of one entity"];
 		return;
 	}
-	[self add:[terms componentsJoinedByString:@" && "] to:entity for:constraint keys:[self keysOf:places]];
+	[self add:[terms count] == 1 ? [terms firstObject] : @{ @"all": terms } to:entity for:constraint
+	     keys:[self keysOf:places]];
 }
 
 - (void)ring:(ORMConstraint *)constraint
@@ -420,28 +396,28 @@ ORMNumberLiteral(NSString *value)
 		[self skip:constraint because:@"it is not over a relationship of an entity to itself"];
 		return;
 	}
-	NSDictionary *checks = @{ @(ORMRingIrreflexive): @"Irreflexive",
-		                      @(ORMRingReflexive): @"Reflexive",
-		                      @(ORMRingPurelyReflexive): @"PurelyReflexive",
-		                      @(ORMRingSymmetric): @"Symmetric",
-		                      @(ORMRingAsymmetric): @"Asymmetric",
-		                      @(ORMRingAntisymmetric): @"Antisymmetric",
-		                      @(ORMRingTransitive): @"Transitive",
-		                      @(ORMRingIntransitive): @"Intransitive",
-		                      @(ORMRingStronglyIntransitive): @"StronglyIntransitive",
-		                      @(ORMRingAcyclic): @"Acyclic" };
-	NSMutableArray *terms = [NSMutableArray array];
+	NSDictionary *checks = @{ @(ORMRingIrreflexive): @"irreflexive",
+		                      @(ORMRingReflexive): @"reflexive",
+		                      @(ORMRingPurelyReflexive): @"purelyReflexive",
+		                      @(ORMRingSymmetric): @"symmetric",
+		                      @(ORMRingAsymmetric): @"asymmetric",
+		                      @(ORMRingAntisymmetric): @"antisymmetric",
+		                      @(ORMRingTransitive): @"transitive",
+		                      @(ORMRingIntransitive): @"intransitive",
+		                      @(ORMRingStronglyIntransitive): @"stronglyIntransitive",
+		                      @(ORMRingAcyclic): @"acyclic" };
+	NSMutableArray *properties = [NSMutableArray array];
 	for (NSNumber *bit in [[checks allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
 		if ((constraint.ringType & [bit unsignedIntegerValue]) != 0) {
-			[terms addObject:[NSString stringWithFormat:@"%@%@(self, %@)", _prefix, [checks objectForKey:bit],
-			                                            ORMLiteral([self keyOf:place])]];
+			[properties addObject:[checks objectForKey:bit]];
 		}
 	}
-	if ([terms count] == 0) {
+	if ([properties count] == 0) {
 		[self skip:constraint because:@"it has no ring type"];
 		return;
 	}
-	[self add:[terms componentsJoinedByString:@" && "] to:[place firstObject] for:constraint keys:@[ [self keyOf:place] ]];
+	[self add:@{ @"ring": properties, @"key": [self keyOf:place] } to:[place firstObject] for:constraint
+	     keys:@[ [self keyOf:place] ]];
 }
 
 - (void)valueComparison:(ORMConstraint *)constraint
@@ -466,9 +442,7 @@ ORMNumberLiteral(NSString *value)
 		[self skip:constraint because:@"it does not compare two attributes of one entity"];
 		return;
 	}
-	[self add:[NSString stringWithFormat:@"%@Compare(self, %@, %@, %@)", _prefix,
-	                                     ORMLiteral([self keyOf:[places objectAtIndex:0]]),
-	                                     ORMLiteral([self keyOf:[places objectAtIndex:1]]), ORMLiteral(operator)]
+	[self add:@{ @"compare": [self keysOf:places], @"comparison": operator }
 	       to:entity
 	      for:constraint
 	     keys:[self keysOf:places]];
@@ -494,35 +468,31 @@ ORMNumberLiteral(NSString *value)
 	if ([values.ranges count] < 2 && !open) {
 		return;
 	}
-	NSMutableArray *alternatives = [NSMutableArray array];
+	NSMutableArray *ranges = [NSMutableArray array];
 	for (ORMValueRange *range in values.ranges) {
-		NSMutableArray *bounds = [NSMutableArray array];
+		NSMutableDictionary *bounds = [NSMutableDictionary dictionary];
 		if ([range.minValue length] > 0) {
-			NSString *min = ORMNumberLiteral(range.minValue);
+			NSNumber *min = ORMBound(range.minValue);
 			if (min == nil) {
 				return;
 			}
-			[bounds addObject:[NSString stringWithFormat:@"v %@ %@", range.minInclusion == ORMRangeOpen ? @">" : @">=",
-			                                             min]];
+			[bounds setObject:min forKey:@"min"];
+			[bounds setObject:@(range.minInclusion == ORMRangeOpen) forKey:@"minOpen"];
 		}
 		if ([range.maxValue length] > 0) {
-			NSString *max = ORMNumberLiteral(range.maxValue);
+			NSNumber *max = ORMBound(range.maxValue);
 			if (max == nil) {
 				return;
 			}
-			[bounds addObject:[NSString stringWithFormat:@"v %@ %@", range.maxInclusion == ORMRangeOpen ? @"<" : @"<=",
-			                                             max]];
+			[bounds setObject:max forKey:@"max"];
+			[bounds setObject:@(range.maxInclusion == ORMRangeOpen) forKey:@"maxOpen"];
 		}
-		[alternatives addObject:[bounds count] > 0 ? [NSString stringWithFormat:@"(%@)",
-		                                                                        [bounds componentsJoinedByString:@" && "]]
-		                                           : @"YES"];
+		[ranges addObject:bounds];
 	}
-	if ([alternatives count] == 0) {
+	if ([ranges count] == 0) {
 		return;
 	}
-	NSString *condition = [NSString stringWithFormat:@"%@Within(self, %@, ^BOOL(double v) { return %@; })", _prefix,
-	                                                 ORMLiteral(attribute.name),
-	                                                 [alternatives componentsJoinedByString:@" || "]];
+	NSDictionary *condition = @{ @"within": attribute.name, @"ranges": ranges };
 	NSString *text = [NSString stringWithFormat:@"The possible values of %@ are %@.", attribute.name,
 	                                            [values displayText] ?: @""];
 	[self add:condition to:entity named:values.name ?: values.identifier text:text keys:@[ attribute.name ] deontic:NO];
@@ -629,39 +599,38 @@ ORMNumberLiteral(NSString *value)
 		ORMQueryPlan *plan = [planner planForQuery:query];
 		ORMCDEntity *entity = plan.entityName != nil ? [_coreData entityNamed:plan.entityName] : nil;
 		NSString *why = nil;
-		NSString *predicate = nil;
+		NSPredicate *predicate = nil;
 		if (entity == nil || [plan.notes count] > 0) {
 			why = entity == nil ? @"it reads no entity" : [plan.notes componentsJoinedByString:@" "];
 		} else {
-			predicate = [interpreter predicateTextForPlan:plan reason:&why];
+			/* What the driver asks of the object: one predicate. */
+			predicate = [interpreter predicateForPlan:plan reason:&why];
 		}
 		if (predicate == nil) {
 			[_skipped addObject:[NSString stringWithFormat:@"%@: %@", query.name, text]];
 			[_notes addObject:[NSString stringWithFormat:@"%@: %@ (%@)", query.name, why ?: @"?", text]];
 			continue;
 		}
-		[self add:[NSString stringWithFormat:@"![[NSPredicate predicateWithFormat:%@] evaluateWithObject:self]",
-		                                     ORMLiteral(predicate)]
-		       to:entity
-		    named:query.name
-		     text:text
-		     keys:@[]
-		  deontic:query.isDeontic];
+		/* Its rows are what must not be: a valid object is none of them. */
+		ORMRule *rule = [self add:@{ @"not": @{ @"plan": [plan propertyList] } }
+		                       to:entity
+		                    named:query.name
+		                     text:text
+		                     keys:@[]
+		                  deontic:query.isDeontic];
 		/* At save, again for each object a change reaches it from. */
 		NSArray *backs = [self backsFrom:entity trails:[plan trailsFromRead]];
 		if (backs != nil) {
 			NSMutableOrderedSet *all = [_ruleBacks objectForKey:entity.name] ?: [NSMutableOrderedSet orderedSet];
 			[all addObjectsFromArray:backs];
 			[_ruleBacks setObject:all forKey:entity.name];
-			[[[_rules objectForKey:entity.name] lastObject]
-				setRemark:[NSString stringWithFormat:@"Checked from %@, and by orm_prepareForSave: for each %@ a change "
-				                                     @"reaches.",
-				                                     entity.name, entity.name]];
+			rule.remark = [NSString stringWithFormat:@"Checked from %@, and by orm_prepareForSave: for each %@ a change "
+			                                         @"reaches.",
+			                                         entity.name, entity.name];
 		} else {
-			[[[_rules objectForKey:entity.name] lastObject]
-				setRemark:[NSString stringWithFormat:@"Checked from %@ only: a change to the objects it reaches is seen "
-				                                     @"when %@ is saved again.",
-				                                     entity.name, entity.name]];
+			rule.remark = [NSString stringWithFormat:@"Checked from %@ only: a change to the objects it reaches is seen "
+			                                         @"when %@ is saved again.",
+			                                         entity.name, entity.name];
 		}
 	}
 }
@@ -855,56 +824,31 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	}
 }
 
-/* The paths back from a changed object to the roots it reaches, as an
-   array literal of @[ entity, @[ key, ... ] ]. */
-static NSString *ORMBacksLiteral(NSArray *list)
-{
-	NSMutableArray *items = [NSMutableArray array];
-	for (NSArray *back in list) {
-		NSMutableArray *keys = [NSMutableArray array];
-		for (NSString *key in [back lastObject]) {
-			[keys addObject:ORMLiteral(key)];
-		}
-		[items addObject:[NSString stringWithFormat:@"@[ %@, @[ %@ ] ]", ORMLiteral([back firstObject]),
-		                                            [keys componentsJoinedByString:@", "]]];
-	}
-	return [items count] > 0 ? [NSString stringWithFormat:@"@[ %@ ]", [items componentsJoinedByString:@", "]] : @"@[]";
-}
-
-/* The context's category: what orm_prepareForSave: does. */
+/* The context's category: what orm_prepareForSave: does, by the tables. */
 - (NSString *)saveHook
 {
 	NSMutableString *out = [NSMutableString string];
-	[out appendString:@"\n@implementation NSManagedObjectContext (ORMSave)\n\n"
+	[out appendFormat:@"\n@implementation NSManagedObjectContext (ORMSave)\n\n"
 	                  @"- (BOOL)orm_prepareForSave:(NSError **)error\n"
 	                  @"{\n"
 	                  @"\tNSMutableSet *changed = [NSMutableSet setWithSet:[self insertedObjects]];\n"
 	                  @"\t[changed unionSet:[self updatedObjects]];\n"
-	                  @"\t[changed unionSet:[self deletedObjects]];\n"];
-	if ([_derivations count] > 0) {
-		[out appendFormat:@"\t/* The stored derived facts, by the model's tables (%@.ormplans). */\n"
-		                  @"\tORMTables *tables = [ORMTables tablesNamed:%@ error:error];\n"
-		                  @"\tif (tables == nil || ![[[ORMSaveHook alloc] initWithTables:tables] deriveInContext:self\n"
-		                  @"\t                                                                         changed:changed\n"
-		                  @"\t                                                                           error:error]) {\n"
-		                  @"\t\treturn NO;\n"
-		                  @"\t}\n",
-		                  _name, ORMLiteral(_name)];
-	}
-	[out appendString:@"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n"];
+	                  @"\t[changed unionSet:[self deletedObjects]];\n"
+	                  @"\t/* The model's tables (%@.ormplans), by the driver. */\n"
+	                  @"\tORMTables *tables = [ORMTables tablesNamed:%@ error:error];\n"
+	                  @"\tif (tables == nil) {\n"
+	                  @"\t\treturn NO;\n"
+	                  @"\t}\n"
+	                  @"\tORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];\n"
+	                  @"\tif (![hook deriveInContext:self changed:changed error:error]) {\n"
+	                  @"\t\treturn NO;\n"
+	                  @"\t}\n"
+	                  @"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n",
+	                  _name, ORMLiteral(_name)];
 	[out appendString:[_joined saveStatements]];
-	for (NSString *entityName in [[_ruleBacks allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
-		[out appendFormat:@"\t/* The rules %@ is checked by, again for each a change reaches. */\n"
-		                  @"\tfor (NSManagedObject *root in [ORMSaveHook rootsOf:%@ backs:%@ changed:changed inContext:self]) {\n"
-		                  @"\t\tif (![root isDeleted]) {\n"
-		                  @"\t\t\t[(id)root orm_collectViolations:violations deontic:NO];\n"
-		                  @"\t\t}\n"
-		                  @"\t}\n",
-		                  entityName, ORMLiteral(entityName), ORMBacksLiteral([[_ruleBacks objectForKey:entityName] array])];
-	}
-	[out appendFormat:@"\treturn %@Report(violations, error);\n"
-	                  @"}\n\n@end\n",
-	                  _prefix];
+	[out appendString:@"\t[hook checkInContext:self changed:changed violations:violations];\n"
+	                  @"\treturn [ORMValidator report:violations error:error];\n"
+	                  @"}\n\n@end\n"];
 	return out;
 }
 
@@ -988,21 +932,26 @@ static NSString *ORMBacksLiteral(NSArray *list)
 	                  @" * and the same in validateForUpdate:. */\n\n",
 	                  _name, ORMCommentText(_model.name ?: @"the ORM model")];
 	[out appendString:@"#import <CoreData/CoreData.h>\n"];
-	NSArray *entities = [self entitiesWithRules];
+	NSMutableArray *entities = [NSMutableArray array];
+	for (ORMCDEntity *entity in [self entitiesWithRules]) {
+		if (![self ancestorHasRules:entity]) {
+			[entities addObject:entity];
+		}
+	}
 	for (ORMCDEntity *entity in entities) {
 		[out appendFormat:@"#import \"%@\"\n", [self headerOf:entity]];
 	}
 	for (ORMCDEntity *entity in entities) {
-		[out appendFormat:@"\n@interface %@ (ORMValidation)\n", [self classOf:entity]];
-		if (![self ancestorHasRules:entity]) {
-			[out appendString:@"/* NO, with what is violated in the error: one NSError, or an\n"
-			                  @" * NSValidationMultipleErrorsError with them under NSDetailedErrorsKey. */\n"
-			                  @"- (BOOL)orm_validateConstraints:(NSError **)error;\n"
-			                  @"/* The deontic rules broken: obligations to be told of, not enforced. */\n"
-			                  @"- (NSArray<NSError *> *)orm_deonticViolations;\n"];
-		}
-		[out appendString:@"- (void)orm_collectViolations:(NSMutableArray<NSError *> *)violations deontic:(BOOL)deontic;\n"
-		                  @"@end\n"];
+		[out appendFormat:@"\n/* Checked by the model's tables (%@.ormplans), a subentity's rules with\n"
+		                  @" * its own. */\n"
+		                  @"@interface %@ (ORMValidation)\n"
+		                  @"/* NO, with what is violated in the error: one NSError, or an\n"
+		                  @" * NSValidationMultipleErrorsError with them under NSDetailedErrorsKey. */\n"
+		                  @"- (BOOL)orm_validateConstraints:(NSError **)error;\n"
+		                  @"/* The deontic rules broken: obligations to be told of, not enforced. */\n"
+		                  @"- (NSArray<NSError *> *)orm_deonticViolations;\n"
+		                  @"@end\n",
+		                  _name, [self classOf:entity]];
 	}
 	[out appendString:[_joined header]];
 	if ([self hasSaveHook]) {
@@ -1021,8 +970,13 @@ static NSString *ORMBacksLiteral(NSArray *list)
 	return out;
 }
 
+/* What the joined types' code uses (docs/JOINED-ENTITIES.md): a
+ * violation, and what a property holds. The rest is the driver's. */
 - (NSString *)helpers
 {
+	if ([_joined isEmpty]) {
+		return @"";
+	}
 	NSString *helpers =
 		@"#define PFX_UNUSED __attribute__((unused))\n\n"
 		@"static PFX_UNUSED NSError *\n"
@@ -1038,22 +992,6 @@ static NSString *ORMBacksLiteral(NSArray *list)
 		@"\t[info setObject:keys forKey:@\"ORMKeys\"];\n"
 		@"\treturn [NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError userInfo:info];\n"
 		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXReport(NSArray<NSError *> *violations, NSError **error)\n"
-		@"{\n"
-		@"\tif ([violations count] == 0) {\n"
-		@"\t\treturn YES;\n"
-		@"\t}\n"
-		@"\tif (error != NULL) {\n"
-		@"\t\t*error = [violations count] == 1\n"
-		@"\t\t\t? [violations objectAtIndex:0]\n"
-		@"\t\t\t: [NSError errorWithDomain:NSCocoaErrorDomain\n"
-		@"\t\t\t                      code:NSValidationMultipleErrorsError\n"
-		@"\t\t\t                  userInfo:@{ NSDetailedErrorsKey: violations,\n"
-		@"\t\t\t                              NSLocalizedDescriptionKey: @\"Several constraints are violated.\" }];\n"
-		@"\t}\n"
-		@"\treturn NO;\n"
-		@"}\n\n"
 		@"/* What the property holds, as a set: nothing, one value, or a to-many's objects. */\n"
 		@"static PFX_UNUSED NSSet *\n"
 		@"PFXRelated(id object, NSString *key)\n"
@@ -1068,164 +1006,13 @@ static NSString *ORMBacksLiteral(NSArray *list)
 		@"\tif ([value isKindOfClass:[NSOrderedSet class]]) {\n"
 		@"\t\treturn [(NSOrderedSet *)value set];\n"
 		@"\t}\n"
-		@"\tif ([value isKindOfClass:[NSArray class]]) {\n"
-		@"\t\treturn [NSSet setWithArray:value];\n"
-		@"\t}\n"
 		@"\treturn [NSSet setWithObject:value];\n"
 		@"}\n\n"
 		@"static PFX_UNUSED BOOL\n"
 		@"PFXPresent(id object, NSString *key)\n"
 		@"{\n"
 		@"\treturn [PFXRelated(object, key) count] > 0;\n"
-		@"}\n\n"
-		@"/* A unary's attribute: absent is false. */\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXTrue(id object, NSString *key)\n"
-		@"{\n"
-		@"\treturn [[object valueForKey:key] boolValue];\n"
-		@"}\n\n"
-		@"/* Everything reachable from the objects through the relationship, them included. */\n"
-		@"static PFX_UNUSED NSSet *\n"
-		@"PFXReachable(NSSet *from, NSString *key)\n"
-		@"{\n"
-		@"\tNSMutableSet *seen = [NSMutableSet setWithSet:from];\n"
-		@"\tNSMutableArray *pending = [NSMutableArray arrayWithArray:[from allObjects]];\n"
-		@"\twhile ([pending count] > 0) {\n"
-		@"\t\tid at = [pending lastObject];\n"
-		@"\t\t[pending removeLastObject];\n"
-		@"\t\tfor (id next in PFXRelated(at, key)) {\n"
-		@"\t\t\tif (![seen containsObject:next]) {\n"
-		@"\t\t\t\t[seen addObject:next];\n"
-		@"\t\t\t\t[pending addObject:next];\n"
-		@"\t\t\t}\n"
-		@"\t\t}\n"
-		@"\t}\n"
-		@"\treturn seen;\n"
-		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXIrreflexive(id object, NSString *key)\n"
-		@"{\n"
-		@"\treturn ![PFXRelated(object, key) containsObject:object];\n"
-		@"}\n\n"
-		@"/* Related to anything, related to itself. */\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXReflexive(id object, NSString *key)\n"
-		@"{\n"
-		@"\tNSSet *related = PFXRelated(object, key);\n"
-		@"\treturn [related count] == 0 || [related containsObject:object];\n"
-		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXPurelyReflexive(id object, NSString *key)\n"
-		@"{\n"
-		@"\tfor (id other in PFXRelated(object, key)) {\n"
-		@"\t\tif (other != object) {\n"
-		@"\t\t\treturn NO;\n"
-		@"\t\t}\n"
-		@"\t}\n"
-		@"\treturn YES;\n"
-		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXSymmetric(id object, NSString *key)\n"
-		@"{\n"
-		@"\tfor (id other in PFXRelated(object, key)) {\n"
-		@"\t\tif (![PFXRelated(other, key) containsObject:object]) {\n"
-		@"\t\t\treturn NO;\n"
-		@"\t\t}\n"
-		@"\t}\n"
-		@"\treturn YES;\n"
-		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXAsymmetric(id object, NSString *key)\n"
-		@"{\n"
-		@"\tfor (id other in PFXRelated(object, key)) {\n"
-		@"\t\tif ([PFXRelated(other, key) containsObject:object]) {\n"
-		@"\t\t\treturn NO;\n"
-		@"\t\t}\n"
-		@"\t}\n"
-		@"\treturn YES;\n"
-		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXAntisymmetric(id object, NSString *key)\n"
-		@"{\n"
-		@"\tfor (id other in PFXRelated(object, key)) {\n"
-		@"\t\tif (other != object && [PFXRelated(other, key) containsObject:object]) {\n"
-		@"\t\t\treturn NO;\n"
-		@"\t\t}\n"
-		@"\t}\n"
-		@"\treturn YES;\n"
-		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXTransitive(id object, NSString *key)\n"
-		@"{\n"
-		@"\tNSSet *related = PFXRelated(object, key);\n"
-		@"\tfor (id other in related) {\n"
-		@"\t\tfor (id further in PFXRelated(other, key)) {\n"
-		@"\t\t\tif (![related containsObject:further]) {\n"
-		@"\t\t\t\treturn NO;\n"
-		@"\t\t\t}\n"
-		@"\t\t}\n"
-		@"\t}\n"
-		@"\treturn YES;\n"
-		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXIntransitive(id object, NSString *key)\n"
-		@"{\n"
-		@"\tNSSet *related = PFXRelated(object, key);\n"
-		@"\tfor (id other in related) {\n"
-		@"\t\tfor (id further in PFXRelated(other, key)) {\n"
-		@"\t\t\tif ([related containsObject:further]) {\n"
-		@"\t\t\t\treturn NO;\n"
-		@"\t\t\t}\n"
-		@"\t\t}\n"
-		@"\t}\n"
-		@"\treturn YES;\n"
-		@"}\n\n"
-		@"/* Nothing related directly is also reached the long way round. */\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXStronglyIntransitive(id object, NSString *key)\n"
-		@"{\n"
-		@"\tNSSet *related = PFXRelated(object, key);\n"
-		@"\tNSMutableSet *second = [NSMutableSet set];\n"
-		@"\tfor (id other in related) {\n"
-		@"\t\t[second unionSet:PFXRelated(other, key)];\n"
-		@"\t}\n"
-		@"\treturn ![PFXReachable(second, key) intersectsSet:related];\n"
-		@"}\n\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXAcyclic(id object, NSString *key)\n"
-		@"{\n"
-		@"\treturn ![PFXReachable(PFXRelated(object, key), key) containsObject:object];\n"
-		@"}\n\n"
-		@"/* The two values compared, when both are set. */\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXCompare(id object, NSString *first, NSString *second, NSString *op)\n"
-		@"{\n"
-		@"\tid a = [object valueForKey:first];\n"
-		@"\tid b = [object valueForKey:second];\n"
-		@"\tif (a == nil || b == nil) {\n"
-		@"\t\treturn YES;\n"
-		@"\t}\n"
-		@"\tNSComparisonResult order = [a compare:b];\n"
-		@"\tif ([op isEqualToString:@\"<\"]) {\n"
-		@"\t\treturn order == NSOrderedAscending;\n"
-		@"\t} else if ([op isEqualToString:@\"<=\"]) {\n"
-		@"\t\treturn order != NSOrderedDescending;\n"
-		@"\t} else if ([op isEqualToString:@\">\"]) {\n"
-		@"\t\treturn order == NSOrderedDescending;\n"
-		@"\t} else if ([op isEqualToString:@\">=\"]) {\n"
-		@"\t\treturn order != NSOrderedAscending;\n"
-		@"\t} else if ([op isEqualToString:@\"==\"]) {\n"
-		@"\t\treturn order == NSOrderedSame;\n"
-		@"\t}\n"
-		@"\treturn order != NSOrderedSame;\n"
-		@"}\n\n"
-		@"/* The number within the ranges, when it is set. */\n"
-		@"static PFX_UNUSED BOOL\n"
-		@"PFXWithin(id object, NSString *key, BOOL (^within)(double value))\n"
-		@"{\n"
-		@"\tid value = [object valueForKey:key];\n"
-		@"\treturn value == nil || within([value doubleValue]);\n"
-		@"}\n";
+		@"}\n\n";
 	return [helpers stringByReplacingOccurrencesOfString:@"PFX" withString:_prefix];
 }
 
@@ -1236,7 +1023,7 @@ static NSString *ORMBacksLiteral(NSArray *list)
 	                  @" * with the model. */\n\n",
 	                  _name, ORMCommentText(_model.name ?: @"the ORM model")];
 	[out appendFormat:@"#import \"%@Validation.h\"\n", _name];
-	if ([self hasSaveHook]) {
+	if ([self hasTables]) {
 		/* The driver of the model's tables (docs/RUNTIME.md). */
 		[out appendString:@"#import <ORMRuntime/ORMRuntime.h>\n"];
 	}
@@ -1250,59 +1037,23 @@ static NSString *ORMBacksLiteral(NSArray *list)
 	}
 	[out appendString:[self helpers]];
 	[out appendString:[_joined implementation]];
+	/* Each entity's rules, its ancestors' too, are the driver's to check:
+	 * a category on the topmost classes with rules. */
 	for (ORMCDEntity *entity in [self entitiesWithRules]) {
-		NSString *class = [self classOf:entity];
-		[out appendFormat:@"\n@implementation %@ (ORMValidation)\n\n", class];
-		if (![self ancestorHasRules:entity]) {
-			[out appendFormat:@"- (BOOL)orm_validateConstraints:(NSError **)error\n"
-			                  @"{\n"
-			                  @"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n"
-			                  @"\t[self orm_collectViolations:violations deontic:NO];\n"
-			                  @"\treturn %@Report(violations, error);\n"
-			                  @"}\n\n"
-			                  @"- (NSArray<NSError *> *)orm_deonticViolations\n"
-			                  @"{\n"
-			                  @"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n"
-			                  @"\t[self orm_collectViolations:violations deontic:YES];\n"
-			                  @"\treturn violations;\n"
-			                  @"}\n\n",
-			                  _prefix];
-		}
-		[out appendString:@"- (void)orm_collectViolations:(NSMutableArray<NSError *> *)violations deontic:(BOOL)deontic\n"
-		                  @"{\n"];
 		if ([self ancestorHasRules:entity]) {
-			[out appendString:@"\t[super orm_collectViolations:violations deontic:deontic];\n"];
+			continue;
 		}
-		for (NSNumber *deontic in @[ @NO, @YES ]) {
-			NSMutableArray *rules = [NSMutableArray array];
-			for (ORMValidationRule *rule in [_rules objectForKey:entity.name]) {
-				if (rule.deontic == [deontic boolValue]) {
-					[rules addObject:rule];
-				}
-			}
-			if ([rules count] == 0) {
-				continue;
-			}
-			[out appendFormat:@"\tif (%@deontic) {\n", [deontic boolValue] ? @"" : @"!"];
-			for (ORMValidationRule *rule in rules) {
-				NSMutableArray *keys = [NSMutableArray array];
-				for (NSString *key in rule.keys) {
-					[keys addObject:ORMLiteral(key)];
-				}
-				[out appendFormat:@"\t\t/* %@ */\n"
-				                  @"\t\tif (!(%@)) {\n"
-				                  @"\t\t\t[violations addObject:%@Violation(self, %@,\n"
-				                  @"\t\t\t                                  %@,\n"
-				                  @"\t\t\t                                  @[ %@ ])];\n"
-				                  @"\t\t}\n",
-				                  ORMCommentText(rule.remark != nil ? [NSString stringWithFormat:@"%@ %@", rule.text, rule.remark]
-				                                                    : rule.text),
-				                  rule.condition, _prefix, ORMLiteral(rule.constraint),
-				                  ORMLiteral(rule.text), [keys componentsJoinedByString:@", "]];
-			}
-			[out appendString:@"\t}\n"];
-		}
-		[out appendString:@"}\n\n@end\n"];
+		[out appendFormat:@"\n@implementation %@ (ORMValidation)\n\n"
+		                  @"- (BOOL)orm_validateConstraints:(NSError **)error\n"
+		                  @"{\n"
+		                  @"\tORMValidator *validator = [ORMValidator validatorNamed:%@ error:error];\n"
+		                  @"\treturn validator != nil && [validator validate:self error:error];\n"
+		                  @"}\n\n"
+		                  @"- (NSArray<NSError *> *)orm_deonticViolations\n"
+		                  @"{\n"
+		                  @"\treturn [[ORMValidator validatorNamed:%@ error:NULL] violationsOf:self deontic:YES] ?: @[];\n"
+		                  @"}\n\n@end\n",
+		                  [self classOf:entity], ORMLiteral(_name), ORMLiteral(_name)];
 	}
 	if ([self hasSaveHook]) {
 		[out appendString:[self saveHook]];
@@ -1312,7 +1063,17 @@ static NSString *ORMBacksLiteral(NSArray *list)
 
 - (ORMTables *)tables
 {
-	return [ORMTables tablesOfModel:_name queries:@{} derivations:_derivations];
+	NSMutableDictionary *backs = [NSMutableDictionary dictionary];
+	for (NSString *entity in _ruleBacks) {
+		[backs setObject:[[_ruleBacks objectForKey:entity] array] forKey:entity];
+	}
+	return [ORMTables tablesOfModel:_name queries:@{} derivations:_derivations rules:_rules ruleBacks:backs];
+}
+
+/* Whether the code reads tables: it has rules or a save hook. */
+- (BOOL)hasTables
+{
+	return [_rules count] > 0 || [self hasSaveHook];
 }
 
 - (NSDictionary<NSString *, NSString *> *)files
@@ -1320,7 +1081,7 @@ static NSString *ORMBacksLiteral(NSArray *list)
 	NSMutableDictionary *files = [NSMutableDictionary dictionary];
 	[files setObject:[self header] forKey:[_name stringByAppendingString:@"Validation.h"]];
 	[files setObject:[self implementation] forKey:[_name stringByAppendingString:@"Validation.m"]];
-	if ([_derivations count] > 0) {
+	if ([self hasTables]) {
 		NSData *data = [NSPropertyListSerialization dataWithPropertyList:[[self tables] propertyList]
 		                                                          format:NSPropertyListXMLFormat_v1_0
 		                                                         options:0

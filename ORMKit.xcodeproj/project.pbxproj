@@ -572,6 +572,11 @@
 			isa = PBXBuildFile;
 			fileRef = 6BEF846193223BF6F8183053 /* ORMQueryInterpreter.m */;
 		};
+		9B2E2B41F81A1A0A3081753F /* ORMValidator.h */ = {
+			isa = PBXBuildFile;
+			fileRef = A12999F62C1AEC6336AF8D78 /* ORMValidator.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		9B7051A4BE2AC97FD813EAED /* AppKit.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = D9440F138977C55F58D15995 /* AppKit.framework */;
@@ -727,6 +732,10 @@
 		C524A231E4BB9D170BA97F2A /* ORMPopulationView.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 3D7347BD8C9B4F6482DC2DC5 /* ORMPopulationView.m */;
+		};
+		C6EE27C0DC910DAD6020E6D9 /* ORMValidator.m */ = {
+			isa = PBXBuildFile;
+			fileRef = E4DA127DFA66CE73DA9FDC44 /* ORMValidator.m */;
 		};
 		C71479A27392A4BF146F2710 /* ORMInsertPalette.xib */ = {
 			isa = PBXBuildFile;
@@ -1633,6 +1642,12 @@
 			path = ThirdParty/DMTabBar/DMTabBar.m;
 			sourceTree = "<group>";
 		};
+		A12999F62C1AEC6336AF8D78 /* ORMValidator.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMValidator.h;
+			sourceTree = "<group>";
+		};
 		A2912B87D083B2C60E070A76 /* ORMSentenceEditor.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -1912,6 +1927,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMPopulationView.h;
+			sourceTree = "<group>";
+		};
+		E4DA127DFA66CE73DA9FDC44 /* ORMValidator.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMValidator.m;
 			sourceTree = "<group>";
 		};
 		E623EB98ADA451CD3AAB1987 /* ORMCoreDataController.h */ = {
@@ -2207,6 +2228,8 @@
 				35B947FF1308232DEB74D77C /* ORMSaveHook.m */,
 				62B9AA5A53B21A8FE08D12C0 /* ORMTables.h */,
 				1D8B30B1C1392AE50C6F7E15 /* ORMTables.m */,
+				A12999F62C1AEC6336AF8D78 /* ORMValidator.h */,
+				E4DA127DFA66CE73DA9FDC44 /* ORMValidator.m */,
 			);
 			path = ORMRuntime;
 			sourceTree = "<group>";
@@ -2393,6 +2416,7 @@
 				54707845230900C47086D8BC /* ORMCursor.h */,
 				5B8283E1E684E5471A49FB2D /* ORMTables.h */,
 				F7D2E3B4AD130E07AFF39020 /* ORMSaveHook.h */,
+				9B2E2B41F81A1A0A3081753F /* ORMValidator.h */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2688,6 +2712,7 @@
 				F15FE67197E1ED375B7D951F /* ORMCursor.m */,
 				A20FC48761C1C37839E917F9 /* ORMTables.m */,
 				865877A8C4AA1D2231E76213 /* ORMSaveHook.m */,
+				C6EE27C0DC910DAD6020E6D9 /* ORMValidator.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

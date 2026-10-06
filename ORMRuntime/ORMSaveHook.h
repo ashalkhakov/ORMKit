@@ -21,6 +21,12 @@
  * run against the context's model. */
 - (BOOL)deriveInContext:(NSManagedObjectContext *)context changed:(NSMutableSet *)changed error:(NSError **)error;
 
+/* The rules checked again for each object a change reaches
+ * (tables.ruleBacks): their alethic violations added. */
+- (void)checkInContext:(NSManagedObjectContext *)context
+               changed:(NSSet *)changed
+            violations:(NSMutableArray<NSError *> *)violations;
+
 /* The objects of the entity a change can affect: those changed, and those
  * each changed object of an entity in backs reaches walking back:
  * @[ entity, @[ key, ... ] ]. */

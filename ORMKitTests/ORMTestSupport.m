@@ -233,6 +233,20 @@
 		*why = [NSString stringWithUTF8String:dlerror()];
 		return NO;
 	}
+	/* The tables it runs, found as an app's resources are. */
+	for (NSString *name in files) {
+		if ([[name pathExtension] isEqualToString:@"ormplans"]) {
+			NSData *data = [[files objectForKey:name] dataUsingEncoding:NSUTF8StringEncoding];
+			id list = [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL];
+			NSError *error = nil;
+			ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+			if (tables == nil) {
+				*why = [error localizedDescription];
+				return NO;
+			}
+			[ORMTables registerTables:tables named:[name stringByDeletingPathExtension]];
+		}
+	}
 	return YES;
 }
 #endif

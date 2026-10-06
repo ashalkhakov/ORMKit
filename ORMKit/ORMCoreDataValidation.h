@@ -61,11 +61,12 @@
                          name:(NSString *)name;
 
 /* File name -> contents: <Name>Validation.h and <Name>Validation.m, and
- * <Name>.ormplans where the save hook runs tables (docs/RUNTIME.md): the
- * app adds it to its resources, and links ORMRuntime. */
+ * <Name>.ormplans, the tables the code's checks and save hook run
+ * (docs/RUNTIME.md), where there are any: the app adds it to its
+ * resources, and links ORMRuntime. */
 - (NSDictionary<NSString *, NSString *> *)files;
-/* The tables the code runs: the stored derivations, in the order they
- * are worked out. */
+/* The tables the code runs: each entity's rules, and the stored
+ * derivations, in the order they are worked out. */
 - (ORMTables *)tables;
 /* The constraints no code checks, and why. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;

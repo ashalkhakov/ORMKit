@@ -7,3 +7,4 @@
 #import "ORMCursor.h"
 #import "ORMTables.h"
 #import "ORMSaveHook.h"
+#import "ORMValidator.h"
