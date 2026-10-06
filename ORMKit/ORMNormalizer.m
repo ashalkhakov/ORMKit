@@ -2,6 +2,8 @@
 #import "ORMEditorPriv.h"
 #import "ORMReadingText.h"
 #import "ORMPath.h"
+#import "ORMQuery.h"
+#import "ORMVerbalizer.h"
 
 /* Whether the file is of the NORMA versions that write each reading's
  * <orm:ExpandedData>: one that has readings and none of it is older, and
@@ -247,6 +249,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 	}
 
 	[self normalizeImpliedMandatories:model];
+	[self normalizeDerivations:model];
 
 	/* Each preferred identifier names what it identifies. */
 	NSMutableDictionary *identified = [NSMutableDictionary dictionary];
@@ -356,6 +359,30 @@ ORMWritesImpliedMandatories(ORMModel *model)
 		}
 	}
 	return [ORMImpliedMandatoryRoles(model) count] == 0;
+}
+
+/* A derivation query's fact type keeps the query's words as its rule's,
+ * which NORMA shows (docs/DERIVATION.md). Only where a query derives one:
+ * a file without queries is left as it is. */
+- (void)normalizeDerivations:(ORMModel *)model
+{
+	ORMVerbalizer *verbalizer = nil;
+	for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
+		ORMFactType *fact = query.kind == ORMQueryDerivation ? query.derivedFactType : nil;
+		NSXMLElement *note = ORMChild(ORMChild(ORMChild(ORMChild(fact.element, CORE, @"DerivationRule"), CORE,
+		                                                 @"FactTypeDerivationPath"),
+		                                         CORE, @"InformalRule"),
+		                              CORE, @"DerivationNote");
+		if (note == nil) {
+			continue;
+		}
+		verbalizer = verbalizer ?: [[ORMVerbalizer alloc] initWithModel:model];
+		NSString *text = [[ORMVerbalizer plainTextOfSentences:[verbalizer sentencesForQuery:query]]
+			stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+		if ([text length] > 0 && ![ORMChildText(note, CORE, @"Body") isEqualToString:text]) {
+			ORMSetChildText(_editor.document, note, CORE, @"Body", text);
+		}
+	}
 }
 
 - (void)normalizeImpliedMandatories:(ORMModel *)model

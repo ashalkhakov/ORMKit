@@ -55,6 +55,8 @@ typedef NS_ENUM(NSInteger, ORMQueryKind) {
 	ORMQueryList,
 	ORMQueryConstraint,
 	ORMQueryCalculation,
+	/* Its rows are a fact type's facts (docs/DERIVATION.md). */
+	ORMQueryDerivation,
 };
 
 /* What a calculation computes of its node's values: the one value, or an
@@ -153,12 +155,17 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly) BOOL isDeontic;
 @property (nonatomic, readonly) ORMQueryCalculationFunction calculationFunction;
 @property (nonatomic, readonly, weak) ORMQueryNode *calculatedNode;
+/* A derivation's fact type: its listed columns are that fact type's roles,
+ * in its order (nil: none yet). */
+@property (nonatomic, readonly, weak) ORMFactType *derivedFactType;
 /* "value", "count", "total", "avg", "max", "min". */
 + (NSString *)nameOfCalculationFunction:(ORMQueryCalculationFunction)function;
 
 /* The model's queries, read from its document. */
 + (NSArray<ORMQuery *> *)queriesInModel:(ORMModel *)model;
 + (ORMQuery *)queryWithId:(NSString *)identifier inModel:(ORMModel *)model;
+/* The derivation of the fact type, if a query derives it. */
++ (ORMQuery *)derivationOf:(ORMFactType *)factType inModel:(ORMModel *)model;
 /* The roles a query can go on through from a node of the type: those it
  * and its supertypes play, its subtype links included, its reference mode
  * not (a condition on the node compares its identifier). */
@@ -198,6 +205,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* What the query is for. Leaving a kind drops what was only its (a
  * constraint's modality, a calculation's function and node). */
 - (BOOL)setKind:(ORMQueryKind)kind ofQuery:(NSString *)queryId reason:(NSString **)reason;
+/* The fact type a derivation derives, written for NORMA too as the fact
+ * type's DerivationRule (docs/DERIVATION.md). NO for a query of another
+ * kind, a fact type another query derives, or one with NORMA's own rule. */
+- (BOOL)setDerivedFactType:(NSString *)factTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* A constraint's modality; NO for a query of another kind. */
 - (BOOL)setDeontic:(BOOL)deontic ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* A calculation's function, of a node of the query below its root; NO for

@@ -146,7 +146,7 @@ populations do it after each change (step 3).
 
 ## Steps
 
-1. **The kind, in the file and the model.** `ORMQueryDerivation`, `Of` a
+1. **Done: the kind, in the file and the model.** `ORMQueryDerivation`, `Of` a
    fact type, and the editor's setters. `ORMFactType` knows its derivation.
    The fact type's NORMA `DerivationRule` is written with the query: its
    completeness, storage and verbalization. The diagram shows the marks.

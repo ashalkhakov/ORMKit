@@ -1028,6 +1028,76 @@
 	XCTAssertNotNil([ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error], @"%@", error);
 }
 
+/* A derivation (docs/DERIVATION.md): "Employee reports to Employee", from
+ * the branch one works for and the other heads. Its fact type is derived
+ * for NORMA too: a DerivationRule whose words are the query's, kept as the
+ * query changes; NORMA's marks on the diagram; and asserted again when the
+ * query stops deriving it. */
+- (void)testADerivationDerivesAFactTypeAsNormaKeepsIt
+{
+	NSString *employee = [self typeId:@"Employee"];
+	NSArray *roles = [self fact:@"reportsTo" players:@[ employee, employee ] reading:@"{0} reports to {1}" inverse:nil
+	                 uniqueness:@"*"];
+	ORMFactType *reports = [(ORMRole *)[_editor.model elementWithId:roles[0]] factType];
+	NSString *factId = reports.identifier;
+	XCTAssertFalse(reports.isDerived);
+	NSString *q = [[self queries] addQueryNamed:@"Reporting" from:employee reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *branch = [self from:root through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
+	[[self queries] setProjected:YES ofNode:head.identifier];
+	NSString *reason = nil;
+	XCTAssertFalse([[self queries] setDerivedFactType:factId ofQuery:q reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Only a derivation derives a fact type.");
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([[self queries] setDerivedFactType:factId ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertEqual([self query:q].kind, ORMQueryDerivation);
+	XCTAssertEqualObjects([self query:q].derivedFactType.identifier, factId);
+	XCTAssertEqualObjects([ORMQuery derivationOf:[_editor.model elementWithId:factId] inModel:_editor.model].identifier, q);
+
+	/* NORMA reads it as derived, with the query's words as its rule. */
+	reports = [_editor.model elementWithId:factId];
+	XCTAssertTrue(reports.isDerived);
+	ORMDerivationRule *rule = [reports derivationRule];
+	XCTAssertFalse(rule.isPartial);
+	XCTAssertFalse(rule.isStored);
+	XCTAssertEqualObjects(rule.informalText, [self english:q]);
+	ORMShape *shape = [[[_editor.model elementWithId:_diagram] shapeForSubject:factId] self];
+	XCTAssertNotNil(shape);
+	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" *"]);
+	/* The words follow the query. */
+	[[self queries] setProjected:YES ofNode:branch.identifier];
+	XCTAssertEqualObjects([[(ORMFactType *)[_editor.model elementWithId:factId] derivationRule] informalText], [self english:q]);
+	[[self queries] setProjected:NO ofNode:branch.identifier];
+
+	/* Partly derived and stored, as NORMA says them. */
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:YES stored:YES of:factId reason:&reason], @"%@", reason);
+	reports = [_editor.model elementWithId:factId];
+	XCTAssertTrue([reports derivationRule].isPartial);
+	XCTAssertTrue([reports derivationRule].isStored);
+	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" ++"]);
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:factId reason:&reason], @"%@", reason);
+	reports = [_editor.model elementWithId:factId];
+	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" **"]);
+
+	/* One derivation a fact type. */
+	NSString *again = [[self queries] addQueryNamed:@"Again" from:employee reason:NULL];
+	[[self queries] setKind:ORMQueryDerivation ofQuery:again reason:NULL];
+	XCTAssertFalse([[self queries] setDerivedFactType:factId ofQuery:again reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Reporting derives it already.");
+
+	/* A list again: asserted again; undone, derived. */
+	XCTAssertTrue([[self queries] setKind:ORMQueryList ofQuery:q reason:&reason]);
+	XCTAssertFalse([(ORMFactType *)[_editor.model elementWithId:factId] isDerived]);
+	XCTAssertNil([self query:q].derivedFactType);
+	[self.undoManager undo];
+	XCTAssertTrue([(ORMFactType *)[_editor.model elementWithId:factId] isDerived]);
+	/* The query removed: asserted. */
+	[[self queries] removeQuery:q];
+	XCTAssertFalse([(ORMFactType *)[_editor.model elementWithId:factId] isDerived]);
+	XCTAssertNil([ORMQuery derivationOf:[_editor.model elementWithId:factId] inModel:_editor.model]);
+}
+
 /* Sorted by an attribute maybe there: each employee and maybe their
  * name, last first. The sort is by the name, from the object read. */
 - (void)testASortByAValueMaybeThere
