@@ -485,6 +485,10 @@
 			fileRef = D8FFF33020869C12406F68CF /* ORMDiagramEditor.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		891A5A67A247021F8CFD413B /* ORMJoinedEntityTests.m */ = {
+			isa = PBXBuildFile;
+			fileRef = E7EE7FD624707E545F704F28 /* ORMJoinedEntityTests.m */;
+		};
 		8AC511DF8CD9702876C34E76 /* ORMConstraintSentence.h */ = {
 			isa = PBXBuildFile;
 			fileRef = C91E469645715A73955E1812 /* ORMConstraintSentence.h */;
@@ -1773,6 +1777,12 @@
 			path = ORMQueryController.m;
 			sourceTree = "<group>";
 		};
+		E7EE7FD624707E545F704F28 /* ORMJoinedEntityTests.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMJoinedEntityTests.m;
+			sourceTree = "<group>";
+		};
 		E9DB394050558188E00DF4EA /* ORMCoreDataValidationTests.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -1983,6 +1993,7 @@
 				E9DB394050558188E00DF4EA /* ORMCoreDataValidationTests.m */,
 				419C737D2F0800F7C9C779E7 /* ORMEditorTests.m */,
 				1FEE443031897F3DF350AAF5 /* ORMFileTests.m */,
+				E7EE7FD624707E545F704F28 /* ORMJoinedEntityTests.m */,
 				6217E0B483913657B5CBF649 /* ORMLogicTests.m */,
 				A501039A4E57AAB1C5C81BC8 /* ORMModelTests.m */,
 				4272149112D7D786EA21672D /* ORMODataTests.m */,
@@ -2510,6 +2521,7 @@
 				F9F7C099A2B89E6701324AE8 /* ORMCoreDataValidationTests.m */,
 				618F148EFA0F883C5782BE17 /* ORMQueryTests.m */,
 				DE89A1C9C88AC818C616A8E0 /* ORMPopulationTests.m */,
+				891A5A67A247021F8CFD413B /* ORMJoinedEntityTests.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

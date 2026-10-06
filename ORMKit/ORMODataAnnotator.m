@@ -142,6 +142,17 @@ ORMWithEntry(NSDictionary *info, NSString *key, NSString *value)
 		}
 		return nil;
 	}
+	/* A joined entity type's member: by what it correlates by, its own
+	 * copies of the type's identifying values (docs/JOINED-ENTITIES.md). */
+	if ([entity.userInfo objectForKey:@"ormkit.joins"] != nil) {
+		NSMutableArray *key = [NSMutableArray array];
+		for (ORMCDAttribute *attribute in entity.attributes) {
+			if ([attribute.source hasPrefix:[entity.source stringByAppendingString:@"/"]] && !attribute.optional) {
+				[key addObject:attribute];
+			}
+		}
+		return [key count] > 0 ? key : nil;
+	}
 	ORMConstraint *identifier = [self objectTypeOf:entity].preferredIdentifier;
 	if (identifier == nil) {
 		return nil;

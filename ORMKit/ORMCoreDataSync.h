@@ -42,6 +42,20 @@ NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
 /* nil: no override, the rules' name. */
 - (void)setName:(NSString *)name forSource:(NSString *)sourceId inMapping:(NSString *)mappingId;
 - (void)setMapping:(ORMObjectTypeMapping)how ofObjectType:(NSString *)objectTypeId inMapping:(NSString *)mappingId;
+/* A member of the entity type's join (docs/JOINED-ENTITIES.md), last; the
+ * type then maps as Joined. by: the identifier it correlates by (nil: the
+ * preferred one); via: the member it joins to (nil: the hub). Its id. */
+- (NSString *)addMemberNamed:(NSString *)name
+                          by:(NSString *)identifierId
+                         via:(NSString *)viaMemberId
+                       outer:(BOOL)outer
+                ofObjectType:(NSString *)objectTypeId
+                   inMapping:(NSString *)mappingId;
+- (void)removeMember:(NSString *)memberId inMapping:(NSString *)mappingId;
+- (void)setOuter:(BOOL)outer ofMember:(NSString *)memberId inMapping:(NSString *)mappingId;
+/* The member has the property of the far role, or not. A role is held by
+ * one member at most: holding it takes it from another. */
+- (void)setHeld:(BOOL)held role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId;
 - (void)setExcluded:(BOOL)excluded source:(NSString *)sourceId inMapping:(NSString *)mappingId;
 - (void)setKept:(BOOL)kept element:(NSString *)path inMapping:(NSString *)mappingId;
 - (void)setBaseline:(ORMCDModel *)model ofMapping:(NSString *)mappingId;
