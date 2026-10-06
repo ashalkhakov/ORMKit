@@ -583,6 +583,19 @@
 	XCTAssertTrue([titles containsObject:@"Derived by"], @"%@", titles);
 	XCTAssertTrue([titles containsObject:@"Partly Derived"]);
 	XCTAssertTrue([titles containsObject:@"Stored"]);
+	/* The query by its name, its rule's sentence just below, as tall as it
+	 * takes, over nothing else. */
+	NSArray *rows = [_controller.inspector valueForKey:@"rows"];
+	NSUInteger by = [titles indexOfObject:@"Derived by"];
+	XCTAssertEqualObjects([titles objectAtIndex:by + 1], @"Rule");
+	NSString *name = [ORMQuery queryWithId:q inModel:editor.model].name;
+	XCTAssertEqualObjects([[[rows objectAtIndex:by] valueForKey:@"control"] stringValue],
+	                      ([NSString stringWithFormat:@"the query \u201C%@\u201D", name]));
+	NSControl *rule = [[rows objectAtIndex:by + 1] valueForKey:@"control"];
+	NSControl *next = [[rows objectAtIndex:by + 2] valueForKey:@"control"];
+	XCTAssertGreaterThan([[rule stringValue] length], 40u);
+	XCTAssertGreaterThan(NSHeight([rule frame]), 16.0, @"wrapped: %@", [rule stringValue]);
+	XCTAssertLessThanOrEqual(NSMaxY([rule frame]), NSMinY([next frame]), @"over the next row");
 	[window close];
 }
 
