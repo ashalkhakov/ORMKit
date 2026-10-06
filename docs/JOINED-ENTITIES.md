@@ -100,9 +100,12 @@ list self (userId), x1.balance
 ## The sample population
 
 The population store writes each instance into the hub, into each inner
-member, and into each outer member it has a fact for there. Each row gets
-the correlating values. The deriver and the checker read rows back through
-the hub, as a query does.
+member, and into each outer member it has a fact for there (with the
+members it joins through). A relationship to the type whose destination is
+a member (Topic's customers) is to the instance's row there. Each row gets
+its correlating values from the row it joins to, once the facts are
+placed. The deriver and the checker read rows back through the hub, as a
+query does.
 
 ## Updates through the join
 

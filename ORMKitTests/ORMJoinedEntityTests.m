@@ -373,4 +373,67 @@
 	                                                      @[ @"deals", @3, @"Cy" ], nil]));
 }
 
+#pragma mark The sample population
+
+/* A population stored through the join: each customer a hub row, a
+ * billing account where it owes, a subscriber where it is mailed or
+ * subscribes, each with the values it correlates by; queries of the store
+ * find each fact. */
+- (void)testThePopulationIsStoredInTheMembers
+{
+	[self makeCustomers];
+	ORMPopulationGenerator *generator = [[ORMPopulationGenerator alloc] initWithModel:_editor.model];
+	NSString *reason = nil;
+	XCTAssertTrue([_editor.populationEditor addPopulation:[generator population] reason:&reason], @"%@", reason);
+	ORMModel *model = _editor.model;
+	ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:model mapping:[self mapping]] map];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	XCTAssertEqualObjects(store.notes, @[]);
+	NSArray *(^all)(NSString *) = ^NSArray *(NSString *entity) {
+		__block NSArray *found = nil;
+		[context performBlockAndWait:^{
+			found = [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:entity] error:NULL];
+		}];
+		return found;
+	};
+	NSUInteger (^factsOf)(NSString *) = ^NSUInteger(NSString *name) {
+		ORMRole *role = [model elementWithId:[[_facts objectForKey:name] firstObject]];
+		return [[role.factType instances] count];
+	};
+	NSUInteger customers = [[[model objectTypeNamed:@"Customer"] instances] count];
+	XCTAssertGreaterThan(customers, 0u);
+	XCTAssertEqual([all(@"CRMCustomer") count], customers);
+	XCTAssertEqual([all(@"BillingAccount") count], factsOf(@"balance"));
+	XCTAssertGreaterThan(factsOf(@"balance"), 0u);
+	XCTAssertGreaterThan([all(@"Subscriber") count], 0u);
+	NSUInteger subscriptions = 0;
+	for (NSManagedObject *subscriber in all(@"Subscriber")) {
+		subscriptions += [[subscriber valueForKey:@"topics"] count];
+	}
+	XCTAssertEqual(subscriptions, factsOf(@"topics"));
+	NSMutableSet *hubIds = [NSMutableSet setWithArray:[all(@"CRMCustomer") valueForKey:@"userId"]];
+	NSMutableSet *hubGuids = [NSMutableSet setWithArray:[all(@"CRMCustomer") valueForKey:@"guid"]];
+	XCTAssertTrue([[NSSet setWithArray:[all(@"BillingAccount") valueForKey:@"userId"]] isSubsetOfSet:hubIds]);
+	XCTAssertTrue([[NSSet setWithArray:[all(@"Subscriber") valueForKey:@"guid"]] isSubsetOfSet:hubGuids]);
+	XCTAssertFalse([[all(@"Subscriber") valueForKey:@"guid"] containsObject:[NSNull null]]);
+
+	/* What they owe, read back through the join: each balance fact. */
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:_editor];
+	NSString *q = [queries addQueryNamed:@"Owing" from:[[model objectTypeNamed:@"Customer"] identifier] reason:NULL];
+	NSString *root = [ORMQuery queryWithId:q inModel:_editor.model].root.identifier;
+	NSString *owes = [self step:queries from:root through:[[_facts objectForKey:@"balance"] firstObject] in:q];
+	[queries setProjected:YES ofNode:owes];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithCoreData:coreData];
+	ORMQueryPlan *plan = [planner planForQuery:[ORMQuery queryWithId:q inModel:_editor.model]];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+	__block ORMQueryResult *result = nil;
+	[context performBlockAndWait:^{
+		result = [interpreter executePlan:plan inContext:context error:NULL];
+	}];
+	XCTAssertEqual([result.rows count], factsOf(@"balance"), @"%@", [plan text]);
+}
+
 @end

@@ -60,6 +60,12 @@ static char ORMTemporaryDirectoryKey;
 	NSHashTable<ORMPopulationFact *> *_reached;
 	/* A fact instance's id to its objectifying instance's object. */
 	NSMutableDictionary<NSString *, NSManagedObject *> *_objectified;
+	/* A joined entity type's instance's rows in its members other than the
+	 * hub, by "instance id entity name" (docs/JOINED-ENTITIES.md), and
+	 * each row's join, in the order made: @[ row, the row joined to,
+	 * pairs ]. */
+	NSMutableDictionary<NSString *, NSManagedObject *> *_rows;
+	NSMutableArray<NSArray *> *_joins;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model coreData:(ORMCDModel *)coreData
@@ -229,7 +235,40 @@ ORMRootOf(ORMInstance *instance)
 	for (ORMInstance *instance in group) {
 		[_objects setObject:object forKey:instance.identifier];
 	}
+	/* A joined entity type's: a row in each inner member too. */
+	for (ORMCDEntity *member in _coreData.entities) {
+		if ([[member.userInfo objectForKey:@"ormkit.joins"] isEqualToString:ORMRootOf(specific).objectType.identifier]
+		    && [[member.userInfo objectForKey:@"ormkit.outer"] isEqualToString:@"NO"]) {
+			[self row:member of:ORMRootOf(specific)];
+		}
+	}
 	return YES;
+}
+
+/* The instance's row in a member of its join, made with those it joins
+ * through where there are none yet; nil where the member is not reached
+ * from its object. */
+- (NSManagedObject *)row:(ORMCDEntity *)member of:(ORMInstance *)instance
+{
+	NSManagedObject *hub = [_objects objectForKey:instance.identifier];
+	ORMCDEntity *entity = hub != nil ? [self cdEntityNamed:[[hub entity] name]] : nil;
+	if (entity == member) {
+		return hub;
+	}
+	NSArray *hops = entity != nil ? [_places joinsToMember:member from:entity] : nil;
+	NSManagedObject *at = hops != nil ? hub : nil;
+	for (NSArray *hop in hops) {
+		ORMCDEntity *next = [hop firstObject];
+		NSString *key = [NSString stringWithFormat:@"%@ %@", instance.identifier, next.name];
+		NSManagedObject *row = [_rows objectForKey:key];
+		if (row == nil) {
+			row = [NSEntityDescription insertNewObjectForEntityForName:next.name inManagedObjectContext:_context];
+			[_rows setObject:row forKey:key];
+			[_joins addObject:@[ row, at, [hop objectAtIndex:1] ]];
+		}
+		at = row;
+	}
+	return at;
 }
 
 - (NSManagedObject *)foldedObjectOf:(ORMInstance *)instance entity:(ORMCDEntity *)entity
@@ -354,6 +393,16 @@ ORMPlayedKey(NSString *roleId, ORMInstance *instance)
 			ORMCDProperty *property = [_places propertyOf:entity source:other.identifier];
 			if (property != nil) {
 				placed = [self set:property of:object to:player] || placed;
+				continue;
+			}
+			/* Another member of its join's: on its row there. */
+			NSArray *hops = [_places joinsTo:other.identifier from:entity];
+			ORMCDEntity *member = [[hops lastObject] firstObject];
+			ORMInstance *own = [fact.byRole objectForKey:role.identifier];
+			NSManagedObject *row = member != nil ? [self row:member of:ORMRootOf(own)] : nil;
+			ORMCDProperty *held = row != nil ? [_places propertyOf:member source:other.identifier] : nil;
+			if (held != nil) {
+				placed = [self set:held of:row to:player] || placed;
 				continue;
 			}
 			for (NSArray *part in [_places absorbedParts:other.identifier on:entity]) {
@@ -528,6 +577,16 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 		if (target == nil) {
 			return NO;
 		}
+		/* To a joined entity type's member: the instance's row there. */
+		ORMCDEntity *destination = [self cdEntityNamed:relationship.destination];
+		ORMCDEntity *its = [self cdEntityNamed:[[target entity] name]];
+		if (destination != nil && its != nil && its != destination && ![_places entity:its inherits:destination]
+		    && [destination.userInfo objectForKey:@"ormkit.joins"] != nil) {
+			target = [self row:destination of:ORMRootOf(instance)];
+			if (target == nil) {
+				return NO;
+			}
+		}
 		if (!relationship.toMany) {
 			[object setValue:target forKey:relationship.name];
 		} else if (relationship.ordered) {
@@ -587,6 +646,8 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
 	[context setPersistentStoreCoordinator:coordinator];
 	_context = context;
+	_rows = [NSMutableDictionary dictionary];
+	_joins = [NSMutableArray array];
 	[self makeObjects];
 	_objectified = [NSMutableDictionary dictionary];
 	for (ORMObjectType *type in _model.objectTypes) {
@@ -633,6 +694,15 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 		}
 		if (objects && ![_reached containsObject:fact]) {
 			[self note:@"\"%@\" is kept nowhere in the store.", ORMFactName(fact.factType)];
+		}
+	}
+	/* Each member's row with the values it is joined by, from the row it
+	 * joins to, now that one has them. */
+	for (NSArray *join in _joins) {
+		NSManagedObject *row = [join firstObject];
+		NSManagedObject *via = [join objectAtIndex:1];
+		for (NSArray *names in [join lastObject]) {
+			[row setValue:[via valueForKey:[names firstObject]] forKey:[names lastObject]];
 		}
 	}
 	_context = nil;

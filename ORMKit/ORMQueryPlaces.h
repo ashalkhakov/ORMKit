@@ -28,6 +28,8 @@
  * @(outer) ]. nil where no member has it, or the member is not reached
  * from the entity. */
 - (NSArray<NSArray *> *)joinsTo:(NSString *)source from:(ORMCDEntity *)entity;
+/* The same, to the member itself. */
+- (NSArray<NSArray *> *)joinsToMember:(ORMCDEntity *)member from:(ORMCDEntity *)entity;
 /* From a member to its hub, the other way: the hops, as above. nil for
  * anything else. */
 - (NSArray<NSArray *> *)joinsToHubFrom:(ORMCDEntity *)member;

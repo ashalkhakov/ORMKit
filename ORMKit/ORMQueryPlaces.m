@@ -76,7 +76,12 @@
 
 - (NSArray<NSArray *> *)joinsTo:(NSString *)source from:(ORMCDEntity *)entity
 {
-	ORMCDEntity *at = source != nil ? [[_bySource objectForKey:source] firstObject] : nil;
+	return [self joinsToMember:source != nil ? [[_bySource objectForKey:source] firstObject] : nil from:entity];
+}
+
+- (NSArray<NSArray *> *)joinsToMember:(ORMCDEntity *)member from:(ORMCDEntity *)entity
+{
+	ORMCDEntity *at = member;
 	NSMutableArray *hops = [NSMutableArray array];
 	while (at != nil && at != entity && [hops count] < 16) {
 		NSString *via = [at.userInfo objectForKey:@"ormkit.via"];
