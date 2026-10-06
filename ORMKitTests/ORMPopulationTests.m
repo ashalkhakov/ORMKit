@@ -358,11 +358,13 @@
 	ORMInstance *ofBranch = [headed.instancesByRole objectForKey:[[heads.roles lastObject] identifier]];
 	NSDictionary *joins = @{ [[worksFor.roles firstObject] identifier]: @"999",
 		                     [[worksFor.roles lastObject] identifier]: [editor.populationEditor nameOf:ofBranch] };
+	/* Counted now: the projection is read again after the edit. */
+	NSUInteger working = [[worksFor instances] count];
 	XCTAssertNotNil([editor.populationEditor addFactOf:worksFor.identifier named:joins reason:&reason], @"%@", reason);
 	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count] + 1);
 	[self.undoManager undo];
 	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count]);
-	XCTAssertEqual([[[self factReading:@"Employee works for Branch" in:editor.model] instances] count], [[worksFor instances] count]);
+	XCTAssertEqual([[[self factReading:@"Employee works for Branch" in:editor.model] instances] count], working);
 }
 
 /* An entity type identified by the facts it plays in, not one value: the
