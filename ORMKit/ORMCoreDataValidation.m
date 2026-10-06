@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCoreDataValidation.h"
+#import "ORMJoinedFacade.h"
 #import "ORMVerbalizer.h"
 #import "ORMQueryPlanner.h"
 #import "ORMQueryInterpreter.h"
@@ -89,6 +90,8 @@ ORMNumberLiteral(NSString *value)
 	 * it from what the rule reads: @[ entity, inverse keys ]. */
 	NSMutableArray<NSDictionary *> *_derivations;
 	NSMutableDictionary<NSString *, NSMutableOrderedSet<NSArray *> *> *_ruleBacks;
+	/* The joined entity types' code (docs/JOINED-ENTITIES.md). */
+	ORMJoinedFacade *_joined;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model
@@ -104,6 +107,7 @@ ORMNumberLiteral(NSString *value)
 		_name = [identifier length] > 0 ? identifier : @"Model";
 		_prefix = _name;
 		[self collect];
+		_joined = [[ORMJoinedFacade alloc] initWithModel:model coreData:coreData prefix:_prefix];
 	}
 	return self;
 }
@@ -810,6 +814,7 @@ ORMNumberLiteral(NSString *value)
 		                  ORMLiteral([derivation objectForKey:@"target"]), [derivation objectForKey:@"kind"]];
 	}
 	[out appendString:@"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n"];
+	[out appendString:[_joined saveStatements]];
 	for (NSString *entityName in [[_ruleBacks allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
 		[out appendFormat:@"\t/* The rules %@ is checked by, again for each a change reaches. */\n"
 		                  @"\tfor (NSManagedObject *root in %@Roots(self, changed, %@, %@)) {\n"
@@ -828,7 +833,7 @@ ORMNumberLiteral(NSString *value)
 
 - (BOOL)hasSaveHook
 {
-	return [_derivations count] > 0 || [_ruleBacks count] > 0;
+	return [_derivations count] > 0 || [_ruleBacks count] > 0 || ![_joined isEmpty];
 }
 
 #pragma mark Writing
@@ -922,6 +927,7 @@ ORMNumberLiteral(NSString *value)
 		[out appendString:@"- (void)orm_collectViolations:(NSMutableArray<NSError *> *)violations deontic:(BOOL)deontic;\n"
 		                  @"@end\n"];
 	}
+	[out appendString:[_joined header]];
 	if ([self hasSaveHook]) {
 		[out appendString:@"\n/* Saving (docs/DERIVATION.md): call before save:, as Core Data's will-save\n"
 		                  @" * notification cannot refuse one.\n"
@@ -1222,6 +1228,7 @@ ORMNumberLiteral(NSString *value)
 		[out appendString:@" */\n\n"];
 	}
 	[out appendString:[self helpers]];
+	[out appendString:[_joined implementation]];
 	for (ORMCDEntity *entity in [self entitiesWithRules]) {
 		NSString *class = [self classOf:entity];
 		[out appendFormat:@"\n@implementation %@ (ORMValidation)\n\n", class];

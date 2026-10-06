@@ -571,6 +571,10 @@
 			isa = PBXBuildFile;
 			fileRef = A02CB28FA9341F5AABF71EB1 /* DMTabBar.m */;
 		};
+		ADB9E1B77978DBD8397AC9B1 /* ORMJoinedFacade.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 0C5509B6431ED94D12A49D31 /* ORMJoinedFacade.m */;
+		};
 		AEF9CD6C5435A772EF9AD5ED /* ORMDesignerTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 7C20915ABD69D3530F08C862 /* ORMDesignerTests.m */;
@@ -732,6 +736,11 @@
 			isa = PBXBuildFile;
 			fileRef = AE6D64430985BCA827E2F4AB /* ORMVerbalizer+Logic.m */;
 		};
+		E2659A508B199FCA23BB8949 /* ORMJoinedFacade.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 9A869E755A3BBD8E2EA76D45 /* ORMJoinedFacade.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		E31FC68A29A3DA7032C38B69 /* ORMKit.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = C9744B6FDDE92001B783F8F2 /* ORMKit.framework */;
@@ -879,6 +888,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMVerbalizer.h;
+			sourceTree = "<group>";
+		};
+		0C5509B6431ED94D12A49D31 /* ORMJoinedFacade.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMJoinedFacade.m;
 			sourceTree = "<group>";
 		};
 		0D97F93BCFA30E497DB62CE5 /* ORMCoreDataSync.m */ = {
@@ -1463,6 +1478,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMQueryTests.m;
+			sourceTree = "<group>";
+		};
+		9A869E755A3BBD8E2EA76D45 /* ORMJoinedFacade.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMJoinedFacade.h;
 			sourceTree = "<group>";
 		};
 		9B4DBA577B59C4FD6946E407 /* MainMenu.xib */ = {
@@ -2052,6 +2073,8 @@
 				C130D140237CE7B77458D0CF /* ORMIssueFinder.m */,
 				CD741DC31AEF00A03451ECA1 /* ORMJoinPathBuilder.h */,
 				DDBAA2ECE6BE5A3930AAE7BB /* ORMJoinPathBuilder.m */,
+				9A869E755A3BBD8E2EA76D45 /* ORMJoinedFacade.h */,
+				0C5509B6431ED94D12A49D31 /* ORMJoinedFacade.m */,
 				1CE3B4E9C0E37597B847C022 /* ORMKit.h */,
 				8D29F219573DEF5B67555B00 /* ORMLogic.h */,
 				235CC0E6730359D4FE3DF6A1 /* ORMLogic.m */,
@@ -2226,6 +2249,7 @@
 				C7A010EF163E795053DA2D55 /* ORMRuleChecker.h */,
 				9DF0F126C9A8ED042D1162D8 /* ORMIssueFinder.h */,
 				A8D5268545B117D218F74473 /* ORMDeriver.h */,
+				E2659A508B199FCA23BB8949 /* ORMJoinedFacade.h */,
 				7134F2EFEFA4B5DC0CFBCBAC /* ORMEditorPriv.h */,
 				7BC2CBB880964CE43801F057 /* ORMModelPriv.h */,
 				37051412F484C4BD0F09323D /* ORMQueryPlaces.h */,
@@ -2440,6 +2464,7 @@
 				70DD29657B0D9D37324033F6 /* ORMRuleChecker.m */,
 				613DAD7D9AF4639FD1E2BF8B /* ORMIssueFinder.m */,
 				B7407CB19F4A990D60A4AB93 /* ORMDeriver.m */,
+				ADB9E1B77978DBD8397AC9B1 /* ORMJoinedFacade.m */,
 				A2CE76FECBD080EA6023129B /* ORMQueryOData.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

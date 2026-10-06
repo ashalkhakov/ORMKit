@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
+#include <dlfcn.h>
 
 @implementation ORMTestCase
 {
@@ -163,5 +164,57 @@
 	NSString *text = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
 	return [task terminationStatus] == 0 ? nil : text;
 }
+
+#if defined(__APPLE__)
+/* The generated validation code built as a library and loaded: the class
+ * headers it imports stubbed. NO, with clang's word, where it does not
+ * build. */
+- (BOOL)load:(NSDictionary<NSString *, NSString *> *)files in:(NSString *)directory why:(NSString **)why
+{
+	NSMutableArray *sources = [NSMutableArray array];
+	NSMutableString *stubs = [NSMutableString stringWithString:@"#import <CoreData/CoreData.h>\n"];
+	for (NSString *name in files) {
+		NSString *text = [files objectForKey:name];
+		[text writeToFile:[directory stringByAppendingPathComponent:name] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+		if ([name hasSuffix:@".m"]) {
+			[sources addObject:[directory stringByAppendingPathComponent:name]];
+		}
+		NSRegularExpression *imported = [NSRegularExpression regularExpressionWithPattern:@"#import \"([A-Za-z0-9_]+)\\+CoreDataClass\\.h\""
+		                                                                          options:0 error:NULL];
+		for (NSTextCheckingResult *match in [imported matchesInString:text options:0 range:NSMakeRange(0, [text length])]) {
+			NSString *class = [text substringWithRange:[match rangeAtIndex:1]];
+			NSString *header = [NSString stringWithFormat:@"#import <CoreData/CoreData.h>\n@interface %@ : NSManagedObject\n@end\n", class];
+			[header writeToFile:[directory stringByAppendingPathComponent:[class stringByAppendingString:@"+CoreDataClass.h"]]
+			         atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+			if ([stubs rangeOfString:[NSString stringWithFormat:@"@implementation %@\n", class]].location == NSNotFound) {
+				[stubs appendFormat:@"@interface %@ : NSManagedObject\n@end\n@implementation %@\n@end\n", class, class];
+			}
+		}
+	}
+	NSString *stubFile = [directory stringByAppendingPathComponent:@"Stubs.m"];
+	[stubs writeToFile:stubFile atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+	[sources addObject:stubFile];
+	NSString *library = [directory stringByAppendingPathComponent:@"Generated.dylib"];
+	NSTask *clang = [[NSTask alloc] init];
+	clang.launchPath = @"/usr/bin/xcrun";
+	clang.arguments = [@[ @"clang", @"-fobjc-arc", @"-dynamiclib", @"-framework", @"Foundation", @"-framework", @"CoreData",
+	                      @"-o", library ] arrayByAddingObjectsFromArray:sources];
+	NSPipe *output = [NSPipe pipe];
+	clang.standardError = output;
+	clang.standardOutput = output;
+	[clang launch];
+	NSData *said = [[output fileHandleForReading] readDataToEndOfFile];
+	[clang waitUntilExit];
+	if (clang.terminationStatus != 0) {
+		*why = [[NSString alloc] initWithData:said encoding:NSUTF8StringEncoding];
+		return NO;
+	}
+	if (dlopen([library fileSystemRepresentation], RTLD_NOW) == NULL) {
+		*why = [NSString stringWithUTF8String:dlerror()];
+		return NO;
+	}
+	return YES;
+}
+#endif
 
 @end

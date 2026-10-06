@@ -436,4 +436,88 @@
 	XCTAssertEqual([result.rows count], factsOf(@"balance"), @"%@", [plan text]);
 }
 
+#pragma mark Generated code
+
+/* Updates through the join, in generated code (docs/JOINED-ENTITIES.md):
+ * a Customer class over the members' objects, each property read from and
+ * written where it is kept; an outer member's row made with its first
+ * value and let go of with its last; a value the members are joined by
+ * set on theirs too; and, at save, a hub object deleted or re-keyed
+ * without the class takes its rows with it. Built and run on macOS. */
+- (void)testGeneratedCodeUpdatesThroughTheJoin
+{
+	[self makeCustomers];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Customers"];
+	NSDictionary *files = [generator files];
+	NSString *header = [files objectForKey:@"CustomersValidation.h"];
+	XCTAssertTrue([header containsString:@"@interface Customer : CustomersJoined"], @"%@", header);
+	XCTAssertTrue([header containsString:@"@property (nonatomic, strong) NSNumber *balance;"], @"%@", header);
+	XCTAssertTrue([header containsString:@"@property (nonatomic, strong) NSSet *topics;"], @"%@", header);
+	XCTAssertTrue([header containsString:@"- (BOOL)orm_prepareForSave:(NSError **)error;"], @"%@", header);
+#if defined(__APPLE__)
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSString *why = nil;
+	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]] map];
+	NSManagedObjectContext *context = [self storeIn:directory model:[mapped managedObjectModel]];
+	Class customers = NSClassFromString(@"Customer");
+	XCTAssertNotNil(customers);
+	SEL allIn = NSSelectorFromString(@"allInContext:");
+	SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
+	NSArray *(*all)(id, SEL, id) = (NSArray * (*)(id, SEL, id))[customers methodForSelector:allIn];
+	BOOL (*prepared)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[context methodForSelector:prepare];
+	[context performBlockAndWait:^{
+		NSUInteger (^rows)(NSString *) = ^NSUInteger(NSString *entity) {
+			return [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:entity] error:NULL] count];
+		};
+		id (^customer)(NSNumber *) = ^id(NSNumber *userId) {
+			for (id each in all(customers, allIn, context)) {
+				if ([[each valueForKey:@"userId"] isEqual:userId]) {
+					return each;
+				}
+			}
+			return nil;
+		};
+		id ann = customer(@1);
+		id bob = customer(@2);
+		XCTAssertEqualObjects([ann valueForKey:@"name"], @"Ann");
+		XCTAssertEqualObjects([ann valueForKey:@"balance"], @50);
+		XCTAssertEqualObjects([ann valueForKey:@"email"], @"ann@example.test");
+		XCTAssertEqual([[ann valueForKey:@"topics"] count], 1u);
+		XCTAssertNil([bob valueForKey:@"balance"]);
+
+		/* Ann pays: her account goes. Bob owes: his is made, by his id. */
+		[ann setValue:nil forKey:@"balance"];
+		XCTAssertEqual(rows(@"BillingAccount"), 1u);
+		[bob setValue:@70 forKey:@"balance"];
+		XCTAssertEqual(rows(@"BillingAccount"), 2u);
+		XCTAssertEqualObjects([[bob performSelector:NSSelectorFromString(@"rowIn:") withObject:@"BillingAccount"]
+		                          valueForKey:@"userId"], @2);
+		/* Bob subscribes, by his GUID through the hub; a new GUID moves his
+		 * subscription with him. */
+		[bob setValue:@"bob@example.test" forKey:@"email"];
+		XCTAssertEqual(rows(@"Subscriber"), 3u);
+		[bob setValue:@"g22" forKey:@"guid"];
+		XCTAssertEqualObjects([bob valueForKey:@"email"], @"bob@example.test");
+		XCTAssertEqualObjects([[bob performSelector:NSSelectorFromString(@"rowIn:") withObject:@"Subscriber"]
+		                          valueForKey:@"guid"], @"g22");
+
+		/* Without the class: Cy's hub object deleted, Bob's re-keyed. At
+		 * save, Cy's rows go, and Bob's follow his id. */
+		id cy = customer(@3);
+		[context deleteObject:[cy valueForKey:@"object"]];
+		[[bob valueForKey:@"object"] setValue:@22 forKey:@"userId"];
+		NSError *error = nil;
+		XCTAssertTrue(prepared(context, prepare, &error), @"%@", error);
+		XCTAssertEqual(rows(@"Subscriber"), 2u);
+		NSFetchRequest *accounts = [NSFetchRequest fetchRequestWithEntityName:@"BillingAccount"];
+		XCTAssertEqualObjects([[context executeFetchRequest:accounts error:NULL] valueForKey:@"userId"], @[ @22 ]);
+		XCTAssertTrue([context save:&error], @"%@", error);
+	}];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+#endif
+}
+
 @end

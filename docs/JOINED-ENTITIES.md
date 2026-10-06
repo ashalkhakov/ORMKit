@@ -109,26 +109,44 @@ query does.
 
 ## Updates through the join
 
-Production code is generated: an app has no ORMKit at run time. For a
-joined type, the generated code gets a class of its own, the type's façade
-over the member objects:
+Production code is generated: an app has no ORMKit at run time. For each
+joined type, the validation files (`<Name>Validation.h/.m`,
+ORMJoinedFacade) get a class of its own, the type's façade over the
+member objects, on a base class `<Name>Joined`:
 
-- `+[PFXCustomer customersInContext:]` lists them, and `+insertInContext:`
-  makes one, with a row in the hub and in each inner member.
+```objc
+Customer *ann = [Customer insertInContext:context];
+ann.userId = @1;           // the hub's (CRMCustomer)
+ann.balance = @50;         // BillingAccount's: its row made, joined by userId
+ann.balance = nil;         // and deleted, as it keeps nothing else
+```
+
+- `+allInContext:` lists them, one for each of the hub's objects;
+  `+insertInContext:` makes one; `-object` is the hub's object;
+  `-rowIn:` is its row in a member; `-delete` deletes every row.
 - Each property reads from and writes to the member that holds it. The
-  member row is fetched by correlation once, and kept.
-- Setting a property of an outer member with no row makes the row, with the
-  correlating values. When the last of its properties is set to nil and it
-  has no relationships, the row is deleted.
-- Setting a correlating value (a user id changed) sets it on every member
-  that has it. `-delete` deletes every row.
-- `orm_prepareForSave:` checks what spans members: a mandatory role held by
-  an outer member, and uniqueness of the correlating values in each member.
+  row is found by what joins it: a fetch, pending changes included.
+- Setting a value with no row there makes the row, with the values that
+  join it, and the rows it joins through. A value that makes the row
+  empty (nil, or an empty set), where no other member joins to it,
+  deletes an outer member's row.
+- Setting a value the members are joined by (a user id, a GUID) sets it
+  on every row joined by it, down the via chain.
+- `orm_prepareForSave:` covers hub objects changed without the class:
+  - an inserted one gets its inner members' rows (a violation where it has
+    no value to join them by);
+  - a deleted one's rows are deleted;
+  - an updated one's rows, found by its values before the change, are
+    joined again.
+- A correlating value is unique in each member: the mapper gives the
+  member a uniqueness constraint on it, which Core Data checks. A
+  mandatory role held by an outer member makes it inner (the mapper says
+  so).
 
-The façade works the same over the SQLite store and over ODataKit's
+The code is the same over the SQLite store and over ODataKit's
 incremental store, so a client of the OData service updates through the
 join too. The service serves each member as its own entity set, as the
-store has it.
+store has it, keyed by its correlating values.
 
 ## Reverse engineering
 
