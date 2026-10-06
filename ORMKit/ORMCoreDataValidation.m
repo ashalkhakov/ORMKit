@@ -3,7 +3,11 @@
 #import "ORMJoinedFacade.h"
 #import "ORMVerbalizer.h"
 #import "ORMQueryPlanner.h"
-#import "ORMQueryInterpreter.h"
+#if __has_include(<ORMRuntime/ORMRuntime.h>)
+#import <ORMRuntime/ORMRuntime.h>
+#else
+#import "ORMRuntime.h"
+#endif
 #import "ORMCDModel+CoreData.h"
 #import "ORMQuery.h"
 #import "ORMPath.h"

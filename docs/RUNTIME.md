@@ -168,10 +168,11 @@ Declarations, and calls into the driver:
 
 ## Steps
 
-1. **Extract.** Move `ORMQueryPlan`, `ORMQueryInterpreter` and `ORMCursor`
-   into `ORMRuntime`, with no change in behaviour, and make ORMKit link
-   it. This touches the GNUmakefiles, `.tools/genxcodeproj.py`, the
-   workspace and CI.
+1. **Extract** (done). `ORMQueryPlan`, `ORMQueryInterpreter` and
+   `ORMCursor` are in `ORMRuntime/`, with no change in behaviour. ORMKit
+   links it, and imports `<ORMRuntime/ORMRuntime.h>` where the framework
+   is, `"ORMRuntime.h"` from the tree beside it otherwise. Build it
+   before ORMKit on GNUstep (`make -C ORMRuntime`).
 2. **Archive.** `ORMPlanArchive`, with the round trip over the query tests'
    plans.
 3. **Derivations and the save hook** in the driver. The generator writes

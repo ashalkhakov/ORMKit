@@ -77,7 +77,7 @@ itself with the fixes `GNUSTEP_PATCHES_REF` names applied):
 
 ```sh
 . /path/to/GNUstep.sh
-make -C ORMKit && make -C Tools/ormtool && make -C ORMDesigner
+make -C ORMRuntime && make -C ORMKit && make -C Tools/ormtool && make -C ORMDesigner
 make -C ORMKitTests run-tests
 xvfb-run -a make -C ORMDesignerTests run-tests
 ```

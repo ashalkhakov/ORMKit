@@ -30,7 +30,7 @@ ORMKit is Foundation only; CI rejects AppKit in it.
 ```sh
 python3 .tools/genxcodeproj.py   # after adding a file to a GNUmakefile
 xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests -destination 'platform=macOS' test
-.tools/gnustep.sh make -C ORMKit
+.tools/gnustep.sh make -C ORMRuntime && .tools/gnustep.sh make -C ORMKit
 .tools/gnustep.sh make -C ORMKitTests run-tests
 .tools/gnustep.sh make -C ORMDesignerTests run-tests
 ```

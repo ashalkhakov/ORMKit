@@ -7,7 +7,8 @@ editor. It follows the shape of WorkflowKit (the XML document is the model)
 and RDLKit (library, designer, tests, CI, AppImage).
 
 ```
-ORMKit/            the library: Foundation, NSXML, Core Data and ODataKit; no AppKit
+ORMRuntime/        what apps run: plans and their driver; no ORM model, no NSXML (RUNTIME.md)
+ORMKit/            the library: Foundation, NSXML, Core Data and ODataKit; no AppKit; links ORMRuntime
 ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
 Tools/ormtool/     check, verbalize, normalize, draw as SVG, and map to and from Core Data from a shell
 ORMDesigner/       the editor (AppKit): its windows and menu bar XIBs, springs and struts

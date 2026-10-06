@@ -29,9 +29,9 @@ ORMDesignerTests_OBJC_FILES = \
   ../ORMDesigner/ThirdParty/DMTabBar/DMTabBarItem.m
 ORMDesignerTests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../ORMDesigner/ORMDesignerCompat.h
 include ../odatakit.make
-ORMDesignerTests_INCLUDE_DIRS = -I../ORMKit -I../ORMDesigner $(ODATAKIT_INCLUDE_DIRS)
-ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
-ORMDesignerTests_BUNDLE_LIBS += -lORMKit $(ODATAKIT_LIBS) -lXCTest -ldispatch
+ORMDesignerTests_INCLUDE_DIRS = -I../ORMKit -I../ORMRuntime -I../ORMDesigner $(ODATAKIT_INCLUDE_DIRS)
+ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+ORMDesignerTests_BUNDLE_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) -lXCTest -ldispatch
 ORMDesignerTests_NEEDS_GUI = yes
 # The designer's XIBs: its classes load them from the bundle they are in,
 # which here is this one.
@@ -61,5 +61,5 @@ TEST_TIMEOUT ?= 600
 .PHONY: run-tests
 run-tests: all
 	$(SANITIZE_ENV) \
-	LD_LIBRARY_PATH="$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$(if $(ODATAKIT),$(ODATAKIT)/obj:)$$LD_LIBRARY_PATH" \
+	LD_LIBRARY_PATH="$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$(CURDIR)/../ORMRuntime/$(GNUSTEP_OBJ_DIR):$(if $(ODATAKIT),$(ODATAKIT)/obj:)$$LD_LIBRARY_PATH" \
 	  timeout -s ABRT $(TEST_TIMEOUT) $(XCTEST) $(BUNDLE_NAME).bundle

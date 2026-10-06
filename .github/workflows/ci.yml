@@ -107,7 +107,7 @@ jobs:
                     -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
                   | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
           for tool in workmate halpin; do
-            clang -fobjc-arc -fmodules -F"$built" -framework ORMKit -Wl,-rpath,"$built" \
+            clang -fobjc-arc -fmodules -F"$built" -framework ORMKit -framework ORMRuntime -Wl,-rpath,"$built" \
               "Tools/fixtures/$tool.m" -o "/tmp/$tool"
           done
           /tmp/workmate /tmp/WorkMate.orm
@@ -300,6 +300,7 @@ jobs:
       - name: Build ORMKit
         run: |
           . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C ORMRuntime
           make -C ORMKit
 
       - name: Build the CLI and the designer

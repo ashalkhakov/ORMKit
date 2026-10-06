@@ -10,9 +10,10 @@ LIBRARY_NAME = ORMKit
 # ODataKit for the OData requests.
 ORMKit_NEEDS_GUI = no
 include ../odatakit.make
-ORMKit_INCLUDE_DIRS += $(ODATAKIT_INCLUDE_DIRS)
-ORMKit_LIB_DIRS += $(ODATAKIT_LIB_DIRS)
-ORMKit_LIBRARIES_DEPEND_UPON += $(ODATAKIT_LIBS)
+# ORMRuntime, built in the tree beside this one: the plans and their driver.
+ORMKit_INCLUDE_DIRS += -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
+ORMKit_LIB_DIRS += -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+ORMKit_LIBRARIES_DEPEND_UPON += -lORMRuntime $(ODATAKIT_LIBS)
 ORMKit_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
 ORMKit_HEADER_FILES = \
   ORMKit.h \
@@ -49,11 +50,8 @@ ORMKit_HEADER_FILES = \
   ORMODataAnnotator.h \
   ORMQuery.h \
   ORMCDModel+CoreData.h \
-  ORMQueryPlan.h \
   ORMQueryPlanner.h \
-  ORMQueryInterpreter.h \
   ORMQueryOData.h \
-  ORMCursor.h \
   ORMRuleChecker.h \
   ORMIssueFinder.h \
   ORMDeriver.h \
@@ -96,10 +94,7 @@ ORMKit_OBJC_FILES = \
   ORMQuery.m \
   ORMCDModel+CoreData.m \
   ORMQueryPlaces.m \
-  ORMQueryPlan.m \
   ORMQueryPlanner.m \
-  ORMQueryInterpreter.m \
-  ORMCursor.m \
   ORMRuleChecker.m \
   ORMIssueFinder.m \
   ORMDeriver.m \

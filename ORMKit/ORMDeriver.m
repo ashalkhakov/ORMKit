@@ -2,7 +2,11 @@
 #import "ORMDeriver.h"
 #import "ORMQuery.h"
 #import "ORMQueryPlanner.h"
-#import "ORMQueryInterpreter.h"
+#if __has_include(<ORMRuntime/ORMRuntime.h>)
+#import <ORMRuntime/ORMRuntime.h>
+#else
+#import "ORMRuntime.h"
+#endif
 #import "ORMPopulationStore.h"
 #import "ORMCoreDataMapping.h"
 #import "ORMPath.h"

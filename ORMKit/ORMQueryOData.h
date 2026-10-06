@@ -1,8 +1,11 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
-#import "ORMQueryPlan.h"
+#if __has_include(<ORMRuntime/ORMRuntime.h>)
+#import <ORMRuntime/ORMRuntime.h>
+#else
+#import "ORMRuntime.h"
+#endif
 #import "ORMQuery.h"
 #import "ORMCoreDataMapper.h"
-#import "ORMQueryInterpreter.h"
 
 /* ODataKit's <ODataKit/ODataExpression.h>, imported where they are used. */
 @class ODataExpression, ODataQueryOptions;
