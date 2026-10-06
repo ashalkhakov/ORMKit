@@ -228,14 +228,17 @@ which objects the rule depends on. The notes call such a constraint
 
 - **A calculation inside another query's conditions** ("branches whose
   TotalSalary is over a million"). That is a derived fact type, "Branch has
-  TotalSalary", which is ConQuer-II's macros and NORMA's derivation rules.
-  It needs its own design.
+  TotalSalary", which is ConQuer-II's macros and NORMA's derivation rules:
+  [DERIVATION.md](DERIVATION.md).
 - **The service enforcing constraints** as it writes (ODataKit's service
   hooks).
 - **Transition constraints**, about what may change into what. Dataphor has
   them; this does not.
 - **Constraints checked at commit,** not only from the root object, so that
-  a change anywhere on a rule's join path is seen. Dataphor compiles each
+  a change anywhere on a rule's join path is seen. This is built with
+  derived-and-stored fact types, whose facts are brought up to date at the
+  same point and before the check
+  ([DERIVATION.md](DERIVATION.md#core-data-and-keeping-stored-ones-up-to-date)). Dataphor compiles each
   database constraint into checks on the tables it reads, restricted to
   the rows a change touches. The literature calls this incremental
   integrity checking: Nicolas, "Logic for Improving Integrity Checking in

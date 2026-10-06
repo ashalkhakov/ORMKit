@@ -7,6 +7,7 @@ the design and what is not done; [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPIN
 [docs/VERBALIZATION.md](docs/VERBALIZATION.md) the FORML templates; [docs/QUERIES.md](docs/QUERIES.md) the conceptual
 queries; [docs/CURSORS.md](docs/CURSORS.md) how a plan is read, as a tree of cursors;
 [docs/RULES.md](docs/RULES.md) queries as constraints and calculations;
+[docs/DERIVATION.md](docs/DERIVATION.md) derived fact types, and keeping stored ones up to date;
 [docs/POPULATIONS.md](docs/POPULATIONS.md) the sample populations they run on.
 
 ## The XML document is the model
