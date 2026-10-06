@@ -25,7 +25,7 @@ jobs:
       # ODataKit, which ORMKit says queries with and the tests serve them by:
       # #14, peer sync, on #8's offline sync and #12's names checked in
       # every builder. A commit, not a branch.
-      ODATAKIT_REF: 1a0353aac97efe97bed35fbc9c046ff279009aec
+      ODATAKIT_REF: d49a23d10a8bef45e57df664139ef1f437988262
     # The checkout beside ODataKit's, as ORMKit.xcworkspace finds it.
     defaults:
       run:
@@ -179,7 +179,7 @@ jobs:
       # ODataKit, which ORMKit says queries with and the tests serve them by:
       # #14, peer sync, on #8's offline sync and #12's names checked in
       # every builder. A commit, not a branch.
-      ODATAKIT_REF: 1a0353aac97efe97bed35fbc9c046ff279009aec
+      ODATAKIT_REF: d49a23d10a8bef45e57df664139ef1f437988262
       # libobjc2 and libdispatch land in the prefix's plain lib/, which the
       # gnustep layout does not treat as a library root. GNUstep.sh prepends
       # the roots it does know about to this.
