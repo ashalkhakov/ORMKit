@@ -199,6 +199,29 @@ reading of "Branch is located in City". When a fact type has no reading that
 starts with that role, the step uses another reading, with "that X" in
 place of the role.
 
+### Reading an outline back
+
+An outline, as `-outlineText` writes it, is read back into the query it
+says (ORMOutlineReader), as one change:
+- The first line is the root. ✓ ticks it, digits after the name are a
+  label, then come a condition and ↑ or ↓.
+- Each `+` line indented under a node is a step from it. It reads a fact
+  type from the role the node's object type plays, with each other role's
+  node written in its place, after `or`, `not` or `maybe`. The longest
+  reading that matches is taken.
+- Under a step, `+ count(X) for Y > n` (or total, avg, max, min, compared
+  with a value or with another aggregate) is its aggregate. `X:` turns to
+  the steps of its node of X; the first node's need no such line.
+- A condition with a designation for its value (`Country2 <> Country1`)
+  compares two nodes.
+- A constraint's first line (`It is impossible that:`) or a calculation's
+  (`Total of each Branch is total(Salary) of:`) says what the query is for.
+
+A line it cannot read is refused with its number and why, and nothing is
+made: `Line 2, "+ flies to Mars": no fact type of Employee reads so`. The
+Queries window copies a query as its outline (Edit > Copy) and makes one
+of an outline pasted (Edit > Paste).
+
 ## Correlation
 
 ConQuer-II correlates by subscript. In the paper's Q4, "who supervises an
@@ -550,7 +573,7 @@ calculation of a node's values for each object of its root type, with its
     rows are, and the rows say it. A listed object's identifier says what
     is reached from it through to-ones. A plan with no sorts of its own
     is ordered by what it lists, where it can be.
-- **Queries as derived fact types** that other queries use (ConQuer-II's
-  macros); **reading a query back from its outline text**; inferring the path
-  between two object types picked at once (ActiveQuery's point-to-point
-  queries), rather than clicking each role on the way.
+- Inferring the path between two object types picked at once
+  (ActiveQuery's point-to-point queries), rather than clicking each role
+  on the way. (Queries other queries use, ConQuer-II's macros, are
+  derivations: [DERIVATION.md](DERIVATION.md).)

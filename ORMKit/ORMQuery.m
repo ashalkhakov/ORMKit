@@ -951,26 +951,41 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 
 + (NSString *)readingOfStep:(ORMQueryStep *)step
 {
-	NSArray *nodeRoles = [step.nodes valueForKey:@"role"];
+	return [self readingFrom:step.entryRole nodeRoles:[step.nodes valueForKey:@"role"]];
+}
+
++ (NSArray<ORMRole *> *)nodeRolesFrom:(ORMRole *)entry
+{
+	NSMutableArray *roles = [NSMutableArray array];
+	for (ORMRole *role in entry.factType.roles) {
+		if (role != entry && !role.player.isImplicitBooleanValue) {
+			[roles addObject:role];
+		}
+	}
+	return roles;
+}
+
++ (NSString *)readingFrom:(ORMRole *)entry nodeRoles:(NSArray<ORMRole *> *)nodeRoles
+{
 	NSString * (^place)(ORMRole *) = ^NSString *(ORMRole *role) {
-		if (role == step.entryRole) {
+		if (role == entry) {
 			return @"{0}";
 		}
 		NSUInteger index = [nodeRoles indexOfObjectIdenticalTo:role];
 		return index != NSNotFound ? [NSString stringWithFormat:@"{%lu}", (unsigned long)index + 1] : @"";
 	};
-	if ([step isSubtyping]) {
+	if (entry.factType.kind == ORMFactTypeSubtype) {
 		return @"is {1}";
 	}
 	ORMReadingOrder *chosen = nil;
-	for (ORMReadingOrder *order in step.factType.readingOrders) {
-		if ([order.roles firstObject] == step.entryRole && [order.readings count] > 0
+	for (ORMReadingOrder *order in entry.factType.readingOrders) {
+		if ([order.roles firstObject] == entry && [order.readings count] > 0
 		    && [[[order.readings firstObject] text] hasPrefix:@"{0}"]) {
 			chosen = order;
 			break;
 		}
 	}
-	ORMReadingOrder *order = chosen ?: [step.factType.readingOrders firstObject];
+	ORMReadingOrder *order = chosen ?: [entry.factType.readingOrders firstObject];
 	NSString *text = [[order.readings firstObject] text];
 	if (text == nil) {
 		return @"";

@@ -211,6 +211,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* What a step reads as from the node above: "was awarded {1} in {2}",
  * with {n} the step's nth node. */
 + (NSString *)readingOfStep:(ORMQueryStep *)step;
+/* The same of a step not made: entered by the role, a node for each of the
+ * others but an implicit Boolean's, in the fact type's order. */
++ (NSString *)readingFrom:(ORMRole *)entry nodeRoles:(NSArray<ORMRole *> *)nodeRoles;
++ (NSArray<ORMRole *> *)nodeRolesFrom:(ORMRole *)entry;
 @end
 
 /* A document's queries, edited: each change through the editor, undone with

@@ -174,8 +174,33 @@
 	XCTAssertTrue([_editor.constraintEditor setPreferredIdentifier:unique reason:NULL], @"%@", type);
 }
 
+/* Each query the test made, read back from its outline (docs/QUERIES.md):
+ * the query read says the same outline. */
+- (void)readOutlinesBack
+{
+	ORMOutlineReader *reader = [[ORMOutlineReader alloc] initWithEditor:_editor];
+	for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+		NSString *outline = [query outlineText];
+		if (!query.isComplete || [outline length] == 0) {
+			continue;
+		}
+		NSString *reason = nil;
+		NSString *read = [reader addQueryNamed:query.kind == ORMQueryCalculation ? nil : @"Read back" outline:outline
+		                               reason:&reason];
+		XCTAssertNotNil(read, @"%@\n%@", reason, outline);
+		ORMQuery *again = read != nil ? [ORMQuery queryWithId:read inModel:_editor.model] : nil;
+		if (again != nil) {
+			XCTAssertEqualObjects([again outlineText], outline);
+			[[[ORMQueryEditor alloc] initWithEditor:_editor] removeQuery:read];
+		}
+	}
+}
+
 - (void)tearDown
 {
+	if (_editor != nil) {
+		[self readOutlinesBack];
+	}
 	_editor = nil;
 	_facts = nil;
 	[super tearDown];
@@ -2799,5 +2824,32 @@
 }
 
 
-@end
+/* A query typed as an outline (docs/QUERIES.md): read into the query it
+ * says, which plans as the one built step by step; a line that reads as
+ * nothing is refused, with its number and why, and nothing is made. */
+- (void)testAQueryIsReadFromItsOutline
+{
+	ORMOutlineReader *reader = [[ORMOutlineReader alloc] initWithEditor:_editor];
+	NSString *reason = nil;
+	NSString *q = [reader addQueryNamed:@"Typed" outline:@"✓Employee1\n"
+	                                                     @"  + lives in City1\n"
+	                                                     @"  + was born in Country1\n"
+	                                                     @"  + supervises ✓Employee2\n"
+	                                                     @"    + lives in City1\n"
+	                                                     @"    + was born in Country2 <> Country1\n"
+	                             reason:&reason];
+	XCTAssertNotNil(q, @"%@", reason);
+	ORMQuery *query = [self query:q];
+	XCTAssertTrue(query.isComplete);
+	XCTAssertEqualObjects([[query projectedNodes] valueForKey:@"designation"], (@[ @"Employee1", @"Employee2" ]));
+	XCTAssertEqualObjects([[self plan:q].notes count] == 0 ? @"planned" : [self plan:q].notes, @"planned");
 
+	NSUInteger queries = [[ORMQuery queriesInModel:_editor.model] count];
+	XCTAssertNil([reader addQueryNamed:nil outline:@"✓Employee\n  + flies to Mars\n" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 2, \"+ flies to Mars\": no fact type of Employee reads so");
+	XCTAssertNil([reader addQueryNamed:nil outline:@"Martian\n" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 1, \"Martian\": no object type of the model is named so.");
+	XCTAssertEqual([[ORMQuery queriesInModel:_editor.model] count], queries, @"nothing made");
+}
+
+@end

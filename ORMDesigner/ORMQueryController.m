@@ -653,6 +653,46 @@ ORMCellText(id value)
 	return query;
 }
 
+- (NSString *)addQueryFromOutline:(NSString *)text
+{
+	NSString *reason = nil;
+	NSString *query = [[[ORMOutlineReader alloc] initWithEditor:self.editor] addQueryNamed:nil outline:text ?: @""
+	                                                                               reason:&reason];
+	if (query == nil) {
+		NSBeep();
+		[self say:reason];
+		return nil;
+	}
+	self.queryId = query;
+	_selectedId = nil;
+	[self modelDidChange];
+	return query;
+}
+
+- (IBAction)copy:(id)sender
+{
+	(void)sender;
+	NSString *outline = [_query outlineText];
+	if ([outline length] == 0) {
+		NSBeep();
+		return;
+	}
+	NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+	[pasteboard clearContents];
+	[pasteboard setString:outline forType:NSPasteboardTypeString];
+}
+
+- (IBAction)paste:(id)sender
+{
+	(void)sender;
+	NSString *text = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];
+	if ([text length] == 0) {
+		NSBeep();
+		return;
+	}
+	[self addQueryFromOutline:text];
+}
+
 - (void)newQuery:(id)sender
 {
 	(void)sender;

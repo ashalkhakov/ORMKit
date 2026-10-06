@@ -58,7 +58,8 @@ ORMKit_HEADER_FILES = \
   ORMIssueFinder.h \
   ORMDeriver.h \
   ORMJoinedFacade.h \
-  ORMEntityMerger.h
+  ORMEntityMerger.h \
+  ORMOutlineReader.h
 ORMKit_OBJC_FILES = \
   ORMXML.m \
   ORMModel.m \
@@ -104,6 +105,7 @@ ORMKit_OBJC_FILES = \
   ORMDeriver.m \
   ORMJoinedFacade.m \
   ORMEntityMerger.m \
+  ORMOutlineReader.m \
   ORMQueryOData.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the

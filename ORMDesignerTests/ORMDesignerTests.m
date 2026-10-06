@@ -1280,4 +1280,26 @@
 	XCTAssertEqualObjects([[coreData valueForKey:@"typeMappingPopUp"] titleOfSelectedItem], @"Joined");
 }
 
+/* A query pasted as its outline: the outline the window copies reads back
+ * as the same query; one that reads as nothing says which line. */
+- (void)testAQueryIsMadeFromItsOutline
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	NSString *warehouse = [[editor.model objectTypeNamed:@"Warehouse"] identifier];
+	NSString *query = [queries addQueryFrom:warehouse];
+	ORMRole *through = [[queries availableRoles] firstObject];
+	XCTAssertNotNil([queries addStepThrough:through]);
+	NSString *outline = [[ORMQuery queryWithId:query inModel:editor.model] outlineText];
+	NSString *pasted = [queries addQueryFromOutline:outline];
+	XCTAssertNotNil(pasted);
+	XCTAssertEqualObjects(queries.queryId, pasted);
+	XCTAssertEqualObjects([[ORMQuery queryWithId:pasted inModel:editor.model] outlineText], outline);
+	XCTAssertEqual([(NSOutlineView *)[queries valueForKey:@"outline"] numberOfRows], (NSInteger)2);
+	XCTAssertNil([queries addQueryFromOutline:@"Warehouse\n  + floats\n"]);
+	XCTAssertEqualObjects([[queries valueForKey:@"statusLabel"] stringValue],
+	                      @"Line 2, \"+ floats\": no fact type of Warehouse reads so");
+}
+
 @end
