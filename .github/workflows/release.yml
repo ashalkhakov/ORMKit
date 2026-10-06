@@ -36,7 +36,7 @@ jobs:
       # patched differently. Name a commit here to pin the build exactly.
       GNUSTEP_PATCHES_REF: 00a9c890134abe3e752d49545556a228cb8b7122
       # ODataKit, and FreeCoreData under it: the pins ci.yml has.
-      FREECOREDATA_REF: 1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
+      FREECOREDATA_REF: 65b3ebb409cf5a8d9f75f07df8056d173ce2ceeb
       ODATAKIT_REF: 712effb6d61229c112d7a4b05b508d83ff2f4618
       # See the note in ci.yml: the gnustep layout does not treat the prefix's
       # plain lib/ as a library root, but libobjc2 and libdispatch live there.
