@@ -485,7 +485,12 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 			rule = [ORMAttribute(each, @"id") isEqualToString:derivation.identifier] ? each : rule;
 		}
 		NSString *why = nil;
-		if (derivation == nil || rule == nil) {
+		if ([fact derivationRule].isPartial) {
+			/* Its asserted facts and its derived ones: an or the expansion
+			 * cannot say yet. */
+			why = [NSString stringWithFormat:@"\"%@\" is partly derived and not stored: queries do not go through it yet.",
+			                                 what];
+		} else if (derivation == nil || rule == nil) {
 			why = [NSString stringWithFormat:@"\"%@\" is derived by NORMA's rule, which queries do not run yet.", what];
 		} else if (round > 16) {
 			why = [NSString stringWithFormat:@"\"%@\" is derived through itself, which queries do not run.", what];

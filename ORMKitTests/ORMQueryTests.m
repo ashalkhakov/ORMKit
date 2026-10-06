@@ -1212,6 +1212,78 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* Derived fact types mapped to Core Data (docs/DERIVATION.md): a fully
+ * derived one not stored is left out, with a note. A stored one whose rule
+ * is a key path through one to-one to a value is an attribute Core Data
+ * derives, which momc takes and a save fills in; one further away is
+ * worked out at save, which the note says. */
+- (void)testDerivedFactTypesAreMappedAsCoreDataKeepsThem
+{
+	[self deriveReporting];
+	NSString *employee = [self typeId:@"Employee"];
+	NSString *branchType = [self typeId:@"Branch"];
+	NSString *cityname = [self typeId:@"Cityname"];
+	NSString *reason = nil;
+	/* "Branch is in Cityname", stored: city.cityname. */
+	NSArray *isIn = [self fact:@"isIn" players:@[ branchType, cityname ] reading:@"{0} is in {1}" inverse:nil uniqueness:@"1"];
+	NSString *isInFact = [[(ORMRole *)[_editor.model elementWithId:isIn[0]] factType] identifier];
+	NSString *b = [[self queries] addQueryNamed:@"Branch city" from:branchType reason:NULL];
+	ORMQueryNode *city = [self from:[self root:b].identifier through:[self role:@"locatedIn" at:0] in:b];
+	ORMQueryNode *name = [self from:city.identifier through:[self role:@"cityName" at:0] in:b];
+	[[self queries] setProjected:YES ofNode:name.identifier];
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:b reason:NULL]);
+	XCTAssertTrue([[self queries] setDerivedFactType:isInFact ofQuery:b reason:&reason], @"%@", reason);
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:isInFact reason:&reason], @"%@", reason);
+	/* "Employee works in Cityname", stored, two relationships away. */
+	NSArray *worksIn = [self fact:@"worksIn" players:@[ employee, cityname ] reading:@"{0} works in {1}" inverse:nil
+	                   uniqueness:@"1"];
+	NSString *worksInFact = [[(ORMRole *)[_editor.model elementWithId:worksIn[0]] factType] identifier];
+	NSString *q = [[self queries] addQueryNamed:@"Workplace" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:q].identifier through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *where = [self from:branch.identifier through:[self role:@"locatedIn" at:0] in:q];
+	ORMQueryNode *named = [self from:where.identifier through:[self role:@"cityName" at:0] in:q];
+	[[self queries] setProjected:YES ofNode:named.identifier];
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:q reason:NULL]);
+	XCTAssertTrue([[self queries] setDerivedFactType:worksInFact ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:worksInFact reason:&reason], @"%@", reason);
+
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMCDModel *mapped = [mapper map];
+	NSArray *notes = [mapper.notes valueForKey:@"text"];
+	XCTAssertTrue([notes containsObject:@"\"Employee reports to Employee\" is derived and not stored: nothing keeps it, and "
+	                                    @"queries work it out."], @"%@", notes);
+	XCTAssertTrue([notes containsObject:@"\"Employee works in Cityname\" is derived and stored: its facts are worked out "
+	                                    @"when changes are saved."], @"%@", notes);
+	for (ORMCDProperty *property in [[mapped entityNamed:@"Employee"] properties]) {
+		XCTAssertFalse([property.source isEqualToString:[self role:@"reportsTo" at:1]], @"%@", property.name);
+	}
+	ORMCDAttribute *derived = nil;
+	for (ORMCDAttribute *attribute in [mapped entityNamed:@"Branch"].attributes) {
+		derived = attribute.derivation != nil ? attribute : derived;
+	}
+	XCTAssertEqualObjects(derived.derivation, @"city.cityname", @"%@", notes);
+	XCTAssertNil([self momcRejects:mapped]);
+
+	/* A save derives it. */
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectModel *model = [mapped managedObjectModel];
+	XCTAssertTrue([[[[model entitiesByName] objectForKey:@"Branch"] propertiesByName][derived.name]
+	                  isKindOfClass:[NSDerivedAttributeDescription class]]);
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	[context performBlockAndWait:^{
+		NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Branch"];
+		fetch.predicate = [NSPredicate predicateWithFormat:@"city != nil"];
+		NSArray *found = [context executeFetchRequest:fetch error:NULL];
+		XCTAssertGreaterThan([found count], 0u);
+		for (NSManagedObject *each in found) {
+			[context refreshObject:each mergeChanges:NO];
+			XCTAssertEqualObjects([each valueForKey:derived.name], [each valueForKeyPath:@"city.cityname"]);
+		}
+	}];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* Sorted by an attribute maybe there: each employee and maybe their
  * name, last first. The sort is by the name, from the object read. */
 - (void)testASortByAValueMaybeThere

@@ -130,11 +130,10 @@ notification cannot refuse a save). It works as follows:
    included, can break, as RULES.md describes. If one is broken, the save is
    refused with why, and nothing is saved.
 
-Where Core Data can say the rule itself, it does instead: a key path, or an
-aggregate over a to-many relationship, becomes an
-`NSDerivedAttributeDescription` (`employees.@count`,
-`employees.salary.@sum`). Core Data, and FreeCoreData, compute those at save
-on their own. The hook skips them, and rules read their saved values.
+Where Core Data can say the rule itself, it does instead: a key path
+through one to-one relationship becomes an `NSDerivedAttributeDescription`
+(`city.cityname`). Core Data, and FreeCoreData, compute those at save on
+their own. The hook skips them, and rules read their saved values.
 
 The OData service does the same at the end of a change set, through
 ODataKit's service hooks, before the transaction commits. Sample
@@ -167,9 +166,12 @@ populations do it after each change (step 3).
    written into the sample population, after a change and when making one up.
 4. **Done: queries through derived fact types,** expanded into their
    derivations' paths before planning.
-5. **Core Data.** Unstored ones are left out, with notes. Stored ones are
-   mapped as now, and `NSDerivedAttributeDescription` is used where it can
-   say the rule.
+5. **Done: Core Data.** Unstored ones are left out, with notes. Stored ones
+   are mapped as now, and `NSDerivedAttributeDescription` is used where it
+   can say the rule: a key path through one to-one relationship, which is
+   as far as Core Data goes ("currently unsupported (too many steps)"
+   beyond). Partly derived ones not stored are mapped for their asserted
+   facts; queries do not go through them yet (an or of the two).
 6. **Saving: derive, then check.** `orm_prepareForSave:` in the generated
    code: the affected roots, the stored derivations brought up to date for
    them in dependency order, then the rules checked. This is RULES.md's

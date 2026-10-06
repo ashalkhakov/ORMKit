@@ -33,7 +33,15 @@ ORMAttributeTypeNamed(NSString *name)
 	for (ORMCDEntity *entity in self.entities) {
 		NSMutableArray *properties = [NSMutableArray array];
 		for (ORMCDAttribute *attribute in entity.attributes) {
-			NSAttributeDescription *described = [[NSAttributeDescription alloc] init];
+			NSAttributeDescription *described = nil;
+			if (attribute.derivation != nil) {
+				/* Core Data derives it, at save. */
+				NSDerivedAttributeDescription *derived = [[NSDerivedAttributeDescription alloc] init];
+				derived.derivationExpression = [NSExpression expressionWithFormat:attribute.derivation];
+				described = derived;
+			} else {
+				described = [[NSAttributeDescription alloc] init];
+			}
 			described.name = attribute.name;
 			described.attributeType = ORMAttributeTypeNamed(attribute.attributeType);
 			described.optional = attribute.optional;

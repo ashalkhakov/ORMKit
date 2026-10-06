@@ -4,6 +4,9 @@
 #import "ORMDiagram.h"
 #import "ORMReadingText.h"
 #import "ORMVerbalizer.h"
+#import "ORMQuery.h"
+#import "ORMQueryPlanner.h"
+#import "ORMPath.h"
 
 @interface ORMMappingNote ()
 @property (nonatomic, readwrite) ORMMappingNoteKind kind;
@@ -1346,6 +1349,17 @@ ORMDeletionRule(ORMRole *far)
 		if (![self isMappable:fact]) {
 			continue;
 		}
+		/* Fully derived, not stored: nothing to keep, worked out by the
+		 * queries that go through it (docs/DERIVATION.md). */
+		ORMDerivationRule *rule = fact.isDerived ? [fact derivationRule] : nil;
+		if (rule != nil && !rule.isPartial && !rule.isStored) {
+			[self note:ORMMappingDerived
+			      text:[NSString stringWithFormat:@"\"%@\" is derived and not stored: nothing keeps it, and queries work "
+			                                      @"it out.",
+			                                      [[fact primaryReading] expandedText] ?: fact.name]
+			   element:fact.identifier];
+			continue;
+		}
 		NSUInteger arity = [fact arity];
 		BOOL folded = fact.objectifyingType != nil && [self resolved:fact.objectifyingType] == ORMResolvedFolded;
 		if ((fact.objectifyingType != nil && !folded) || arity > 2) {
@@ -1549,6 +1563,61 @@ ORMDeletionRule(ORMRole *far)
 
 #pragma mark Mapping
 
+/* A stored derived fact type whose rule is a key path through one to-one,
+ * from an entity to a value of it, is derived by Core Data itself: an
+ * NSDerivedAttributeDescription, kept up to date at save. Others are
+ * worked out by the code generated for saving (docs/DERIVATION.md). */
+- (void)mapStoredDerivations
+{
+	ORMQueryPlanner *planner = nil;
+	for (ORMQuery *query in [ORMQuery queriesInModel:self.model]) {
+		ORMFactType *fact = query.kind == ORMQueryDerivation ? query.derivedFactType : nil;
+		ORMDerivationRule *rule = fact.isDerived ? [fact derivationRule] : nil;
+		if (!rule.isStored || ![self isMappable:fact]) {
+			continue;
+		}
+		NSString *what = [[fact primaryReading] expandedText] ?: fact.name;
+		NSArray *roles = [fact visibleRoles];
+		NSArray *columns = [query projectedNodes];
+		/* A plain chain from the first role's player to the second's. */
+		BOOL chain = !rule.isPartial && [roles count] == 2 && [columns count] == 2 && [columns firstObject] == query.root;
+		for (ORMQueryNode *node in chain ? [query nodes] : @[]) {
+			chain = chain && [node.steps count] <= ([node isEqual:[columns lastObject]] ? 0 : 1) && node.comparison == nil
+			        && node.label == nil && !node.combinesWithOr;
+			for (ORMQueryStep *step in node.steps) {
+				chain = chain && step.operatorKind == ORMQueryAnd && step.countComparison == nil;
+			}
+		}
+		ORMCDEntity *entity = chain ? [self entityOf:[(ORMRole *)[roles firstObject] player]] : nil;
+		ORMCDProperty *attribute = entity != nil ? [self propertyOn:entity forFarRole:[roles lastObject]] : nil;
+		NSString *derivation = nil;
+		if ([attribute isKindOfClass:[ORMCDAttribute class]]) {
+			planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_out];
+			ORMQueryPlan *plan = [planner planForQuery:query];
+			ORMPlanColumn *value = [plan.columns count] == 2 ? [plan.columns lastObject] : nil;
+			/* Through one to-one: a to-many would bind a variable, and Core
+			 * Data derives through one relationship at most. */
+			if ([plan.notes count] == 0 && value != nil && value.path.variable == nil && [value.identifierParts count] == 0
+			    && [[value valuePath].keys count] == 2) {
+				derivation = [[value valuePath].keys componentsJoinedByString:@"."];
+			}
+		}
+		if (derivation != nil) {
+			((ORMCDAttribute *)attribute).derivation = derivation;
+			[self note:ORMMappingDerived
+			      text:[NSString stringWithFormat:@"\"%@\" is derived and stored: Core Data derives %@.%@ as %@.", what,
+			                                      entity.name, attribute.name, derivation]
+			   element:fact.identifier];
+		} else {
+			[self note:ORMMappingDerived
+			      text:[NSString stringWithFormat:@"\"%@\" is derived and stored: its facts are worked out when changes "
+			                                      @"are saved.",
+			                                      what]
+			   element:fact.identifier];
+		}
+	}
+}
+
 - (ORMCDModel *)map
 {
 	_out = [ORMCDModel model];
@@ -1564,6 +1633,7 @@ ORMDeletionRule(ORMRole *far)
 	[self makeIdentifiers];
 	[self mapFactTypes];
 	[self mapConstraints];
+	[self mapStoredDerivations];
 	[self loosenMandatoryReferencesToUniqueEntities];
 	if (self.mapping.servesOData) {
 		[_notes addObjectsFromArray:[[[ORMODataAnnotator alloc] initWithModel:self.model mapping:self.mapping] annotate:_out]];

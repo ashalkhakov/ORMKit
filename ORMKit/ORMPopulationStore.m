@@ -538,6 +538,10 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 		return YES;
 	}
 	ORMCDAttribute *attribute = (ORMCDAttribute *)property;
+	if (attribute.derivation != nil) {
+		/* Core Data derives it at save, from what is set. */
+		return YES;
+	}
 	NSString *type = ORMStoreTypeOf([[[object entity] attributesByName] objectForKey:attribute.name],
 	                                attribute.attributeType);
 	id value = [self attributeValue:attribute type:type for:instance];
