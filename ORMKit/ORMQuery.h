@@ -166,6 +166,13 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 + (ORMQuery *)queryWithId:(NSString *)identifier inModel:(ORMModel *)model;
 /* The derivation of the fact type, if a query derives it. */
 + (ORMQuery *)derivationOf:(ORMFactType *)factType inModel:(ORMModel *)model;
+/* The query as the planner plans it (docs/DERIVATION.md): each step through
+ * a derived fact type that is not stored put as its derivation's path, the
+ * derivation's columns for the step's roles the step's nodes. The query
+ * itself where there is none; nil, and why in notes, where a step cannot
+ * be expanded (a rule NORMA keeps as a path, a derivation through itself,
+ * a path that is not plain). */
+- (ORMQuery *)expandedInModel:(ORMModel *)model notes:(NSMutableArray<NSString *> *)notes;
 /* The roles a query can go on through from a node of the type: those it
  * and its supertypes play, its subtype links included, its reference mode
  * not (a condition on the node compares its identifier). */

@@ -115,6 +115,10 @@ The rest of this document covers each stage: the outline's notation
 joins that no relationship makes
 ([Joins through absorbed object types](#joins-through-absorbed-object-types)).
 
+
+A step through a derived fact type that is not stored is put as its
+derivation's path before planning ([DERIVATION.md](DERIVATION.md#planning-through-one)).
+
 ## The plan, as Query-by-Example
 
 A plan is close to Query-by-Example (QbE): it names entities and their

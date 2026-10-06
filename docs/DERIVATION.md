@@ -70,23 +70,29 @@ one for each distinct row; a row with a column missing derives nothing.
 ## Planning through one
 
 A step through a derived fact type that is not stored has nothing in the
-store to follow. The planner puts the derivation's plan in its place, as
-one of the plan's named sets (ConQuer-II's `let`, which bags already use):
+store to follow. Halpin calls derived fact types macros, and that is how
+they are planned: before planning, the step is put as its derivation's
+path (`-[ORMQuery expandedInModel:notes:]`), and what is left is an
+ordinary query. Everything the planner and both backends do then holds:
+columns past the step, sorting, not and maybe, OData.
 
-```
-let derived1 = read Person where some child as x1 has some x1.child ...
-               list self (nr), x1.child... (nr)
-read Person
-where some derived1 matches self ...
-```
+- **"Employee reports to Employee"** derived as "Employee works for Branch
+  that is headed by Employee": a step from an Employee through it to the
+  one they report to becomes the two steps through Branch.
+- **From the other role,** the derivation is turned around first: re-rooted
+  at the column for the role the step enters by, each step on the way
+  reversed ("Employee heads Branch that employs Employee").
+- **The step's nodes** are the derivation's columns for the other roles,
+  with what the query says of them and what the rule says, and their own
+  steps go on from there. The derivation's other nodes are its own: fresh
+  ids, its labels apart from the query's.
+- **Not, maybe, a count** on the step go to the first step of the path.
 
-The step becomes a join to that set on the role players' identifiers.
-Both backends already run joins to named sets, the interpreter and OData
-alike, with OData's limits on joins within joins ([ODATA.md](ODATA.md)). A
-stored one is followed as an ordinary relationship.
-
-A derivation that goes through itself (a recursive rule, "ancestor") is
-refused for now, with a note; ConQuer has no fixpoint.
+Refused, with a note, and not run:
+- a path that is not plain binary steps where it has to be turned around,
+  or one that branches where the step has not, maybe or a count;
+- a fact type NORMA derives by its own rule (step 8);
+- a derivation through itself, which ConQuer has no fixpoint for.
 
 ## Core Data, and keeping stored ones up to date
 
@@ -159,7 +165,8 @@ populations do it after each change (step 3).
    the checker checks constraints over them, and reports asserted facts of a
    fully derived fact type. The Population tab shows them. Stored ones are
    written into the sample population, after a change and when making one up.
-4. **Queries through derived fact types,** as named sets, in both backends.
+4. **Done: queries through derived fact types,** expanded into their
+   derivations' paths before planning.
 5. **Core Data.** Unstored ones are left out, with notes. Stored ones are
    mapped as now, and `NSDerivedAttributeDescription` is used where it can
    say the rule.

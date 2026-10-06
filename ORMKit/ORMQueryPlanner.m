@@ -167,7 +167,15 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 
 - (ORMQueryPlan *)planForQuery:(ORMQuery *)query
 {
-	_query = query;
+	/* Steps through derived fact types put as their derivations' paths
+	 * (docs/DERIVATION.md): an ordinary query after that. */
+	NSMutableArray *expanding = [NSMutableArray array];
+	ORMModel *model = query.root.objectType.model;
+	ORMQuery *expanded = model != nil ? [query expandedInModel:model notes:expanding] : query;
+	if (expanded == nil) {
+		return [ORMQueryPlan planReading:nil where:nil columns:@[] sorts:@[] notes:expanding];
+	}
+	_query = expanded;
 	_notes = [NSMutableArray array];
 	_variables = 0;
 	_scope = [NSMutableArray array];

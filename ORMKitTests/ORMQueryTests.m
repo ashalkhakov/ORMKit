@@ -1109,6 +1109,109 @@
 	XCTAssertNil([ORMQuery derivationOf:[_editor.model elementWithId:factId] inModel:_editor.model]);
 }
 
+/* The derivation of "Employee reports to Employee": through the branch
+ * one works for and the other heads. Its fact type's id. */
+- (NSString *)deriveReporting
+{
+	NSString *employee = [self typeId:@"Employee"];
+	NSArray *roles = [self fact:@"reportsTo" players:@[ employee, employee ] reading:@"{0} reports to {1}" inverse:nil
+	                 uniqueness:@"*"];
+	NSString *factId = [[(ORMRole *)[_editor.model elementWithId:roles[0]] factType] identifier];
+	NSString *q = [[self queries] addQueryNamed:@"Reporting" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:q].identifier through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
+	[[self queries] setProjected:YES ofNode:head.identifier];
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:q reason:NULL]);
+	XCTAssertTrue([[self queries] setDerivedFactType:factId ofQuery:q reason:NULL]);
+	return factId;
+}
+
+/* A query through a derived fact type that is not stored (docs/DERIVATION.md):
+ * the step put as its derivation's path, so it plans and runs as the same
+ * query written out would, from the store and the service alike. From
+ * either role (the rule turned around), and under not. */
+- (void)testAQueryGoesThroughADerivedFactType
+{
+	[self deriveReporting];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	NSArray *(^rows)(NSString *) = ^NSArray *(NSString *queryId) {
+		ORMQueryPlan *plan = [planner planForQuery:[self query:queryId]];
+		XCTAssertEqual([plan.notes count], 0u, @"%@\n%@", plan.notes, [plan text]);
+		NSArray *served = nil;
+		NSArray *read = [self rowsOf:plan planner:planner twoAtATimeIn:context service:&served];
+		XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:read], @"%@", [plan text]);
+		return [[NSSet setWithArray:read] allObjects];
+	};
+	NSString *employee = [self typeId:@"Employee"];
+	NSString *reportsRole0 = [self role:@"reportsTo" at:0];
+	NSString *reportsRole1 = [self role:@"reportsTo" at:1];
+
+	/* Each employee, and who they report to. */
+	NSString *q = [[self queries] addQueryNamed:@"Whom" from:employee reason:NULL];
+	ORMQueryNode *to = [self from:[self root:q].identifier through:reportsRole0 in:q];
+	[[self queries] setProjected:YES ofNode:to.identifier];
+	NSString *w = [[self queries] addQueryNamed:@"Written out" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:w].identifier through:[self role:@"worksFor" at:0] in:w];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:w];
+	[[self queries] setProjected:YES ofNode:head.identifier];
+	NSSet *expected = [NSSet setWithArray:rows(w)];
+	XCTAssertGreaterThan([expected count], 2u);
+	XCTAssertEqualObjects([NSSet setWithArray:rows(q)], expected);
+
+	/* From the other role: each head, and who reports to them. */
+	NSString *back = [[self queries] addQueryNamed:@"Who" from:employee reason:NULL];
+	ORMQueryNode *from = [self from:[self root:back].identifier through:reportsRole1 in:back];
+	[[self queries] setProjected:YES ofNode:from.identifier];
+	NSMutableSet *turned = [NSMutableSet set];
+	for (NSArray *row in expected) {
+		[turned addObject:@[ [row lastObject], [row firstObject] ]];
+	}
+	XCTAssertEqualObjects([NSSet setWithArray:rows(back)], turned);
+
+	/* Under not: those who do not report to one head (everyone reports to
+	 * someone here). */
+	id someHead = [[[expected allObjects] firstObject] lastObject];
+	NSString *none = [[self queries] addQueryNamed:@"Not to them" from:employee reason:NULL];
+	NSString *step = nil;
+	ORMQueryNode *them = [[self from:[self root:none].identifier through:reportsRole0 in:none step:&step] firstObject];
+	[[self queries] setOperator:ORMQueryNot ofStep:step];
+	XCTAssertTrue([[self queries] setCondition:@"=" value:[someHead description] ofNode:them.identifier reason:NULL]);
+	NSMutableSet *toThem = [NSMutableSet set];
+	NSMutableSet *everyone = [NSMutableSet set];
+	for (NSArray *row in expected) {
+		[everyone addObject:[row firstObject]];
+		if ([[row lastObject] isEqual:someHead]) {
+			[toThem addObject:[row firstObject]];
+		}
+	}
+	NSMutableSet *others = [NSMutableSet set];
+	for (NSArray *row in rows(none)) {
+		[others addObject:[row firstObject]];
+	}
+	XCTAssertGreaterThan([toThem count], 0u);
+	XCTAssertFalse([others intersectsSet:toThem], @"%@ %@", others, toThem);
+	NSMutableSet *rest = [everyone mutableCopy];
+	[rest minusSet:toThem];
+	XCTAssertTrue([rest isSubsetOfSet:others], @"%@ %@", rest, others);
+
+	/* A rule through its own fact type is not expanded for ever: said. */
+	NSArray *loop = [self fact:@"isAbove" players:@[ employee, employee ] reading:@"{0} is above {1}" inverse:nil uniqueness:@"*"];
+	NSString *loopFact = [[(ORMRole *)[_editor.model elementWithId:loop[0]] factType] identifier];
+	NSString *rule = [[self queries] addQueryNamed:@"Above" from:employee reason:NULL];
+	ORMQueryNode *below = [self from:[self root:rule].identifier through:[self role:@"isAbove" at:0] in:rule];
+	[[self queries] setProjected:YES ofNode:below.identifier];
+	[[self queries] setKind:ORMQueryDerivation ofQuery:rule reason:NULL];
+	XCTAssertTrue([[self queries] setDerivedFactType:loopFact ofQuery:rule reason:NULL]);
+	NSString *asks = [[self queries] addQueryNamed:@"Asks" from:employee reason:NULL];
+	[[self queries] setProjected:YES ofNode:[self from:[self root:asks].identifier through:[self role:@"isAbove" at:0] in:asks].identifier];
+	ORMQueryPlan *refused = [planner planForQuery:[self query:asks]];
+	XCTAssertEqualObjects(refused.notes, @[ @"\"Employee is above Employee\" is derived through itself, which queries do not run." ]);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
 /* Sorted by an attribute maybe there: each employee and maybe their
  * name, last first. The sort is by the name, from the object read. */
 - (void)testASortByAValueMaybeThere
