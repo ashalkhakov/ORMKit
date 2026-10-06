@@ -1339,4 +1339,41 @@
 	XCTAssertEqual([[[model objectTypeNamed:@"Session"] instances] count], 1u);
 }
 
+/* An objectifying type with an identifier of its own (Orienteering's
+ * Entry, by its ID): its table has the identifier, then the roles of the
+ * fact each Entry is, and a row named in full adds both. */
+- (void)testAnObjectifyingTypeWithItsOwnIdentifierHasItsFactsColumns
+{
+	[self open:@"ActiveFacts/Orienteering.orm"];
+	[_document.editor.populationEditor removePopulation];
+	ORMObjectType *entry = [_document.editor.model objectTypeNamed:@"Entry"];
+	NSString *entryId = entry.identifier;
+	NSString *entered = entry.nestedFactType.identifier;
+	NSArray *roles = [entry.nestedFactType visibleRoles];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	population.elementId = entryId;
+	XCTAssertEqual([population.table numberOfColumns], (NSInteger)(1 + [roles count]));
+	XCTAssertTrue([[[population valueForKey:@"title"] stringValue] hasPrefix:@"Instances of Entry, each where "],
+	              @"%@", [[population valueForKey:@"title"] stringValue]);
+	[population addRow:nil];
+	[population setText:@"7" atRow:0 column:0];
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		ORMObjectType *player = [(ORMRole *)[roles objectAtIndex:i] player];
+		NSArray *parts = [_document.editor.populationEditor compositeRolesOf:player.identifier];
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSUInteger k = 0; k < MAX([parts count], 1u); k++) {
+			[values addObject:[NSString stringWithFormat:@"%lu", (unsigned long)k + 1]];
+		}
+		[population setText:[values componentsJoinedByString:@", "] atRow:0 column:(NSInteger)(i + 1)];
+	}
+	ORMModel *model = _document.editor.model;
+	XCTAssertEqual([[[model objectTypeNamed:@"Entry"] instances] count], 1u,
+	               @"%@", [[population valueForKey:@"status"] stringValue]);
+	XCTAssertEqual([[[model elementWithId:entered] instances] count], 1u);
+	/* The window shows what the canvas selects after a change: Entry again. */
+	population.elementId = entryId;
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"7");
+	XCTAssertGreaterThan([[population textAtRow:0 column:1] length], 0u);
+}
+
 @end

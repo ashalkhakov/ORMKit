@@ -918,4 +918,44 @@
 	XCTAssertFalse([[[people lastObject] valueForKey:flag] boolValue], @"Bob does not smoke: no fact says so");
 }
 
+/* An objectifying type with an identifier of its own (Orienteering's Entry,
+ * by its ID, is where a Person entered a Course of an Event): its instance
+ * and its fact are each the other, so they are added together, and neither
+ * alone. */
+- (void)testAnObjectifyingInstanceWithItsOwnIdentifierIsAddedWithItsFact
+{
+	NSData *data = [NSData dataWithContentsOfFile:[self fixturePath:@"ActiveFacts/Orienteering.orm"]];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
+	[editor.populationEditor removePopulation];
+	ORMObjectType *entry = [editor.model objectTypeNamed:@"Entry"];
+	ORMFactType *entered = entry.nestedFactType;
+	XCTAssertNotNil(entered);
+	NSMutableDictionary *texts = [NSMutableDictionary dictionary];
+	for (ORMRole *role in [entered visibleRoles]) {
+		NSArray *parts = [editor.populationEditor compositeRolesOf:role.player.identifier];
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSUInteger k = 0; k < MAX([parts count], 1u); k++) {
+			[values addObject:[NSString stringWithFormat:@"%lu", (unsigned long)k + 1]];
+		}
+		[texts setObject:[values componentsJoinedByString:@", "] forKey:role.identifier];
+	}
+	NSString *reason = nil;
+	XCTAssertNil([editor.populationEditor addFactOf:entered.identifier named:texts reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Each such fact is objectified by Entry, identified by its own Entry ID: add the Entry "
+	                              @"with its fact.");
+	XCTAssertNil([editor.populationEditor addInstanceOf:entry.identifier named:@"7" reason:&reason]);
+	XCTAssertTrue([reason hasPrefix:@"Each Entry is a fact of "], @"%@", reason);
+	NSString *made = [editor.populationEditor addInstanceOf:entry.identifier named:@"7" objectifying:texts reason:&reason];
+	XCTAssertNotNil(made, @"%@", reason);
+	ORMInstance *instance = [editor.model elementWithId:made];
+	XCTAssertEqualObjects([editor.populationEditor nameOf:instance], @"7");
+	ORMFactInstance *fact = [instance objectifiedInstance];
+	XCTAssertEqual(fact.factType, [editor.model elementWithId:entered.identifier]);
+	XCTAssertEqual([fact.instancesByRole count], [[entered visibleRoles] count]);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:entered.identifier] instances] count], 1u);
+	/* The same again: there is one. */
+	XCTAssertNil([editor.populationEditor addInstanceOf:entry.identifier named:@"8" objectifying:texts reason:&reason]);
+	XCTAssertEqualObjects(reason, @"That fact is there already.");
+}
+
 @end

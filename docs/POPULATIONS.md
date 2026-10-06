@@ -190,6 +190,12 @@ worked out from the rest of the population (`ORMDeriver`).
 - An objectifying type its fact identifies (CinemaTickets' Session) has
   its fact's table in the Population tab: each row is a fact of the fact
   type it objectifies, and its instance. A row added adds both.
+- An objectifying type with an identifier of its own (Orienteering's Entry,
+  by its ID) is added with the fact it objectifies, both at once
+  (`-addInstanceOf:named:objectifying:reason:`): each is the other, so
+  either alone is refused. Its Population tab has the identifier's columns,
+  then a column for each role of the fact; changing a fact's player there
+  is refused (remove the row and add it again).
 - A unary fact NORMA keeps on its player, an `EntityTypeUnaryRoleInstance`
   under the instance, is read as a fact of the unary fact type.
 - The Population tab shows a derived fact type's facts, read only, after any

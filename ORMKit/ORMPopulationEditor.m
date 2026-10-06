@@ -761,18 +761,18 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return instance;
 }
 
-/* The fact's population: the role's player named, the others' as they are. */
-- (NSString *)addFactOf:(NSString *)factTypeId
-                players:(NSDictionary<NSString *, NSString *> *)instancesByRole
-                  named:(NSDictionary<NSString *, NSString *> *)textsByRole
-                 reason:(NSString **)reason
+/* The fact, into the population, the role's player named, the others'
+ * as they are; nil, and why, where it cannot be, or the model has it. */
+- (NSString *)fact:(ORMFactType *)fact
+           players:(NSDictionary<NSString *, NSString *> *)instancesByRole
+             named:(NSDictionary<NSString *, NSString *> *)textsByRole
+              into:(ORMSamplePopulation *)population
+            reason:(NSString **)reason
 {
-	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
 	if (![fact isKindOfClass:[ORMFactType class]]) {
 		[self refuse:@"There is no such fact type." reason:reason];
 		return nil;
 	}
-	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
 	NSMutableDictionary *players = [NSMutableDictionary dictionaryWithDictionary:instancesByRole ?: @{}];
 	for (ORMRole *role in [fact visibleRoles]) {
 		NSString *text = [textsByRole objectForKey:role.identifier];
@@ -791,16 +791,39 @@ ORMWrapPart(NSString *name, BOOL composite)
 			return nil;
 		}
 	}
-	NSString *created = [population factOf:factTypeId players:players];
+	NSString *created = [population factOf:fact.identifier players:players];
 	if ([self modelIdOf:created in:population] != nil) {
 		[self refuse:@"That fact is there already." reason:reason];
 		return nil;
 	}
+	return created;
+}
+
+/* The fact's population: the role's player named, the others' as they are. */
+- (NSString *)addFactOf:(NSString *)factTypeId
+                players:(NSDictionary<NSString *, NSString *> *)instancesByRole
+                  named:(NSDictionary<NSString *, NSString *> *)textsByRole
+                 reason:(NSString **)reason
+{
+	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
+	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
+	NSString *created = [self fact:fact players:instancesByRole named:textsByRole into:population reason:reason];
+	if (created == nil) {
+		return nil;
+	}
 	/* Objectified, and identified by the fact: its instance is the fact,
-	 * made with it. (One identified otherwise needs its values named.) */
+	 * made with it. One identified otherwise is made with its own values
+	 * named: -addInstanceOf:named:objectifying:reason:. */
 	ORMObjectType *objectifying = fact.objectifyingType;
 	if (objectifying != nil && [self isTheFactItObjectifies:objectifying]) {
 		[population instanceOf:objectifying.identifier objectifying:created];
+	} else if (objectifying != nil) {
+		[self refuse:[NSString stringWithFormat:@"Each such fact is objectified by %@, identified by its own %@: add the "
+		                                        @"%@ with its fact.",
+		                                        objectifying.name, [self identifierNameOf:objectifying],
+		                                        objectifying.name]
+		      reason:reason];
+		return nil;
 	}
 	return [self addPopulation:population reason:reason] ? created : nil;
 }
@@ -957,8 +980,59 @@ ORMWrapPart(NSString *name, BOOL composite)
 	return [self addPopulation:population reason:reason] ? created : nil;
 }
 
+/* What identifies the type, as the table names it: "Booking Nr". */
+- (NSString *)identifierNameOf:(ORMObjectType *)type
+{
+	NSArray *names = [[type.preferredIdentifier allRoles] valueForKeyPath:@"player.name"] ?: @[];
+	return [names count] > 0 ? [names componentsJoinedByString:@" and "] : @"identifier";
+}
+
+- (NSString *)addInstanceNowOf:(NSString *)objectTypeId
+                         named:(NSString *)text
+                  objectifying:(NSDictionary<NSString *, NSString *> *)textsByRole
+                        reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	ORMFactType *fact = [type isKindOfClass:[ORMObjectType class]] ? type.nestedFactType : nil;
+	if (fact == nil || [self isTheFactItObjectifies:type]) {
+		[self refuse:@"Only an objectifying type identified otherwise than by its fact is added so." reason:reason];
+		return nil;
+	}
+	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
+	NSString *made = [self fact:fact players:nil named:textsByRole into:population reason:reason];
+	if (made == nil) {
+		return nil;
+	}
+	/* Its own values, as an instance of it is named. */
+	NSArray<ORMRole *> *identifying = [type.preferredIdentifier allRoles];
+	NSArray *parts = [identifying count] == 1 ? @[ text ?: @"" ] : ORMNameParts(text ?: @"");
+	if ([text length] == 0 || [parts count] != [identifying count]) {
+		[self refuse:[NSString stringWithFormat:@"Name the %@.", [self identifierNameOf:type]] reason:reason];
+		return nil;
+	}
+	NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < [identifying count]; i++) {
+		ORMRole *role = [identifying objectAtIndex:i];
+		NSString *part = [self instanceOf:role.player.identifier named:ORMUnwrapPart([parts objectAtIndex:i])
+		                             into:population reason:reason];
+		if (part == nil) {
+			return nil;
+		}
+		[byRole setObject:part forKey:role.identifier];
+	}
+	NSString *created = [population instanceOf:objectTypeId objectifying:made identifiedBy:byRole];
+	return [self addInstance:created of:objectTypeId in:population reason:reason];
+}
+
 - (NSString *)addInstanceNowOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason
 {
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	if ([type isKindOfClass:[ORMObjectType class]] && type.nestedFactType != nil && ![self isTheFactItObjectifies:type]) {
+		[self refuse:[NSString stringWithFormat:@"Each %@ is a fact of \"%@\" too: name its players as well.", type.name,
+		                                        [[type.nestedFactType primaryReading] expandedText] ?: type.nestedFactType.name]
+		      reason:reason];
+		return nil;
+	}
 	ORMSamplePopulation *population = [[ORMSamplePopulation alloc] init];
 	NSString *created = [self instanceOf:objectTypeId named:text into:population reason:reason];
 	return [self addInstance:created of:objectTypeId in:population reason:reason];
@@ -1309,6 +1383,19 @@ ORMWrapPart(NSString *name, BOOL composite)
 	__block NSString *made = nil;
 	[self edit:@"Add Instance" with:^BOOL {
 		made = [self addInstanceNowOf:objectTypeId named:text reason:reason];
+		return made != nil;
+	}];
+	return made;
+}
+
+- (NSString *)addInstanceOf:(NSString *)objectTypeId
+                      named:(NSString *)text
+               objectifying:(NSDictionary<NSString *, NSString *> *)textsByRole
+                     reason:(NSString **)reason
+{
+	__block NSString *made = nil;
+	[self edit:@"Add Instance" with:^BOOL {
+		made = [self addInstanceNowOf:objectTypeId named:text objectifying:textsByRole reason:reason];
 		return made != nil;
 	}];
 	return made;

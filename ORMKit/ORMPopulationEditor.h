@@ -82,6 +82,15 @@
 /* An instance of the object type, named so. Its id. Refused when the
  * model has it already, as a fact the model has is. */
 - (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason;
+/* An instance of an objectifying type identified otherwise than by the
+ * fact it objectifies (CinemaTickets' Booking, by its number), named as
+ * its identifier is, and that fact, each role's player named (by role
+ * id): both made, as one change. Its id. (Such a type's instance alone,
+ * or its fact alone, is refused: each is the other.) */
+- (NSString *)addInstanceOf:(NSString *)objectTypeId
+                      named:(NSString *)text
+               objectifying:(NSDictionary<NSString *, NSString *> *)textsByRole
+                     reason:(NSString **)reason;
 /* An instance of an entity type identified by several values, each named
  * by the role of its preferred identifier it plays (by id). Its id. */
 - (NSString *)addInstanceOf:(NSString *)objectTypeId

@@ -11,6 +11,10 @@
 	ORMObjectType *_type;
 	/* An object type identified by several values: a column each. */
 	NSArray<ORMRole *> *_parts;
+	/* An objectifying type with an identifier of its own: after its
+	 * identifier's columns, a column for each role of its fact, as each of
+	 * its instances is a fact too. */
+	NSArray<ORMRole *> *_nested;
 	NSArray *_rows;
 	/* A derived fact type's facts its rule derives and nothing stores
 	 * (docs/DERIVATION.md), after the asserted ones, read only. */
@@ -48,9 +52,15 @@
 	return _fact != nil ? [_fact visibleRoles] : @[];
 }
 
+/* The columns of what identifies an instance. */
+- (NSUInteger)identifierColumns
+{
+	return MAX([_parts count], (NSUInteger)1);
+}
+
 - (NSUInteger)columnCount
 {
-	return MAX(_fact != nil ? [[self roles] count] : [_parts count], (NSUInteger)1);
+	return _fact != nil ? MAX([[self roles] count], (NSUInteger)1) : [self identifierColumns] + [_nested count];
 }
 
 /* An instance as the table names it, as the population editor reads it. */
@@ -85,6 +95,7 @@
 	_fact = [element isKindOfClass:[ORMFactType class]] && [(ORMFactType *)element kind] == ORMFactTypeOrdinary ? element : nil;
 	_type = [element isKindOfClass:[ORMObjectType class]] ? element : nil;
 	_parts = _type != nil ? [self.editor.populationEditor compositeRolesOf:_type.identifier] : @[];
+	_nested = _type.nestedFactType != nil ? [_type.nestedFactType visibleRoles] : @[];
 	_rows = _fact != nil ? [_fact instances] : (_type != nil ? [_type instances] : @[]);
 	_derived = @[];
 	ORMDerivationRule *rule = _fact.isDerived ? [_fact derivationRule] : nil;
@@ -117,6 +128,9 @@
 	} else {
 		[titles addObject:_type.name ?: @""];
 	}
+	for (ORMRole *role in _fact == nil ? _nested : @[]) {
+		[titles addObject:[role.name length] > 0 ? role.name : role.player.name ?: @"?"];
+	}
 	while ([[_table tableColumns] count] > [titles count]) {
 		[_table removeTableColumn:[[_table tableColumns] lastObject]];
 	}
@@ -140,7 +154,11 @@
 	                                                        [[_fact primaryReading] expandedText] ?: _fact.name]
 	                       : _fact != nil ? [NSString stringWithFormat:@"Population of %@",
 	                                                                  [[_fact primaryReading] expandedText] ?: _fact.name]
-	                                    : (_type != nil ? [NSString stringWithFormat:@"Instances of %@", _type.name]
+	                                    : (_type != nil && [_nested count] > 0
+	                                           ? [NSString stringWithFormat:@"Instances of %@, each where %@", _type.name,
+	                                                                        [[_type.nestedFactType primaryReading] expandedText]
+	                                                                            ?: _type.nestedFactType.name]
+	                                       : _type != nil ? [NSString stringWithFormat:@"Instances of %@", _type.name]
 	                                                    : @"Select a fact type or an object type.")];
 	[self showStatus];
 }
@@ -256,6 +274,12 @@
 		return [self nameOf:role != nil ? [fact.instancesByRole objectForKey:role.identifier] : nil];
 	}
 	ORMInstance *instance = [_rows objectAtIndex:(NSUInteger)row];
+	if ((NSUInteger)column >= [self identifierColumns]) {
+		/* Of the fact it is. */
+		NSUInteger index = (NSUInteger)column - [self identifierColumns];
+		ORMRole *role = index < [_nested count] ? [_nested objectAtIndex:index] : nil;
+		return [self nameOf:role != nil ? [[instance objectifiedInstance].instancesByRole objectForKey:role.identifier] : nil];
+	}
 	if ([_parts count] > 0) {
 		/* A subtype's instance is identified as its supertype's is. */
 		while ([instance supertypeInstance] != nil) {
@@ -317,6 +341,16 @@
 				[byRole setObject:[pending objectAtIndex:i] forKey:[[roles objectAtIndex:i] identifier]];
 			}
 			added = [self.editor.populationEditor addFactOf:_fact.identifier named:byRole reason:&reason];
+		} else if ([_nested count] > 0) {
+			/* The instance and the fact it is, together. */
+			NSUInteger identifiers = [self identifierColumns];
+			NSString *named = [[pending subarrayWithRange:NSMakeRange(0, identifiers)] componentsJoinedByString:@", "];
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			for (NSUInteger i = 0; i < [_nested count]; i++) {
+				[byRole setObject:[pending objectAtIndex:identifiers + i] forKey:[[_nested objectAtIndex:i] identifier]];
+			}
+			added = [self.editor.populationEditor addInstanceOf:_type.identifier named:named objectifying:byRole
+			                                             reason:&reason];
 		} else if ([_parts count] > 0) {
 			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
 			for (NSUInteger i = 0; i < [_parts count]; i++) {
@@ -334,6 +368,12 @@
 		return;
 	}
 	if ([named isEqualToString:[self textAtRow:row column:column]]) {
+		return;
+	}
+	if (_fact == nil && (NSUInteger)column >= [self identifierColumns]) {
+		[self refuse:[NSString stringWithFormat:@"Each %@ is its fact: remove it, and add it with the fact as it is "
+		                                        @"to be.", _type.name]];
+		[self reload];
 		return;
 	}
 	if (_fact == nil) {
