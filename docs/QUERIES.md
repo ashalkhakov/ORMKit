@@ -115,6 +115,10 @@ The rest of this document covers each stage: the outline's notation
 joins that no relationship makes
 ([Joins through absorbed object types](#joins-through-absorbed-object-types)).
 
+
+A step through a derived fact type that is not stored is put as its
+derivation's path before planning ([DERIVATION.md](DERIVATION.md#planning-through-one)).
+
 ## The plan, as Query-by-Example
 
 A plan is close to Query-by-Example (QbE): it names entities and their
@@ -186,6 +190,7 @@ identified (a name, a state, a country).
 | `✓Branch ↓` | the results in descending (↑ ascending) order of that node |
 | `+ or ...` | the node's steps are alternatives, not all required |
 | `+ is Professor` | a subtype link, from the supertype or from the subtype |
+| `Session + has Cinema` | a link fact type: from an objectifying type to a player of its fact, or back; planned as the objectified fact type's entity's relationship |
 | `City1` | a label: nodes of one object type with the same label are the same object |
 | `Country2 <> Country1` | a condition comparing two nodes of the same object type |
 
@@ -193,6 +198,29 @@ A step reads from the role it enters by: "is location of" is the inverse
 reading of "Branch is located in City". When a fact type has no reading that
 starts with that role, the step uses another reading, with "that X" in
 place of the role.
+
+### Reading an outline back
+
+An outline, as `-outlineText` writes it, is read back into the query it
+says (ORMOutlineReader), as one change:
+- The first line is the root. ✓ ticks it, digits after the name are a
+  label, then come a condition and ↑ or ↓.
+- Each `+` line indented under a node is a step from it. It reads a fact
+  type from the role the node's object type plays, with each other role's
+  node written in its place, after `or`, `not` or `maybe`. The longest
+  reading that matches is taken.
+- Under a step, `+ count(X) for Y > n` (or total, avg, max, min, compared
+  with a value or with another aggregate) is its aggregate. `X:` turns to
+  the steps of its node of X; the first node's need no such line.
+- A condition with a designation for its value (`Country2 <> Country1`)
+  compares two nodes.
+- A constraint's first line (`It is impossible that:`) or a calculation's
+  (`Total of each Branch is total(Salary) of:`) says what the query is for.
+
+A line it cannot read is refused with its number and why, and nothing is
+made: `Line 2, "+ flies to Mars": no fact type of Employee reads so`. The
+Queries window copies a query as its outline (Edit > Copy) and makes one
+of an outline pasted (Edit > Paste).
 
 ## Correlation
 
@@ -410,7 +438,10 @@ into the entities that use it, and its parts become their attributes. Going
 through it is then a join on those parts' values, as the paper's SQL S1 joins
 Employee and Branch on city name, state code and country. No relationship
 connects the two entities, so the plan defines the joined set and compares
-the parts with its objects':
+the parts with its objects'. A listed absorbed node is listed by all its
+identifying values, in its reference scheme's order, a part absorbed in turn
+by its own, and an entity among them by its identifier: a City as its name,
+its state's country and its state's code.
 
 ```
 ✓Employee                        let join1 = read Branch where nr = 52
@@ -545,7 +576,7 @@ calculation of a node's values for each object of its root type, with its
     rows are, and the rows say it. A listed object's identifier says what
     is reached from it through to-ones. A plan with no sorts of its own
     is ordered by what it lists, where it can be.
-- **Queries as derived fact types** that other queries use (ConQuer-II's
-  macros); **reading a query back from its outline text**; inferring the path
-  between two object types picked at once (ActiveQuery's point-to-point
-  queries), rather than clicking each role on the way.
+- Inferring the path between two object types picked at once
+  (ActiveQuery's point-to-point queries), rather than clicking each role
+  on the way. (Queries other queries use, ConQuer-II's macros, are
+  derivations: [DERIVATION.md](DERIVATION.md).)

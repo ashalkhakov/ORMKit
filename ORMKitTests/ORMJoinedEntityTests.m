@@ -1,0 +1,934 @@
+/* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
+#import "ORMTestSupport.h"
+#import <CoreData/CoreData.h>
+#import <ODataKit/ODataTransport.h>
+#import <ODataService/ODataService.h>
+
+/* An entity type kept in several entities (docs/JOINED-ENTITIES.md): a
+ * Customer, identified by its user id and also by a GUID, whose name is the
+ * CRM's (the hub), whose balance is billing's (by user id, not every
+ * customer has an account), and whose e-mail and topics are the
+ * newsletter's (by GUID, through the CRM, which keeps both). */
+@interface ORMJoinedEntityTests : ORMTestCase
+@end
+
+/* A façade class as the generator writes one (docs/RUNTIME.md), declared
+ * here: the driver's to run, on any platform, under the tables
+ * ORMTestCustomers. */
+@interface ORMTestCustomer : ORMJoinedObject
+@property (nonatomic, strong) NSNumber *balance;
+@end
+
+@implementation ORMTestCustomer
+@dynamic balance;
+
++ (NSString *)tablesName
+{
+	return @"ORMTestCustomers";
+}
+
+@end
+
+@implementation ORMJoinedEntityTests
+{
+	ORMEditor *_editor;
+	NSString *_diagram;
+	NSMutableDictionary<NSString *, NSArray<NSString *> *> *_facts;
+	NSString *_mapping;
+	NSDictionary<NSString *, NSString *> *_members;
+	/* The store a test reads, and what its queries are planned and run with. */
+	NSManagedObjectContext *_context;
+	ORMQueryPlanner *_planner;
+	ORMQueryInterpreter *_interpreter;
+	/* The façade class the customers are read through, and the driver
+	 * that prepares a save; none: the generated orm_prepareForSave:. */
+	NSString *_customerClass;
+	ORMSaveHook *_hook;
+}
+
+- (void)setUp
+{
+	[super setUp];
+	_editor = [self newEditor];
+	_diagram = [[_editor.model.diagrams firstObject] identifier];
+	_facts = [NSMutableDictionary dictionary];
+}
+
+/* A fact type; "1" makes the first role unique, "11" both, "*" spans them;
+ * "!" makes the first role mandatory. */
+- (NSArray<NSString *> *)fact:(NSString *)name
+                      players:(NSArray *)players
+                      reading:(NSString *)reading
+                   uniqueness:(NSString *)uniqueness
+{
+	NSString *reason = nil;
+	NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:players reading:reading onDiagram:_diagram
+	                                                             at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(fact, @"%@: %@", reading, reason);
+	NSArray *roles = [[[_editor.model elementWithId:fact] roles] valueForKey:@"identifier"];
+	if ([uniqueness hasPrefix:@"1"]) {
+		[_editor.constraintEditor setUnique:YES role:[roles firstObject] reason:NULL];
+	}
+	if ([uniqueness hasPrefix:@"11"]) {
+		[_editor.constraintEditor setUnique:YES role:[roles lastObject] reason:NULL];
+	}
+	if ([uniqueness hasPrefix:@"*"]) {
+		[_editor.constraintEditor addUniquenessConstraintOverRoles:roles reason:NULL];
+	}
+	if ([uniqueness hasSuffix:@"!"]) {
+		[_editor.constraintEditor setMandatory:YES role:[roles firstObject] reason:NULL];
+	}
+	[_facts setObject:roles forKey:name];
+	return roles;
+}
+
+- (NSString *)far:(NSString *)fact
+{
+	return [[_facts objectForKey:fact] lastObject];
+}
+
+/* The single-role uniqueness constraint on the role. */
+- (NSString *)uniquenessOn:(NSString *)roleId
+{
+	for (ORMConstraint *constraint in [(ORMRole *)[_editor.model elementWithId:roleId] constraints]) {
+		if (constraint.kind == ORMUniquenessConstraint && [[constraint allRoles] count] == 1) {
+			return constraint.identifier;
+		}
+	}
+	return nil;
+}
+
+/* The customers' model, and a mapping joining them. */
+- (void)makeCustomers
+{
+	ORMObjectTypeEditor *types = _editor.objectTypeEditor;
+	NSString *customer = [types addEntityTypeNamed:@"Customer" referenceMode:@"UserId" kind:ORMReferenceModeGeneral
+	                                     onDiagram:_diagram at:ORMAutomaticPlacement reason:NULL];
+	ORMObjectType *userId = [[_editor.model elementWithId:customer] referenceModeValueType];
+	[types setDataType:@"SignedIntegerNumericDataType" length:0 scale:0 of:userId.identifier reason:NULL];
+	NSString *topic = [types addEntityTypeNamed:@"Topic" referenceMode:@"code" kind:ORMReferenceModePopular
+	                                  onDiagram:_diagram at:ORMAutomaticPlacement reason:NULL];
+	NSString *guid = [types addValueTypeNamed:@"Guid" dataType:@"VariableLengthTextDataType" onDiagram:_diagram
+	                                       at:ORMAutomaticPlacement reason:NULL];
+	NSString *name = [types addValueTypeNamed:@"Name" dataType:@"VariableLengthTextDataType" onDiagram:_diagram
+	                                       at:ORMAutomaticPlacement reason:NULL];
+	NSString *balance = [types addValueTypeNamed:@"Balance" dataType:@"SignedIntegerNumericDataType" onDiagram:_diagram
+	                                          at:ORMAutomaticPlacement reason:NULL];
+	NSString *email = [types addValueTypeNamed:@"Email" dataType:@"VariableLengthTextDataType" onDiagram:_diagram
+	                                        at:ORMAutomaticPlacement reason:NULL];
+	[self fact:@"guid" players:@[ customer, guid ] reading:@"{0} has {1}" uniqueness:@"11!"];
+	[self fact:@"name" players:@[ customer, name ] reading:@"{0} is called {1}" uniqueness:@"1!"];
+	[self fact:@"balance" players:@[ customer, balance ] reading:@"{0} owes {1}" uniqueness:@"1"];
+	[self fact:@"email" players:@[ customer, email ] reading:@"{0} is mailed at {1}" uniqueness:@"1"];
+	[self fact:@"topics" players:@[ customer, topic ] reading:@"{0} subscribes to {1}" uniqueness:@"*"];
+
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:_editor];
+	_mapping = [mappings addCoreDataMappingNamed:@"Customers" path:@"Customers.xcdatamodeld"];
+	NSString *hub = [mappings addMemberNamed:@"CRMCustomer" by:nil via:nil outer:NO ofObjectType:customer
+	                               inMapping:_mapping];
+	NSString *billing = [mappings addMemberNamed:@"BillingAccount" by:nil via:nil outer:YES ofObjectType:customer
+	                                   inMapping:_mapping];
+	[mappings setHeld:YES role:[self far:@"balance"] byMember:billing inMapping:_mapping];
+	NSString *subscriber = [mappings addMemberNamed:@"Subscriber" by:[self uniquenessOn:[self far:@"guid"]] via:hub
+	                                          outer:YES ofObjectType:customer inMapping:_mapping];
+	[mappings setHeld:YES role:[self far:@"email"] byMember:subscriber inMapping:_mapping];
+	[mappings setHeld:YES role:[self far:@"topics"] byMember:subscriber inMapping:_mapping];
+	_members = @{ @"hub": hub, @"billing": billing, @"subscriber": subscriber };
+}
+
+- (ORMCoreDataMapping *)mapping
+{
+	for (ORMCoreDataMapping *mapping in [ORMCoreDataMapping mappingsOfDocument:_editor.document]) {
+		if ([mapping.identifier isEqualToString:_mapping]) {
+			return mapping;
+		}
+	}
+	return nil;
+}
+
+/* The members as the mapping reads them back: in order, the hub first,
+ * each with what it correlates by, joins to and holds. */
+- (void)testTheMappingKeepsTheMembers
+{
+	[self makeCustomers];
+	ORMObjectType *customer = [_editor.model objectTypeNamed:@"Customer"];
+	ORMCoreDataMapping *mapping = [self mapping];
+	XCTAssertEqual([mapping mappingOfObjectType:customer.identifier], ORMMapJoined);
+	NSArray<ORMJoinMember *> *members = [mapping.joins objectForKey:customer.identifier];
+	XCTAssertEqualObjects([members valueForKey:@"name"], (@[ @"CRMCustomer", @"BillingAccount", @"Subscriber" ]));
+	XCTAssertNil(members[0].viaId);
+	XCTAssertFalse(members[0].isOuter);
+	XCTAssertEqualObjects(members[1].viaId, members[0].identifier, @"the hub, where it says none");
+	XCTAssertTrue(members[1].isOuter);
+	XCTAssertNil(members[1].correlationId, @"the preferred identifier");
+	XCTAssertEqualObjects(members[2].correlationId, [self uniquenessOn:[self far:@"guid"]]);
+	XCTAssertEqualObjects(members[2].heldRoleIds, (@[ [self far:@"email"], [self far:@"topics"] ]));
+
+	/* A role is held by one member: holding it elsewhere moves it. */
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:_editor];
+	[mappings setHeld:YES role:[self far:@"email"] byMember:[_members objectForKey:@"billing"] inMapping:_mapping];
+	members = [[self mapping].joins objectForKey:customer.identifier];
+	XCTAssertEqualObjects(members[1].heldRoleIds, (@[ [self far:@"balance"], [self far:@"email"] ]));
+	XCTAssertEqualObjects(members[2].heldRoleIds, @[ [self far:@"topics"] ]);
+	[self.undoManager undo];
+	members = [[self mapping].joins objectForKey:customer.identifier];
+	XCTAssertEqualObjects(members[2].heldRoleIds, (@[ [self far:@"email"], [self far:@"topics"] ]));
+}
+
+/* The entity's property names, sorted. */
+static NSArray *
+ORMPropertyNamesOf(ORMCDEntity *entity)
+{
+	return [[[entity properties] valueForKey:@"name"] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+/* Each member an entity: the hub the type's, with what no member holds;
+ * the others with their correlating values and what they hold, and what
+ * joins them in their userInfo. Topic's customers are the subscribers. */
+- (void)testEachMemberIsAnEntity
+{
+	[self makeCustomers];
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMCDModel *model = [mapper map];
+	for (ORMMappingNote *note in mapper.notes) {
+		XCTAssertNotEqual(note.kind, ORMMappingWarning, @"%@", note.text);
+	}
+	ORMCDEntity *hub = [model entityNamed:@"CRMCustomer"];
+	ORMCDEntity *billing = [model entityNamed:@"BillingAccount"];
+	ORMCDEntity *subscriber = [model entityNamed:@"Subscriber"];
+	XCTAssertNil([model entityNamed:@"Customer"]);
+	XCTAssertEqualObjects(ORMPropertyNamesOf(hub), (@[ @"guid", @"name", @"userId" ]));
+	XCTAssertEqualObjects(ORMPropertyNamesOf(billing), (@[ @"balance", @"userId" ]));
+	XCTAssertEqualObjects(ORMPropertyNamesOf(subscriber), (@[ @"email", @"guid", @"topics" ]));
+	XCTAssertEqualObjects([[model entityNamed:@"Topic"] relationshipNamed:@"customers"].destination, @"Subscriber");
+
+	XCTAssertEqualObjects(hub.source, [[_editor.model objectTypeNamed:@"Customer"] identifier]);
+	XCTAssertEqualObjects(billing.source, [_members objectForKey:@"billing"]);
+	XCTAssertEqualObjects([billing attributeNamed:@"userId"].source,
+	                      ([NSString stringWithFormat:@"%@/%@", [_members objectForKey:@"billing"],
+	                                                  [[_editor.model objectTypeNamed:@"Customer"] preferredIdentifier]
+	                                                      .allRoles.firstObject.identifier]));
+	XCTAssertEqualObjects([billing.userInfo objectForKey:@"ormkit.via"], @"CRMCustomer");
+	XCTAssertEqualObjects([billing.userInfo objectForKey:@"ormkit.on"], @"userId userId");
+	XCTAssertEqualObjects([billing.userInfo objectForKey:@"ormkit.outer"], @"YES");
+	XCTAssertEqualObjects([subscriber.userInfo objectForKey:@"ormkit.on"], @"guid guid");
+	XCTAssertEqualObjects(billing.uniquenessConstraints, @[ @[ @"userId" ] ]);
+	XCTAssertTrue([[hub attributeNamed:@"name"] optional] == NO);
+	XCTAssertNil([self momcRejects:model]);
+}
+
+/* What a join cannot be is said, and the type is mapped as it can be. */
+- (void)testAJoinThatCannotBeIsNoted
+{
+	[self makeCustomers];
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:_editor];
+	ORMObjectType *customer = [_editor.model objectTypeNamed:@"Customer"];
+	/* By a role that identifies nothing. */
+	NSString *odd = [mappings addMemberNamed:@"Odd" by:[self far:@"name"] via:nil outer:YES
+	                             ofObjectType:customer.identifier inMapping:_mapping];
+	XCTAssertNotNil(odd);
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
+	[mapper map];
+	NSArray *texts = [mapper.notes valueForKey:@"text"];
+	XCTAssertTrue([texts containsObject:@"Odd is not joined to Customer: what it correlates by is no identifier of it."],
+	              @"%@", texts);
+	[mappings removeMember:odd inMapping:_mapping];
+
+	/* A mandatory role held by an outer member: a row for each. */
+	[mappings setHeld:YES role:[self far:@"name"] byMember:[_members objectForKey:@"billing"] inMapping:_mapping];
+	mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMCDModel *model = [mapper map];
+	XCTAssertEqualObjects([[model entityNamed:@"BillingAccount"].userInfo objectForKey:@"ormkit.outer"], @"NO");
+	XCTAssertTrue([[mapper.notes valueForKey:@"text"]
+		containsObject:@"BillingAccount has a row for each Customer: it holds a mandatory role of it, so it is joined as "
+	                   @"inner."]);
+}
+
+#pragma mark Queries
+
+/* The node a new step from the node reaches. */
+- (NSString *)step:(ORMQueryEditor *)queries from:(NSString *)nodeId through:(NSString *)roleId in:(NSString *)queryId
+{
+	NSString *reason = nil;
+	NSString *step = [queries addStepTo:nodeId through:roleId reason:&reason];
+	XCTAssertNotNil(step, @"%@", reason);
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:queryId inModel:_editor.model] nodes]) {
+		if ([node.step.identifier isEqualToString:step]) {
+			return node.identifier;
+		}
+	}
+	return nil;
+}
+
+- (NSString *)stepOf:(NSString *)nodeId in:(NSString *)queryId
+{
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:queryId inModel:_editor.model] nodes]) {
+		if ([node.identifier isEqualToString:nodeId]) {
+			return node.step.identifier;
+		}
+	}
+	return nil;
+}
+
+/* The customers in their three stores: Ann (1) owes 50 and reads the news,
+ * Bob (2) has no account and does not subscribe, Cy (3) owes 500 and reads
+ * the news and the deals. */
+- (NSManagedObjectContext *)storeIn:(NSString *)directory model:(NSManagedObjectModel *)model
+{
+	NSError *error = nil;
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSSQLiteStoreType configuration:nil
+	                                                    URL:[NSURL fileURLWithPath:[directory stringByAppendingPathComponent:@"Customers.sqlite"]]
+	                                                options:nil error:&error], @"%@", error);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	context.persistentStoreCoordinator = coordinator;
+	[context performBlockAndWait:^{
+		[self addCustomersTo:context];
+	}];
+	return context;
+}
+
+/* A new object of the entity, with the values. */
+static NSManagedObject *
+ORMInsert(NSManagedObjectContext *context, NSString *entity, NSDictionary *values)
+{
+	NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
+	[object setValuesForKeysWithDictionary:values];
+	return object;
+}
+
+/* Ann, Bob and Cy in their three stores, saved; on the context's queue. */
+- (void)addCustomersTo:(NSManagedObjectContext *)context
+{
+	NSManagedObject *news = ORMInsert(context, @"Topic", @{ @"code": @"news" });
+	NSManagedObject *deals = ORMInsert(context, @"Topic", @{ @"code": @"deals" });
+	ORMInsert(context, @"CRMCustomer", @{ @"userId": @1, @"name": @"Ann", @"guid": @"g1" });
+	ORMInsert(context, @"CRMCustomer", @{ @"userId": @2, @"name": @"Bob", @"guid": @"g2" });
+	ORMInsert(context, @"CRMCustomer", @{ @"userId": @3, @"name": @"Cy", @"guid": @"g3" });
+	ORMInsert(context, @"BillingAccount", @{ @"userId": @1, @"balance": @50 });
+	ORMInsert(context, @"BillingAccount", @{ @"userId": @3, @"balance": @500 });
+	ORMInsert(context, @"Subscriber",
+	          @{ @"guid": @"g1", @"email": @"ann@example.test", @"topics": [NSSet setWithObject:news] });
+	ORMInsert(context, @"Subscriber",
+	          @{ @"guid": @"g3", @"email": @"cy@example.test", @"topics": [NSSet setWithObjects:news, deals, nil] });
+	NSError *saved = nil;
+	XCTAssertTrue([context save:&saved], @"%@", saved);
+}
+
+/* The query's rows from the store, checked against the service's, which
+ * serves the same store. */
+- (NSSet *)rowsOf:(NSString *)queryId
+{
+	ORMQueryPlan *plan = [_planner planForQuery:[ORMQuery queryWithId:queryId inModel:_editor.model]];
+	XCTAssertEqualObjects(plan.notes, @[], @"%@", [plan text]);
+	__block ORMQueryResult *result = nil;
+	__block NSError *error = nil;
+	[_context performBlockAndWait:^{
+		result = [self->_interpreter executePlan:plan inContext:self->_context error:&error];
+	}];
+	XCTAssertNotNil(result, @"%@\n%@", error, [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:_planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqualObjects(odata.notes, @[], @"%@", [odata requestText]);
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:_context.persistentStoreCoordinator
+	                                                                     serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	ORMQueryODataCursor *cursor = [odata cursorWithTransport:(id<ODataTransport>)service
+	                                             serviceRoot:[NSURL URLWithString:@"http://example.test/odata/"]];
+	NSMutableArray *served = [NSMutableArray array];
+	for (NSUInteger guard = 0; cursor != nil && guard < 10 && ![cursor atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		[cursor nextPage:2 completion:^(ORMQueryResult *page, NSError *failed) {
+			XCTAssertNotNil(page, @"%@\n%@", failed, [odata requestText]);
+			[served addObjectsFromArray:page.rows ?: @[]];
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC))), 0);
+	}
+	XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:result.rows ?: @[]], @"%@\n%@", [plan text],
+	                      [odata requestText]);
+	return [NSSet setWithArray:result.rows ?: @[]];
+}
+
+/* A query of customers reads the hub, and goes to each other member by
+ * what correlates it: the billing account by user id, the subscriber by
+ * GUID through the hub, which has both. A step there is some row; maybe,
+ * the row or none; not, no row. */
+- (void)testQueriesJoinTheMembers
+{
+	[self makeCustomers];
+	_planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	_context = [self storeIn:directory model:[_planner.coreData managedObjectModel]];
+	_interpreter = [[ORMQueryInterpreter alloc] initWithModel:[_planner.coreData managedObjectModel]];
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:_editor];
+	NSString *customer = [[_editor.model objectTypeNamed:@"Customer"] identifier];
+
+	NSString *plain = [queries addQueryNamed:@"All" from:customer reason:NULL];
+	XCTAssertEqual([[self rowsOf:plain] count], 3u);
+	/* What they owe: those with an account. */
+	NSString *q = [queries addQueryNamed:@"Owing" from:customer reason:NULL];
+	NSString *root = [ORMQuery queryWithId:q inModel:_editor.model].root.identifier;
+	NSString *owes = [self step:queries from:root through:[[_facts objectForKey:@"balance"] firstObject] in:q];
+	[queries setProjected:YES ofNode:owes];
+	XCTAssertEqualObjects([self rowsOf:q], ([NSSet setWithObjects:@[ @1, @50 ], @[ @3, @500 ], nil]));
+	ORMQueryPlan *plan = [_planner planForQuery:[ORMQuery queryWithId:q inModel:_editor.model]];
+	XCTAssertTrue([[plan text] containsString:@"some x1 in member1 with userId = userId has x1.balance is set"],
+	              @"%@", [plan text]);
+	NSError *read = nil;
+	ORMQueryPlan *again = [ORMQueryPlan planWithPropertyList:[plan propertyList] error:&read];
+	XCTAssertEqualObjects([again text], [plan text], @"%@", read);
+	/* Maybe: everyone, with what they owe if they have an account. */
+	[queries setOperator:ORMQueryMaybe ofStep:[self stepOf:owes in:q]];
+	XCTAssertEqualObjects([self rowsOf:q],
+	                      ([NSSet setWithObjects:@[ @1, @50 ], @[ @2, [NSNull null] ], @[ @3, @500 ], nil]));
+	/* Not: those without. */
+	[queries setOperator:ORMQueryNot ofStep:[self stepOf:owes in:q]];
+	XCTAssertEqualObjects([self rowsOf:q], [NSSet setWithObject:@[ @2 ]]);
+	/* Some, more than 100: Cy, by name. */
+	[queries setOperator:ORMQueryAnd ofStep:[self stepOf:owes in:q]];
+	[queries setProjected:NO ofNode:owes];
+	XCTAssertTrue([queries setCondition:@">" value:@"100" ofNode:owes reason:NULL]);
+	NSString *named = [self step:queries from:root through:[[_facts objectForKey:@"name"] firstObject] in:q];
+	[queries setProjected:YES ofNode:named];
+	XCTAssertEqualObjects([self rowsOf:q], ([NSSet setWithObject:@[ @3, @"Cy" ]]));
+
+	/* Through the hub's GUID to the subscriber: e-mails, and topics. */
+	NSString *m = [queries addQueryNamed:@"Mailing" from:customer reason:NULL];
+	root = [ORMQuery queryWithId:m inModel:_editor.model].root.identifier;
+	NSString *email = [self step:queries from:root through:[[_facts objectForKey:@"email"] firstObject] in:m];
+	[queries setProjected:YES ofNode:email];
+	XCTAssertEqualObjects([self rowsOf:m],
+	                      ([NSSet setWithObjects:@[ @1, @"ann@example.test" ], @[ @3, @"cy@example.test" ], nil]));
+	NSString *t = [queries addQueryNamed:@"Deals" from:customer reason:NULL];
+	root = [ORMQuery queryWithId:t inModel:_editor.model].root.identifier;
+	NSString *topic = [self step:queries from:root through:[[_facts objectForKey:@"topics"] firstObject] in:t];
+	XCTAssertTrue([queries setCondition:@"=" value:@"deals" ofNode:topic reason:NULL]);
+	XCTAssertEqualObjects([self rowsOf:t], [NSSet setWithObject:@[ @3 ]]);
+	/* From a topic, its subscribers are customers: each the hub's row,
+	 * listed by user id, with its name. */
+	NSString *r = [queries addQueryNamed:@"Readers" from:[[_editor.model objectTypeNamed:@"Topic"] identifier]
+	                              reason:NULL];
+	root = [ORMQuery queryWithId:r inModel:_editor.model].root.identifier;
+	NSString *reader = [self step:queries from:root through:[[_facts objectForKey:@"topics"] lastObject] in:r];
+	[queries setProjected:YES ofNode:reader];
+	NSString *readerName = [self step:queries from:reader through:[[_facts objectForKey:@"name"] firstObject] in:r];
+	[queries setProjected:YES ofNode:readerName];
+	XCTAssertEqualObjects([self rowsOf:r], ([NSSet setWithObjects:@[ @"news", @1, @"Ann" ], @[ @"news", @3, @"Cy" ],
+	                                                              @[ @"deals", @3, @"Cy" ], nil]));
+}
+
+#pragma mark The sample population
+
+/* Every object of the entity in the store. */
+- (NSArray *)objectsOf:(NSString *)entity
+{
+	__block NSArray *found = nil;
+	[_context performBlockAndWait:^{
+		found = [self->_context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:entity] error:NULL];
+	}];
+	return found;
+}
+
+/* How many facts of the fact type made with that name. */
+- (NSUInteger)factsOf:(NSString *)name
+{
+	ORMRole *role = [_editor.model elementWithId:[[_facts objectForKey:name] firstObject]];
+	return [[role.factType instances] count];
+}
+
+/* A population stored through the join: each customer a hub row, a
+ * billing account where it owes, a subscriber where it is mailed or
+ * subscribes, each with the values it correlates by; queries of the store
+ * find each fact. */
+- (void)testThePopulationIsStoredInTheMembers
+{
+	[self makeCustomers];
+	ORMPopulationGenerator *generator = [[ORMPopulationGenerator alloc] initWithModel:_editor.model];
+	NSString *reason = nil;
+	XCTAssertTrue([_editor.populationEditor addPopulation:[generator population] reason:&reason], @"%@", reason);
+	ORMModel *model = _editor.model;
+	ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:model mapping:[self mapping]] map];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:coreData];
+	NSError *error = nil;
+	_context = [store newContextWithError:&error];
+	XCTAssertNotNil(_context, @"%@", error);
+	XCTAssertEqualObjects(store.notes, @[]);
+	NSUInteger customers = [[[model objectTypeNamed:@"Customer"] instances] count];
+	XCTAssertGreaterThan(customers, 0u);
+	XCTAssertEqual([[self objectsOf:@"CRMCustomer"] count], customers);
+	XCTAssertEqual([[self objectsOf:@"BillingAccount"] count], [self factsOf:@"balance"]);
+	XCTAssertGreaterThan([self factsOf:@"balance"], 0u);
+	XCTAssertGreaterThan([[self objectsOf:@"Subscriber"] count], 0u);
+	NSUInteger subscriptions = 0;
+	for (NSManagedObject *subscriber in [self objectsOf:@"Subscriber"]) {
+		subscriptions += [[subscriber valueForKey:@"topics"] count];
+	}
+	XCTAssertEqual(subscriptions, [self factsOf:@"topics"]);
+	NSMutableSet *hubIds = [NSMutableSet setWithArray:[[self objectsOf:@"CRMCustomer"] valueForKey:@"userId"]];
+	NSMutableSet *hubGuids = [NSMutableSet setWithArray:[[self objectsOf:@"CRMCustomer"] valueForKey:@"guid"]];
+	XCTAssertTrue([[NSSet setWithArray:[[self objectsOf:@"BillingAccount"] valueForKey:@"userId"]] isSubsetOfSet:hubIds]);
+	XCTAssertTrue([[NSSet setWithArray:[[self objectsOf:@"Subscriber"] valueForKey:@"guid"]] isSubsetOfSet:hubGuids]);
+	XCTAssertFalse([[[self objectsOf:@"Subscriber"] valueForKey:@"guid"] containsObject:[NSNull null]]);
+
+	/* What they owe, read back through the join: each balance fact. */
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:_editor];
+	NSString *q = [queries addQueryNamed:@"Owing" from:[[model objectTypeNamed:@"Customer"] identifier] reason:NULL];
+	NSString *root = [ORMQuery queryWithId:q inModel:_editor.model].root.identifier;
+	NSString *owes = [self step:queries from:root through:[[_facts objectForKey:@"balance"] firstObject] in:q];
+	[queries setProjected:YES ofNode:owes];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithCoreData:coreData];
+	ORMQueryPlan *plan = [planner planForQuery:[ORMQuery queryWithId:q inModel:_editor.model]];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+	__block ORMQueryResult *result = nil;
+	[_context performBlockAndWait:^{
+		result = [interpreter executePlan:plan inContext:self->_context error:NULL];
+	}];
+	XCTAssertEqual([result.rows count], [self factsOf:@"balance"], @"%@", [plan text]);
+}
+
+#pragma mark Generated code
+
+/* The generated Customer with the user id, of those in the store. */
+- (id)customer:(NSNumber *)userId
+{
+	Class customers = NSClassFromString(_customerClass ?: @"Customer");
+	SEL allIn = NSSelectorFromString(@"allInContext:");
+	NSArray *(*all)(id, SEL, id) = (NSArray * (*)(id, SEL, id))[customers methodForSelector:allIn];
+	for (id each in all(customers, allIn, _context)) {
+		if ([[each valueForKey:@"userId"] isEqual:userId]) {
+			return each;
+		}
+	}
+	return nil;
+}
+
+/* The generated code's updates, on the context's queue: through the
+ * Customer class, then without it, put right at save. */
+/* What orm_prepareForSave: does: by the driver, or the generated code. */
+- (BOOL)prepareForSave:(NSError **)error
+{
+	if (_hook == nil) {
+		SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
+		BOOL (*prepared)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[_context methodForSelector:prepare];
+		return prepared(_context, prepare, error);
+	}
+	NSMutableSet *changed = [NSMutableSet setWithSet:[_context insertedObjects]];
+	[changed unionSet:[_context updatedObjects]];
+	[changed unionSet:[_context deletedObjects]];
+	if (![_hook deriveInContext:_context changed:changed error:error]) {
+		return NO;
+	}
+	NSMutableArray *violations = [NSMutableArray array];
+	[_hook prepareJoinedInContext:_context changed:changed violations:violations];
+	[_hook checkInContext:_context changed:changed violations:violations];
+	return [ORMValidator report:violations error:error];
+}
+
+- (void)updateCustomersThroughTheJoin
+{
+	id ann = [self customer:@1];
+	id bob = [self customer:@2];
+	XCTAssertEqualObjects([ann valueForKey:@"name"], @"Ann");
+	XCTAssertEqualObjects([ann valueForKey:@"balance"], @50);
+	XCTAssertEqualObjects([ann valueForKey:@"email"], @"ann@example.test");
+	XCTAssertEqual([[ann valueForKey:@"topics"] count], 1u);
+	XCTAssertNil([bob valueForKey:@"balance"]);
+
+	/* Ann pays: her account goes. Bob owes: his is made, by his id. */
+	[ann setValue:nil forKey:@"balance"];
+	XCTAssertEqual([[self objectsOf:@"BillingAccount"] count], 1u);
+	[bob setValue:@70 forKey:@"balance"];
+	XCTAssertEqual([[self objectsOf:@"BillingAccount"] count], 2u);
+	SEL rowIn = NSSelectorFromString(@"rowIn:");
+	id (*row)(id, SEL, NSString *) = (id (*)(id, SEL, NSString *))[bob methodForSelector:rowIn];
+	XCTAssertEqualObjects([row(bob, rowIn, @"BillingAccount") valueForKey:@"userId"], @2);
+	/* Bob subscribes, by his GUID through the hub; a new GUID moves his
+	 * subscription with him. */
+	[bob setValue:@"bob@example.test" forKey:@"email"];
+	XCTAssertEqual([[self objectsOf:@"Subscriber"] count], 3u);
+	[bob setValue:@"g22" forKey:@"guid"];
+	XCTAssertEqualObjects([bob valueForKey:@"email"], @"bob@example.test");
+	XCTAssertEqualObjects([row(bob, rowIn, @"Subscriber") valueForKey:@"guid"], @"g22");
+
+	/* Without the class: Cy's hub object deleted, Bob's re-keyed. At
+	 * save, Cy's rows go, and Bob's follow his id. */
+	id cy = [self customer:@3];
+	[_context deleteObject:[cy valueForKey:@"object"]];
+	[[bob valueForKey:@"object"] setValue:@22 forKey:@"userId"];
+	NSError *error = nil;
+	XCTAssertTrue([self prepareForSave:&error], @"%@", error);
+	XCTAssertEqual([[self objectsOf:@"Subscriber"] count], 2u);
+	XCTAssertEqualObjects([[self objectsOf:@"BillingAccount"] valueForKey:@"userId"], @[ @22 ]);
+	XCTAssertTrue([_context save:&error], @"%@", error);
+}
+
+/* Updates through the join, in generated code (docs/JOINED-ENTITIES.md):
+ * a Customer class over the members' objects, each property read from and
+ * written where it is kept; an outer member's row made with its first
+ * value and let go of with its last; a value the members are joined by
+ * set on theirs too; and, at save, a hub object deleted or re-keyed
+ * without the class takes its rows with it. Built and run on macOS. */
+- (void)testGeneratedCodeUpdatesThroughTheJoin
+{
+	[self makeCustomers];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Customers"];
+	NSDictionary *files = [generator files];
+	NSString *header = [files objectForKey:@"CustomersValidation.h"];
+	XCTAssertTrue([header containsString:@"@interface Customer : ORMJoinedObject"], @"%@", header);
+	XCTAssertTrue([header containsString:@"@property (nonatomic, strong) NSNumber *balance;"], @"%@", header);
+	XCTAssertTrue([header containsString:@"@property (nonatomic, strong) NSSet *topics;"], @"%@", header);
+	XCTAssertTrue([header containsString:@"- (BOOL)orm_prepareForSave:(NSError **)error;"], @"%@", header);
+#if defined(__APPLE__)
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSString *why = nil;
+	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]] map];
+	_context = [self storeIn:directory model:[mapped managedObjectModel]];
+	XCTAssertNotNil(NSClassFromString(@"Customer"));
+	[_context performBlockAndWait:^{
+		[self updateCustomersThroughTheJoin];
+	}];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+#endif
+}
+
+/* Ann, typed, as an app reads her: she paid, and owes again. */
+- (void)payTyped
+{
+	ORMTestCustomer *ann = [self customer:@1];
+	XCTAssertNil(ann.balance);
+	ann.balance = @5;
+	XCTAssertEqualObjects(ann.balance, @5);
+	XCTAssertEqualObjects([[ann rowIn:@"BillingAccount"] valueForKey:@"userId"], @1);
+}
+
+/* The same, through the driver and a façade class of the test's own: the
+ * tables the generator writes run as an app runs them, on any platform. */
+- (void)testTheDriverUpdatesThroughTheJoin
+{
+	[self makeCustomers];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Customers"];
+	ORMTables *tables = [generator tables];
+	ORMJoinedType *customers = [tables.joined objectForKey:@"Customer"];
+	XCTAssertEqualObjects(customers.hub, @"CRMCustomer");
+	XCTAssertEqualObjects([customers.properties objectForKey:@"balance"], (@[ @"balance", @"BillingAccount" ]));
+	tables = [tables tablesWithJoined:@{ @"ORMTestCustomer": customers }];
+	[ORMTables registerTables:tables named:@"ORMTestCustomers"];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]] map];
+	_context = [self storeIn:directory model:[mapped managedObjectModel]];
+	_customerClass = @"ORMTestCustomer";
+	_hook = [[ORMSaveHook alloc] initWithTables:tables];
+	[_context performBlockAndWait:^{
+		[self updateCustomersThroughTheJoin];
+		[self payTyped];
+	}];
+	[ORMTables registerTables:nil named:@"ORMTestCustomers"];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+#pragma mark Reverse engineering
+
+/* Three processes' tables of the same customers: the CRM's by user id
+ * (with a GUID), billing's by user id, the newsletter's by its own id,
+ * with the GUID. */
+static NSString *const ORMCustomersModel =
+	@"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+	@"<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\">\n"
+	@"  <entity name=\"CRMCustomer\" representedClassName=\"CRMCustomer\" syncable=\"YES\">\n"
+	@"    <attribute name=\"userId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"name\" attributeType=\"String\"/>\n"
+	@"    <attribute name=\"guid\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"userId\"/></uniquenessConstraint>"
+	@"<uniquenessConstraint><constraint value=\"guid\"/></uniquenessConstraint></uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"  <entity name=\"BillingAccount\" representedClassName=\"BillingAccount\" syncable=\"YES\">\n"
+	@"    <attribute name=\"userId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"balance\" optional=\"YES\" attributeType=\"Integer 32\" usesScalarValueType=\"YES\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"userId\"/></uniquenessConstraint>"
+	@"</uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"  <entity name=\"Subscriber\" representedClassName=\"Subscriber\" syncable=\"YES\">\n"
+	@"    <attribute name=\"subscriberId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"guid\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <attribute name=\"email\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <relationship name=\"topics\" optional=\"YES\" toMany=\"YES\" deletionRule=\"Nullify\" destinationEntity=\"Topic\" "
+	@"inverseName=\"subscribers\" inverseEntity=\"Topic\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"subscriberId\"/></uniquenessConstraint>"
+	@"<uniquenessConstraint><constraint value=\"guid\"/></uniquenessConstraint></uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"  <entity name=\"Topic\" representedClassName=\"Topic\" syncable=\"YES\">\n"
+	@"    <attribute name=\"code\" attributeType=\"String\"/>\n"
+	@"    <relationship name=\"subscribers\" optional=\"YES\" toMany=\"YES\" deletionRule=\"Nullify\" "
+	@"destinationEntity=\"Subscriber\" inverseName=\"topics\" inverseEntity=\"Subscriber\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"code\"/></uniquenessConstraint>"
+	@"</uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"</model>\n";
+
+/* Each entity's properties, and each relationship's destination. */
+static NSDictionary *
+ORMShapeOf(ORMCDModel *model)
+{
+	NSMutableDictionary *shape = [NSMutableDictionary dictionary];
+	for (ORMCDEntity *entity in model.entities) {
+		NSMutableArray *properties = [NSMutableArray array];
+		for (ORMCDAttribute *attribute in entity.attributes) {
+			[properties addObject:attribute.optional ? [attribute.name stringByAppendingString:@"?"] : attribute.name];
+		}
+		for (ORMCDRelationship *relationship in entity.relationships) {
+			[properties addObject:[NSString stringWithFormat:@"%@ -> %@", relationship.name, relationship.destination]];
+		}
+		[shape setObject:[properties sortedArrayUsingSelector:@selector(compare:)] forKey:entity.name];
+	}
+	return shape;
+}
+
+/* The tables imported are four entity types, two pairs of which the
+ * import says may be one; merged, the model has one Customer kept in
+ * three entities, and the mapping writes back the entities it was read
+ * from. */
+- (void)testTablesOfOneThingAreMergedIntoOneEntityType
+{
+	NSString *why = nil;
+	ORMCDModel *tables = [ORMCDModel modelWithContentsXML:[ORMCustomersModel dataUsingEncoding:NSUTF8StringEncoding]
+	                                               reason:&why];
+	XCTAssertNotNil(tables, @"%@", why);
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Customers"]
+	                                            undoManager:self.undoManager];
+	NSArray *notes = nil;
+	NSString *reason = nil;
+	NSString *mapping = [[[ORMCoreDataImporter alloc] initWithEditor:editor] importCoreDataModel:tables
+	                                                                                      path:@"/tmp/Customers.xcdatamodeld"
+	                                                                                     notes:&notes
+	                                                                                    reason:&reason];
+	XCTAssertNotNil(mapping, @"%@", reason);
+	XCTAssertTrue([notes containsObject:@"CRMCustomer and BillingAccount may be one entity type: both have userId. "
+	                                    @"Merge Entity Types makes them one."],
+	              @"%@", notes);
+	XCTAssertTrue([notes containsObject:@"CRMCustomer and Subscriber may be one entity type: both have Guid. "
+	                                    @"Merge Entity Types makes them one."],
+	              @"%@", notes);
+	ORMEntityMerger *merger = [[ORMEntityMerger alloc] initWithEditor:editor];
+	XCTAssertEqual([[merger candidates] count], 2u);
+	for (NSUInteger i = 0; i < 2; i++) {
+		ORMMergeCandidate *candidate = [[merger candidates] firstObject];
+		XCTAssertEqualObjects(candidate.kept.name, @"CRMCustomer");
+		XCTAssertTrue([merger merge:candidate.absorbed.identifier into:candidate.kept.identifier
+		                   matching:candidate.absorbedRole.identifier with:candidate.keptRole.identifier reason:&reason],
+		              @"%@", reason);
+	}
+	ORMModel *model = editor.model;
+	XCTAssertNil([model objectTypeNamed:@"BillingAccount"]);
+	XCTAssertNil([model objectTypeNamed:@"Subscriber"]);
+	XCTAssertEqual([[merger candidates] count], 0u);
+	ORMObjectType *customer = [model objectTypeNamed:@"CRMCustomer"];
+	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	XCTAssertEqualObjects([[read.joins objectForKey:customer.identifier] valueForKey:@"name"],
+	                      (@[ @"CRMCustomer", @"BillingAccount", @"Subscriber" ]));
+
+	/* The same tables, now the members of one entity type. */
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:model mapping:read];
+	ORMCDModel *written = [mapper map];
+	XCTAssertEqualObjects(ORMShapeOf(written), ORMShapeOf(tables));
+	for (ORMMappingNote *note in mapper.notes) {
+		XCTAssertNotEqual(note.kind, ORMMappingWarning, @"%@", note.text);
+	}
+	/* One step, undone as one. */
+	[self.undoManager undo];
+	XCTAssertNotNil([editor.model objectTypeNamed:@"Subscriber"]);
+	XCTAssertNil([editor.model objectTypeNamed:@"BillingAccount"]);
+}
+
+/* The same customers, where billing keeps the GUID: the CRM has none. */
+static NSString *const ORMChainedCustomersModel =
+	@"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
+	@"<model type=\"com.apple.IDECoreDataModeler.DataModel\" documentVersion=\"1.0\">\n"
+	@"  <entity name=\"CRMCustomer\" representedClassName=\"CRMCustomer\" syncable=\"YES\">\n"
+	@"    <attribute name=\"userId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"name\" attributeType=\"String\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"userId\"/></uniquenessConstraint>"
+	@"</uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"  <entity name=\"BillingAccount\" representedClassName=\"BillingAccount\" syncable=\"YES\">\n"
+	@"    <attribute name=\"userId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"guid\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <attribute name=\"balance\" optional=\"YES\" attributeType=\"Integer 32\" usesScalarValueType=\"YES\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"userId\"/></uniquenessConstraint>"
+	@"<uniquenessConstraint><constraint value=\"guid\"/></uniquenessConstraint></uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"  <entity name=\"Subscriber\" representedClassName=\"Subscriber\" syncable=\"YES\">\n"
+	@"    <attribute name=\"subscriberId\" attributeType=\"Integer 64\" usesScalarValueType=\"YES\"/>\n"
+	@"    <attribute name=\"guid\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <attribute name=\"email\" optional=\"YES\" attributeType=\"String\"/>\n"
+	@"    <uniquenessConstraints><uniquenessConstraint><constraint value=\"subscriberId\"/></uniquenessConstraint>"
+	@"<uniquenessConstraint><constraint value=\"guid\"/></uniquenessConstraint></uniquenessConstraints>\n"
+	@"  </entity>\n"
+	@"</model>\n";
+
+/* The merge candidate of the two types, by name, either way round. */
+static ORMMergeCandidate *
+ORMCandidateOf(ORMEntityMerger *merger, NSString *one, NSString *other)
+{
+	for (ORMMergeCandidate *candidate in [merger candidates]) {
+		NSSet *names = [NSSet setWithObjects:candidate.kept.name, candidate.absorbed.name, nil];
+		if ([names isEqualToSet:[NSSet setWithObjects:one, other, nil]]) {
+			return candidate;
+		}
+	}
+	return nil;
+}
+
+/* Merged one after the other: billing into the CRM by user id, then the
+ * newsletter by the GUID, which billing keeps. The subscribers join to
+ * billing's accounts, not to the CRM's customers, which have no GUID. */
+- (void)testAChainedMergeJoinsToTheMemberThatHasTheValue
+{
+	NSString *why = nil;
+	ORMCDModel *tables =
+		[ORMCDModel modelWithContentsXML:[ORMChainedCustomersModel dataUsingEncoding:NSUTF8StringEncoding] reason:&why];
+	XCTAssertNotNil(tables, @"%@", why);
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Customers"]
+	                                            undoManager:self.undoManager];
+	NSArray *notes = nil;
+	NSString *reason = nil;
+	NSString *mapping = [[[ORMCoreDataImporter alloc] initWithEditor:editor] importCoreDataModel:tables
+	                                                                                      path:@"/tmp/Customers.xcdatamodeld"
+	                                                                                     notes:&notes
+	                                                                                    reason:&reason];
+	XCTAssertNotNil(mapping, @"%@", reason);
+	ORMEntityMerger *merger = [[ORMEntityMerger alloc] initWithEditor:editor];
+	ORMMergeCandidate *billing = ORMCandidateOf(merger, @"CRMCustomer", @"BillingAccount");
+	XCTAssertNotNil(billing, @"%@", [[merger candidates] valueForKey:@"text"]);
+	BOOL crmKept = [billing.kept.name isEqualToString:@"CRMCustomer"];
+	XCTAssertTrue([merger merge:(crmKept ? billing.absorbed : billing.kept).identifier
+	                       into:(crmKept ? billing.kept : billing.absorbed).identifier
+	                   matching:(crmKept ? billing.absorbedRole : billing.keptRole).identifier
+	                       with:(crmKept ? billing.keptRole : billing.absorbedRole).identifier
+	                     reason:&reason],
+	              @"%@", reason);
+	ORMMergeCandidate *subscriber = ORMCandidateOf(merger, @"CRMCustomer", @"Subscriber");
+	XCTAssertNotNil(subscriber, @"%@", [[merger candidates] valueForKey:@"text"]);
+	crmKept = [subscriber.kept.name isEqualToString:@"CRMCustomer"];
+	XCTAssertTrue([merger merge:(crmKept ? subscriber.absorbed : subscriber.kept).identifier
+	                       into:(crmKept ? subscriber.kept : subscriber.absorbed).identifier
+	                   matching:(crmKept ? subscriber.absorbedRole : subscriber.keptRole).identifier
+	                       with:(crmKept ? subscriber.keptRole : subscriber.absorbedRole).identifier
+	                     reason:&reason],
+	              @"%@", reason);
+
+	ORMObjectType *customer = [editor.model objectTypeNamed:@"CRMCustomer"];
+	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	NSArray *members = [read.joins objectForKey:customer.identifier];
+	XCTAssertEqualObjects([members valueForKey:@"name"], (@[ @"CRMCustomer", @"BillingAccount", @"Subscriber" ]));
+	if ([members count] == 3) {
+		XCTAssertEqualObjects([[members lastObject] viaId], [[members objectAtIndex:1] identifier]);
+	}
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:read];
+	ORMCDModel *written = [mapper map];
+	XCTAssertEqualObjects(ORMShapeOf(written), ORMShapeOf(tables));
+	XCTAssertEqualObjects([[written entityNamed:@"Subscriber"].userInfo objectForKey:@"ormkit.via"], @"BillingAccount");
+	for (ORMMappingNote *note in mapper.notes) {
+		XCTAssertNotEqual(note.kind, ORMMappingWarning, @"%@", note.text);
+	}
+}
+
+/* The generated Client with the user id, of those in the store. */
+- (id)client:(NSNumber *)userId
+{
+	Class clients = NSClassFromString(@"Client");
+	SEL allIn = NSSelectorFromString(@"allInContext:");
+	NSArray *(*all)(id, SEL, id) = (NSArray * (*)(id, SEL, id))[clients methodForSelector:allIn];
+	for (id each in all(clients, allIn, _context)) {
+		if ([[each valueForKey:@"userId"] isEqual:userId]) {
+			return each;
+		}
+	}
+	return nil;
+}
+
+/* On the context's queue: a hub re-keyed through the class, then deleted
+ * without it; a GUID let go of; a member's value set before the values
+ * that join it. */
+- (void)updateClientsAcrossTheirKeys
+{
+	SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
+	BOOL (*prepared)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[_context methodForSelector:prepare];
+	NSError *error = nil;
+
+	/* Ann's rows follow her new id; deleted without the class, they are
+	 * found by it at save and go with her. */
+	id ann = [self client:@1];
+	[ann setValue:@11 forKey:@"userId"];
+	XCTAssertEqualObjects([[[self objectsOf:@"BillingAccount"] valueForKey:@"userId"] sortedArrayUsingSelector:@selector(compare:)],
+	                      (@[ @3, @11 ]));
+	[_context deleteObject:[ann valueForKey:@"object"]];
+	XCTAssertTrue(prepared(_context, prepare, &error), @"%@", error);
+	XCTAssertEqualObjects([[self objectsOf:@"BillingAccount"] valueForKey:@"userId"], @[ @3 ]);
+	XCTAssertEqualObjects([[self objectsOf:@"Subscriber"] valueForKey:@"guid"], @[ @"g3" ]);
+
+	/* Cy's GUID let go of: his subscription with it, his account kept. */
+	id cy = [self client:@3];
+	[cy setValue:nil forKey:@"guid"];
+	XCTAssertEqual([[self objectsOf:@"Subscriber"] count], 0u);
+	XCTAssertEqualObjects([[self objectsOf:@"BillingAccount"] valueForKey:@"userId"], @[ @3 ]);
+
+	/* A balance before a user id has no row to go to. */
+	Class clients = NSClassFromString(@"Client");
+	SEL insertIn = NSSelectorFromString(@"insertInContext:");
+	id (*insert)(id, SEL, id) = (id (*)(id, SEL, id))[clients methodForSelector:insertIn];
+	id dan = insert(clients, insertIn, _context);
+	XCTAssertThrowsSpecificNamed([dan setValue:@5 forKey:@"balance"], NSException, NSInternalInconsistencyException);
+	[_context deleteObject:[dan valueForKey:@"object"]];
+}
+
+/* The save hook finds a deleted hub's rows by the values it had as well as
+ * by those it was saved with, and a correlating value set to nil lets go
+ * of the rows it joined. Built and run on macOS. */
+- (void)testGeneratedCodeFollowsTheKeysItChanged
+{
+	[self makeCustomers];
+	ORMObjectType *customer = [_editor.model objectTypeNamed:@"Customer"];
+	NSString *reason = nil;
+	XCTAssertTrue([_editor.elementEditor rename:customer.identifier to:@"Client" reason:&reason], @"%@", reason);
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Clients"];
+	NSDictionary *files = [generator files];
+	XCTAssertTrue([[files objectForKey:@"ClientsValidation.h"] containsString:@"@interface Client : ORMJoinedObject"]);
+#if defined(__APPLE__)
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSString *why = nil;
+	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]] map];
+	_context = [self storeIn:directory model:[mapped managedObjectModel]];
+	XCTAssertNotNil(NSClassFromString(@"Client"));
+	[_context performBlockAndWait:^{
+		[self updateClientsAcrossTheirKeys];
+	}];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+#endif
+}
+
+/* Mapped otherwise and joined again: the members it had are back, its hub
+ * not added twice. */
+- (void)testJoiningAgainBringsTheMembersBack
+{
+	[self makeCustomers];
+	NSString *customer = [[_editor.model objectTypeNamed:@"Customer"] identifier];
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:_editor];
+	[mappings setMapping:ORMMapAsEntity ofObjectType:customer inMapping:_mapping];
+	XCTAssertEqual([[[self mapping].joins objectForKey:customer] count], 0u);
+	NSString *hub = [mappings addMemberNamed:@"CRMCustomer" by:nil via:nil outer:NO ofObjectType:customer
+	                               inMapping:_mapping];
+	XCTAssertEqualObjects(hub, [_members objectForKey:@"hub"]);
+	XCTAssertEqualObjects([[[self mapping].joins objectForKey:customer] valueForKey:@"name"],
+	                      (@[ @"CRMCustomer", @"BillingAccount", @"Subscriber" ]));
+}
+
+@end

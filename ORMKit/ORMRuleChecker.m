@@ -1,7 +1,11 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMRuleChecker.h"
 #import "ORMQueryPlanner.h"
-#import "ORMQueryInterpreter.h"
+#if __has_include(<ORMRuntime/ORMRuntime.h>)
+#import <ORMRuntime/ORMRuntime.h>
+#else
+#import "ORMRuntime.h"
+#endif
 #import "ORMCDModel+CoreData.h"
 #import <CoreData/CoreData.h>
 

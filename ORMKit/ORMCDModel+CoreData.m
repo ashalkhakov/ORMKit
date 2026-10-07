@@ -15,6 +15,41 @@ ORMAttributeTypeNamed(NSString *name)
 	return type != nil ? (NSAttributeType)[type unsignedIntegerValue] : NSStringAttributeType;
 }
 
+/* Whether the derivation is a plain key path, as the mapper writes them:
+ * names joined by dots. */
+static BOOL
+ORMIsKeyPath(NSString *text)
+{
+	NSCharacterSet *name = [NSCharacterSet characterSetWithCharactersInString:
+	                                           @"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"];
+	NSArray *keys = [text componentsSeparatedByString:@"."];
+	for (NSString *key in keys) {
+		if ([key length] == 0 || [[key stringByTrimmingCharactersInSet:name] length] > 0
+		    || [[NSCharacterSet decimalDigitCharacterSet] characterIsMember:[key characterAtIndex:0]]) {
+			return NO;
+		}
+	}
+	return [keys count] > 0;
+}
+
+/* A derived attribute's expression: a key path as it is, anything else
+ * (a model read back) parsed as a format with no arguments; nil where it
+ * does not parse. */
+static NSExpression *
+ORMDerivationExpression(NSString *text)
+{
+	if (ORMIsKeyPath(text)) {
+		return [NSExpression expressionForKeyPath:text];
+	}
+	NSExpression *expression = nil;
+	@try {
+		expression = [NSExpression expressionWithFormat:text argumentArray:@[]];
+	} @catch (NSException *exception) {
+		expression = nil;
+	}
+	return expression;
+}
+
 @implementation ORMCDModel (CoreData)
 
 - (NSManagedObjectModel *)managedObjectModel
@@ -33,7 +68,17 @@ ORMAttributeTypeNamed(NSString *name)
 	for (ORMCDEntity *entity in self.entities) {
 		NSMutableArray *properties = [NSMutableArray array];
 		for (ORMCDAttribute *attribute in entity.attributes) {
-			NSAttributeDescription *described = [[NSAttributeDescription alloc] init];
+			NSAttributeDescription *described = nil;
+			NSExpression *derivation = attribute.derivation != nil ? ORMDerivationExpression(attribute.derivation) : nil;
+			if (derivation != nil) {
+				/* Core Data derives it, at save. A derivation that does
+				 * not parse leaves it a plain attribute. */
+				NSDerivedAttributeDescription *derived = [[NSDerivedAttributeDescription alloc] init];
+				derived.derivationExpression = derivation;
+				described = derived;
+			} else {
+				described = [[NSAttributeDescription alloc] init];
+			}
 			described.name = attribute.name;
 			described.attributeType = ORMAttributeTypeNamed(attribute.attributeType);
 			described.optional = attribute.optional;

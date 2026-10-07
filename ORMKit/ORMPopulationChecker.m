@@ -1,8 +1,9 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMPopulationChecker.h"
-#import "ORMPath.h"
 #import "ORMPopulationStore.h"
 #import "ORMRuleChecker.h"
+#import "ORMDeriver.h"
+#import "ORMPath.h"
 #import <CoreData/CoreData.h>
 
 @interface ORMPopulationViolation ()
@@ -144,6 +145,85 @@ ORMRootInstance(ORMInstance *instance)
 	}
 }
 
+/* The derived facts (docs/DERIVATION.md): those of a fact type derived
+ * and not stored checked as its facts, beside any asserted; asserted ones
+ * of a fully derived one, and stored ones the rule no longer derives, said
+ * to be wrong. */
+- (void)gatherDerived
+{
+	ORMDeriver *deriver = [[ORMDeriver alloc] initWithModel:_model];
+	NSDictionary *derivedFacts = [deriver derivedFacts];
+	[_unchecked addObjectsFromArray:[deriver notes]];
+	for (NSString *factId in derivedFacts) {
+		ORMFactType *fact = [_model elementWithId:factId];
+		ORMDerivationRule *rule = [fact derivationRule];
+		/* What is asserted, by the roles derived facts have: a unary's
+		 * truth left out. */
+		NSMutableSet *asserted = [NSMutableSet set];
+		for (NSDictionary *byRole in [self factsOf:fact]) {
+			NSMutableDictionary *visible = [NSMutableDictionary dictionaryWithDictionary:byRole];
+			for (ORMRole *role in fact.roles) {
+				if (role.player.isImplicitBooleanValue) {
+					[visible removeObjectForKey:role.identifier];
+				}
+			}
+			[asserted addObject:visible];
+		}
+		NSMutableArray *derived = [NSMutableArray array];
+		for (ORMDerivedFact *each in [derivedFacts objectForKey:factId]) {
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			for (NSString *roleId in each.players) {
+				id player = [each.players objectForKey:roleId];
+				ORMRole *role = [_model elementWithId:roleId];
+				NSString *key = player;
+				if ([player isKindOfClass:[ORMInstance class]]) {
+					key = [self keyOf:player];
+				} else {
+					key = [NSString stringWithFormat:@"%@:%@", role.player.identifier, player];
+					[_values setObject:player forKey:key];
+					[_names setObject:player forKey:key];
+				}
+				[byRole setObject:key forKey:roleId];
+			}
+			[derived addObject:byRole];
+		}
+		NSString *reading = [self readingOf:fact];
+		if (rule.isStored) {
+			/* Kept: what is stored is what the rule says, the asserted ones
+			 * of a partly derived one besides. */
+			NSUInteger missing = 0;
+			for (NSDictionary *byRole in derived) {
+				missing += [asserted containsObject:byRole] ? 0 : 1;
+			}
+			NSUInteger extra = 0;
+			for (NSDictionary *byRole in asserted) {
+				extra += rule.isPartial || [derived containsObject:byRole] ? 0 : 1;
+			}
+			if (missing > 0 || extra > 0) {
+				[self violate:nil fact:fact text:[NSString stringWithFormat:@"\"%@\" is stored out of date: %lu facts its rule "
+				                                                           @"derives are missing, %lu are not derived.",
+				                                                           reading, (unsigned long)missing,
+				                                                           (unsigned long)extra]];
+			}
+			continue;
+		}
+		if (!rule.isPartial && [asserted count] > 0) {
+			[self violate:nil fact:fact text:[NSString stringWithFormat:@"\"%@\" is derived: its facts are not asserted.",
+			                                                           reading]];
+		}
+		NSMutableArray *list = [_facts objectForKey:factId];
+		if (list == nil) {
+			list = [NSMutableArray array];
+			[_facts setObject:list forKey:factId];
+		}
+		for (NSDictionary *byRole in derived) {
+			if (![asserted containsObject:byRole]) {
+				[list addObject:byRole];
+			}
+		}
+	}
+}
+
 - (NSArray<NSDictionary<NSString *, NSString *> *> *)factsOf:(ORMFactType *)fact
 {
 	return [_facts objectForKey:fact.identifier] ?: @[];
@@ -217,6 +297,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	_violations = [NSMutableArray array];
 	_unchecked = [NSMutableArray array];
 	[self gather];
+	[self gatherDerived];
 	for (ORMConstraint *constraint in _model.constraints) {
 		/* A subtype's or an objectification's link facts have no facts of
 		 * their own: what they say is what the instances are. */

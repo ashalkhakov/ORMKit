@@ -27,6 +27,8 @@ mkdir -p AppDir/usr/local/bin
 # bundles out of the nested prefix path. We ship a command line tool as well as
 # an app, and that migration only handles .app bundles, so both go into the
 # SYSTEM domain instead and arrive in AppDir with the wholesale copy at step 5.
+make -C ORMRuntime
+make -C ORMRuntime install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
 make -C ORMKit
 make -C ORMKit install GNUSTEP_INSTALLATION_DOMAIN=SYSTEM
 make -C Tools/ormtool

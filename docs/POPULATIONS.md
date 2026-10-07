@@ -177,22 +177,61 @@ type's or object type's population as a table, a column for each role
   adds the row once each is named. Removal is refused while the instance plays in a fact or
   identifies another.
 
+## Derived fact types
+
+A fact type a query derives ([DERIVATION.md](DERIVATION.md)) has its facts
+worked out from the rest of the population (`ORMDeriver`).
+- The checker checks constraints on them as on asserted facts. It reports an
+  asserted fact of a fully derived fact type, and stored facts the rule no
+  longer agrees with.
+- A stored one's facts are written into the population: each edit of the
+  population brings them up to date in the same change
+  (`bringStoredDerivationsUpToDate:`), and so does making up a population.
+- An objectifying type its fact identifies (CinemaTickets' Session) has
+  its fact's table in the Population tab: each row is a fact of the fact
+  type it objectifies, and its instance. A row added adds both.
+- An objectifying type with an identifier of its own (Orienteering's Entry,
+  by its ID) is added with the fact it objectifies, both at once
+  (`-addInstanceOf:named:objectifying:reason:`): each is the other, so
+  either alone is refused. Its Population tab has the identifier's columns,
+  then a column for each role of the fact; changing a fact's player there
+  is refused (remove the row and add it again).
+- A unary fact NORMA keeps on its player, an `EntityTypeUnaryRoleInstance`
+  under the instance, is read as a fact of the unary fact type.
+- The Population tab shows a derived fact type's facts, read only, after any
+  asserted ones; a fully derived one takes none by hand.
+
+The generator sizes and shapes the population for what must be played:
+- a type with a role that every instance of another type must play with it
+  (each Company run by a CEO) has at least as many instances as that type.
+  A supertype has enough for each subtype's share to have that many;
+- a type whose roles are exclusive (each Content the text of a Comment or of
+  a Paragraph, not both) has one for each partner of each;
+- an instance that ends up playing nothing, where it must play one of
+  several roles, is left out;
+- the facts that identify instances (an Employee by the Company it works for
+  and its number) count for the subset constraints on others ("CEO runs
+  Company" only where the CEO works for it);
+- a transitive ring is kept by making no chains of two;
+- a symmetric ring across two types (Girl going out with Boy) is kept by
+  making no facts, where none are mandatory.
+
 ## Not done yet
 
-- **An objectifying type's instances** by hand: such an instance is the
-  fact it objectifies, and the table refuses it by name.
 - **The generator's limits:**
-  - a subtype's share is fixed, so a mandatory one-to-one role it must cover
-    can run out of instances (ActiveFacts' Supervision and Diplomacy);
-  - an objectifying type has as many instances as its fact type has facts,
-    which can be too few for a mandatory role it plays (Blog, and the
-    ActiveFacts Metamodel);
-  - symmetric rings between different types (Monogamy);
+  - a fact whose players must agree with several other fact types at once
+    (Diplomacy's ambassadors, from the country they represent to the one
+    they serve in, one for each pair) is looked for among a few hundred
+    candidates, not worked out from those facts;
+  - sibling subtypes' shares are each a fixed part of the supertype's
+    instances, grown for what one subtype needs but not balanced among
+    several (the ActiveFacts Metamodel's eight kinds of Shape);
   - external uniqueness over more than binaries;
   - value comparisons;
   - derived fact types, which it leaves out.
-- **Unary facts** as newer NORMA versions may write them
-  (`EntityTypeUnaryRoleInstance`) are not read.
+- **Unary facts kept on their player** (`EntityTypeUnaryRoleInstance`, as
+  newer NORMA versions write them) are read, but not written or removed
+  one by one: ORMKit writes a unary fact as a fact instance.
 - **The checker's limits:** value comparisons, and sequences that need a
   join path.
 - **Populations in OData:** posting a population to a running ODataKit

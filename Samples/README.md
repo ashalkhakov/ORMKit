@@ -1,7 +1,8 @@
 # Samples
 
 ORM2 models to open in ORMDesigner and query: our own models of the
-schemas Terry Halpin's papers publish, with the papers' conceptual queries.
+schemas Terry Halpin's papers publish, with the papers' conceptual queries,
+and one of our own, Customers.
 The schemas are the papers'; the files, their layout and their wording are
 ORMKit's. `Tools/fixtures/halpin.m` builds them through ORMEditor and lays
 each diagram out with `arrangeDiagram:`. Rebuild them after changing it, not
@@ -15,6 +16,14 @@ by hand.
   - Polyglots: a count.
   - Lives near work: a deontic rule, not a list (see [RULES.md](../docs/RULES.md)).
     No employee should live in another city than their branch is in.
+  - Two derived fact types ([DERIVATION.md](../docs/DERIVATION.md)), each
+    with the query that derives it:
+    - "Employee works in City" is stored. It is derived by Workplace: the
+      city of the branch an employee works for. Its facts are kept in the
+      population as it changes, and generated code works them out at save.
+    - "Branch is in Country" is not stored. It is derived by Branch
+      country, through the branch's city's state.
+  - Works where and Australian branches: queries through them.
 - `University.orm`, after Bloesch and Halpin, "Conceptual Queries using
   ConQuer-II" (ER '97), figure 2: academics, professors and chairs, and
   degrees awarded by universities. It adds "Academic has AcademicName",
@@ -33,6 +42,19 @@ by hand.
   - Rooms lacking a facility: what the join-subset constraint of figures 3
     and 4 forbids.
   - Coauthored papers.
+- `Customers.orm`, not Halpin's: one entity type kept in three tables
+  ([JOINED-ENTITIES.md](../docs/JOINED-ENTITIES.md)). Three processes keep
+  facts about the same customers:
+  - a CRM, by user id, with a name and a GUID;
+  - billing, by user id, for some customers;
+  - a newsletter, by GUID, with an e-mail address and topics.
+
+  The model has one Customer. Its Core Data mapping joins it from three
+  entities: CRMCustomer (the hub), BillingAccount, and Subscriber, which is
+  joined through the CRM's GUID. Queries:
+  - Owing: each customer, and what billing says they owe, where it says.
+  - Mailing list: the newsletter's addresses, with the CRM's names.
+  - Readers: from a topic to the customers who read it.
 
 ## Populations
 
@@ -57,6 +79,8 @@ only the identifiers. That makes a row easy to check against the data.
   | Payroll | branches 52 and 7 |
   | Polyglots | employee 1 |
   | Lives near work | employee 21, Gus, who lives in Perth and works in Sydney: the rule's violation. `ormtool check Samples/Company.orm` reports it, and still succeeds, since the rule is deontic |
+  | Works where | each employee, with the city they work in: the stored derived facts |
+  | Australian branches | branches 7 and 52, through "Branch is in Country" |
 
   Its Core Data mapping keeps City an entity of its own. Under the default
   mapping City is absorbed into Employee and Branch as its name, state and
@@ -76,6 +100,12 @@ only the identifiers. That makes a row easy to check against the data.
     keeps the join-subset constraint that query is about.
   - **Writing:** a few writings of our own. "Coauthored papers" finds paper
     1, written by Terry and Anthony.
+
+- **Customers:** Ann, Bob and Cy. Ann owes 50 and reads the news, Bob is
+  only in the CRM, and Cy owes 500 and reads the news and the deals:
+  - Owing lists all three, Bob with no balance (an outer join of billing);
+  - Mailing list finds Ann and Cy;
+  - Readers finds Ann under news, and Cy under news and deals.
 
 To try a query on the population, open the Queries window's **Results**
 tab, or run `ormtool query Samples/Company.orm Q4`, which prints every stage

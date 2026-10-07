@@ -25,7 +25,7 @@ jobs:
       # ODataKit, which ORMKit says queries with and the tests serve them by:
       # #14, peer sync, on #8's offline sync and #12's names checked in
       # every builder. A commit, not a branch.
-      ODATAKIT_REF: 712effb6d61229c112d7a4b05b508d83ff2f4618
+      ODATAKIT_REF: d49a23d10a8bef45e57df664139ef1f437988262
     # The checkout beside ODataKit's, as ORMKit.xcworkspace finds it.
     defaults:
       run:
@@ -107,7 +107,7 @@ jobs:
                     -destination 'platform=macOS' -showBuildSettings 2>/dev/null \
                   | awk -F' = ' '/ BUILT_PRODUCTS_DIR/{print $2; exit}')
           for tool in workmate halpin; do
-            clang -fobjc-arc -fmodules -F"$built" -framework ORMKit -Wl,-rpath,"$built" \
+            clang -fobjc-arc -fmodules -F"$built" -framework ORMKit -framework ORMRuntime -Wl,-rpath,"$built" \
               "Tools/fixtures/$tool.m" -o "/tmp/$tool"
           done
           /tmp/workmate /tmp/WorkMate.orm
@@ -175,11 +175,11 @@ jobs:
       GNUSTEP_PATCHES_REF: 00a9c890134abe3e752d49545556a228cb8b7122
       # Core Data on GNUstep, which ODataKit is over: the commit ODataKit's
       # own CI builds with.
-      FREECOREDATA_REF: 1a65bfb9a19e2e957b05e7253962ef7a4b40cbe7
+      FREECOREDATA_REF: 65b3ebb409cf5a8d9f75f07df8056d173ce2ceeb
       # ODataKit, which ORMKit says queries with and the tests serve them by:
       # #14, peer sync, on #8's offline sync and #12's names checked in
       # every builder. A commit, not a branch.
-      ODATAKIT_REF: 712effb6d61229c112d7a4b05b508d83ff2f4618
+      ODATAKIT_REF: d49a23d10a8bef45e57df664139ef1f437988262
       # libobjc2 and libdispatch land in the prefix's plain lib/, which the
       # gnustep layout does not treat as a library root. GNUstep.sh prepends
       # the roots it does know about to this.
@@ -300,6 +300,7 @@ jobs:
       - name: Build ORMKit
         run: |
           . $INSTALL_PATH/System/Library/Makefiles/GNUstep.sh
+          make -C ORMRuntime
           make -C ORMKit
 
       - name: Build the CLI and the designer

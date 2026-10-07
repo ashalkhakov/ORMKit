@@ -835,6 +835,19 @@ ORMDerivationMark(ORMDerivationRule *rule)
 		[self emit:b];
 		return;
 	}
+	if (query.kind == ORMQueryDerivation) {
+		/* The rule: "Employee1 reports to Employee2 if and only if ...",
+		 * without the mark, which the fact type's verbalization gives. */
+		ORMFactType *fact = query.derivedFactType;
+		if (fact == nil || [relation.columns count] != [[fact visibleRoles] count]) {
+			[b plain:query.name ?: @"The derivation"];
+			[b keyword:fact == nil ? @" derives no fact type yet" : @" lists other than its fact type's roles"];
+			[self emit:b];
+			return;
+		}
+		[self emit:[self derivationOf:fact relation:relation mark:nil partial:[fact derivationRule].isPartial]];
+		return;
+	}
 	[b keyword:@"List each "];
 	[phrase list:relation.columns into:b];
 	if ([query.root.steps count] > 0 || query.root.comparison != nil) {
@@ -856,6 +869,45 @@ ORMDerivationMark(ORMDerivationRule *rule)
 	[self emit:b];
 }
 
+/* "* Employee1 reports to Employee2 if and only if Employee1 works for
+ * some Branch that is headed by Employee2": the fact type's reading, its
+ * roles the relation's columns in order, and the relation's formula. "if"
+ * alone for a partly derived one; no mark where none is given. */
+- (ORMSentenceBuilder *)derivationOf:(ORMFactType *)fact relation:(ORMRelation *)relation mark:(NSString *)mark
+                             partial:(BOOL)partial
+{
+	ORMPhrase *phrase = [self phrase];
+	[phrase numberFormulas:@[ relation.formula ] columns:relation.columns];
+	NSArray *roles = [fact visibleRoles];
+	BOOL numbered = YES;
+	for (ORMVariable *column in relation.columns) {
+		numbered = numbered && column.ordinal > 0;
+	}
+	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+	if ([mark length] > 0) {
+		[b keyword:[mark stringByAppendingString:@" "]];
+	}
+	if (!numbered) {
+		[b keyword:@"For each "];
+		[phrase list:relation.columns into:b];
+		[b plain:@", "];
+	} else {
+		for (ORMVariable *column in relation.columns) {
+			[phrase mention:column];
+		}
+	}
+	[b append:[self clause:[self readingOf:fact from:nil] terms:^ORMSpokenTerm *(ORMRole *role) {
+		NSUInteger index = [roles indexOfObjectIdenticalTo:role];
+		if (index == NSNotFound || index >= [relation.columns count]) {
+			return ORMMakeTerm(nil, role.player.name, role.player.identifier);
+		}
+		return [phrase termFor:[relation.columns objectAtIndex:index]];
+	}]];
+	[b keyword:partial ? @" if " : @" if and only if "];
+	[phrase say:relation.formula from:[relation.columns firstObject] relative:NO into:b];
+	return b;
+}
+
 - (void)verbalizeDerivationOfFactType:(ORMFactType *)fact
 {
 	ORMDerivationRule *rule = [fact derivationRule];
@@ -868,38 +920,19 @@ ORMDerivationMark(ORMDerivationRule *rule)
 		return;
 	}
 	NSString *mark = ORMDerivationMark(rule);
+	/* A derivation query's rule, said formally: the words NORMA keeps are
+	 * the same, plain. */
+	ORMQuery *query = [ORMQuery derivationOf:fact inModel:fact.model];
+	ORMRelation *queried = query != nil ? [query relation] : nil;
+	if (queried != nil && !queried.isIncomplete && [queried.columns count] == [[fact visibleRoles] count]) {
+		[self emit:[self derivationOf:fact relation:queried mark:mark partial:rule.isPartial]];
+		return;
+	}
 	ORMRelation *relation = [rule.paths count] > 0 ? [ORMLogic relationForDerivation:rule of:fact] : nil;
 	if (relation != nil && !relation.isIncomplete) {
-		ORMPhrase *phrase = [self phrase];
-		[phrase numberFormulas:@[ relation.formula ] columns:relation.columns];
-		NSArray *roles = [fact visibleRoles];
-		BOOL numbered = YES;
-		for (ORMVariable *column in relation.columns) {
-			numbered = numbered && column.ordinal > 0;
-		}
-		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
-		[b keyword:[mark stringByAppendingString:@" "]];
-		if (!numbered) {
-			[b keyword:@"For each "];
-			[phrase list:relation.columns into:b];
-			[b plain:@", "];
-		} else {
-			for (ORMVariable *column in relation.columns) {
-				[phrase mention:column];
-			}
-		}
-		[b append:[self clause:[self readingOf:fact from:nil] terms:^ORMSpokenTerm *(ORMRole *role) {
-			NSUInteger index = [roles indexOfObjectIdenticalTo:role];
-			if (index == NSNotFound || index >= [relation.columns count]) {
-				return ORMMakeTerm(nil, role.player.name, role.player.identifier);
-			}
-			return [phrase termFor:[relation.columns objectAtIndex:index]];
-		}]];
-		[b keyword:rule.isPartial ? @" if " : @" if and only if "];
-		[phrase say:relation.formula from:[relation.columns firstObject] relative:NO into:b];
-		[self emit:b];
+		[self emit:[self derivationOf:fact relation:relation mark:mark partial:rule.isPartial]];
 		if ([rule.informalText length] > 0) {
-			b = [[ORMSentenceBuilder alloc] init];
+			ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 			[b keyword:@"Derivation Note: "];
 			[b note:rule.informalText];
 			[self emit:b kind:ORMVerbalInformation];

@@ -304,6 +304,11 @@ CA
                                     <action selector="unobjectifyFactType:" target="-1" id="unobjectifyFactTypeAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Merge Entity Types" id="mergeEntityTypes">
+                                <connections>
+                                    <action selector="mergeEntityTypes:" target="-1" id="mergeEntityTypesAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Show Verbalization of Model" keyEquivalent="v" id="showVerbalizationofModel">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
                                 <connections>

@@ -35,6 +35,9 @@
             objectifying:(NSString *)factInstanceId
             identifiedBy:(NSDictionary<NSString *, NSString *> *)instancesByRole;
 - (BOOL)isEmpty;
+/* The instance taken out again, where nothing else here is of it (a fact
+ * it plays in, a subtype instance it is); whether it was. */
+- (BOOL)removeInstance:(NSString *)instanceId;
 @end
 
 /* The sample population, written as NORMA writes it: an instance under its
@@ -45,8 +48,10 @@
 - (instancetype)initWithEditor:(ORMEditor *)editor;
 @property (nonatomic, readonly, weak) ORMEditor *editor;
 
-/* Adds the instances, as one change; refused, with nothing added, when one
- * names what is not there or is not of the type its role's player is. */
+/* Adds the instances, as one change, the stored derived facts
+ * (docs/DERIVATION.md) brought up to date with them; refused, with nothing
+ * added, when one names what is not there or is not of the type its role's
+ * player is. */
 - (BOOL)addPopulation:(ORMSamplePopulation *)population reason:(NSString **)reason;
 /* Removes every instance, fact instance and role instance: the model with
  * no population. */
@@ -79,6 +84,15 @@
 /* An instance of the object type, named so. Its id. Refused when the
  * model has it already, as a fact the model has is. */
 - (NSString *)addInstanceOf:(NSString *)objectTypeId named:(NSString *)text reason:(NSString **)reason;
+/* An instance of an objectifying type identified otherwise than by the
+ * fact it objectifies (CinemaTickets' Booking, by its number), named as
+ * its identifier is, and that fact, each role's player named (by role
+ * id): both made, as one change. Its id. (Such a type's instance alone,
+ * or its fact alone, is refused: each is the other.) */
+- (NSString *)addInstanceOf:(NSString *)objectTypeId
+                      named:(NSString *)text
+               objectifying:(NSDictionary<NSString *, NSString *> *)textsByRole
+                     reason:(NSString **)reason;
 /* An instance of an entity type identified by several values, each named
  * by the role of its preferred identifier it plays (by id). Its id. */
 - (NSString *)addInstanceOf:(NSString *)objectTypeId
@@ -92,6 +106,11 @@
 - (BOOL)renameInstance:(NSString *)instanceId to:(NSString *)text reason:(NSString **)reason;
 /* The same for one of the values identifying it, by the role it plays. */
 - (BOOL)renameInstance:(NSString *)instanceId role:(NSString *)roleId to:(NSString *)text reason:(NSString **)reason;
+/* The facts of each stored derived fact type (docs/DERIVATION.md) made what
+ * its derivation derives from the population: those missing added (with
+ * the values they need), and, for a fully derived one, those it no longer
+ * derives removed. Each edit above does this too, in the same change. */
+- (BOOL)bringStoredDerivationsUpToDate:(NSString **)reason;
 /* The roles an instance of the entity type is named by when more than
  * one value identifies it: its preferred identifier's (its supertype's,
  * for a subtype identified as that is), in order; empty otherwise. */

@@ -245,6 +245,31 @@
 }
 
 
+- (BOOL)setDerivationPartial:(BOOL)partial stored:(BOOL)stored of:(NSString *)factTypeId reason:(NSString **)reason
+{
+	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
+	NSXMLElement *path = [fact isKindOfClass:[ORMFactType class]]
+		? ORMChild(ORMChild(fact.element, CORE, @"DerivationRule"), CORE, @"FactTypeDerivationPath") : nil;
+	if (path == nil) {
+		if (reason != NULL) {
+			*reason = fact.isDerived ? @"Its rule is an older one, which says this itself." : @"It is not derived.";
+		}
+		return NO;
+	}
+	/* NORMA leaves out its defaults: fully derived, not stored. */
+	NSString *completeness = partial ? @"PartiallyDerived" : nil;
+	NSString *storage = stored ? @"Stored" : nil;
+	if ([ORMAttribute(path, @"DerivationCompleteness") ?: @"" isEqualToString:completeness ?: @""]
+	    && [ORMAttribute(path, @"DerivationStorage") ?: @"" isEqualToString:storage ?: @""]) {
+		return YES;
+	}
+	[_editor change:@"Set Derivation" with:^{
+		ORMSetAttribute(path, @"DerivationCompleteness", completeness);
+		ORMSetAttribute(path, @"DerivationStorage", storage);
+	}];
+	return YES;
+}
+
 #pragma mark Objectification
 
 - (NSString *)objectifyFactType:(NSString *)factTypeId named:(NSString *)name reason:(NSString **)reason

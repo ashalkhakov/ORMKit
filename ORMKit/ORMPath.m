@@ -551,6 +551,9 @@
 
 - (void)readInstances
 {
+	/* Unary facts as newer NORMA writes them, under the entity instance
+	 * playing the role: @[ instance, role id, element ]. */
+	NSMutableArray *unaries = [NSMutableArray array];
 	NSMutableDictionary *instances = [self.extras objectForKey:@"instances"];
 	NSMutableDictionary *roleInstances = [self.extras objectForKey:@"roleInstances"];
 	for (ORMObjectType *type in self.objectTypes) {
@@ -577,6 +580,12 @@
 					[identifying addObject:ORMRef(ref) ?: @""];
 				}
 				instance.identifyingRoleInstances = identifying;
+				for (NSXMLElement *ref in ORMChildren(ORMChild(element, CORE, @"RoleInstances"), CORE,
+				                                      @"EntityTypeUnaryRoleInstance")) {
+					if (ORMRef(ref) != nil) {
+						[unaries addObject:@[ instance, ORMRef(ref), ref ]];
+					}
+				}
 			}
 			[self registerElement:instance];
 			[list addObject:instance];
@@ -621,6 +630,26 @@
 		if ([list count] > 0) {
 			[factInstances setObject:list forKey:fact.identifier];
 		}
+	}
+	/* A unary fact NORMA keeps on its player: a fact of the unary fact
+	 * type, its instance's own, named by the instance and the role (no
+	 * element of the file is it, to be found by id). */
+	for (NSArray *unary in unaries) {
+		ORMInstance *player = [unary firstObject];
+		ORMRole *role = [self elementWithId:[unary objectAtIndex:1]];
+		if (![role isKindOfClass:[ORMRole class]] || [role.factType.roles count] > 2) {
+			continue;
+		}
+		ORMFactInstance *fact = [[ORMFactInstance alloc] initWithElement:[unary lastObject] model:self];
+		fact.identifier = [NSString stringWithFormat:@"%@.%@", player.identifier, role.identifier];
+		fact.factType = role.factType;
+		fact.instancesByRole = @{ role.identifier: player };
+		NSMutableArray *list = [factInstances objectForKey:role.factType.identifier];
+		if (list == nil) {
+			list = [NSMutableArray array];
+			[factInstances setObject:list forKey:role.factType.identifier];
+		}
+		[list addObject:fact];
 	}
 }
 

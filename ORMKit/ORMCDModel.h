@@ -36,6 +36,11 @@ extern NSString * const ORMCDSourceKey;
 @property (nonatomic, copy) NSString *maxValue;
 @property (nonatomic, copy) NSString *regularExpression;
 @property (nonatomic) BOOL allowsExternalStorage;
+/* Derived by Core Data, which keeps it up to date at save: its expression,
+ * a key path through one to-one ("city.name", Core Data goes no further) or
+ * an aggregate over a to-many ("employees.@count"). nil for one set as any
+ * other. */
+@property (nonatomic, copy) NSString *derivation;
 @end
 
 @interface ORMCDRelationship : ORMCDProperty

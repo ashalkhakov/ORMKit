@@ -212,6 +212,10 @@ ORMCompare(id left, NSString *comparison, id right)
 /* The rows of an object the plan reads: a tuple for each way its
  * conditions are met, a value per column. */
 - (NSArray<NSArray *> *)rowsOf:(id)object;
+/* Whether the condition holds of the object, asked of it in memory. */
+- (BOOL)holds:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings;
+/* Whether it aggregates a bag it defines, read with each batch. */
+- (BOOL)readsBags;
 @end
 
 /* The plan's fetch, a batch at a time, in its order. */
@@ -454,6 +458,11 @@ ORMBagKey(ORMPlanValue *value)
 	return [self.plan rowsFollowOrder:order key:seek != nil ? [self keyNames] : nil];
 }
 
+- (BOOL)readsBags
+{
+	return [_bagValues count] > 0;
+}
+
 - (BOOL)keeps:(id)object
 {
 	for (ORMPlanCondition *check in self.checks) {
@@ -653,6 +662,17 @@ ORMBagKey(ORMPlanValue *value)
 	case ORMPlanAmong:
 		return [self among:condition];
 	case ORMPlanMatches:
+		if (condition.boundVariable != nil) {
+			/* A join that binds: optional, it asks nothing; else the
+			 * objects are checked, the rows it binds found for each. */
+			_joins++;
+			NSString *text = [NSString stringWithFormat:@"%@ %@ in %@", condition.isOptional ? @"maybe" : @"some",
+			                                            condition.boundVariable,
+			                                            condition.definition.name ?: @"a join"];
+			return condition.isOptional ? [ORMPredicatePart format:@"TRUEPREDICATE" arguments:nil inStore:YES]
+			                            : [ORMPredicatePart format:[self describing] ? text : @"probe"
+			                                             arguments:nil inStore:NO];
+		}
 		return [self matches:condition];
 	case ORMPlanMaybe:
 		/* Asks nothing: what it binds is the rows'. */
@@ -1048,6 +1068,19 @@ ORMBagKey(ORMPlanValue *value)
 	case ORMPlanMaybe:
 		return YES;
 	case ORMPlanMatches: {
+		if (condition.boundVariable != nil) {
+			if (condition.isOptional) {
+				return YES;
+			}
+			for (id member in [self membersMatching:condition object:object bindings:bindings] ?: @[]) {
+				NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+				[inner setObject:member forKey:condition.boundVariable];
+				if (condition.operand == nil || [self holds:condition.operand object:object bindings:inner]) {
+					return YES;
+				}
+			}
+			return NO;
+		}
 		NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
 		if (condition.variable != nil && object != nil) {
 			[inner setObject:object forKey:condition.variable];
@@ -1092,6 +1125,57 @@ ORMBagKey(ORMPlanValue *value)
 	}
 	}
 	return NO;
+}
+
+/* The objects of a join that binds whose parts are the object's: those
+ * read for the batch, or found by a probe of the joined plan; nil, with the
+ * error kept, where they cannot be read. */
+- (NSArray *)membersMatching:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings
+{
+	NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+	if (condition.variable != nil && object != nil) {
+		[inner setObject:object forKey:condition.variable];
+	}
+	NSMutableArray *ours = [NSMutableArray array];
+	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+		[ours addObject:[self valueOf:[pair firstObject] object:object bindings:bindings] ?: [NSNull null]];
+	}
+	if ([ours containsObject:[NSNull null]]) {
+		/* What has no value joins nothing. */
+		return @[];
+	}
+	NSArray *candidates = condition.definition.name != nil ? [self.answers objectForKey:condition.definition.name] : nil;
+	if (candidates != nil) {
+		NSMutableArray *found = [NSMutableArray array];
+		for (id candidate in candidates) {
+			BOOL equal = YES;
+			for (NSUInteger i = 0; i < [ours count] && equal; i++) {
+				id theirs = [self valueOf:[[condition.pairs objectAtIndex:i] lastObject] object:candidate bindings:@{}];
+				equal = [[ours objectAtIndex:i] isEqual:theirs ?: [NSNull null]];
+			}
+			if (equal && (condition.plan.condition == nil || [self holds:condition.plan.condition object:candidate
+			                                                    bindings:inner])) {
+				[found addObject:candidate];
+			}
+		}
+		return found;
+	}
+	NSMutableArray *equalities = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [ours count]; i++) {
+		[equalities addObject:@[ [[condition.pairs objectAtIndex:i] lastObject], [ours objectAtIndex:i] ]];
+	}
+	NSError *error = nil;
+	ORMPlanRun *probe = [self.interpreter runOf:condition.plan bindings:inner equal:equalities inContext:self.context
+	                                      error:&error];
+	NSMutableArray *found = [NSMutableArray array];
+	while (probe != nil && !probe.atEnd && probe.error == nil) {
+		[found addObjectsFromArray:[probe next:256]];
+	}
+	if (probe == nil || probe.error != nil) {
+		self.error = probe.error ?: error;
+		return nil;
+	}
+	return found;
 }
 
 #pragma mark Rows
@@ -1151,6 +1235,24 @@ ORMBagKey(ORMPlanValue *value)
 			}
 		}
 		return [ways count] > 0 ? ways : @[ bindings ];
+	}
+	case ORMPlanMatches: {
+		if (condition.boundVariable == nil) {
+			return [self holds:condition object:object bindings:bindings] ? @[ bindings ] : @[];
+		}
+		/* Each matching object, bound, meeting what is asked of it; an
+		 * optional one's: or one way with none. */
+		NSMutableArray *ways = [NSMutableArray array];
+		for (id member in [self membersMatching:condition object:object bindings:bindings] ?: @[]) {
+			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+			[inner setObject:member forKey:condition.boundVariable];
+			if (condition.operand == nil) {
+				[ways addObject:inner];
+			} else {
+				[ways addObjectsFromArray:[self bindingsOf:condition.operand object:object bindings:inner]];
+			}
+		}
+		return [ways count] > 0 || !condition.isOptional ? ways : @[ bindings ];
 	}
 	default:
 		return [self holds:condition object:object bindings:bindings] ? @[ bindings ] : @[];
@@ -1280,6 +1382,14 @@ ORMBagKey(ORMPlanValue *value)
 	NSMutableArray *probed = [NSMutableArray array];
 	for (ORMPlanCondition *check in checked) {
 		[self collectProbes:check into:probed];
+	}
+	/* And the joins that bind what the rows list, wherever they are. */
+	NSMutableArray *all = [NSMutableArray array];
+	[self collectProbes:self.plan.condition into:all];
+	for (ORMPlanCondition *join in all) {
+		if (join.boundVariable != nil && ![[probed valueForKeyPath:@"definition.name"] containsObject:join.definition.name]) {
+			[probed addObject:join];
+		}
 	}
 	_probes = probed;
 	for (ORMPlanCondition *join in probed) {
@@ -1566,6 +1676,43 @@ ORMBagKey(ORMPlanValue *value)
 	result.columnTitles = [plan.columns valueForKey:@"title"];
 	result.rows = rows;
 	return result;
+}
+
+- (ORMQueryResult *)executePlan:(ORMQueryPlan *)plan
+                      ofObjects:(NSArray<NSManagedObject *> *)objects
+                      inContext:(NSManagedObjectContext *)context
+                          error:(NSError **)error
+{
+	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context error:error];
+	if (run == nil) {
+		return nil;
+	}
+	if ([run readsBags]) {
+		if (error != NULL) {
+			*error = ORMInterpreterError(@"The plan aggregates a set it defines, which is read from the store, not "
+			                             @"asked of objects in memory.");
+		}
+		return nil;
+	}
+	NSMutableArray *kept = [NSMutableArray array];
+	NSMutableArray *rows = [NSMutableArray array];
+	for (NSManagedObject *object in objects) {
+		if (![[object entity] isKindOfEntity:run.read]) {
+			continue;
+		}
+		BOOL holds = plan.condition == nil || [run holds:plan.condition object:object bindings:run.bindings];
+		if (run.error != nil) {
+			if (error != NULL) {
+				*error = run.error;
+			}
+			return nil;
+		}
+		if (holds) {
+			[kept addObject:object];
+			[rows addObjectsFromArray:[run rowsOf:object]];
+		}
+	}
+	return [ORMQueryResult resultWithObjects:kept columnTitles:[plan.columns valueForKey:@"title"] rows:rows];
 }
 
 - (NSString *)programForPlan:(ORMQueryPlan *)plan error:(NSError **)error

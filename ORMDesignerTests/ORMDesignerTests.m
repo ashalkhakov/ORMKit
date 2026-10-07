@@ -123,7 +123,7 @@
 	for (NSMenuItem *item in [menu itemArray]) {
 		[titles addObject:[item isSeparatorItem] ? @"-" : [item title]];
 	}
-	XCTAssertEqualObjects(titles, (@[ @"Company", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
+	XCTAssertEqualObjects(titles, (@[ @"Company", @"Customers", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
 	XCTAssertEqual([[[menu itemWithTitle:@"ActiveFacts"] submenu] numberOfItems], (NSInteger)29);
 	NSMenuItem *company = [menu itemWithTitle:@"Company"];
 	XCTAssertEqual([company action], @selector(openSample:));
@@ -135,7 +135,7 @@
 	XCTAssertNil([document fileURL]);
 	XCTAssertEqualObjects([document displayName], @"Company");
 	XCTAssertFalse([document isDocumentEdited]);
-	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)8);
+	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)12);
 	ORMWindowController *controller = [[document windowControllers] firstObject];
 	XCTAssertEqualObjects([[controller.canvas diagram] name], @"Company");
 	[document close];
@@ -464,6 +464,139 @@
 	[[_document undoManager] undo];
 	[population reload];
 	XCTAssertEqual([population.table numberOfRows], 2);
+}
+
+/* A derived fact type's Population tab (docs/DERIVATION.md): the facts its
+ * rule derives from the Company sample, shown read only and counted as
+ * derived; a fully derived one takes no facts by hand. */
+- (void)testThePopulationTabShowsDerivedFacts
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	ORMModel *model = editor.model;
+	ORMFactType *worksFor = nil, *heads = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		NSString *text = [[fact primaryReading] expandedText];
+		worksFor = [text isEqualToString:@"Employee works for Branch"] ? fact : worksFor;
+		heads = [text isEqualToString:@"Employee heads Branch"] ? fact : heads;
+	}
+	NSString *employee = [[model objectTypeNamed:@"Employee"] identifier];
+	NSString *reason = nil;
+	NSString *reports = [editor.factTypeEditor addFactTypeWithPlayers:@[ employee, employee ] reading:@"{0} reports to {1}"
+	                                                        onDiagram:[[_controller.canvas diagram] identifier]
+	                                                               at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(reports, @"%@", reason);
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *q = [queries addQueryNamed:@"Reporting" from:employee reason:NULL];
+	NSString *start = [ORMQuery queryWithId:q inModel:editor.model].root.identifier;
+	NSString *toBranch = [queries addStepTo:start through:[[worksFor.roles firstObject] identifier] reason:&reason];
+	NSString *branch = nil, *head = nil;
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:q inModel:editor.model] nodes]) {
+		branch = [node.step.identifier isEqualToString:toBranch] ? node.identifier : branch;
+	}
+	NSString *toHead = [queries addStepTo:branch through:[[heads.roles lastObject] identifier] reason:&reason];
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:q inModel:editor.model] nodes]) {
+		head = [node.step.identifier isEqualToString:toHead] ? node.identifier : head;
+	}
+	[queries setProjected:YES ofNode:head];
+	XCTAssertTrue([queries setKind:ORMQueryDerivation ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([queries setDerivedFactType:reports ofQuery:q reason:&reason], @"%@", reason);
+	NSUInteger derived = [[[[[ORMDeriver alloc] initWithModel:editor.model] derivedFacts] objectForKey:reports] count];
+	XCTAssertGreaterThan(derived, 3u);
+
+	[_controller.canvas selectElements:@[ reports ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	[population reload];
+	NSTableView *table = population.table;
+	XCTAssertEqual([table numberOfRows], (NSInteger)derived);
+	XCTAssertGreaterThan([[population textAtRow:0 column:0] length], 0u);
+	XCTAssertFalse([population tableView:table shouldEditTableColumn:[[table tableColumns] firstObject] row:0]);
+	NSString *counted = [NSString stringWithFormat:@"%lu derived", (unsigned long)derived];
+	XCTAssertTrue([[population.status stringValue] hasPrefix:counted], @"%@", [population.status stringValue]);
+	[population addRow:nil];
+	XCTAssertEqual([table numberOfRows], (NSInteger)derived);
+	XCTAssertEqualObjects([population.status stringValue], @"\"Employee reports to Employee\" is derived: its facts follow from its rule.");
+}
+
+/* A derivation made in the Queries window (docs/DERIVATION.md): Kind is
+ * Derivation, and Of offers the fact types its columns are the roles of;
+ * the inspector then says the fact type is derived, by what, and how. */
+- (void)testADerivationIsMadeInTheWindow
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
+	                                           error:NULL];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	ORMFactType *worksFor = nil, *heads = nil;
+	for (ORMFactType *fact in [editor.model ordinaryFactTypes]) {
+		NSString *text = [[fact primaryReading] expandedText];
+		worksFor = [text isEqualToString:@"Employee works for Branch"] ? fact : worksFor;
+		heads = [text isEqualToString:@"Employee heads Branch"] ? fact : heads;
+	}
+	NSString *employee = [[editor.model objectTypeNamed:@"Employee"] identifier];
+	NSString *reason = nil;
+	NSString *reports = [editor.factTypeEditor addFactTypeWithPlayers:@[ employee, employee ] reading:@"{0} reports to {1}"
+	                                                        onDiagram:[[_controller.canvas diagram] identifier]
+	                                                               at:ORMAutomaticPlacement reason:&reason];
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *q = [queries addQueryNamed:@"Reporting" from:employee reason:NULL];
+	NSString *start = [ORMQuery queryWithId:q inModel:editor.model].root.identifier;
+	NSString *toBranch = [queries addStepTo:start through:[[worksFor.roles firstObject] identifier] reason:&reason];
+	NSString *branch = nil, *head = nil;
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:q inModel:editor.model] nodes]) {
+		branch = [node.step.identifier isEqualToString:toBranch] ? node.identifier : branch;
+	}
+	NSString *toHead = [queries addStepTo:branch through:[[heads.roles lastObject] identifier] reason:&reason];
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:q inModel:editor.model] nodes]) {
+		head = [node.step.identifier isEqualToString:toHead] ? node.identifier : head;
+	}
+	[queries setProjected:YES ofNode:head];
+
+	ORMQueryController *window = [[ORMQueryController alloc] initWithEditor:editor];
+	[window window];
+	window.queryId = q;
+	[window modelDidChange];
+	NSPopUpButton *kind = [window valueForKey:@"kindPopUp"];
+	[kind selectItemWithTitle:@"Derivation"];
+	[window performSelector:@selector(kindChanged:) withObject:kind];
+	[window modelDidChange];
+	XCTAssertEqual([ORMQuery queryWithId:q inModel:editor.model].kind, ORMQueryDerivation);
+	NSPopUpButton *of = [window valueForKey:@"ofPopUp"];
+	XCTAssertTrue([of isEnabled]);
+	NSInteger offered = [of indexOfItemWithTitle:@"Employee reports to Employee"];
+	XCTAssertNotEqual(offered, -1, @"%@", [of itemTitles]);
+	XCTAssertEqual([of indexOfItemWithTitle:@"Employee works for Branch"], -1);
+	[of selectItemAtIndex:offered];
+	[window performSelector:@selector(calculationChanged:) withObject:of];
+	XCTAssertEqualObjects([ORMQuery queryWithId:q inModel:editor.model].derivedFactType.identifier, reports);
+
+	[_controller.canvas selectElements:@[ reports ]];
+	NSArray *titles = [[_controller.inspector valueForKey:@"rows"] valueForKey:@"title"];
+	XCTAssertTrue([titles containsObject:@"Derived by"], @"%@", titles);
+	XCTAssertTrue([titles containsObject:@"Partly Derived"]);
+	XCTAssertTrue([titles containsObject:@"Stored"]);
+	/* The query by its name, its rule's sentence just below, as tall as it
+	 * takes, over nothing else. */
+	NSArray *rows = [_controller.inspector valueForKey:@"rows"];
+	NSUInteger by = [titles indexOfObject:@"Derived by"];
+	XCTAssertEqualObjects([titles objectAtIndex:by + 1], @"Rule");
+	NSString *name = [ORMQuery queryWithId:q inModel:editor.model].name;
+	XCTAssertEqualObjects([[[rows objectAtIndex:by] valueForKey:@"control"] stringValue],
+	                      ([NSString stringWithFormat:@"the query \u201C%@\u201D", name]));
+	NSControl *rule = [[rows objectAtIndex:by + 1] valueForKey:@"control"];
+	NSControl *next = [[rows objectAtIndex:by + 2] valueForKey:@"control"];
+	XCTAssertGreaterThan([[rule stringValue] length], 40u);
+	XCTAssertGreaterThan(NSHeight([rule frame]), 16.0, @"wrapped: %@", [rule stringValue]);
+	XCTAssertLessThanOrEqual(NSMaxY([rule frame]), NSMinY([next frame]), @"over the next row");
+	[window close];
 }
 
 /* A mouse event at a point of the canvas, in diagram points. */
@@ -1110,6 +1243,150 @@
 			XCTAssertTrue(handled, @"nothing answers %@ (%@)", NSStringFromSelector(action), [item title]);
 		}
 	}
+}
+
+/* Two entity types that are one thing kept twice (docs/JOINED-ENTITIES.md),
+ * merged from the Model menu: the value they share joins them, and the
+ * Core Data window says where the one left is kept. */
+- (void)testTwoEntityTypesAreMergedFromTheMenu
+{
+	_document = [[ORMDocument alloc] init];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	ORMObjectTypeEditor *types = editor.objectTypeEditor;
+	NSString *crm = [types addEntityTypeNamed:@"CRMCustomer" referenceMode:@"userId" kind:ORMReferenceModePopular
+	                                onDiagram:diagram at:NSMakePoint(100, 100) reason:NULL];
+	NSString *billing = [types addEntityTypeNamed:@"BillingAccount" referenceMode:@"userId" kind:ORMReferenceModePopular
+	                                    onDiagram:diagram at:NSMakePoint(300, 100) reason:NULL];
+	NSString *balance = [types addValueTypeNamed:@"Balance" dataType:@"SignedIntegerNumericDataType" onDiagram:diagram
+	                                          at:NSMakePoint(300, 250) reason:NULL];
+	NSString *owes = [editor.factTypeEditor addFactTypeWithPlayers:@[ billing, balance ] reading:@"{0} owes {1}"
+	                                                     onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	XCTAssertNotNil(owes);
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
+	NSString *mapping = [mappings addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
+	NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Merge Entity Types" action:@selector(mergeEntityTypes:)
+	                                       keyEquivalent:@""];
+	[_controller.canvas selectElements:@[ crm ]];
+	XCTAssertFalse([(id)_controller validateMenuItem:item], @"one is not two");
+	[_controller.canvas selectElements:@[ crm, billing ]];
+	XCTAssertTrue([(id)_controller validateMenuItem:item]);
+	XCTAssertEqual(([[_controller mergesOf:@[ crm, billing ]] count]), 1u);
+	[_controller mergeEntityTypes:nil];
+	XCTAssertEqualObjects([_controller.status stringValue],
+	                      @"BillingAccount is now CRMCustomer, kept in both their entities in each Core Data mapping.");
+	XCTAssertNil([editor.model objectTypeNamed:@"BillingAccount"]);
+
+	ORMCoreDataController *coreData = [[ORMCoreDataController alloc] initWithEditor:editor documentURL:nil];
+	XCTAssertEqualObjects(coreData.mappingId, mapping);
+	NSArray *listed = [coreData valueForKey:@"objectTypes"];
+	NSUInteger row = [[listed valueForKey:@"name"] indexOfObject:@"CRMCustomer"];
+	XCTAssertNotEqual(row, (NSUInteger)NSNotFound);
+	NSTableView *table = [coreData valueForKey:@"typesTable"];
+	[table selectRowIndexes:[NSIndexSet indexSetWithIndex:row] byExtendingSelection:NO];
+	[(id<NSTableViewDelegate>)coreData tableViewSelectionDidChange:[NSNotification notificationWithName:NSTableViewSelectionDidChangeNotification
+	                                                                    object:table]];
+	XCTAssertEqualObjects([[coreData valueForKey:@"statusLabel"] stringValue],
+	                      @"CRMCustomer is kept in CRMCustomer; BillingAccount (outer, by CRMCustomer_userId).");
+	XCTAssertEqualObjects([[coreData valueForKey:@"typeMappingPopUp"] titleOfSelectedItem], @"Joined");
+}
+
+/* A query pasted as its outline: the outline the window copies reads back
+ * as the same query; one that reads as nothing says which line. */
+- (void)testAQueryIsMadeFromItsOutline
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	NSString *warehouse = [[editor.model objectTypeNamed:@"Warehouse"] identifier];
+	NSString *query = [queries addQueryFrom:warehouse];
+	ORMRole *through = [[queries availableRoles] firstObject];
+	XCTAssertNotNil([queries addStepThrough:through]);
+	NSString *outline = [[ORMQuery queryWithId:query inModel:editor.model] outlineText];
+	NSString *pasted = [queries addQueryFromOutline:outline];
+	XCTAssertNotNil(pasted);
+	XCTAssertEqualObjects(queries.queryId, pasted);
+	XCTAssertEqualObjects([[ORMQuery queryWithId:pasted inModel:editor.model] outlineText], outline);
+	XCTAssertEqual([(NSOutlineView *)[queries valueForKey:@"outline"] numberOfRows], (NSInteger)2);
+	XCTAssertNil([queries addQueryFromOutline:@"Warehouse\n  + floats\n"]);
+	XCTAssertEqualObjects([[queries valueForKey:@"statusLabel"] stringValue],
+	                      @"Line 2, \"+ floats\": no fact type of Warehouse reads so");
+}
+
+/* An objectifying type its fact identifies (CinemaTickets' Session, a
+ * cinema showing a film at a time): its instances are its fact's facts, so
+ * its table is that fact type's, and a row added is a fact and an instance
+ * both. */
+- (void)testAnObjectifyingTypesInstancesAreItsFacts
+{
+	[self open:@"ActiveFacts/CinemaTickets.orm"];
+	[_document.editor.populationEditor removePopulation];
+	ORMModel *model = _document.editor.model;
+	ORMObjectType *session = [model objectTypeNamed:@"Session"];
+	XCTAssertNotNil(session.nestedFactType);
+	[_controller.canvas selectElements:@[ session.identifier ]];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	if (![population.elementId isEqualToString:session.identifier]) {
+		population.elementId = session.identifier;
+	}
+	XCTAssertEqual([population.table numberOfColumns], (NSInteger)[[session.nestedFactType visibleRoles] count]);
+	XCTAssertTrue([[[population valueForKey:@"title"] stringValue] hasPrefix:@"Instances of Session, each a fact of "],
+	              @"%@", [[population valueForKey:@"title"] stringValue]);
+	[population addRow:nil];
+	NSArray *roles = [session.nestedFactType visibleRoles];
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		ORMObjectType *player = [(ORMRole *)[roles objectAtIndex:i] player];
+		/* A Session Time by its year, month, day, hour and minute. */
+		NSArray *parts = [_document.editor.populationEditor compositeRolesOf:player.identifier];
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSUInteger k = 0; k < MAX([parts count], 1u); k++) {
+			[values addObject:[NSString stringWithFormat:@"%lu", (unsigned long)i + k + 1]];
+		}
+		[population setText:[values componentsJoinedByString:@", "] atRow:0 column:(NSInteger)i];
+	}
+	model = _document.editor.model;
+	XCTAssertEqual([[[model elementWithId:session.nestedFactType.identifier] instances] count], 1u,
+	               @"%@", [[population valueForKey:@"status"] stringValue]);
+	XCTAssertEqual([[[model objectTypeNamed:@"Session"] instances] count], 1u);
+}
+
+/* An objectifying type with an identifier of its own (Orienteering's
+ * Entry, by its ID): its table has the identifier, then the roles of the
+ * fact each Entry is, and a row named in full adds both. */
+- (void)testAnObjectifyingTypeWithItsOwnIdentifierHasItsFactsColumns
+{
+	[self open:@"ActiveFacts/Orienteering.orm"];
+	[_document.editor.populationEditor removePopulation];
+	ORMObjectType *entry = [_document.editor.model objectTypeNamed:@"Entry"];
+	NSString *entryId = entry.identifier;
+	NSString *entered = entry.nestedFactType.identifier;
+	NSArray *roles = [entry.nestedFactType visibleRoles];
+	ORMPopulationView *population = [_controller valueForKey:@"populationView"];
+	population.elementId = entryId;
+	XCTAssertEqual([population.table numberOfColumns], (NSInteger)(1 + [roles count]));
+	XCTAssertTrue([[[population valueForKey:@"title"] stringValue] hasPrefix:@"Instances of Entry, each where "],
+	              @"%@", [[population valueForKey:@"title"] stringValue]);
+	[population addRow:nil];
+	[population setText:@"7" atRow:0 column:0];
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		ORMObjectType *player = [(ORMRole *)[roles objectAtIndex:i] player];
+		NSArray *parts = [_document.editor.populationEditor compositeRolesOf:player.identifier];
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSUInteger k = 0; k < MAX([parts count], 1u); k++) {
+			[values addObject:[NSString stringWithFormat:@"%lu", (unsigned long)k + 1]];
+		}
+		[population setText:[values componentsJoinedByString:@", "] atRow:0 column:(NSInteger)(i + 1)];
+	}
+	ORMModel *model = _document.editor.model;
+	XCTAssertEqual([[[model objectTypeNamed:@"Entry"] instances] count], 1u,
+	               @"%@", [[population valueForKey:@"status"] stringValue]);
+	XCTAssertEqual([[[model elementWithId:entered] instances] count], 1u);
+	/* The window shows what the canvas selects after a change: Entry again. */
+	population.elementId = entryId;
+	XCTAssertEqualObjects([population textAtRow:0 column:0], @"7");
+	XCTAssertGreaterThan([[population textAtRow:0 column:1] length], 0u);
 }
 
 @end

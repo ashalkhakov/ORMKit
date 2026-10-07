@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryPlan.h"
 
-@class NSManagedObjectContext, NSManagedObjectModel;
+@class NSManagedObject, NSManagedObjectContext, NSManagedObjectModel;
 
 /* What a plan read, or a page of it: the objects, and the rows they make,
  * a result set: a tuple for each way an object meets the plan's conditions
@@ -70,6 +70,15 @@
 - (ORMQueryCursor *)cursorForPlan:(ORMQueryPlan *)plan inContext:(NSManagedObjectContext *)context error:(NSError **)error;
 /* Every page of it. */
 - (ORMQueryResult *)executePlan:(ORMQueryPlan *)plan inContext:(NSManagedObjectContext *)context error:(NSError **)error;
+/* The plan of the objects given, not fetched: each asked as it is in its
+ * context, changes not yet saved and all, kept where the plan's condition
+ * holds of it, with its rows. What a hook before a save runs
+ * (docs/RUNTIME.md). A join it probes is read from the store; nil, and
+ * why, for one that aggregates a set it defines. */
+- (ORMQueryResult *)executePlan:(ORMQueryPlan *)plan
+                      ofObjects:(NSArray<NSManagedObject *> *)objects
+                      inContext:(NSManagedObjectContext *)context
+                          error:(NSError **)error;
 /* What reading it does, to read: each fetch, and what is checked of what
  * it returns; nil, and why, for a plan the model cannot run. */
 - (NSString *)programForPlan:(ORMQueryPlan *)plan error:(NSError **)error;

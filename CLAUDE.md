@@ -7,6 +7,9 @@ the design and what is not done; [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPIN
 [docs/VERBALIZATION.md](docs/VERBALIZATION.md) the FORML templates; [docs/QUERIES.md](docs/QUERIES.md) the conceptual
 queries; [docs/CURSORS.md](docs/CURSORS.md) how a plan is read, as a tree of cursors;
 [docs/RULES.md](docs/RULES.md) queries as constraints and calculations;
+[docs/DERIVATION.md](docs/DERIVATION.md) derived fact types, and keeping stored ones up to date;
+[docs/RUNTIME.md](docs/RUNTIME.md) what apps run: plans as tables in resources, read by a small
+driver library, with generated code kept to declarations;
 [docs/POPULATIONS.md](docs/POPULATIONS.md) the sample populations they run on.
 
 ## The XML document is the model
@@ -27,7 +30,7 @@ ORMKit is Foundation only; CI rejects AppKit in it.
 ```sh
 python3 .tools/genxcodeproj.py   # after adding a file to a GNUmakefile
 xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests -destination 'platform=macOS' test
-.tools/gnustep.sh make -C ORMKit
+.tools/gnustep.sh make -C ORMRuntime && .tools/gnustep.sh make -C ORMKit
 .tools/gnustep.sh make -C ORMKitTests run-tests
 .tools/gnustep.sh make -C ORMDesignerTests run-tests
 ```

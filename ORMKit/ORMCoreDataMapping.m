@@ -18,6 +18,7 @@
 @property (nonatomic, readwrite) BOOL absorbsIdentifierTypes;
 @property (nonatomic, readwrite) ORMMappingStyle style;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<NSString *> *> *transformables;
+@property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSArray<ORMJoinMember *> *> *joins;
 @property (nonatomic, readwrite) BOOL valueSetsAsEntities;
 @property (nonatomic, readwrite, copy) NSString *codeGenerationType;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSString *> *nameOverrides;
@@ -31,8 +32,22 @@
 static NSArray *
 ORMObjectTypeMappingNames(void)
 {
-	return @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable" ];
+	return @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable", @"Joined" ];
 }
+
+@interface ORMJoinMember ()
+@property (nonatomic, readwrite, copy) NSString *identifier;
+@property (nonatomic, readwrite, copy) NSString *name;
+@property (nonatomic, readwrite, copy) NSString *correlationId;
+@property (nonatomic, readwrite, copy) NSString *viaId;
+@property (nonatomic, readwrite) BOOL isOuter;
+@property (nonatomic, readwrite) BOOL correlationIsOptional;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *heldRoleIds;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *requiredRoleIds;
+@end
+
+@implementation ORMJoinMember
+@end
 
 @implementation ORMCoreDataMapping
 
@@ -51,6 +66,7 @@ ORMObjectTypeMappingNames(void)
 	mapping.nameOverrides = @{};
 	mapping.objectTypeMappings = @{};
 	mapping.transformables = @{};
+	mapping.joins = @{};
 	mapping.keptElements = [NSSet set];
 	mapping.excludedSources = [NSSet set];
 	return mapping;
@@ -97,10 +113,39 @@ ORMObjectTypeMappingNames(void)
 	mapping.nameOverrides = names;
 	NSMutableDictionary *types = [NSMutableDictionary dictionary];
 	NSMutableDictionary *transformables = [NSMutableDictionary dictionary];
+	NSMutableDictionary *joins = [NSMutableDictionary dictionary];
 	for (NSXMLElement *option in ORMChildren(element, CD, @"ObjectTypeMapping")) {
 		NSUInteger index = [ORMObjectTypeMappingNames() indexOfObject:ORMAttribute(option, @"As") ?: @""];
 		if (ORMRef(option) != nil && index != NSNotFound) {
 			[types setObject:@(index) forKey:ORMRef(option)];
+			NSMutableArray *members = [NSMutableArray array];
+			for (NSXMLElement *member in index == ORMMapJoined ? ORMChildren(option, CD, @"Member") : @[]) {
+				ORMJoinMember *each = [[ORMJoinMember alloc] init];
+				each.identifier = ORMAttribute(member, @"id");
+				each.name = ORMAttribute(member, @"Name") ?: @"";
+				each.correlationId = [ORMAttribute(member, @"By") length] > 0 ? ORMAttribute(member, @"By") : nil;
+				each.viaId = [members count] == 0 ? nil : ([ORMAttribute(member, @"Via") length] > 0
+				                                               ? ORMAttribute(member, @"Via")
+				                                               : [(ORMJoinMember *)[members firstObject] identifier]);
+				each.isOuter = [members count] > 0 && ORMBoolAttribute(member, @"Outer", NO);
+				each.correlationIsOptional = [members count] > 0 && ORMBoolAttribute(member, @"OptionalBy", NO);
+				NSMutableArray *held = [NSMutableArray array];
+				NSMutableArray *required = [NSMutableArray array];
+				for (NSXMLElement *holds in ORMChildren(member, CD, @"Holds")) {
+					if (ORMRef(holds) != nil) {
+						[held addObject:ORMRef(holds)];
+						if (ORMBoolAttribute(holds, @"Required", NO)) {
+							[required addObject:ORMRef(holds)];
+						}
+					}
+				}
+				each.heldRoleIds = held;
+				each.requiredRoleIds = required;
+				[members addObject:each];
+			}
+			if ([members count] > 0) {
+				[joins setObject:members forKey:ORMRef(option)];
+			}
 			if (index == ORMMapTransformable) {
 				[transformables setObject:@[ ORMAttribute(option, @"Class") ?: @"NSString",
 				                             ORMAttribute(option, @"Transformer") ?: @"NSSecureUnarchiveFromData" ]
@@ -110,6 +155,7 @@ ORMObjectTypeMappingNames(void)
 	}
 	mapping.objectTypeMappings = types;
 	mapping.transformables = transformables;
+	mapping.joins = joins;
 	NSMutableSet *kept = [NSMutableSet set];
 	for (NSXMLElement *keep in ORMChildren(element, CD, @"Keep")) {
 		if (ORMAttribute(keep, @"Name") != nil) {

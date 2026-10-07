@@ -144,7 +144,7 @@ Neither needs a new kind of plan.
 | **sample populations** | `ORMPopulationChecker` runs each constraint against the population's store (`ORMPopulationStore`, the document's first mapping or the default). Each row is a violation, with the query's verbalization and the row's values. A constraint the planner cannot plan is in `-unchecked`, with its notes. | `Value` calculations with more than one value are reported. |
 | **a store** | `ORMRuleChecker` (new): each constraint's plan run by the interpreter, the first violations of each. It can check a whole store on demand, a nightly check say. | the interpreter computes the column |
 | **a service** | the same requests to the OData service. The client checks; the service itself does not enforce them yet. | the same, the bag read per page |
-| **validation code** | `ORMValidationGenerator` adds a check to the root entity's category: the plan's condition evaluated on `self` as an `NSPredicate`, for a constraint whose condition the store can say. Others (a bag, a probed join) are noted, as join paths are today. | none |
+| **validation code** | `ORMValidationGenerator` adds a rule to the root entity's tables ([RUNTIME.md](RUNTIME.md)): the plan, whose condition the driver asks of the object as an `NSPredicate`, for a constraint whose condition is one predicate. Others (a bag, a probed join) are noted, as join paths are today. | none |
 | **ormtool** | `ormtool check model.orm` checks the sample population against the constraints too, and says which are violated. | `ormtool query` prints the values |
 | **the designer** | **Kind** in the Queries window. A constraint's Results tab lists its violations in the sample population, and the window's list marks a violated constraint. | the Results tab lists each object and its value |
 
@@ -217,25 +217,30 @@ which objects the rule depends on. The notes call such a constraint
      condition as one predicate needing no store, or says why it cannot.
      A bag's aggregate, a join, or what the interpreter checks in memory
      cannot be one predicate.
-   - `ORMValidationGenerator` adds a check to the rule's root entity: the
-     predicate, as text, not met by `self`. The check's comment says it is
-     checked from that entity only.
+   - `ORMValidationGenerator` adds a rule to the root entity's tables:
+     `{ not = { plan = ... }; }`, the plan's predicate not met by the
+     object. Its remark says whether it is checked from that entity only.
    - A rule that is no one predicate is in the notes, with why.
    - `testRulesBecomeValidationCode` covers the predicate parsed back from
-     its text, which holds of Gus and of no one else.
+     its text, and the rule run by the driver, which Gus breaks and no
+     one else.
 
 ## Not here, for later
 
 - **A calculation inside another query's conditions** ("branches whose
   TotalSalary is over a million"). That is a derived fact type, "Branch has
-  TotalSalary", which is ConQuer-II's macros and NORMA's derivation rules.
-  It needs its own design.
+  TotalSalary", which is ConQuer-II's macros and NORMA's derivation rules:
+  [DERIVATION.md](DERIVATION.md).
 - **The service enforcing constraints** as it writes (ODataKit's service
   hooks).
 - **Transition constraints**, about what may change into what. Dataphor has
   them; this does not.
 - **Constraints checked at commit,** not only from the root object, so that
-  a change anywhere on a rule's join path is seen. Dataphor compiles each
+  a change anywhere on a rule's join path is seen. **Done** with
+  derived-and-stored fact types: the generated `orm_prepareForSave:` brings
+  their facts up to date, then checks each rule again for every root a
+  change reaches ([DERIVATION.md](DERIVATION.md), step 6). What is left
+  here: the same in the OData service, at the end of a change set. Dataphor compiles each
   database constraint into checks on the tables it reads, restricted to
   the rows a change touches. The literature calls this incremental
   integrity checking: Nicolas, "Logic for Improving Integrity Checking in

@@ -7,7 +7,8 @@ editor. It follows the shape of WorkflowKit (the XML document is the model)
 and RDLKit (library, designer, tests, CI, AppImage).
 
 ```
-ORMKit/            the library: Foundation, NSXML, Core Data and ODataKit; no AppKit
+ORMRuntime/        what apps run: plans and their driver; no ORM model, no NSXML (RUNTIME.md)
+ORMKit/            the library: Foundation, NSXML, Core Data and ODataKit; no AppKit; links ORMRuntime
 ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
 Tools/ormtool/     check, verbalize, normalize, draw as SVG, and map to and from Core Data from a shell
 ORMDesigner/       the editor (AppKit): its windows and menu bar XIBs, springs and struts
@@ -23,6 +24,7 @@ The other documents:
 - [QUERIES.md](QUERIES.md): conceptual queries, their plans, and the two backends;
 - [CURSORS.md](CURSORS.md): how a plan is read, as a tree of cursors;
 - [RULES.md](RULES.md): queries as constraints and calculations;
+- [RUNTIME.md](RUNTIME.md): what apps run: the model's plans as tables, and a small driver;
 - [POPULATIONS.md](POPULATIONS.md): sample populations, made up and edited;
 - [WINDOW.md](WINDOW.md): the designer's document window;
 - [VERBALIZATION.md](VERBALIZATION.md): the FORML templates.
@@ -99,10 +101,12 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)) |
 | `ORMCoreDataImporter` | a Core Data model brought into ORM, with a mapping back to it |
 | `ORMQuery`, `ORMQueryEditor` | conceptual queries after ConQuer, as logic ([QUERIES.md](QUERIES.md)) |
-| `ORMQueryPlanner`, `ORMQueryPlan` | a query planned against a mapping: public, a property list |
-| `ORMQueryInterpreter`, `ORMQueryOData` | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
+| `ORMQueryPlanner` | a query planned against a mapping |
+| `ORMQueryPlan` (ORMRuntime) | a plan: public, a property list |
+| `ORMQueryInterpreter`, `ORMQueryOData` (ORMRuntime) | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
+| `ORMTables`, `ORMSaveHook`, `ORMValidator`, `ORMJoinedObject` (ORMRuntime) | what an app runs: the model's tables, and their driver ([RUNTIME.md](RUNTIME.md)) |
 | `ORMPopulationEditor`, `ORMPopulationChecker`, `ORMPopulationGenerator`, `ORMPopulationStore` | sample populations: written as NORMA keeps them, checked, made up, and put in a Core Data store for queries ([POPULATIONS.md](POPULATIONS.md)) |
-| `ORMCursor` | the cursors a plan is read through, page by page, and keyset paging ([CURSORS.md](CURSORS.md)) |
+| `ORMCursor` (ORMRuntime) | the cursors a plan is read through, page by page, and keyset paging ([CURSORS.md](CURSORS.md)) |
 | `ORMRuleChecker` | queries that are rules: constraints and calculations, checked on a population ([RULES.md](RULES.md)) |
 | `ORMIssueFinder` | what is wrong with a model, as the designer's Issues navigator lists it |
 | `ORMODataAnnotator` | the mapping's annotations for ODataKit: keys, descriptions, validation terms ([ODATA.md](ODATA.md)) |

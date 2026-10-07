@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
+#include <dlfcn.h>
 #import <ODataKit/ODataExpression.h>
 #import <CoreData/CoreData.h>
 #import <ODataKit/ODataTransport.h>
@@ -173,8 +174,49 @@
 	XCTAssertTrue([_editor.constraintEditor setPreferredIdentifier:unique reason:NULL], @"%@", type);
 }
 
+/* Each query the test made, read back from its outline (docs/QUERIES.md):
+ * the query read says the same outline. */
+- (void)readOutlinesBack
+{
+	ORMOutlineReader *reader = [[ORMOutlineReader alloc] initWithEditor:_editor];
+	/* Each read from the model as it is: reading one back changes it, and
+	 * the queries of the model before hold on to nothing of it. */
+	for (NSString *queryId in [[ORMQuery queriesInModel:_editor.model] valueForKey:@"identifier"]) {
+		ORMQuery *query = [ORMQuery queryWithId:queryId inModel:_editor.model];
+		NSString *outline = [query outlineText];
+		if (!query.isComplete || [outline length] == 0) {
+			continue;
+		}
+		NSString *reason = nil;
+		NSString *read = [reader addQueryNamed:query.kind == ORMQueryCalculation ? nil : @"Read back" outline:outline
+		                               reason:&reason];
+		XCTAssertNotNil(read, @"%@\n%@", reason, outline);
+		ORMQuery *again = read != nil ? [ORMQuery queryWithId:read inModel:_editor.model] : nil;
+		if (again != nil) {
+			/* A derivation's copy derives nothing: the query read is one
+			 * already. */
+			NSString *expected = outline;
+			if (query.kind == ORMQueryDerivation) {
+				XCTAssertEqual(again.kind, ORMQueryDerivation);
+				XCTAssertNil(again.derivedFactType);
+				expected = [@"Derivation:\n" stringByAppendingString:[outline substringFromIndex:NSMaxRange([outline rangeOfString:@"\n"])]];
+			}
+			XCTAssertEqualObjects([again outlineText], expected);
+			[[[ORMQueryEditor alloc] initWithEditor:_editor] removeQuery:read];
+		}
+	}
+}
+
 - (void)tearDown
 {
+	if (_editor != nil) {
+		[self readOutlinesBack];
+		/* Each query's plan, as an app's tables have it. */
+		ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+		for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+			[self archived:[planner planForQuery:query]];
+		}
+	}
 	_editor = nil;
 	_facts = nil;
 	[super tearDown];
@@ -1028,6 +1070,409 @@
 	XCTAssertNotNil([ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error], @"%@", error);
 }
 
+/* The texts of the sentences that verbalize the element. */
+- (NSArray *)sentencesOf:(NSString *)elementId
+{
+	return [[[[ORMVerbalizer alloc] initWithModel:_editor.model] sentencesForElement:elementId] valueForKey:@"text"];
+}
+
+/* A derivation (docs/DERIVATION.md): "Employee reports to Employee", from
+ * the branch one works for and the other heads. Its fact type is derived
+ * for NORMA too: a DerivationRule whose words are the query's, kept as the
+ * query changes; NORMA's marks on the diagram; and asserted again when the
+ * query stops deriving it. */
+- (void)testADerivationDerivesAFactTypeAsNormaKeepsIt
+{
+	NSString *employee = [self typeId:@"Employee"];
+	NSArray *roles = [self fact:@"reportsTo" players:@[ employee, employee ] reading:@"{0} reports to {1}" inverse:nil
+	                 uniqueness:@"*"];
+	ORMFactType *reports = [(ORMRole *)[_editor.model elementWithId:roles[0]] factType];
+	NSString *factId = reports.identifier;
+	XCTAssertFalse(reports.isDerived);
+	NSString *q = [[self queries] addQueryNamed:@"Reporting" from:employee reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *branch = [self from:root through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
+	[[self queries] setProjected:YES ofNode:head.identifier];
+	NSString *reason = nil;
+	XCTAssertFalse([[self queries] setDerivedFactType:factId ofQuery:q reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Only a derivation derives a fact type.");
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([[self queries] setDerivedFactType:factId ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertEqual([self query:q].kind, ORMQueryDerivation);
+	XCTAssertEqualObjects([self query:q].derivedFactType.identifier, factId);
+	XCTAssertEqualObjects([ORMQuery derivationOf:[_editor.model elementWithId:factId] inModel:_editor.model].identifier, q);
+
+	/* NORMA reads it as derived, with the query's words as its rule. */
+	reports = [_editor.model elementWithId:factId];
+	XCTAssertTrue(reports.isDerived);
+	ORMDerivationRule *rule = [reports derivationRule];
+	XCTAssertFalse(rule.isPartial);
+	XCTAssertFalse(rule.isStored);
+	XCTAssertEqualObjects(rule.informalText, [self english:q]);
+	/* Said as Halpin says a derivation; the fact type marks it. */
+	XCTAssertEqualObjects([self english:q], @"Employee1 reports to Employee2 if and only if Employee1 works for some Branch "
+	                                         @"that is headed by Employee2.");
+	NSArray *said = [self sentencesOf:factId];
+	XCTAssertTrue([said containsObject:@"* Employee1 reports to Employee2 if and only if Employee1 works for some Branch "
+	                                   @"that is headed by Employee2."], @"%@", said);
+	ORMShape *shape = [[[_editor.model elementWithId:_diagram] shapeForSubject:factId] self];
+	XCTAssertNotNil(shape);
+	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" *"]);
+	/* The words follow the query. */
+	[[self queries] setProjected:YES ofNode:branch.identifier];
+	XCTAssertEqualObjects([[(ORMFactType *)[_editor.model elementWithId:factId] derivationRule] informalText], [self english:q]);
+	[[self queries] setProjected:NO ofNode:branch.identifier];
+
+	/* Partly derived and stored, as NORMA says them. */
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:YES stored:YES of:factId reason:&reason], @"%@", reason);
+	reports = [_editor.model elementWithId:factId];
+	XCTAssertTrue([reports derivationRule].isPartial);
+	XCTAssertTrue([reports derivationRule].isStored);
+	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" ++"]);
+	/* Partly: some facts asserted, the rest derived when this holds. */
+	said = [self sentencesOf:factId];
+	XCTAssertTrue([said containsObject:@"++ Employee1 reports to Employee2 if Employee1 works for some Branch "
+	                                   @"that is headed by Employee2."], @"%@", said);
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:factId reason:&reason], @"%@", reason);
+	reports = [_editor.model elementWithId:factId];
+	XCTAssertTrue([ORMReadingDisplayText(shape, [reports.readingOrders firstObject]) hasSuffix:@" **"]);
+
+	/* One derivation a fact type. */
+	NSString *again = [[self queries] addQueryNamed:@"Again" from:employee reason:NULL];
+	[[self queries] setKind:ORMQueryDerivation ofQuery:again reason:NULL];
+	XCTAssertFalse([[self queries] setDerivedFactType:factId ofQuery:again reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Reporting derives it already.");
+
+	/* A list again: asserted again; undone, derived. */
+	XCTAssertTrue([[self queries] setKind:ORMQueryList ofQuery:q reason:&reason]);
+	XCTAssertFalse([(ORMFactType *)[_editor.model elementWithId:factId] isDerived]);
+	XCTAssertNil([self query:q].derivedFactType);
+	[self.undoManager undo];
+	XCTAssertTrue([(ORMFactType *)[_editor.model elementWithId:factId] isDerived]);
+	/* The query removed: asserted. */
+	[[self queries] removeQuery:q];
+	XCTAssertFalse([(ORMFactType *)[_editor.model elementWithId:factId] isDerived]);
+	XCTAssertNil([ORMQuery derivationOf:[_editor.model elementWithId:factId] inModel:_editor.model]);
+}
+
+/* The derivation of "Employee reports to Employee": through the branch
+ * one works for and the other heads. Its fact type's id. */
+- (NSString *)deriveReporting
+{
+	NSString *employee = [self typeId:@"Employee"];
+	NSArray *roles = [self fact:@"reportsTo" players:@[ employee, employee ] reading:@"{0} reports to {1}" inverse:nil
+	                 uniqueness:@"*"];
+	NSString *factId = [[(ORMRole *)[_editor.model elementWithId:roles[0]] factType] identifier];
+	NSString *q = [[self queries] addQueryNamed:@"Reporting" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:q].identifier through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:q];
+	[[self queries] setProjected:YES ofNode:head.identifier];
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:q reason:NULL]);
+	XCTAssertTrue([[self queries] setDerivedFactType:factId ofQuery:q reason:NULL]);
+	return factId;
+}
+
+/* The query's distinct rows, from the store and from the service alike. */
+- (NSArray *)rowsOfQuery:(NSString *)queryId planner:(ORMQueryPlanner *)planner in:(NSManagedObjectContext *)context
+{
+	ORMQueryPlan *plan = [self archived:[planner planForQuery:[self query:queryId]]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@\n%@", plan.notes, [plan text]);
+	NSArray *served = nil;
+	NSArray *read = [self rowsOf:plan planner:planner twoAtATimeIn:context service:&served];
+	XCTAssertEqualObjects([NSSet setWithArray:served], [NSSet setWithArray:read], @"%@", [plan text]);
+	return [[NSSet setWithArray:read] allObjects];
+}
+
+/* A query through a derived fact type that is not stored (docs/DERIVATION.md):
+ * the step put as its derivation's path, so it plans and runs as the same
+ * query written out would, from the store and the service alike. From
+ * either role (the rule turned around), and under not. */
+- (void)testAQueryGoesThroughADerivedFactType
+{
+	[self deriveReporting];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	NSString *employee = [self typeId:@"Employee"];
+	NSString *reportsRole0 = [self role:@"reportsTo" at:0];
+	NSString *reportsRole1 = [self role:@"reportsTo" at:1];
+
+	/* Each employee, and who they report to. */
+	NSString *q = [[self queries] addQueryNamed:@"Whom" from:employee reason:NULL];
+	ORMQueryNode *to = [self from:[self root:q].identifier through:reportsRole0 in:q];
+	[[self queries] setProjected:YES ofNode:to.identifier];
+	NSString *w = [[self queries] addQueryNamed:@"Written out" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:w].identifier through:[self role:@"worksFor" at:0] in:w];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:w];
+	[[self queries] setProjected:YES ofNode:head.identifier];
+	NSSet *expected = [NSSet setWithArray:[self rowsOfQuery:w planner:planner in:context]];
+	XCTAssertGreaterThan([expected count], 2u);
+	XCTAssertEqualObjects([NSSet setWithArray:[self rowsOfQuery:q planner:planner in:context]], expected);
+
+	/* From the other role: each head, and who reports to them. */
+	NSString *back = [[self queries] addQueryNamed:@"Who" from:employee reason:NULL];
+	ORMQueryNode *from = [self from:[self root:back].identifier through:reportsRole1 in:back];
+	[[self queries] setProjected:YES ofNode:from.identifier];
+	NSMutableSet *turned = [NSMutableSet set];
+	for (NSArray *row in expected) {
+		[turned addObject:@[ [row lastObject], [row firstObject] ]];
+	}
+	XCTAssertEqualObjects([NSSet setWithArray:[self rowsOfQuery:back planner:planner in:context]], turned);
+
+	/* Under not: those who do not report to one head (everyone reports to
+	 * someone here). */
+	id someHead = [[[expected allObjects] firstObject] lastObject];
+	NSString *none = [[self queries] addQueryNamed:@"Not to them" from:employee reason:NULL];
+	NSString *step = nil;
+	ORMQueryNode *them = [[self from:[self root:none].identifier through:reportsRole0 in:none step:&step] firstObject];
+	[[self queries] setOperator:ORMQueryNot ofStep:step];
+	XCTAssertTrue([[self queries] setCondition:@"=" value:[someHead description] ofNode:them.identifier reason:NULL]);
+	NSMutableSet *toThem = [NSMutableSet set];
+	NSMutableSet *everyone = [NSMutableSet set];
+	for (NSArray *row in expected) {
+		[everyone addObject:[row firstObject]];
+		if ([[row lastObject] isEqual:someHead]) {
+			[toThem addObject:[row firstObject]];
+		}
+	}
+	NSMutableSet *others = [NSMutableSet set];
+	for (NSArray *row in [self rowsOfQuery:none planner:planner in:context]) {
+		[others addObject:[row firstObject]];
+	}
+	XCTAssertGreaterThan([toThem count], 0u);
+	XCTAssertFalse([others intersectsSet:toThem], @"%@ %@", others, toThem);
+	NSMutableSet *rest = [everyone mutableCopy];
+	[rest minusSet:toThem];
+	XCTAssertTrue([rest isSubsetOfSet:others], @"%@ %@", rest, others);
+
+	/* A rule through its own fact type is not expanded for ever: said. */
+	NSArray *loop = [self fact:@"isAbove" players:@[ employee, employee ] reading:@"{0} is above {1}" inverse:nil uniqueness:@"*"];
+	NSString *loopFact = [[(ORMRole *)[_editor.model elementWithId:loop[0]] factType] identifier];
+	NSString *rule = [[self queries] addQueryNamed:@"Above" from:employee reason:NULL];
+	ORMQueryNode *below = [self from:[self root:rule].identifier through:[self role:@"isAbove" at:0] in:rule];
+	[[self queries] setProjected:YES ofNode:below.identifier];
+	[[self queries] setKind:ORMQueryDerivation ofQuery:rule reason:NULL];
+	XCTAssertTrue([[self queries] setDerivedFactType:loopFact ofQuery:rule reason:NULL]);
+	NSString *asks = [[self queries] addQueryNamed:@"Asks" from:employee reason:NULL];
+	[[self queries] setProjected:YES ofNode:[self from:[self root:asks].identifier through:[self role:@"isAbove" at:0] in:asks].identifier];
+	ORMQueryPlan *refused = [planner planForQuery:[self query:asks]];
+	XCTAssertEqualObjects(refused.notes, @[ @"\"Employee is above Employee\" is derived through itself, which queries do not run." ]);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* Labels through a derived fact type (docs/DERIVATION.md): the query's
+ * label is the rule's node's, and the rule's own labels, which no other of
+ * its nodes shares, are not the query's. A quoted value with a quote in it
+ * reads back (in tearDown). */
+- (void)testAQueryThroughADerivedFactTypeKeepsItsLabels
+{
+	[self deriveReporting];
+	ORMQuery *derivation = [[ORMQuery queriesInModel:_editor.model] firstObject];
+	XCTAssertEqualObjects(derivation.name, @"Reporting");
+	[[self queries] setLabel:@"1" ofNode:derivation.root.identifier];
+	[[self queries] setLabel:@"2" ofNode:[[derivation projectedNodes] lastObject].identifier];
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	NSString *employee = [self typeId:@"Employee"];
+
+	NSString *w = [[self queries] addQueryNamed:@"Written out" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:w].identifier through:[self role:@"worksFor" at:0] in:w];
+	ORMQueryNode *head = [self from:branch.identifier through:[self role:@"heads" at:1] in:w];
+	[[self queries] setProjected:YES ofNode:head.identifier];
+	NSString *q = [[self queries] addQueryNamed:@"Whom" from:employee reason:NULL];
+	[[self queries] setLabel:@"3" ofNode:[self root:q].identifier];
+	ORMQueryNode *to = [self from:[self root:q].identifier through:[self role:@"reportsTo" at:0] in:q];
+	[[self queries] setProjected:YES ofNode:to.identifier];
+	XCTAssertEqualObjects([NSSet setWithArray:[self rowsOfQuery:q planner:planner in:context]],
+	                      [NSSet setWithArray:[self rowsOfQuery:w planner:planner in:context]]);
+	NSMutableArray *notes = [NSMutableArray array];
+	NSString *expanded = [[[self query:q] expandedInModel:_editor.model notes:notes] outlineText];
+	XCTAssertEqualObjects(notes, @[]);
+	XCTAssertTrue([expanded hasPrefix:@"✓Employee3\n"], @"%@", expanded);
+	XCTAssertFalse([expanded containsString:@"Reporting"], @"%@", expanded);
+
+	NSString *named = [[self queries] addQueryNamed:@"Named" from:[self typeId:@"Cityname"] reason:NULL];
+	XCTAssertTrue([[self queries] setCondition:@"=" value:@"O'Brien" ofNode:[self root:named].identifier reason:NULL]);
+	XCTAssertTrue([[[self query:named] outlineText] containsString:@"'O''Brien'"]);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* Derived fact types mapped to Core Data (docs/DERIVATION.md): a fully
+ * derived one not stored is left out, with a note. A stored one whose rule
+ * is a key path through one to-one to a value is an attribute Core Data
+ * derives, which momc takes and a save fills in; one further away is
+ * worked out at save, which the note says. */
+- (void)testDerivedFactTypesAreMappedAsCoreDataKeepsThem
+{
+	[self deriveReporting];
+	NSString *employee = [self typeId:@"Employee"];
+	NSString *branchType = [self typeId:@"Branch"];
+	NSString *cityname = [self typeId:@"Cityname"];
+	NSString *reason = nil;
+	/* "Branch is in Cityname", stored: city.cityname. */
+	NSArray *isIn = [self fact:@"isIn" players:@[ branchType, cityname ] reading:@"{0} is in {1}" inverse:nil uniqueness:@"1"];
+	NSString *isInFact = [[(ORMRole *)[_editor.model elementWithId:isIn[0]] factType] identifier];
+	NSString *b = [[self queries] addQueryNamed:@"Branch city" from:branchType reason:NULL];
+	ORMQueryNode *city = [self from:[self root:b].identifier through:[self role:@"locatedIn" at:0] in:b];
+	ORMQueryNode *name = [self from:city.identifier through:[self role:@"cityName" at:0] in:b];
+	[[self queries] setProjected:YES ofNode:name.identifier];
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:b reason:NULL]);
+	XCTAssertTrue([[self queries] setDerivedFactType:isInFact ofQuery:b reason:&reason], @"%@", reason);
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:isInFact reason:&reason], @"%@", reason);
+	/* "Employee works in Cityname", stored, two relationships away. */
+	NSArray *worksIn = [self fact:@"worksIn" players:@[ employee, cityname ] reading:@"{0} works in {1}" inverse:nil
+	                   uniqueness:@"1"];
+	NSString *worksInFact = [[(ORMRole *)[_editor.model elementWithId:worksIn[0]] factType] identifier];
+	NSString *q = [[self queries] addQueryNamed:@"Workplace" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:q].identifier through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *where = [self from:branch.identifier through:[self role:@"locatedIn" at:0] in:q];
+	ORMQueryNode *named = [self from:where.identifier through:[self role:@"cityName" at:0] in:q];
+	[[self queries] setProjected:YES ofNode:named.identifier];
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:q reason:NULL]);
+	XCTAssertTrue([[self queries] setDerivedFactType:worksInFact ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:worksInFact reason:&reason], @"%@", reason);
+
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMCDModel *mapped = [mapper map];
+	NSArray *notes = [mapper.notes valueForKey:@"text"];
+	XCTAssertTrue([notes containsObject:@"\"Employee reports to Employee\" is derived and not stored: nothing keeps it, and "
+	                                    @"queries work it out."], @"%@", notes);
+	XCTAssertTrue([notes containsObject:@"\"Employee works in Cityname\" is derived and stored: its facts are worked out "
+	                                    @"when changes are saved."], @"%@", notes);
+	for (ORMCDProperty *property in [[mapped entityNamed:@"Employee"] properties]) {
+		XCTAssertFalse([property.source isEqualToString:[self role:@"reportsTo" at:1]], @"%@", property.name);
+	}
+	ORMCDAttribute *derived = nil;
+	for (ORMCDAttribute *attribute in [mapped entityNamed:@"Branch"].attributes) {
+		derived = attribute.derivation != nil ? attribute : derived;
+	}
+	XCTAssertEqualObjects(derived.derivation, @"city.cityname", @"%@", notes);
+	XCTAssertNil([self momcRejects:mapped]);
+
+	/* A save derives it. */
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectModel *model = [mapped managedObjectModel];
+	XCTAssertTrue([[[[model entitiesByName] objectForKey:@"Branch"] propertiesByName][derived.name]
+	                  isKindOfClass:[NSDerivedAttributeDescription class]]);
+	NSManagedObjectContext *context = [self companyIn:directory model:model];
+	[context performBlockAndWait:^{
+		NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Branch"];
+		fetch.predicate = [NSPredicate predicateWithFormat:@"city != nil"];
+		NSArray *found = [context executeFetchRequest:fetch error:NULL];
+		XCTAssertGreaterThan([found count], 0u);
+		for (NSManagedObject *each in found) {
+			[context refreshObject:each mergeChanges:NO];
+			XCTAssertEqualObjects([each valueForKey:derived.name], [each valueForKeyPath:@"city.cityname"]);
+		}
+	}];
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+
+/* Saving (docs/DERIVATION.md, step 6): a stored derived fact type Core
+ * Data cannot work out ("Employee works in Cityname", two relationships
+ * away), for the objects a change reaches: a city renamed, its branches'
+ * employees work in the new name. The generator writes it as tables
+ * (docs/RUNTIME.md), which the driver runs; the generated code, which
+ * calls the driver, is built and run on macOS. */
+- (void)testTheSaveHookWorksOutStoredDerivations
+{
+	NSString *employee = [self typeId:@"Employee"];
+	NSString *cityname = [self typeId:@"Cityname"];
+	NSArray *worksIn = [self fact:@"worksIn" players:@[ employee, cityname ] reading:@"{0} works in {1}" inverse:nil
+	                   uniqueness:@"1"];
+	NSString *worksInFact = [[(ORMRole *)[_editor.model elementWithId:worksIn[0]] factType] identifier];
+	NSString *q = [[self queries] addQueryNamed:@"Workplace" from:employee reason:NULL];
+	ORMQueryNode *branch = [self from:[self root:q].identifier through:[self role:@"worksFor" at:0] in:q];
+	ORMQueryNode *where = [self from:branch.identifier through:[self role:@"locatedIn" at:0] in:q];
+	ORMQueryNode *named = [self from:where.identifier through:[self role:@"cityName" at:0] in:q];
+	[[self queries] setProjected:YES ofNode:named.identifier];
+	XCTAssertTrue([[self queries] setKind:ORMQueryDerivation ofQuery:q reason:NULL]);
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setDerivedFactType:worksInFact ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:worksInFact reason:&reason], @"%@", reason);
+
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Company"];
+	NSDictionary *files = [generator files];
+	NSString *code = [files objectForKey:@"CompanyValidation.m"];
+	XCTAssertTrue([[files objectForKey:@"CompanyValidation.h"] containsString:@"- (BOOL)orm_prepareForSave:(NSError **)error;"]);
+	XCTAssertTrue([code containsString:@"[ORMTables tablesNamed:@\"Company\" error:error]"], @"%@\n%@", generator.notes, code);
+	/* The tables, as the app's resources have them. */
+	NSData *data = [[files objectForKey:@"Company.ormplans"] dataUsingEncoding:NSUTF8StringEncoding];
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+	NSError *error = nil;
+	ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+	XCTAssertNotNil(tables, @"%@", error);
+	XCTAssertEqual([tables.derivations count], 1u, @"%@", generator.notes);
+	ORMStoredDerivation *derivation = [tables.derivations firstObject];
+	XCTAssertEqualObjects(derivation.root, @"Employee");
+	XCTAssertEqualObjects(derivation.kind, @"value");
+	XCTAssertTrue([derivation.backs containsObject:(@[ @"City", @[ @"branches", @"employees" ] ])], @"%@", derivation.backs);
+
+	/* The driver, by the tables: a city renamed, and what reaches it. */
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:_editor.model mapping:[self mapping]];
+	ORMCDModel *mapped = [mapper map];
+	NSString *target = derivation.target;
+	NSManagedObjectContext *context = [self companyIn:directory model:[mapped managedObjectModel]];
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	[context performBlockAndWait:^{
+		[self rename:@"Sydney" to:@"Sydney Harbour" in:context target:target hook:hook];
+	}];
+#if defined(__APPLE__)
+	/* The same, through the generated code. */
+	NSString *why = nil;
+	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
+	XCTAssertTrue([context respondsToSelector:NSSelectorFromString(@"orm_prepareForSave:")]);
+	[context performBlockAndWait:^{
+		[self rename:@"Sydney Harbour" to:@"Port Jackson" in:context target:target hook:nil];
+	}];
+	[ORMTables registerTables:nil named:@"Company"];
+#endif
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* The city renamed, and the context made ready to save: by the driver,
+ * or (no hook) by the generated orm_prepareForSave:. Its branches'
+ * employees work in the new name, and the context saves. */
+- (void)rename:(NSString *)name
+            to:(NSString *)renamed
+            in:(NSManagedObjectContext *)context
+        target:(NSString *)target
+          hook:(ORMSaveHook *)hook
+{
+	NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"City"];
+	fetch.predicate = [NSPredicate predicateWithFormat:@"cityname == %@", name];
+	NSManagedObject *city = [[context executeFetchRequest:fetch error:NULL] firstObject];
+	XCTAssertNotNil(city);
+	[city setValue:renamed forKey:@"cityname"];
+	NSError *error = nil;
+	if (hook != nil) {
+		NSMutableSet *changed = [NSMutableSet setWithSet:[context updatedObjects]];
+		XCTAssertTrue([hook deriveInContext:context changed:changed error:&error], @"%@", error);
+		XCTAssertGreaterThan([changed count], 1u);
+	} else {
+		SEL prepare = NSSelectorFromString(@"orm_prepareForSave:");
+		BOOL (*call)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[context methodForSelector:prepare];
+		XCTAssertTrue(call(context, prepare, &error), @"%@", error);
+	}
+	NSFetchRequest *employees = [NSFetchRequest fetchRequestWithEntityName:@"Employee"];
+	employees.predicate = [NSPredicate predicateWithFormat:@"branch.city == %@", city];
+	NSArray *there = [context executeFetchRequest:employees error:NULL];
+	XCTAssertGreaterThan([there count], 0u);
+	for (NSManagedObject *each in there) {
+		XCTAssertEqualObjects([each valueForKey:target], renamed);
+	}
+	XCTAssertTrue([context save:&error], @"%@", error);
+}
+
 /* Sorted by an attribute maybe there: each employee and maybe their
  * name, last first. The sort is by the name, from the object read. */
 - (void)testASortByAValueMaybeThere
@@ -1673,10 +2118,28 @@
 	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model
 	                                                                         mapping:[self mapping]
 	                                                                            name:@"Company"];
-	NSString *code = [[generator files] objectForKey:@"CompanyValidation.m"];
-	XCTAssertTrue([code rangeOfString:@"evaluateWithObject:self]"].location != NSNotFound, @"%@", code);
-	XCTAssertTrue([code rangeOfString:@"Lives near work"].location != NSNotFound);
-	XCTAssertTrue([code rangeOfString:@"Checked from Employee only"].location != NSNotFound, @"%@", code);
+	/* A rule of the tables: its plan, which no valid Employee is read by. */
+	ORMTables *tables = [generator tables];
+	ORMRule *rule = [[tables.rules objectForKey:@"Employee"] lastObject];
+	XCTAssertEqualObjects(rule.constraint, @"Lives near work");
+	XCTAssertEqualObjects(rule.check.kind, @"not");
+	XCTAssertEqualObjects([[rule.check.operands firstObject] kind], @"plan");
+	/* At save, again for each Employee a change reaches (docs/DERIVATION.md). */
+	XCTAssertEqualObjects(rule.remark, @"Checked from Employee, and by orm_prepareForSave: for each Employee a change reaches.");
+	XCTAssertNotNil([tables.ruleBacks objectForKey:@"Employee"]);
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	__block NSArray *invalid = nil;
+	[context performBlockAndWait:^{
+		NSMutableArray *found = [NSMutableArray array];
+		for (NSManagedObject *each in [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Employee"]
+		                                                     error:NULL]) {
+			if (![validator validate:each error:NULL]) {
+				[found addObject:[each valueForKey:@"nr"]];
+			}
+		}
+		invalid = found;
+	}];
+	XCTAssertEqualObjects(invalid, @[ @21 ]);
 	NSString *notes = [generator.notes componentsJoinedByString:@"\n"];
 	XCTAssertTrue([notes rangeOfString:@"Lives near work"].location == NSNotFound, @"%@", notes);
 
@@ -1692,6 +2155,63 @@
 	notes = [generator.notes componentsJoinedByString:@"\n"];
 	XCTAssertTrue([notes rangeOfString:@"Many tongues: it asks what one predicate cannot say"].location != NSNotFound,
 	              @"%@", notes);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* The model's queries in its tables (docs/RUNTIME.md): run by name, as an
+ * app runs them, they read what the planner's plans read; and each has a
+ * method of CompanyQueries. */
+- (void)testQueriesAreRunByNameFromTheTables
+{
+	NSDictionary *queries = [self paperQueries];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:_editor.model mapping:[self mapping]
+	                                                                             name:@"Company"];
+	NSDictionary *files = [generator files];
+	XCTAssertTrue([[files objectForKey:@"CompanyValidation.h"]
+	                  containsString:@"+ (ORMQueryResult *)polyglotsInContext:(NSManagedObjectContext *)context "
+	                                 @"error:(NSError **)error;"],
+	              @"%@", [files objectForKey:@"CompanyValidation.h"]);
+	NSData *data = [[files objectForKey:@"Company.ormplans"] dataUsingEncoding:NSUTF8StringEncoding];
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+	NSError *error = nil;
+	ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+	XCTAssertNotNil(tables, @"%@", error);
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
+	NSManagedObjectContext *context = [self companyIn:directory model:[planner.coreData managedObjectModel]];
+	for (NSString *name in queries) {
+		NSString *queryName = [self query:[queries objectForKey:name]].name;
+		XCTAssertNotNil([tables.queries objectForKey:queryName], @"%@", generator.notes);
+		NSArray *expected = [self rowsOfQuery:[queries objectForKey:name] planner:planner in:context];
+		__block ORMQueryResult *result = nil;
+		__block NSError *failed = nil;
+		[context performBlockAndWait:^{
+			result = [tables runQuery:queryName inContext:context error:&failed];
+		}];
+		XCTAssertNotNil(result, @"%@: %@", queryName, failed);
+		XCTAssertEqualObjects([NSSet setWithArray:result.rows], [NSSet setWithArray:expected], @"%@", queryName);
+		XCTAssertNotNil([tables requestForQuery:queryName model:[planner.coreData managedObjectModel] error:&failed], @"%@",
+		                failed);
+	}
+	XCTAssertNil([tables runQuery:@"No such query" inContext:context error:&error]);
+#if defined(__APPLE__)
+	/* The same, through the generated method. */
+	NSString *why = nil;
+	XCTAssertTrue([self load:files in:directory why:&why], @"%@", why);
+	Class companyQueries = NSClassFromString(@"CompanyQueries");
+	SEL polyglots = NSSelectorFromString(@"polyglotsInContext:error:");
+	XCTAssertTrue([companyQueries respondsToSelector:polyglots]);
+	ORMQueryResult *(*run)(id, SEL, NSManagedObjectContext *, NSError **) =
+		(ORMQueryResult * (*)(id, SEL, NSManagedObjectContext *, NSError **))[companyQueries methodForSelector:polyglots];
+	__block ORMQueryResult *ran = nil;
+	[context performBlockAndWait:^{
+		ran = run(companyQueries, polyglots, context, NULL);
+	}];
+	XCTAssertEqualObjects([NSSet setWithArray:ran.rows],
+	                      [NSSet setWithArray:[self rowsOfQuery:[queries objectForKey:@"Polyglots"] planner:planner in:context]]);
+	[ORMTables registerTables:nil named:@"Company"];
+#endif
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
@@ -2471,5 +2991,32 @@
 }
 
 
-@end
+/* A query typed as an outline (docs/QUERIES.md): read into the query it
+ * says, which plans as the one built step by step; a line that reads as
+ * nothing is refused, with its number and why, and nothing is made. */
+- (void)testAQueryIsReadFromItsOutline
+{
+	ORMOutlineReader *reader = [[ORMOutlineReader alloc] initWithEditor:_editor];
+	NSString *reason = nil;
+	NSString *q = [reader addQueryNamed:@"Typed" outline:@"✓Employee1\n"
+	                                                     @"  + lives in City1\n"
+	                                                     @"  + was born in Country1\n"
+	                                                     @"  + supervises ✓Employee2\n"
+	                                                     @"    + lives in City1\n"
+	                                                     @"    + was born in Country2 <> Country1\n"
+	                             reason:&reason];
+	XCTAssertNotNil(q, @"%@", reason);
+	ORMQuery *query = [self query:q];
+	XCTAssertTrue(query.isComplete);
+	XCTAssertEqualObjects([[query projectedNodes] valueForKey:@"designation"], (@[ @"Employee1", @"Employee2" ]));
+	XCTAssertEqualObjects([[self plan:q].notes count] == 0 ? @"planned" : [self plan:q].notes, @"planned");
 
+	NSUInteger queries = [[ORMQuery queriesInModel:_editor.model] count];
+	XCTAssertNil([reader addQueryNamed:nil outline:@"✓Employee\n  + flies to Mars\n" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 2, \"+ flies to Mars\": no fact type of Employee reads so");
+	XCTAssertNil([reader addQueryNamed:nil outline:@"Martian\n" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 1, \"Martian\": no object type of the model is named so.");
+	XCTAssertEqual([[ORMQuery queriesInModel:_editor.model] count], queries, @"nothing made");
+}
+
+@end

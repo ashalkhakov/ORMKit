@@ -26,6 +26,12 @@
 - (void)modelDidChange;
 /* A new query from the object type, shown. */
 - (NSString *)addQueryFrom:(NSString *)objectTypeId;
+/* A new query read from its outline (ORMOutlineReader), shown; nil, and
+ * why in the status line, where it cannot be read. Edit > Paste makes one
+ * of the outline on the pasteboard; Edit > Copy puts the query's there. */
+- (NSString *)addQueryFromOutline:(NSString *)text;
+- (IBAction)copy:(id)sender;
+- (IBAction)paste:(id)sender;
 - (void)selectElement:(NSString *)nodeOrStepId;
 /* The roles the selected node can go on through, and adding a step
  * through one of them. */

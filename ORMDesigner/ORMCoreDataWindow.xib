@@ -392,6 +392,7 @@
                                                         <menuItem title="Absorbed" id="typeMappingPopUpItem2"/>
                                                         <menuItem title="Ignored" id="typeMappingPopUpItem3"/>
                                                         <menuItem title="Transformable" id="typeMappingPopUpItem4"/>
+                                                        <menuItem title="Joined" id="typeMappingPopUpItem5"/>
                                                     </items>
                                                 </menu>
                                             </popUpButtonCell>
