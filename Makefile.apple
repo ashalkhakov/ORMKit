@@ -1,0 +1,69 @@
+# ORMKit on macOS, the familiar way (gnustep-release-actions' macos.yml runs
+# the same):
+#
+#   make -f Makefile.apple            ORMKit.framework, ormtool and ORMDesigner.app,
+#                                     universal (Release)
+#   make -f Makefile.apple check      the Xcode project as .tools/genxcodeproj.py
+#                                     writes it; the imports; the Debug builds;
+#                                     both suites; ormtool on the StockMate model;
+#                                     the fixture builders, and ormtool checking
+#                                     what they write
+#   make -f Makefile.apple install DESTDIR=<dir>       ORMDesigner.app
+#   make -f Makefile.apple installcheck DESTDIR=<dir>  its signature holds
+#
+# What it builds on (ODataKit's XCFrameworks, Sparkle's) is in .deps/, by the
+# versions .github/pins.env names (gnustep-release-actions' scripts/deps.sh
+# apple). GNUstep: GNUmakefile.
+
+BUILD = build
+DERIVED = $(BUILD)/DerivedData
+RELEASE = $(DERIVED)/Build/Products/Release
+DEBUG = $(abspath $(DERIVED)/Build/Products/Debug)
+# Where a failed test's result bundle is kept (CI uploads it from there).
+RESULTS ?= $(or $(RUNNER_TEMP),$(BUILD))
+XCODEBUILD = xcodebuild -workspace ORMKit.xcworkspace -derivedDataPath $(DERIVED)
+
+all:
+	@test -d .deps/ODataKit.xcframework -a -d .deps/Sparkle.xcframework \
+	  || { echo "no ODataKit or Sparkle in .deps: gnustep-release-actions' scripts/deps.sh apple fetches what .github/pins.env names"; exit 1; }
+	@for scheme in ORMKit ormtool ORMDesigner; do \
+	  $(XCODEBUILD) -scheme $$scheme -configuration Release -destination 'generic/platform=macOS' build || exit 1; \
+	done
+
+check:
+	python3 .tools/genxcodeproj.py
+	git diff --exit-code -- ORMKit.xcodeproj ORMKit.xcworkspace \
+	  || { echo "check: ORMKit.xcodeproj is stale: run python3 .tools/genxcodeproj.py and commit what it writes"; exit 1; }
+	Scripts/check-imports.sh
+	@for scheme in ORMKit ORMDesigner ormtool; do \
+	  $(XCODEBUILD) -scheme $$scheme -configuration Debug -destination 'platform=macOS' build || exit 1; \
+	done
+	@for suite in ORMKitTests ORMDesignerTests; do \
+	  rm -rf $(RESULTS)/$$suite.xcresult; \
+	  $(XCODEBUILD) -scheme $$suite -destination 'platform=macOS' -resultBundlePath $(RESULTS)/$$suite.xcresult test || exit 1; \
+	done
+	DYLD_FRAMEWORK_PATH=$(DEBUG) Scripts/ormtool-smoke.sh $(DEBUG)/ormtool
+	@mkdir -p $(BUILD)/fixtures/samples
+	@for tool in workmate halpin; do \
+	  clang -fobjc-arc -fmodules -F$(DEBUG) -framework ORMKit -framework ORMRuntime -Wl,-rpath,$(DEBUG) \
+	    Tools/fixtures/$$tool.m -o $(BUILD)/fixtures/$$tool || exit 1; \
+	done
+	$(BUILD)/fixtures/workmate $(BUILD)/fixtures/WorkMate.orm
+	$(BUILD)/fixtures/halpin $(BUILD)/fixtures/samples
+	@for f in $(BUILD)/fixtures/WorkMate.orm $(BUILD)/fixtures/samples/*.orm; do \
+	  DYLD_FRAMEWORK_PATH=$(DEBUG) $(DEBUG)/ormtool check "$$f" || exit 1; \
+	done
+
+install: all
+	@test -n "$(DESTDIR)" || { echo "install: give DESTDIR"; exit 1; }
+	mkdir -p $(DESTDIR)
+	rm -rf $(DESTDIR)/ORMDesigner.app
+	ditto $(RELEASE)/ORMDesigner.app $(DESTDIR)/ORMDesigner.app
+
+installcheck:
+	codesign --verify --deep --strict $(DESTDIR)/ORMDesigner.app
+
+clean:
+	rm -rf $(BUILD)
+
+.PHONY: all check install installcheck clean

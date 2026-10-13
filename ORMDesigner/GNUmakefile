@@ -8,6 +8,7 @@ include ../odatakit.make
 ORMDesigner_INCLUDE_DIRS = -I../ORMKit -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
 ORMDesigner_OBJC_FILES = \
   main.m \
+  ORMUpdater.m \
   ORMAppDelegate.m \
   ORMDocument.m \
   ORMWindowController.m \

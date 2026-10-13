@@ -38,10 +38,12 @@ xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests -destination 'platf
 The Xcode project is generated from the GNUmakefiles' source lists; CI
 fails when the committed one is stale. Never edit `project.pbxproj` by hand.
 
-ORMKit depends on ODataKit (`../ODataKit`, [docs/ODATA.md](docs/ODATA.md)): the workspace
-builds its framework, and GNUstep links the installed one (`odatakit.make`).
-CI pins it (`ODATAKIT_REF`) and FreeCoreData under it (`FREECOREDATA_REF`);
-move the pins and the image together.
+ORMKit depends on ODataKit ([docs/ODATA.md](docs/ODATA.md)) and, on GNUstep,
+FreeCoreData under it. `.github/pins.env` names the exact releases it builds
+on (with the GNUstep stack, GCDWebServer and Sparkle): on the Mac their
+XCFrameworks are in `.deps/` (gnustep-release-actions' `scripts/deps.sh
+apple`), and GNUstep links the installed libraries (`odatakit.make`). Move a
+pin there; CI and the docker image both read it.
 
 ORMDesigner's windows and menu bar are XIBs (`ORMDesigner/*.xib`), listed in
 `ORMDesigner_RESOURCE_FILES` and the test bundle's: Xcode compiles them,
@@ -56,33 +58,21 @@ only, colours, the tool buttons) is set in each controller's
 ## GNUstep patches live elsewhere
 
 Fixes to GNUstep itself are not kept here. They live in `../gnustep-patches`,
-which this machine's GNUstep projects share; `.github/scripts/dependencies.sh`
-applies them at the commit pinned by `GNUSTEP_PATCHES_REF`. If a bug here
-turns out to be GNUstep's, work there and read its `CLAUDE.md` first.
+which this machine's GNUstep projects share; it publishes the patched stack as
+releases, and `.github/pins.env` (`GNUSTEP_PATCHES_VERSION`) names the one
+ORMKit builds on. If a bug here turns out to be GNUstep's, work there and read
+its `CLAUDE.md` first.
 
 ## Testing
 
-GNUstep builds and tests run in docker (`.tools/gnustep.sh`, image
-`ormkit-gnustep` built from `.tools/gnustep.Dockerfile`; RDLKit's
-`rdlkit-gnustep` is the same stack). Anything that draws needs `xvfb-run -a`.
+Build and test the familiar way: `make`, `make check` and `make install` on
+GNUstep; `make -f Makefile.apple` and `make -f Makefile.apple check` on the
+Mac. GNUstep builds and tests run in docker (`.tools/gnustep.sh make check`,
+image `ormkit-gnustep` built from `.tools/gnustep.Dockerfile` on the releases
+`.github/pins.env` names). Anything that draws needs `xvfb-run -a`.
 `__FILE__` is relative under gnustep-make: fixtures are found against the
 current directory when it is.
 
-The local image cannot be rebuilt from scratch on this machine (apt over
-this network), and it lags CI when `GNUSTEP_PATCHES_REF` moves: a failure
-only in docker may be a fix CI already has. The sources are still in
-`/deps`, so patch them in place and commit the container as the image:
-apply `../gnustep-patches/Scripts/apply-patches.sh` at the pinned ref to
-`/deps/libs-base` and `/deps/libs-gui`, then `make && make install` each.
-That is how SUBQUERY started parsing here (2026-10-03), and how
-`NSSortDescriptor` came to sort nil first (2026-10-05, gnustep-patches
-00a9c89). libobjc2 is patched too (`dependencies.sh` applies its fixes
-since 2026-10-05): without `stack-block-retain`, a completion block that
-captures another leaks with all it holds, every query run among them; the
-image's was rebuilt in `/deps/libobjc2/build` the same way. FreeCoreData and
-ODataKit are installed in the image the same way: `git archive` of
-`../gnustep-coredata` and `../ODataKit` at the pinned commits into `/deps`,
-`make && make install` (FreeCoreData's `Tools/momc` too), `docker commit`.
-apt did work on 2026-10-04 (`libsqlite3-dev`) and 2026-10-05
-(`libavahi-compat-libdnssd-dev`, `libqrencode-dev`, which ODataKit's
-ODataSync needs to build).
+A fix to the stack, FreeCoreData or ODataKit not yet released can be tried in
+the image by building it there over the installed one (`make && make install`
+in a checkout of it); once released, move its pin.

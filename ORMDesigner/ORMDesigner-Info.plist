@@ -30,6 +30,12 @@
   <true/>
   <key>LSMinimumSystemVersion</key>
   <string>12.0</string>
+  <!-- Sparkle (ORMUpdater-Apple.m): the newest release's appcast, and the
+       key its updates are signed with. -->
+  <key>SUFeedURL</key>
+  <string>https://github.com/ashalkhakov/ORMKit/releases/latest/download/appcast.xml</string>
+  <key>SUPublicEDKey</key>
+  <string>9cBO16YcwJZy7uzpT8tSbD/UnYF9HNTekubfnW8WlUE=</string>
   <key>CFBundleDocumentTypes</key>
   <array>
     <dict>

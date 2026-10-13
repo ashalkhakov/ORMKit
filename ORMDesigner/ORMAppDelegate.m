@@ -3,10 +3,16 @@
 #import "ORMCanvasView.h"
 #import "ORMDocument.h"
 #import "ORMSampleMenu.h"
+#import "ORMUpdater.h"
+
+/* MainMenu.xib's ORMDesigner > Check for Updates..., removed where there is
+ * no updater (ORMUpdater.h). */
+static const NSInteger ORMCheckForUpdatesTag = 1001;
 
 @interface ORMAppDelegate ()
 @property (nonatomic, strong) IBOutlet NSMenu *mainMenu;
 @property (nonatomic, strong) IBOutlet NSMenu *sampleMenu;
+@property (nonatomic, strong) ORMUpdater *updater;
 @end
 
 @implementation ORMAppDelegate
@@ -20,6 +26,13 @@
 	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"MainMenu" bundle:bundle];
 	if (![nib instantiateWithOwner:self topLevelObjects:NULL]) {
 		return nil;
+	}
+	if (!self.updater.available) {
+		NSMenu *appMenu = [[self.mainMenu itemAtIndex:0] submenu];
+		NSMenuItem *check = [appMenu itemWithTag:ORMCheckForUpdatesTag];
+		if (check != nil) {
+			[appMenu removeItem:check];
+		}
 	}
 	[ORMSampleMenu fillMenu:self.sampleMenu
 	             withModels:[ORMSampleMenu modelsInBundle:bundle]
@@ -44,10 +57,28 @@
 	return [[[ORMAppDelegate alloc] init] loadMainMenu];
 }
 
+/* Updates, set up before the app finishes launching (as Sparkle asks), and
+ * not started under XCTest, which reaches no network; then the menu bar,
+ * with Check for Updates... where there is an updater. */
 - (void)applicationWillFinishLaunching:(NSNotification *)notification
 {
 	(void)notification;
+	BOOL testing = [[NSProcessInfo processInfo] environment][@"XCTestConfigurationFilePath"] != nil;
+	self.updater = [[ORMUpdater alloc] initStarting:!testing];
 	[NSApp setMainMenu:[self loadMainMenu]];
+}
+
+- (IBAction)checkForUpdates:(id)sender
+{
+	[self.updater checkForUpdates:sender];
+}
+
+- (BOOL)validateMenuItem:(NSMenuItem *)item
+{
+	if ([item action] == @selector(checkForUpdates:)) {
+		return self.updater.canCheckForUpdates;
+	}
+	return YES;
 }
 
 - (IBAction)openSample:(id)sender

@@ -23,6 +23,11 @@
                                     <action selector="orderFrontStandardAboutPanel:" target="-3" id="aboutORMDesignerAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Check for Updates…" tag="1001" id="checkForUpdatesItem">
+                                <connections>
+                                    <action selector="checkForUpdates:" target="-2" id="checkForUpdatesAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="separator"/>
                             <menuItem title="Hide ORMDesigner" keyEquivalent="h" id="hideORMDesigner">
                                 <connections>

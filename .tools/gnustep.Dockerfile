@@ -1,86 +1,33 @@
 # A GNUstep box to reproduce the Linux build locally, so a portability bug can
 # be found in a minute here instead of a round trip through CI.
 #
-# Build it once -- this compiles libobjc2, libdispatch, gnustep-make, base, gui,
-# back and tools-xctest from source, so it takes the better part of an hour:
-#
 #   docker build -f .tools/gnustep.Dockerfile -t ormkit-gnustep .
+#   .tools/gnustep.sh make check
 #
-# After that the image is cached and running the suites is quick:
-#
-#   .tools/gnustep.sh make -C ORMKitTests run-tests
-#   .tools/gnustep.sh make -C ORMDesignerTests run-tests
-#
-# The stack is the same one the workflow builds, from the same script, so what
-# fails here fails there.
-FROM ubuntu:24.04
-
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Retry, and stop apt pipelining requests, which is what proxies mangle. The
-# install is split in two so a failure does not re-download the lot.
-#
-# Not built successfully on this machine: its network path corrupts plain HTTP
-# from ports.ubuntu.com -- a 178 kB package arriving as 42 MB, reported as
-# "File has unexpected size" -- and drops HTTPS to the same host entirely, so
-# apt sees "Ign:" for every InRelease and ends up with no package lists. On a
-# network that does neither, this builds as written. If yours does, point apt
-# at a mirror you trust by editing /etc/apt/sources.list.d/ubuntu.sources here.
-RUN printf '%s\n' \
-      'Acquire::Retries "5";' \
-      'Acquire::http::Pipeline-Depth "0";' \
-      'Acquire::http::No-Cache "true";' \
-      'Acquire::BrokenProxy "true";' \
-    > /etc/apt/apt.conf.d/99-retries
-
-RUN apt-get -q -y update && apt-get -q -y install \
-      clang lld cmake make git pkg-config xvfb
-
-RUN apt-get -q -y install \
-      libgnutls28-dev libffi-dev libicu-dev libxml2-dev libxslt1-dev libssl-dev \
-      libavahi-client-dev zlib1g-dev gnutls-bin libcurl4-gnutls-dev libgmp-dev \
-      libcairo2-dev libjpeg-dev libtiff-dev libpng-dev libicns-dev \
-      libpthread-workqueue-dev libsqlite3-dev libavahi-compat-libdnssd-dev libqrencode-dev \
-      libxt-dev libxmu-dev libxft-dev libxrandr-dev libxfixes-dev libxcursor-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# The gnustep-2.0 runtime wants ld.gold or lld; 24.04 ships lld.
-RUN update-alternatives --install /usr/bin/ld ld /usr/bin/ld.lld 10
-
-ENV CC=clang CXX=clang++ \
-    LIBRARY_COMBO=ng-gnu-gnu RUNTIME_VERSION=gnustep-2.0 \
-    DEPS_PATH=/deps INSTALL_PATH=/gnustep
-
-# Only the script is copied, and that is now enough. It used to apply patches
-# named relative to the checkout, out of Patches/, which was never COPYed here
-# -- so `git apply` could not have found them and this image was quietly built
-# against a pristine gnustep-base and gui, unlike CI's. The script clones the
-# shared gnustep-patches repository instead, so the image gets the same patched
-# stack the workflow does. That needs git (installed above) and network access
-# during `docker build`, which this already required to clone GNUstep itself.
-#
-# Set GNUSTEP_PATCHES_REF to pin to a commit; the default follows the shared
-# repository's default branch, as a local reproduction box should.
-COPY .github/scripts/dependencies.sh /tmp/dependencies.sh
-RUN sh /tmp/dependencies.sh && rm -rf /deps
-
-# FreeCoreData (Core Data, and its momc) and then ODataKit, over that stack,
-# at the commits the workflow pins: pass the same values from ci.yml,
-#
-#   docker build -f .tools/gnustep.Dockerfile \
-#     --build-arg FREECOREDATA_REF=... --build-arg ODATAKIT_REF=... -t ormkit-gnustep .
-#
-# Without them, each repository's default branch.
-ARG FREECOREDATA_REF=
-ARG ODATAKIT_REF=
-RUN . /gnustep/System/Library/Makefiles/GNUstep.sh \
- && git clone https://github.com/ashalkhakov/FreeCoreData.git /deps/FreeCoreData \
- && cd /deps/FreeCoreData && { [ -z "$FREECOREDATA_REF" ] || git checkout -q "$FREECOREDATA_REF"; } \
- && make -j"$(nproc)" && make install && make -C Tools/momc && make -C Tools/momc install \
- && git clone https://github.com/ashalkhakov/ODataKit.git /deps/ODataKit \
- && cd /deps/ODataKit && { [ -z "$ODATAKIT_REF" ] || git checkout -q "$ODATAKIT_REF"; } \
- && make -j"$(nproc)" && make install \
- && rm -rf /deps
-
-ENV LD_LIBRARY_PATH=/gnustep/lib
+# What it builds on is what CI builds on: the releases .github/pins.env names
+# (the GNUstep stack, FreeCoreData, GCDWebServer, ODataKit), each an archive
+# unpacked at /, on the Ubuntu they are built for, with the packages the
+# stack lists beside it. To try a fix of one of them before it is released,
+# install a build of it over this image's.
+FROM ubuntu:22.04
+ARG DEBIAN_FRONTEND=noninteractive
+# Through caching proxies that answer with stale indexes: no pipelining, no
+# proxy caches, retries.
+RUN printf 'Acquire::http::No-Cache "true";\nAcquire::BrokenProxy "true";\nAcquire::http::Pipeline-Depth "0";\nAcquire::Retries "5";\n' \
+      > /etc/apt/apt.conf.d/99-retries
+COPY .github/pins.env /tmp/pins.env
+RUN set -e; \
+    apt-get update; apt-get install -y --no-install-recommends ca-certificates curl xz-utils; \
+    for name in GNUSTEP_PATCHES FREECOREDATA GCDWEBSERVER ODATAKIT; do \
+      version=$(sed -n "s/^${name}_VERSION=//p" /tmp/pins.env); \
+      repo=$(echo "$name" | tr 'A-Z_' 'a-z-'); \
+      curl -fsSL "https://github.com/ashalkhakov/$repo/releases/download/v$version/$repo-$version-ubuntu22.04-$(uname -m).tar.xz" \
+        | tar -C / -xJ; \
+    done; \
+    grep -v '^#' /opt/gnustep/share/gnustep-patches/packages-ubuntu.txt \
+      | xargs apt-get install -y --no-install-recommends libsqlite3-dev; \
+    update-alternatives --install /usr/bin/ld ld /usr/bin/ld.gold 10; \
+    rm -rf /var/lib/apt/lists/*
+ENV CC=clang CXX=clang++ LIBRARY_COMBO=ng-gnu-gnu RUNTIME_VERSION=gnustep-2.0 \
+    LD_LIBRARY_PATH=/opt/gnustep/lib
 WORKDIR /src

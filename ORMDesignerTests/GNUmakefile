@@ -10,6 +10,7 @@ BUNDLE_NAME = ORMDesignerTests
 
 ORMDesignerTests_OBJC_FILES = \
   ORMDesignerTests.m \
+  ../ORMDesigner/ORMUpdater.m \
   ../ORMDesigner/ORMAppDelegate.m \
   ../ORMDesigner/ORMDocument.m \
   ../ORMDesigner/ORMWindowController.m \

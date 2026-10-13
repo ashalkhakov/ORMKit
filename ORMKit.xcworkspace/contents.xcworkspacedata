@@ -4,7 +4,4 @@
    <FileRef
       location = "group:ORMKit.xcodeproj">
    </FileRef>
-   <FileRef
-      location = "group:../ODataKit/ODataKit.xcodeproj">
-   </FileRef>
 </Workspace>
