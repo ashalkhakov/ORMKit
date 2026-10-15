@@ -68,6 +68,13 @@ ORMNonLetterCharacters(void)
 }
 
 BOOL
+ORMIsWhitespace(unichar c)
+{
+	return (c >= 0x09 && c <= 0x0D) || c == ' ' || c == 0x85 || c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200A)
+	       || c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000;
+}
+
+BOOL
 ORMIs(NSXMLNode *node, NSString *uri, NSString *local)
 {
 	return [node kind] == NSXMLElementKind && [[node URI] isEqualToString:uri]

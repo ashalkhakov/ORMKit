@@ -34,6 +34,10 @@ NSCharacterSet *ORMNonAlphanumericCharacters(void);
 NSCharacterSet *ORMNonWhitespaceCharacters(void);
 NSCharacterSet *ORMNonLetterCharacters(void);
 
+/* Whether the character is whitespace, as a regular expression's \s is:
+ * for text scanned in C (ORMReadingText, ORMConstraintSentence). */
+BOOL ORMIsWhitespace(unichar c);
+
 BOOL ORMIs(NSXMLNode *node, NSString *uri, NSString *local);
 NSArray<NSXMLElement *> *ORMChildren(NSXMLElement *element, NSString *uri, NSString *local);
 NSXMLElement *ORMChild(NSXMLElement *element, NSString *uri, NSString *local);

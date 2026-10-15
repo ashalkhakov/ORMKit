@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMReadingText.h"
+#import "ORMXML.h"
 
 @interface ORMReadingPart ()
 @property (nonatomic, readwrite) NSUInteger roleIndex;
@@ -16,56 +17,133 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMReadingPart *> *parts;
 @end
 
+/* A string's characters, to scan in C: freed by the caller. */
+static unichar *
+ORMCharactersOf(NSString *text, NSUInteger *length)
+{
+	*length = [text length];
+	unichar *chars = malloc(sizeof(unichar) * (*length + 1));
+	[text getCharacters:chars range:NSMakeRange(0, *length)];
+	return chars;
+}
+
 /* The text before a placeholder split into what stays and what binds to
  * it: from the last word ending in a hyphen followed by whitespace, with
  * the hyphen taken out. */
 static void
-ORMSplitPreBound(NSString *text, NSString **free, NSString **bound)
+ORMSplitPreBound(NSString *text, NSString **unbound, NSString **bound)
 {
-	NSRegularExpression *hyphen = [NSRegularExpression regularExpressionWithPattern:@"(\\S+)-(\\s+)" options:0
-	                                                                         error:NULL];
-	NSTextCheckingResult *last = [[hyphen matchesInString:text options:0 range:NSMakeRange(0, [text length])] lastObject];
-	if (last == nil) {
-		*free = text;
+	NSUInteger length = 0;
+	unichar *chars = ORMCharactersOf(text, &length);
+	/* The last word of two characters or more whose last is a hyphen,
+	 * whitespace after it. */
+	NSUInteger word = NSNotFound, hyphen = 0;
+	for (NSUInteger at = 0; at < length;) {
+		if (ORMIsWhitespace(chars[at])) {
+			at++;
+			continue;
+		}
+		NSUInteger start = at;
+		while (at < length && !ORMIsWhitespace(chars[at])) {
+			at++;
+		}
+		NSUInteger end = at;
+		while (at < length && ORMIsWhitespace(chars[at])) {
+			at++;
+		}
+		if (end - start >= 2 && chars[end - 1] == '-' && at > end) {
+			word = start;
+			hyphen = end - 1;
+		}
+	}
+	free(chars);
+	if (word == NSNotFound) {
+		*unbound = text;
 		*bound = nil;
 		return;
 	}
-	NSRange word = [last rangeAtIndex:1];
-	*free = [text substringToIndex:word.location];
-	*bound = [NSString stringWithFormat:@"%@%@%@", [text substringWithRange:word],
-	          [text substringWithRange:[last rangeAtIndex:2]], [text substringFromIndex:NSMaxRange([last range])]];
+	*unbound = [text substringToIndex:word];
+	*bound = [NSString stringWithFormat:@"%@%@", [text substringWithRange:NSMakeRange(word, hyphen - word)],
+	          [text substringFromIndex:hyphen + 1]];
 }
 
 /* The text after a placeholder split into what binds back to it and
  * what follows: up to the end of the first word starting with a hyphen
  * after whitespace ("{1} of -birth" binds " of birth"), the hyphen taken
- * out. */
+ * out. The text starts with whitespace, and no word before that one starts
+ * with a hyphen. */
 static void
-ORMSplitPostBound(NSString *text, NSString **bound, NSString **free)
+ORMSplitPostBound(NSString *text, NSString **bound, NSString **unbound)
 {
-	NSRegularExpression *hyphen = [NSRegularExpression regularExpressionWithPattern:@"^((?:\\s+[^\\s-]\\S*)*?\\s+)-(\\S+)" options:0
-	                                                                         error:NULL];
-	NSTextCheckingResult *first = [hyphen firstMatchInString:text options:0 range:NSMakeRange(0, [text length])];
-	if (first == nil) {
+	NSUInteger length = 0;
+	unichar *chars = ORMCharactersOf(text, &length);
+	NSUInteger hyphen = NSNotFound, end = 0;
+	NSUInteger at = 0;
+	while (at < length && ORMIsWhitespace(chars[at])) {
+		while (at < length && ORMIsWhitespace(chars[at])) {
+			at++;
+		}
+		if (at == length) {
+			break;
+		}
+		NSUInteger start = at;
+		while (at < length && !ORMIsWhitespace(chars[at])) {
+			at++;
+		}
+		if (chars[start] == '-') {
+			if (at - start >= 2) {
+				hyphen = start;
+				end = at;
+			}
+			break;
+		}
+	}
+	free(chars);
+	if (hyphen == NSNotFound) {
 		*bound = nil;
-		*free = text;
+		*unbound = text;
 		return;
 	}
-	*bound = [NSString stringWithFormat:@"%@%@", [text substringWithRange:[first rangeAtIndex:1]],
-	          [text substringWithRange:[first rangeAtIndex:2]]];
-	*free = [text substringFromIndex:NSMaxRange([first range])];
+	*bound = [NSString stringWithFormat:@"%@%@", [text substringToIndex:hyphen],
+	          [text substringWithRange:NSMakeRange(hyphen + 1, end - hyphen - 1)]];
+	*unbound = [text substringFromIndex:end];
+}
+
+/* The placeholders of a reading, "{0}" to "{n}", left to right: each
+ * @[ its range, its index ]. */
+static NSArray<NSArray *> *
+ORMPlaceholdersOf(NSString *text)
+{
+	NSUInteger length = 0;
+	unichar *chars = ORMCharactersOf(text ?: @"", &length);
+	NSMutableArray *found = [NSMutableArray array];
+	for (NSUInteger at = 0; at < length; at++) {
+		if (chars[at] != '{') {
+			continue;
+		}
+		NSUInteger digit = at + 1;
+		NSUInteger index = 0;
+		while (digit < length && chars[digit] >= '0' && chars[digit] <= '9') {
+			index = index * 10 + (NSUInteger)(chars[digit] - '0');
+			digit++;
+		}
+		if (digit > at + 1 && digit < length && chars[digit] == '}') {
+			[found addObject:@[ [NSValue valueWithRange:NSMakeRange(at, digit + 1 - at)], @(index) ]];
+			at = digit;
+		}
+	}
+	free(chars);
+	return found;
 }
 
 @implementation ORMReadingText
 
 + (instancetype)readingTextWithString:(NSString *)text arity:(NSUInteger)arity reason:(NSString **)reason
 {
-	NSRegularExpression *placeholder = [NSRegularExpression regularExpressionWithPattern:@"\\{(\\d+)\\}" options:0
-	                                                                              error:NULL];
-	NSArray *matches = [placeholder matchesInString:text ?: @"" options:0 range:NSMakeRange(0, [text length])];
+	NSArray<NSArray *> *matches = ORMPlaceholdersOf(text);
 	NSMutableIndexSet *seen = [NSMutableIndexSet indexSet];
-	for (NSTextCheckingResult *match in matches) {
-		NSUInteger index = (NSUInteger)[[text substringWithRange:[match rangeAtIndex:1]] integerValue];
+	for (NSArray *match in matches) {
+		NSUInteger index = [[match lastObject] unsignedIntegerValue];
 		if (index >= arity || [seen containsIndex:index]) {
 			if (reason != NULL) {
 				*reason = index >= arity
@@ -89,9 +167,10 @@ ORMSplitPostBound(NSString *text, NSString **bound, NSString **free)
 	 * placeholders. */
 	NSMutableArray *literals = [NSMutableArray array];
 	NSUInteger at = 0;
-	for (NSTextCheckingResult *match in matches) {
-		[literals addObject:[text substringWithRange:NSMakeRange(at, [match range].location - at)]];
-		at = NSMaxRange([match range]);
+	for (NSArray *match in matches) {
+		NSRange range = [[match firstObject] rangeValue];
+		[literals addObject:[text substringWithRange:NSMakeRange(at, range.location - at)]];
+		at = NSMaxRange(range);
 	}
 	[literals addObject:[text substringFromIndex:at]];
 
@@ -99,8 +178,7 @@ ORMSplitPostBound(NSString *text, NSString **bound, NSString **free)
 	NSMutableArray *parts = [NSMutableArray array];
 	for (NSUInteger i = 0; i < [matches count]; i++) {
 		ORMReadingPart *part = [[ORMReadingPart alloc] init];
-		NSTextCheckingResult *match = [matches objectAtIndex:i];
-		part.roleIndex = (NSUInteger)[[text substringWithRange:[match rangeAtIndex:1]] integerValue];
+		part.roleIndex = [[[matches objectAtIndex:i] lastObject] unsignedIntegerValue];
 		[parts addObject:part];
 	}
 	/* Each literal between two placeholders may hold the post-bound text
@@ -114,16 +192,16 @@ ORMSplitPostBound(NSString *text, NSString **bound, NSString **free)
 			literal = rest;
 		}
 		NSString *pre = nil;
-		NSString *free = literal;
+		NSString *unbound = literal;
 		if (i < [parts count]) {
-			ORMSplitPreBound(literal, &free, &pre);
+			ORMSplitPreBound(literal, &unbound, &pre);
 		}
 		if (i == 0) {
-			reading.frontText = free;
+			reading.frontText = unbound;
 		} else {
 			ORMReadingPart *before = [parts objectAtIndex:i - 1];
 			before.postBoundText = post;
-			before.followingText = free;
+			before.followingText = unbound;
 		}
 		if (i < [parts count]) {
 			[[parts objectAtIndex:i] setPreBoundText:pre];

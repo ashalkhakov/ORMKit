@@ -4,11 +4,14 @@
 #import "ORMFactSentence.h"
 #import "ORMJoinPathBuilder.h"
 #import "ORMReadingText.h"
+#import "ORMXML.h"
 
-/* The quantifiers the verbalizer puts before a name, longest first. */
-static NSString *const ORMQuantifierPattern =
-	@"the same|more than one|at least \\d+ and at most \\d+|at most one|exactly one|at least one|at least \\d+"
-	@"|at most \\d+|exactly \\d+|each|some|that|no|an|a";
+/* The quantifiers the verbalizer puts before a name, tried in this order:
+ * '#' is a number, a space one space; letters in any case. */
+static const char *const ORMQuantifiers[] = {
+	"the same", "more than one", "at least # and at most #", "at most one", "exactly one", "at least one",
+	"at least #", "at most #", "exactly #", "each", "some", "that", "no", "an", "a", NULL
+};
 
 @interface ORMSentenceFact ()
 @property (nonatomic, readwrite, copy) NSString *reading;
@@ -155,47 +158,6 @@ ORMTrimmed(NSString *text)
 	return [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
-/* A literal as a pattern, any run of spaces matching any run. Escaped and
- * spaced by hand: it is made for every name of every role a sentence is
- * matched against, and GNUstep compiles a regular expression for each of
- * +escapedPatternForString: and a replacement. */
-static NSCharacterSet *
-ORMPatternSpecials(void)
-{
-	static NSCharacterSet *set;
-	@synchronized([NSCharacterSet class]) {
-		if (set == nil) {
-			set = [NSCharacterSet characterSetWithCharactersInString:@"\\^$.|?*+()[]{}-"];
-		}
-		return set;
-	}
-}
-
-static NSString *
-ORMLiteralPattern(NSString *literal)
-{
-	NSCharacterSet *special = ORMPatternSpecials();
-	NSCharacterSet *spaces = [NSCharacterSet whitespaceAndNewlineCharacterSet];
-	NSMutableString *pattern = [NSMutableString string];
-	BOOL spaced = NO;
-	for (NSUInteger i = 0; i < [literal length]; i++) {
-		unichar c = [literal characterAtIndex:i];
-		if ([spaces characterIsMember:c]) {
-			if (!spaced) {
-				[pattern appendString:@"\\s+"];
-			}
-			spaced = YES;
-			continue;
-		}
-		spaced = NO;
-		if ([special characterIsMember:c]) {
-			[pattern appendString:@"\\"];
-		}
-		[pattern appendFormat:@"%C", c];
-	}
-	return pattern;
-}
-
 /* The names a role's player may go by in a sentence: its own, a
  * subtype's (a subset's "that Ambassador represents" for a Diplomat's
  * role) or a supertype's (an exclusion's "that Employee is ceo" for a
@@ -222,8 +184,17 @@ ORMRelatedTypes(ORMObjectType *a, ORMObjectType *b)
 	return NO;
 }
 
-static NSString *
-ORMNamesPattern(ORMObjectType *player)
+/* Longer names first: one name that is the start of another (Person,
+ * PersonName) is tried after it. */
+static NSInteger
+ORMLongerFirst(NSString *a, NSString *b, void *context)
+{
+	(void)context;
+	return [a length] > [b length] ? NSOrderedAscending : [a length] < [b length] ? NSOrderedDescending : NSOrderedSame;
+}
+
+static NSArray<NSString *> *
+ORMNamesOf(ORMObjectType *player)
 {
 	/* Its whole family: what is compared with it may be a sibling
 	 * subtype (an exclusion's "that Driver" for a Witness's role). */
@@ -247,14 +218,351 @@ ORMNamesPattern(ORMObjectType *player)
 		[pending addObjectsFromArray:type.subtypes];
 		[pending addObjectsFromArray:type.supertypes];
 	}
-	[names sortUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
-		return [a length] > [b length] ? NSOrderedAscending : [a length] < [b length] ? NSOrderedDescending : NSOrderedSame;
-	}];
-	NSMutableArray *patterns = [NSMutableArray array];
-	for (NSString *name in names) {
-		[patterns addObject:ORMLiteralPattern(name)];
+	/* None: a placeholder of no player is written "?". */
+	return [names count] > 0 ? [names sortedArrayUsingFunction:ORMLongerFirst context:NULL] : @[ @"?" ];
+}
+
+/* The start of a word ending the text, nothing but whitespace before it
+ * from end on; NSNotFound where there is none. */
+static NSUInteger
+ORMWordBefore(NSString *text, NSUInteger end)
+{
+	NSUInteger start = end;
+	while (start > 0 && !ORMIsWhitespace([text characterAtIndex:start - 1])) {
+		start--;
 	}
-	return [NSString stringWithFormat:@"(?:%@)(?:\\d+)?", [patterns count] > 0 ? [patterns componentsJoinedByString:@"|"] : @"\\?"];
+	return start < end ? start : NSNotFound;
+}
+
+/* Where " and X is not Y" ends the text, X and Y single words; NSNotFound
+ * where it does not. */
+static NSUInteger
+ORMAndIsNotAt(NSString *text)
+{
+	NSUInteger y = ORMWordBefore(text, [text length]);
+	if (y == NSNotFound || y < [@" is not " length]
+	    || ![[text substringWithRange:NSMakeRange(y - 8, 8)] isEqualToString:@" is not "]) {
+		return NSNotFound;
+	}
+	NSUInteger x = ORMWordBefore(text, y - 8);
+	if (x == NSNotFound || x < [@" and " length] || ![[text substringWithRange:NSMakeRange(x - 5, 5)] isEqualToString:@" and "]) {
+		return NSNotFound;
+	}
+	return x - 5;
+}
+
+/* The text after the prefix, split at the last place the separator is
+ * found with something on both sides: @[ before, after ]; nil where it is
+ * not ("above 0 to below 100" by "above " and " to below "). */
+static NSArray<NSString *> *
+ORMSplitAfter(NSString *text, NSString *prefix, NSString *separator)
+{
+	/* -hasPrefix: is NO for the empty string on Apple. */
+	if ([prefix length] > 0 && ![text hasPrefix:prefix]) {
+		return nil;
+	}
+	NSString *rest = [text substringFromIndex:[prefix length]];
+	if (separator == nil) {
+		return [rest length] > 0 ? @[ rest ] : nil;
+	}
+	/* The last place with something after it, as a greedy match takes. */
+	NSRange within = NSMakeRange(0, [rest length]);
+	for (;;) {
+		NSRange at = [rest rangeOfString:separator options:NSBackwardsSearch range:within];
+		if (at.location == NSNotFound || at.location == 0) {
+			return nil;
+		}
+		if (NSMaxRange(at) < [rest length]) {
+			return @[ [rest substringToIndex:at.location], [rest substringFromIndex:NSMaxRange(at)] ];
+		}
+		within = NSMakeRange(0, NSMaxRange(at) - 1);
+	}
+}
+
+/* "The possible values of X [in the context of C] are L": @[ X, C or
+ * NSNull, L ], X as short as the rest lets it be; nil where it does not
+ * read so. */
+static NSArray *
+ORMValuesForm(NSString *text)
+{
+	NSString *rest = nil;
+	for (NSString *prefix in @[ @"The possible values of ", @"The possible value of " ]) {
+		rest = rest ?: ([text hasPrefix:prefix] ? [text substringFromIndex:[prefix length]] : nil);
+	}
+	for (NSUInteger end = 1; rest != nil && end < [rest length]; end++) {
+		NSString *after = [rest substringFromIndex:end];
+		NSString *context = @" in the context of ";
+		if ([after hasPrefix:context]) {
+			/* The context as long as it can be. */
+			NSString *tail = [after substringFromIndex:[context length]];
+			for (NSUInteger at = [tail length]; at-- > 1;) {
+				for (NSString *verb in @[ @" are ", @" is " ]) {
+					if ([tail length] > at + [verb length] && [[tail substringFromIndex:at] hasPrefix:verb]) {
+						return @[ [rest substringToIndex:end], [tail substringToIndex:at],
+							      [tail substringFromIndex:at + [verb length]] ];
+					}
+				}
+			}
+		}
+		for (NSString *verb in @[ @" are ", @" is " ]) {
+			if ([after length] > [verb length] && [after hasPrefix:verb]) {
+				return @[ [rest substringToIndex:end], [NSNull null], [after substringFromIndex:[verb length]] ];
+			}
+		}
+	}
+	return nil;
+}
+
+/* The text with each run of whitespace one space. */
+static NSString *
+ORMSingleSpaced(NSString *text)
+{
+	NSMutableString *out = [NSMutableString string];
+	BOOL spaced = NO;
+	for (NSUInteger i = 0; i < [text length]; i++) {
+		unichar c = [text characterAtIndex:i];
+		if (ORMIsWhitespace(c)) {
+			if (!spaced) {
+				[out appendString:@" "];
+			}
+			spaced = YES;
+			continue;
+		}
+		spaced = NO;
+		[out appendFormat:@"%C", c];
+	}
+	return out;
+}
+
+#pragma mark Matching a reading, in C
+
+/* A reading as its clauses are matched (what a regular expression did
+ * before, compiled for each one): literal characters, any run of
+ * whitespace matching any run, and for each placeholder an optional
+ * quantifier and one of its player's names, optionally numbered. Matched
+ * over a clause's characters, trying what comes first first and going back
+ * where what follows fails, as the expression did. */
+typedef NS_ENUM(uint8_t, ORMAtomKind) {
+	ORMAtomCharacter,
+	/* One or more whitespace characters. */
+	ORMAtomSpaces,
+	/* A placeholder's quantifier, maybe, and whitespace after it. */
+	ORMAtomQuantifier,
+	/* A placeholder's name, and a number maybe. */
+	ORMAtomName,
+	/* The end: of the text, or of a clause a connector follows. */
+	ORMAtomEnd,
+};
+
+typedef struct {
+	ORMAtomKind kind;
+	unichar character;
+	/* A quantifier's or a name's placeholder: its part's index. */
+	NSUInteger part;
+} ORMAtom;
+
+/* A placeholder's names, as characters. */
+typedef struct {
+	NSUInteger count;
+	unichar **names;
+	NSUInteger *lengths;
+} ORMNameSet;
+
+typedef struct {
+	const ORMAtom *atoms;
+	const unichar *text;
+	NSUInteger length;
+	/* A clause of a chain: it may end where a connector follows. */
+	BOOL prefix;
+	const ORMNameSet *names;
+	/* Each part's quantifier and name, where the match took them. */
+	NSRange *quantifiers;
+	NSRange *namesTaken;
+} ORMMatch;
+
+static BOOL
+ORMIsDigit(unichar c)
+{
+	return c >= '0' && c <= '9';
+}
+
+static NSUInteger
+ORMSpacesAt(const unichar *text, NSUInteger length, NSUInteger at)
+{
+	NSUInteger end = at;
+	while (end < length && ORMIsWhitespace(text[end])) {
+		end++;
+	}
+	return end - at;
+}
+
+/* Where the quantifier form may end, matched at the place: the ends a
+ * number's digits leave, most digits first, into ends; how many. */
+static NSUInteger
+ORMQuantifierEnds(const char *form, const unichar *text, NSUInteger length, NSUInteger at, NSUInteger *ends,
+                  NSUInteger room)
+{
+	if (room == 0) {
+		return 0;
+	}
+	if (*form == '\0') {
+		ends[0] = at;
+		return 1;
+	}
+	if (*form == '#') {
+		NSUInteger digits = 0;
+		while (at + digits < length && ORMIsDigit(text[at + digits])) {
+			digits++;
+		}
+		NSUInteger found = 0;
+		for (NSUInteger taken = digits; taken >= 1 && found < room; taken--) {
+			found += ORMQuantifierEnds(form + 1, text, length, at + taken, ends + found, room - found);
+		}
+		return found;
+	}
+	if (at >= length) {
+		return 0;
+	}
+	unichar c = text[at];
+	if (*form == ' ' ? c != ' ' : (c >= 128 || tolower((int)c) != *form)) {
+		return 0;
+	}
+	return ORMQuantifierEnds(form + 1, text, length, at + 1, ends, room);
+}
+
+/* Whether the phrase is a quantifier, whole. */
+static BOOL
+ORMIsQuantifier(NSString *phrase)
+{
+	NSUInteger length = [phrase length];
+	unichar *text = malloc(sizeof(unichar) * (length + 1));
+	[phrase getCharacters:text range:NSMakeRange(0, length)];
+	BOOL whole = NO;
+	for (NSUInteger q = 0; ORMQuantifiers[q] != NULL && !whole; q++) {
+		NSUInteger ends[16];
+		NSUInteger count = ORMQuantifierEnds(ORMQuantifiers[q], text, length, 0, ends, 16);
+		for (NSUInteger i = 0; i < count; i++) {
+			whole = whole || ends[i] == length;
+		}
+	}
+	free(text);
+	return whole;
+}
+
+/* Whether a clause of a chain may end here: whitespace, then a connector
+ * and whitespace; or nothing but whitespace. */
+static BOOL
+ORMEndsClause(const unichar *text, NSUInteger length, NSUInteger at)
+{
+	NSUInteger spaces = ORMSpacesAt(text, length, at);
+	if (at + spaces == length) {
+		return YES;
+	}
+	if (spaces == 0) {
+		return NO;
+	}
+	NSUInteger word = at + spaces;
+	for (NSString *connector in @[ @"and", @"that", @"who" ]) {
+		NSUInteger n = [connector length];
+		BOOL same = word + n < length && ORMIsWhitespace(text[word + n]);
+		for (NSUInteger i = 0; same && i < n; i++) {
+			same = text[word + i] == [connector characterAtIndex:i];
+		}
+		if (same) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* The rest of the atoms matched from the place: where the match ends, or
+ * NSNotFound. */
+static NSUInteger
+ORMMatchAtoms(ORMMatch *match, NSUInteger atom, NSUInteger at)
+{
+	const ORMAtom *a = &match->atoms[atom];
+	const unichar *text = match->text;
+	NSUInteger length = match->length;
+	switch (a->kind) {
+	case ORMAtomCharacter:
+		return at < length && text[at] == a->character ? ORMMatchAtoms(match, atom + 1, at + 1) : NSNotFound;
+	case ORMAtomSpaces: {
+		NSUInteger spaces = ORMSpacesAt(text, length, at);
+		for (NSUInteger taken = spaces; taken >= 1; taken--) {
+			NSUInteger end = ORMMatchAtoms(match, atom + 1, at + taken);
+			if (end != NSNotFound) {
+				return end;
+			}
+		}
+		return NSNotFound;
+	}
+	case ORMAtomQuantifier:
+		for (NSUInteger q = 0; ORMQuantifiers[q] != NULL; q++) {
+			NSUInteger ends[16];
+			NSUInteger count = ORMQuantifierEnds(ORMQuantifiers[q], text, length, at, ends, 16);
+			for (NSUInteger i = 0; i < count; i++) {
+				NSUInteger spaces = ORMSpacesAt(text, length, ends[i]);
+				for (NSUInteger taken = spaces; taken >= 1; taken--) {
+					match->quantifiers[a->part] = NSMakeRange(at, ends[i] - at);
+					NSUInteger end = ORMMatchAtoms(match, atom + 1, ends[i] + taken);
+					if (end != NSNotFound) {
+						return end;
+					}
+				}
+			}
+		}
+		match->quantifiers[a->part] = NSMakeRange(NSNotFound, 0);
+		return ORMMatchAtoms(match, atom + 1, at);
+	case ORMAtomName: {
+		const ORMNameSet *names = &match->names[a->part];
+		for (NSUInteger n = 0; n < names->count; n++) {
+			NSUInteger name = names->lengths[n];
+			if (at + name > length || memcmp(text + at, names->names[n], name * sizeof(unichar)) != 0) {
+				continue;
+			}
+			NSUInteger digits = 0;
+			while (at + name + digits < length && ORMIsDigit(text[at + name + digits])) {
+				digits++;
+			}
+			for (NSUInteger taken = digits + 1; taken-- > 0;) {
+				match->namesTaken[a->part] = NSMakeRange(at, name + taken);
+				NSUInteger end = ORMMatchAtoms(match, atom + 1, at + name + taken);
+				if (end != NSNotFound) {
+					return end;
+				}
+			}
+		}
+		return NSNotFound;
+	}
+	case ORMAtomEnd:
+		if (match->prefix) {
+			return ORMEndsClause(text, length, at) ? at : NSNotFound;
+		}
+		return at + ORMSpacesAt(text, length, at) == length ? length : NSNotFound;
+	}
+	return NSNotFound;
+}
+
+/* A literal's atoms: its characters, each run of whitespace one atom. */
+static void
+ORMAddLiteral(NSMutableData *atoms, NSString *literal)
+{
+	NSUInteger length = [literal length];
+	for (NSUInteger i = 0; i < length; i++) {
+		unichar c = [literal characterAtIndex:i];
+		ORMAtom atom = { ORMIsWhitespace(c) ? ORMAtomSpaces : ORMAtomCharacter, c, 0 };
+		while (atom.kind == ORMAtomSpaces && i + 1 < length && ORMIsWhitespace([literal characterAtIndex:i + 1])) {
+			i++;
+		}
+		[atoms appendBytes:&atom length:sizeof(atom)];
+	}
+}
+
+static void
+ORMAddAtom(NSMutableData *atoms, ORMAtomKind kind, NSUInteger part)
+{
+	ORMAtom atom = { kind, 0, part };
+	[atoms appendBytes:&atom length:sizeof(atom)];
 }
 
 /* "Each Person" to "each Person": a sentence's first word as a clause's. */
@@ -286,65 +594,78 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 
 #pragma mark Clauses
 
-/* The pattern of a reading with each placeholder an optionally quantified,
- * optionally numbered name; without its first placeholder when omit is
- * set. The capture groups: a quantifier and a name a placeholder. */
-- (NSString *)patternOf:(NSString *)text roles:(NSArray<ORMRole *> *)roles omit:(BOOL)omit
+/* A reading's atoms: each placeholder an optionally quantified,
+ * optionally numbered name, the first left out when omit is set; nil for
+ * one that cannot be matched so. */
+- (NSData *)atomsOf:(ORMReadingText *)reading omit:(BOOL)omit
 {
-	ORMReadingText *reading = [ORMReadingText readingTextWithString:text arity:[roles count] reason:NULL];
-	if (reading == nil || [reading.parts count] == 0) {
+	if ([reading.parts count] == 0 || (omit && [ORMTrimmed(reading.frontText) length] > 0)) {
 		return nil;
 	}
-	if (omit && [ORMTrimmed(reading.frontText) length] > 0) {
-		return nil;
-	}
-	NSMutableString *pattern = [NSMutableString stringWithString:@"^\\s*"];
-	[pattern appendString:ORMLiteralPattern(reading.frontText)];
+	NSMutableData *atoms = [NSMutableData data];
+	ORMAddLiteral(atoms, reading.frontText);
 	for (NSUInteger i = 0; i < [reading.parts count]; i++) {
 		ORMReadingPart *part = [reading.parts objectAtIndex:i];
 		if (i == 0 && omit) {
-			NSString *following = [part.followingText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-			[pattern appendString:ORMLiteralPattern(following)];
+			ORMAddLiteral(atoms, [part.followingText stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]);
 			if ([part.followingText hasSuffix:@" "]) {
-				[pattern appendString:@"\\s+"];
+				ORMAddAtom(atoms, ORMAtomSpaces, 0);
 			}
 			continue;
 		}
-		ORMRole *role = part.roleIndex < [roles count] ? [roles objectAtIndex:part.roleIndex] : nil;
-		[pattern appendFormat:@"(?:(?i:(%@))\\s+)?", ORMQuantifierPattern];
-		[pattern appendString:ORMLiteralPattern(part.preBoundText)];
-		[pattern appendFormat:@"(%@)", ORMNamesPattern(role.player)];
-		[pattern appendString:ORMLiteralPattern(part.postBoundText)];
-		[pattern appendString:ORMLiteralPattern(part.followingText)];
+		ORMAddAtom(atoms, ORMAtomQuantifier, i);
+		ORMAddLiteral(atoms, part.preBoundText);
+		ORMAddAtom(atoms, ORMAtomName, i);
+		ORMAddLiteral(atoms, part.postBoundText);
+		ORMAddLiteral(atoms, part.followingText);
 	}
-	/* A clause of a chain ends where the text does or a connector
-	 * follows. */
-	[pattern appendString:_prefixMode ? @"(?=\\s+(?:and|that|who)\\s|\\s*$)" : @"\\s*$"];
-	return pattern;
+	ORMAddAtom(atoms, ORMAtomEnd, 0);
+	return atoms;
 }
 
-/* A reading's pattern compiled, kept for the next sentence: what it is
- * depends only on the reading, its players' names and the omission. */
-- (NSRegularExpression *)expressionOf:(NSString *)reading roles:(NSArray<ORMRole *> *)roles omit:(BOOL)omit
+/* The reading matched to the text, from its start: where the match ends,
+ * and each part's quantifier and name; NSNotFound where it does not. */
+- (NSUInteger)match:(ORMReadingText *)reading
+              roles:(NSArray<ORMRole *> *)roles
+               omit:(BOOL)omit
+               text:(const unichar *)text
+             length:(NSUInteger)length
+        quantifiers:(NSRange *)quantifiers
+              names:(NSRange *)names
 {
-	static NSCache *cache;
-	static dispatch_once_t once;
-	dispatch_once(&once, ^{
-		cache = [[NSCache alloc] init];
-		[cache setCountLimit:1500];
-	});
-	NSMutableArray *key = [NSMutableArray arrayWithObjects:reading, @(omit), @(_prefixMode), nil];
-	for (ORMRole *role in roles) {
-		/* The player's family names its pattern. */
-		[key addObject:ORMNamesPattern(role.player)];
+	/* Kept while C reads its bytes. */
+	NSData *atoms __attribute__((objc_precise_lifetime)) = [self atomsOf:reading omit:omit];
+	if (atoms == nil) {
+		return NSNotFound;
 	}
-	id expression = [cache objectForKey:key];
-	if (expression == nil) {
-		NSString *pattern = [self patternOf:reading roles:roles omit:omit];
-		expression = pattern != nil ? [NSRegularExpression regularExpressionWithPattern:pattern options:0 error:NULL] : nil;
-		[cache setObject:expression ?: [NSNull null] forKey:key];
+	NSUInteger parts = [reading.parts count];
+	ORMNameSet *sets = calloc(parts, sizeof(ORMNameSet));
+	for (NSUInteger i = 0; i < parts; i++) {
+		ORMReadingPart *part = [reading.parts objectAtIndex:i];
+		ORMRole *role = part.roleIndex < [roles count] ? [roles objectAtIndex:part.roleIndex] : nil;
+		NSArray *each = ORMNamesOf(role.player);
+		sets[i].count = [each count];
+		sets[i].names = calloc([each count], sizeof(unichar *));
+		sets[i].lengths = calloc([each count], sizeof(NSUInteger));
+		for (NSUInteger n = 0; n < [each count]; n++) {
+			NSString *name = [each objectAtIndex:n];
+			sets[i].lengths[n] = [name length];
+			sets[i].names[n] = malloc(sizeof(unichar) * ([name length] + 1));
+			[name getCharacters:sets[i].names[n] range:NSMakeRange(0, [name length])];
+		}
 	}
-	return expression == [NSNull null] ? nil : expression;
+	ORMMatch match = { [atoms bytes], text, length, _prefixMode, sets, quantifiers, names };
+	/* From its start, whitespace before it left out. */
+	NSUInteger end = ORMMatchAtoms(&match, 0, ORMSpacesAt(text, length, 0));
+	for (NSUInteger i = 0; i < parts; i++) {
+		for (NSUInteger n = 0; n < sets[i].count; n++) {
+			free(sets[i].names[n]);
+		}
+		free(sets[i].names);
+		free(sets[i].lengths);
+	}
+	free(sets);
+	return end;
 }
 
 /* The readings to match a clause against: each reading of each fact type,
@@ -416,22 +737,51 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 	return clauses;
 }
 
+/* The words of a reading, its placeholders left out. */
+static NSArray<NSString *> *
+ORMReadingWords(NSString *reading)
+{
+	NSMutableArray *words = [NSMutableArray array];
+	NSMutableString *word = [NSMutableString string];
+	NSUInteger length = [reading length];
+	for (NSUInteger i = 0; i <= length; i++) {
+		unichar c = i < length ? [reading characterAtIndex:i] : ' ';
+		if (c == '{') {
+			NSUInteger close = i + 1;
+			while (close < length && ORMIsDigit([reading characterAtIndex:close])) {
+				close++;
+			}
+			if (close > i + 1 && close < length && [reading characterAtIndex:close] == '}') {
+				i = close;
+				c = ' ';
+			}
+		}
+		if (c == ' ' || c == '\t') {
+			if ([word length] > 0) {
+				[words addObject:[word copy]];
+				[word setString:@""];
+			}
+			continue;
+		}
+		[word appendFormat:@"%C", c];
+	}
+	return words;
+}
+
 - (NSArray<ORMSentenceClause *> *)allMatches:(NSString *)text omit:(BOOL)omit
 {
 	NSMutableArray *clauses = [NSMutableArray array];
-	NSRegularExpression *placeholders = [NSRegularExpression regularExpressionWithPattern:@"\\{\\d+\\}" options:0 error:NULL];
+	NSUInteger length = [text length];
+	unichar *chars = malloc(sizeof(unichar) * (length + 1));
+	[text getCharacters:chars range:NSMakeRange(0, length)];
 	for (NSArray *candidate in [self readings]) @autoreleasepool {
 		ORMFactType *fact = [candidate objectAtIndex:0];
 		NSString *reading = [candidate objectAtIndex:1];
 		NSArray *roles = [candidate objectAtIndex:2];
 		/* A reading whose own words the clause lacks cannot match it. */
 		BOOL possible = YES;
-		NSString *words = [placeholders stringByReplacingMatchesInString:reading options:0
-		                                                           range:NSMakeRange(0, [reading length])
-		                                                    withTemplate:@" "];
-		for (NSString *word in [words componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]) {
-			if ([word length] > 0 && [word rangeOfString:@"-"].location == NSNotFound
-			    && [text rangeOfString:word].location == NSNotFound) {
+		for (NSString *word in ORMReadingWords(reading)) {
+			if ([word rangeOfString:@"-"].location == NSNotFound && [text rangeOfString:word].location == NSNotFound) {
 				possible = NO;
 				break;
 			}
@@ -439,44 +789,43 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 		if (!possible) {
 			continue;
 		}
-		NSRegularExpression *expression = [self expressionOf:reading roles:roles omit:omit];
-		if (expression == nil) {
-			continue;
-		}
-		NSTextCheckingResult *result = [expression firstMatchInString:text options:0
-		                                                       range:NSMakeRange(0, [text length])];
-		if (result == nil) {
-			continue;
-		}
 		ORMReadingText *parsed = [ORMReadingText readingTextWithString:reading arity:[roles count] reason:NULL];
-		NSMutableArray *terms = [NSMutableArray array];
-		NSUInteger group = 1;
-		for (NSUInteger i = 0; i < [parsed.parts count]; i++) {
-			ORMReadingPart *part = [parsed.parts objectAtIndex:i];
-			ORMSentenceTerm *term = [[ORMSentenceTerm alloc] init];
-			term.role = [[ORMSentenceRole alloc] init];
-			term.role.role = [roles objectAtIndex:part.roleIndex];
-			if (i == 0 && omit) {
-				term.omitted = YES;
-				term.name = term.role.role.player.name;
-			} else {
-				NSRange quantifier = [result rangeAtIndex:group];
-				NSRange name = [result rangeAtIndex:group + 1];
-				group += 2;
-				term.quantifier = quantifier.location != NSNotFound
-					? [[text substringWithRange:quantifier] lowercaseString] : nil;
-				term.name = [text substringWithRange:name];
+		NSUInteger parts = [parsed.parts count];
+		NSRange *quantifiers = calloc(parts + 1, sizeof(NSRange));
+		NSRange *names = calloc(parts + 1, sizeof(NSRange));
+		NSUInteger end = parsed != nil ? [self match:parsed roles:roles omit:omit text:chars length:length
+		                                 quantifiers:quantifiers
+		                                       names:names]
+		                               : NSNotFound;
+		if (end != NSNotFound) {
+			NSMutableArray *terms = [NSMutableArray array];
+			for (NSUInteger i = 0; i < parts; i++) {
+				ORMReadingPart *part = [parsed.parts objectAtIndex:i];
+				ORMSentenceTerm *term = [[ORMSentenceTerm alloc] init];
+				term.role = [[ORMSentenceRole alloc] init];
+				term.role.role = [roles objectAtIndex:part.roleIndex];
+				if (i == 0 && omit) {
+					term.omitted = YES;
+					term.name = term.role.role.player.name;
+				} else {
+					term.quantifier = quantifiers[i].location != NSNotFound
+						? [[text substringWithRange:quantifiers[i]] lowercaseString] : nil;
+					term.name = [text substringWithRange:names[i]];
+				}
+				[terms addObject:term];
 			}
-			[terms addObject:term];
+			ORMSentenceClause *clause = [[ORMSentenceClause alloc] init];
+			clause.factType = fact;
+			clause.terms = terms;
+			clause.consumed = end;
+			ORMReadingPart *last = [parsed.parts lastObject];
+			clause.endsWithTerm = [ORMTrimmed(last.followingText) length] == 0 && [last.postBoundText length] == 0;
+			[clauses addObject:clause];
 		}
-		ORMSentenceClause *clause = [[ORMSentenceClause alloc] init];
-		clause.factType = fact;
-		clause.terms = terms;
-		clause.consumed = NSMaxRange([result range]);
-		ORMReadingPart *last = [parsed.parts lastObject];
-		clause.endsWithTerm = [ORMTrimmed(last.followingText) length] == 0 && [last.postBoundText length] == 0;
-		[clauses addObject:clause];
+		free(quantifiers);
+		free(names);
 	}
+	free(chars);
 	return clauses;
 }
 
@@ -487,10 +836,6 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 {
 	NSArray *words = [ORMTrimmed(text) componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
 	words = [words filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
-	NSRegularExpression *quantifier = [NSRegularExpression
-		regularExpressionWithPattern:[NSString stringWithFormat:@"^(?i:(%@))$", ORMQuantifierPattern]
-		                     options:0
-		                       error:NULL];
 	NSMutableArray *terms = [NSMutableArray array];
 	NSMutableArray *reading = [NSMutableArray array];
 	BOOL leftOut = subject != nil;
@@ -500,7 +845,7 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 		NSUInteger length = 0;
 		for (NSUInteger n = MIN((NSUInteger)6, [words count] - i - 1); n >= 1 && found == nil; n--) {
 			NSString *phrase = [[words subarrayWithRange:NSMakeRange(i, n)] componentsJoinedByString:@" "];
-			if ([quantifier firstMatchInString:phrase options:0 range:NSMakeRange(0, [phrase length])] != nil) {
+			if (ORMIsQuantifier(phrase)) {
 				found = [phrase lowercaseString];
 				length = n;
 			}
@@ -989,12 +1334,10 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 		return YES;
 	}
 	BOOL antisymmetric = NO;
-	NSRegularExpression *isNot = [NSRegularExpression regularExpressionWithPattern:@" and (\\S+) is not (\\S+)$" options:0
-	                                                                         error:NULL];
-	NSTextCheckingResult *notSame = [isNot firstMatchInString:left options:0 range:NSMakeRange(0, [left length])];
-	if (notSame != nil) {
+	NSUInteger notSame = ORMAndIsNotAt(left);
+	if (notSame != NSNotFound) {
 		antisymmetric = YES;
-		left = [left substringToIndex:notSame.range.location];
+		left = [left substringToIndex:notSame];
 	}
 	NSArray *lefts = [left componentsSeparatedByString:@" and "];
 	ORMSentenceClause *first = [self clause:[lefts firstObject] subject:nil];
@@ -1254,16 +1597,13 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
  * ("0 to 140", "at least 18", "above 0 to below 100") as the editor's. */
 - (BOOL)values:(NSString *)text
 {
-	NSRegularExpression *form = [NSRegularExpression
-		regularExpressionWithPattern:@"^The possible values? of (.+?)(?: in the context of (.+))? (?:are|is) (.+)$"
-		                     options:0
-		                       error:NULL];
-	NSTextCheckingResult *result = [form firstMatchInString:text options:0 range:NSMakeRange(0, [text length])];
-	if (result == nil) {
+	NSArray *form = ORMValuesForm(text);
+	if (form == nil) {
 		return [self fail:@"Say \"The possible values of X are ...\"."];
 	}
-	NSString *name = [text substringWithRange:[result rangeAtIndex:1]];
-	NSString *list = [text substringWithRange:[result rangeAtIndex:3]];
+	NSString *name = [form objectAtIndex:0];
+	NSString *context = [form objectAtIndex:1] != [NSNull null] ? [form objectAtIndex:1] : nil;
+	NSString *list = [form objectAtIndex:2];
 	/* Items between commas outside quotes. */
 	NSMutableArray *items = [NSMutableArray array];
 	NSMutableString *item = [NSMutableString string];
@@ -1285,18 +1625,18 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 	BOOL bracketed = NO;
 	for (NSString *each in items) {
 		NSString *range = each;
-		NSArray *forms = @[ @[ @"^above (.+) to below (.+)$", @"(%@..%@)" ], @[ @"^above (.+) to (.+)$", @"(%@..%@]" ],
-		                    @[ @"^(.+) to below (.+)$", @"[%@..%@)" ], @[ @"^(.+) to (.+)$", @"%@..%@" ],
-		                    @[ @"^at least (.+)$", @"%@.." ], @[ @"^above (.+)$", @"(%@.." ],
-		                    @[ @"^at most (.+)$", @"..%@" ], @[ @"^below (.+)$", @"..%@)" ] ];
+		/* @[ before, between (none: one bound), what it is in the editor's
+		 * words ], the first that reads. */
+		NSArray *forms = @[ @[ @"above ", @" to below ", @"(%@..%@)" ], @[ @"above ", @" to ", @"(%@..%@]" ],
+		                    @[ @"", @" to below ", @"[%@..%@)" ], @[ @"", @" to ", @"%@..%@" ],
+		                    @[ @"at least ", [NSNull null], @"%@.." ], @[ @"above ", [NSNull null], @"(%@.." ],
+		                    @[ @"at most ", [NSNull null], @"..%@" ], @[ @"below ", [NSNull null], @"..%@)" ] ];
 		for (NSArray *pair in forms) {
-			NSRegularExpression *expression = [NSRegularExpression regularExpressionWithPattern:[pair firstObject]
-			                                                                             options:0
-			                                                                               error:NULL];
-			NSTextCheckingResult *match = [expression firstMatchInString:each options:0 range:NSMakeRange(0, [each length])];
+			id between = [pair objectAtIndex:1];
+			NSArray *match = ORMSplitAfter(each, [pair firstObject], between != [NSNull null] ? between : nil);
 			if (match != nil) {
-				NSString *a = [each substringWithRange:[match rangeAtIndex:1]];
-				NSString *b = [match numberOfRanges] > 2 ? [each substringWithRange:[match rangeAtIndex:2]] : nil;
+				NSString *a = [match firstObject];
+				NSString *b = [match count] > 1 ? [match lastObject] : nil;
 				range = b != nil ? [NSString stringWithFormat:[pair lastObject], a, b]
 				                 : [NSString stringWithFormat:[pair lastObject], a];
 				bracketed = bracketed || [range hasPrefix:@"("] || [range hasPrefix:@"["] || [range hasSuffix:@")"];
@@ -1309,8 +1649,8 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 	ORMSentenceConstraint *constraint = ORMMakeConstraint(ORMValueComparisonConstraint, @[]);
 	constraint.values = [ranges count] == 1 && bracketed
 		? [ranges firstObject] : [NSString stringWithFormat:@"{%@}", [ranges componentsJoinedByString:@", "]];
-	if ([result rangeAtIndex:2].location != NSNotFound) {
-		ORMSentenceClause *clause = [self clause:[text substringWithRange:[result rangeAtIndex:2]] subject:nil];
+	if (context != nil) {
+		ORMSentenceClause *clause = [self clause:context subject:nil];
 		ORMSentenceTerm *term = [clause termNamed:name];
 		if (term == nil) {
 			return [self fail:[NSString stringWithFormat:@"%@ plays no role there.", name]];
@@ -1335,8 +1675,7 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 	while ([text hasSuffix:@"."]) {
 		text = ORMTrimmed([text substringToIndex:[text length] - 1]);
 	}
-	NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:NULL];
-	text = [spaces stringByReplacingMatchesInString:text options:0 range:NSMakeRange(0, [text length]) withTemplate:@" "];
+	text = ORMSingleSpaced(text);
 	if (ORMHasPrefix(text, @"It is obligatory that ")) {
 		sentence->_modality = ORMDeontic;
 		text = [text substringFromIndex:[@"It is obligatory that " length]];
