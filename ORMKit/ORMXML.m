@@ -77,15 +77,25 @@ ORMIsWhitespace(unichar c)
 BOOL
 ORMIs(NSXMLNode *node, NSString *uri, NSString *local)
 {
-	return [node kind] == NSXMLElementKind && [[node URI] isEqualToString:uri]
-		&& (local == nil || [[node localName] isEqualToString:local]);
+	/* The name first: it tells most elements apart, and on GNUstep each
+	 * of -localName and -URI makes a new string of libxml2's. */
+	return [node kind] == NSXMLElementKind && (local == nil || [[node localName] isEqualToString:local])
+		&& [[node URI] isEqualToString:uri];
+}
+
+/* The element's first child, then each one's next: what -children lists,
+ * without the array GNUstep makes for each call. */
+static NSXMLNode *
+ORMFirstChild(NSXMLNode *element)
+{
+	return [element childCount] > 0 ? [element childAtIndex:0] : nil;
 }
 
 NSArray<NSXMLElement *> *
 ORMChildren(NSXMLElement *element, NSString *uri, NSString *local)
 {
 	NSMutableArray *found = [NSMutableArray array];
-	for (NSXMLNode *child in [element children]) {
+	for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 		if (ORMIs(child, uri, local)) {
 			[found addObject:child];
 		}
@@ -96,7 +106,7 @@ ORMChildren(NSXMLElement *element, NSString *uri, NSString *local)
 NSXMLElement *
 ORMChild(NSXMLElement *element, NSString *uri, NSString *local)
 {
-	for (NSXMLNode *child in [element children]) {
+	for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 		if (ORMIs(child, uri, local)) {
 			return (NSXMLElement *)child;
 		}
@@ -117,7 +127,7 @@ ORMGrandchildren(NSXMLElement *element, NSString *uri, NSString *local, NSString
 static void
 ORMCollect(NSXMLElement *element, NSString *uri, NSString *local, NSMutableArray *found)
 {
-	for (NSXMLNode *child in [element children]) {
+	for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 		if ([child kind] != NSXMLElementKind) {
 			continue;
 		}
@@ -369,7 +379,7 @@ ORMElementWithId(NSXMLDocument *document, NSString *elementId)
 		if ([ORMAttribute(element, @"id") isEqualToString:elementId]) {
 			return element;
 		}
-		for (NSXMLNode *child in [element children]) {
+		for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 			if ([child kind] == NSXMLElementKind) {
 				[pending addObject:child];
 			}
@@ -390,7 +400,7 @@ ORMIndexIds(NSXMLDocument *document)
 		if (elementId != nil) {
 			[index setObject:element forKey:elementId];
 		}
-		for (NSXMLNode *child in [element children]) {
+		for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 			if ([child kind] == NSXMLElementKind) {
 				[pending addObject:child];
 			}
@@ -522,7 +532,7 @@ ORMEscape(NSMutableString *out, NSString *text, BOOL attribute, NSString *newlin
 static BOOL
 ORMHasElementChildren(NSXMLElement *element)
 {
-	for (NSXMLNode *child in [element children]) {
+	for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 		if ([child kind] == NSXMLElementKind) {
 			return YES;
 		}
