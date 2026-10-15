@@ -50,13 +50,19 @@
 #import "ORMODataAnnotator.h"
 #import "ORMQuery.h"
 #import "ORMCDModel+CoreData.h"
-#import "ORMQueryPlan.h"
+#if __has_include(<ORMRuntime/ORMRuntime.h>)
+#import <ORMRuntime/ORMRuntime.h>
+#else
+#import "ORMRuntime.h"
+#endif
 #import "ORMQueryPlanner.h"
-#import "ORMQueryInterpreter.h"
-#import "ORMCursor.h"
 #import "ORMRuleChecker.h"
 #import "ORMIssueFinder.h"
+#import "ORMDeriver.h"
+#import "ORMJoinedFacade.h"
+#import "ORMEntityMerger.h"
+#import "ORMOutlineReader.h"
 #import "ORMPopulationStore.h"
 #import "ORMPopulationChecker.h"
 #import "ORMPopulationGenerator.h"
-#import "ORMQueryOData.h"
+#import "ORMQueryOData+ORMKit.h"

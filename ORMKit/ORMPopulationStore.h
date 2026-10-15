@@ -25,6 +25,11 @@
 @property (nonatomic, readonly, strong) ORMModel *model;
 @property (nonatomic, readonly, strong) ORMCDModel *coreData;
 
+/* A date as NORMA's samples write one: a day ("2026-10-06"), a moment
+ * ("2026-10-06T14:30:00", or with a space), or a time, UTC. nil for other
+ * text. */
++ (NSDate *)dateOfText:(NSString *)text;
+
 /* The model the store has: the mapped one, every property optional. What
  * an interpreter runs plans against the context with. */
 @property (nonatomic, readonly, strong) NSManagedObjectModel *managedObjectModel;

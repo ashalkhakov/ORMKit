@@ -1,0 +1,220 @@
+# The runtime: tables and a driver
+
+An app built from an ORM model needs the model's behaviour at run time:
+- its queries;
+- the rules Core Data cannot check ([RULES.md](RULES.md), [COREDATA-MAPPING.md](COREDATA-MAPPING.md));
+- the derived and stored fact types kept up to date ([DERIVATION.md](DERIVATION.md));
+- the entity types kept in several entities ([JOINED-ENTITIES.md](JOINED-ENTITIES.md)).
+
+It does not need the full ORMKit framework: the `.orm` document, the
+model, the editors, the mapper or the verbalizer.
+
+Today that behaviour is generated as Objective-C, written as text by
+`ORMCoreDataValidation` and `ORMJoinedFacade`:
+- about 300 lines of helpers live in `@"..."` literals;
+- each rule, derivation and joined type is emitted as code around them.
+
+This does not hold up:
+- The emitted code is compiled only when a model generates it. Tests
+  build it with clang and load it, on Apple only, so GNUstep never runs
+  it.
+- Each new shape needs an emitter of its own. A derivation is a key-path
+  walk (`PFXDerive`) because that is all the emitter writes. A count, a
+  not or a join through a member would each be another emitter.
+- The same behaviour is written twice: once as the interpreter ORMKit runs
+  for the designer and sample populations, and once as emitted text.
+
+## The parser generators' answer
+
+Lexer and parser generators met this long ago. They take one of three
+approaches:
+- **Code.** re2c, and ANTLR's recursive descent, emit the logic itself.
+- **Tables.** flex and yacc/bison emit tables, read by a driver written
+  and tested once (`yylex`, `yyparse`).
+- **Both.** bison writes tables for the automaton, and code where the
+  grammar has its own: the semantic actions, and `y.tab.h` with the token
+  numbers and `YYSTYPE`.
+
+ORMKit takes the third: tables for behaviour, code for the typed surface.
+
+- **The tables** are the plans: queries, rules, derivations and joined
+  types as data, in property lists in the app's resources.
+- **The driver** is a small library, `ORMRuntime`, that runs them. It is
+  ordinary Objective-C, compiled and tested on both platforms.
+- **The generated code** is declarations, as `y.tab.h` is: the façade
+  classes' properties, typed query methods, the validation categories
+  that call into the driver, and loading the tables.
+
+The tables are trees, not a stream of instructions. Parser tables are
+flat because an automaton is; a plan nests, as a not around a count around
+a join does. A plan is to `ORMRuntime` what an archived `NSPredicate` in a
+compiled Core Data model is to Core Data: a tree, interpreted. Flattening
+it would gain nothing, since running a plan costs its fetches, not its
+dispatch. It would also lose `-[ORMQueryPlan text]`, which prints a plan
+for reading.
+
+## What is there already
+
+The plan is already model free. `ORMQueryPlan.h`, `ORMQueryInterpreter`
+and `ORMCursor` import only Foundation, Core Data and ODataKit's
+`ODataPropertyMapper`, and each other. Nothing of `ORMModel`, `ORMCDModel`
+or NSXML is in them. The planner, which needs the model, makes plans; the
+interpreter only runs them. So the split is where the code already divides:
+
+| | ORMKit (tools, designer) | ORMRuntime (apps, and ORMKit) |
+| --- | --- | --- |
+| queries | `ORMQuery`, `ORMQueryPlanner`: from the model to plans | `ORMQueryPlan`, `ORMQueryInterpreter`, `ORMCursor`, `ORMQueryOData`: plans run, or sent |
+| tables | written: the generator | read: the archive |
+| rules | which constraints, as which plans or checks | the checks, at validation and at save |
+| derivations | which, in what order, reached back from which changes | the save hook: affected roots, derive, store |
+| joined types | members, correlations, held properties | the façade's base class, member rows kept up |
+
+ORMKit links ORMRuntime. Its own dynamic path (`ORMDeriver`,
+`ORMRuleChecker`, the population store) runs on the same driver as
+the apps, so one implementation is tested by both.
+
+## The tables
+
+One property list for each mapping, `<Name>.ormplans`, written beside the
+validation files and added to the app's resources. It is an XML plist, so
+a change to the model shows as a readable diff.
+
+```
+{
+  format = 1;                      // the driver refuses a later major
+  model = "Company";
+  queries = { Reporting = { read = Employee; where = {...}; columns = (...); }; ... };
+  rules = { Employee = ( { constraint = "..."; text = "..."; keys = (...); check = {...}; deontic = NO; } ); ... };
+  derivations = ( { text = "..."; root = Employee; plan = {...}; target = reportsTo; kind = objects; backs = (...); } );
+  joined = { Customer = { hub = CRMCustomer; members = ( { entity = BillingAccount; via = CRMCustomer; on = ((userId, userId)); outer = YES; holds = (balance); } ); }; };
+}
+```
+
+- **A plan** is archived node for node: conditions by kind, paths as
+  variable and steps, values, definitions by name, columns.
+  `-[ORMQueryPlan propertyList]` writes it, and
+  `+planWithPropertyList:error:` reads it back, checking each part.
+- **A rule's check** is a tree of a few kinds the driver knows
+  (`ORMRuleCheck`): presence, all, any, not, counts, set comparisons,
+  ring properties (`ring = ( acyclic ); key = reportsTo`), comparisons
+  and ranges. A constraint query's is its plan:
+  `{ not = { plan = ... }; }`, the object violating the rule where the
+  plan's condition holds of it.
+- **A derivation** is its plan, the property it sets, and the trails back
+  from what it reads to its root. The generator writes the derivations
+  in dependency order.
+- **A joined type** is its members as the mapper names them, and its
+  façade's properties, each the key and the entity that keeps it.
+
+The tables are made when the code is: by Synchronize, `ormtool coredata`
+and `ormtool validation`. Planning stays in ORMKit, and the driver never
+plans.
+
+## The generated code
+
+Declarations, and calls into the driver:
+
+```objc
+// CompanyValidation.m
+@implementation Employee (ORMValidation)
+- (BOOL)orm_validateConstraints:(NSError **)error
+{
+    ORMValidator *validator = [ORMValidator validatorNamed:@"Company" error:error];
+    return validator != nil && [validator validate:self error:error];
+}
+@end
+
+// The façade, typed; its properties are the driver's
+@interface Customer : ORMJoinedObject
+@property (nonatomic, strong) NSNumber *userId;
+@property (nonatomic, strong) NSNumber *balance;
+@end
+@implementation Customer
+@dynamic userId, balance;      // resolved by ORMJoinedObject from the table
++ (NSString *)tablesName { return @"Customers"; }
+@end
+
+// A query, by name
++ (ORMQueryResult *)polyglotsInContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+    return [[ORMTables tablesNamed:@"Company" error:error] runQuery:@"Polyglots" inContext:context error:error];
+}
+```
+
+- `+[ORMTables tablesNamed:error:]` reads `Company.ormplans` once, from the
+  main bundle or a framework or bundle loaded, unless tables of the name
+  were registered (a test's, a download).
+- A query is two methods of `<Name>Queries`: run in a context, or as a
+  request to the model's OData service.
+- `orm_prepareForSave:` loads the tables and calls `ORMSaveHook`: derive,
+  prepare the joined types, check the rules, report.
+
+## Testing
+
+- **The driver:** its own tests, on Apple and GNUstep, over SQLite stores.
+  They cover the derivations, rules and joined-object cases the emitted
+  code covers today, and the gaps listed in JOINED-ENTITIES.md.
+- **The generator:** tables compared as property lists. No clang, no
+  `dlopen`.
+- **End to end:** the tables a model makes, loaded into the driver,
+  against a store: on both platforms, where today it is Apple only.
+- **The archive:** every plan the query tests make goes through an XML
+  property list and back unchanged (`-[ORMTestCase archived:]`). The
+  plans the query tests run, and every query of every sample model, are
+  run from the copy read back.
+
+## Costs
+
+- **The format has a version.** A driver refuses tables of a later major
+  version, and reads every earlier one it knows. The generator writes the
+  latest.
+- **Apps link ORMRuntime.** It has no ORM model, and depends on
+  Foundation, Core Data and ODataKit (its property mapper, and its client
+  library's query builder, which writes the requests' URLs).
+- **OData:** `ORMQueryOData` reads only the `NSManagedObjectModel`, as the
+  interpreter does, so it is the runtime's. ORMKit's ways to make one of
+  an `ORMCDModel`, or of a query, planned first, are a category of its own
+  (`ORMQueryOData+ORMKit.h`).
+- **Speed:** a plan interpreted, not compiled. It costs its fetches. If a
+  plan ever shows up in a profile, it can be compiled to code behind the
+  same interface (re2c's answer for a hot lexer), but nothing asks for
+  that now.
+
+## Steps
+
+1. **Extract** (done). `ORMQueryPlan`, `ORMQueryInterpreter` and
+   `ORMCursor` are in `ORMRuntime/`, with no change in behaviour. ORMKit
+   links it, and imports `<ORMRuntime/ORMRuntime.h>` where the framework
+   is, `"ORMRuntime.h"` from the tree beside it otherwise. Build it
+   before ORMKit on GNUstep (`make -C ORMRuntime`).
+2. **Archive** (done). Plans had a property list form already. Every plan
+   the tests make now goes through it, written as XML and read back, and
+   is run from what is read. That found the reader refusing a
+   calculation's `value` and `distinct`.
+3. **Derivations and the save hook** (done). `ORMTables` reads the tables,
+   and `ORMSaveHook` walks back from the changes and derives, asking each
+   plan of the affected objects in memory. The generator writes
+   `<Name>.ormplans` and calls the driver from `orm_prepareForSave:`.
+   `PFXDerive`, `PFXRoots` and `PFXWalk` are gone, and so is the limit to
+   plain chains.
+4. **Rules** (done). Each rule is a check: a few kinds the driver knows
+   (presence, counts, set comparisons, ring properties, comparisons,
+   ranges) and plans for constraint queries. `ORMValidator` checks them,
+   and the validation category calls it. The emitted helpers left are the
+   three the joined types' code uses.
+5. **Joined types** (done). `ORMJoinedObject` is the façade's base class,
+   and each type's members and properties are its table. The façade
+   classes are declarations: typed `@dynamic` properties, and the tables'
+   name. The save hook prepares the types' hub objects. Nothing is
+   emitted but declarations, and the joined tests run the driver on both
+   platforms, through a façade class of their own.
+6. **Queries for apps** (done). The generator writes each list and
+   calculation the store can run into the tables, and `<Name>Queries`
+   runs it by name, in a context or as an OData request. `ORMQueryOData`
+   moved into ORMRuntime. Rows are arrays, as `ORMQueryResult` has them;
+   a class of typed rows for each query is for later.
+7. **Remove the emitters** (done along the way). What the generator writes
+   is declarations, and one-line calls into the driver.
+
+Each step keeps the tests passing, and steps 3 to 5 each replace one
+emitter.

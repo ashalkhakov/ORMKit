@@ -96,6 +96,7 @@ ORMCDUserInfo(NSXMLElement *element)
 	copy.maxValue = self.maxValue;
 	copy.regularExpression = self.regularExpression;
 	copy.allowsExternalStorage = self.allowsExternalStorage;
+	copy.derivation = self.derivation;
 	return copy;
 }
 
@@ -279,11 +280,13 @@ ORMCDUserInfo(NSXMLElement *element)
 	attribute.maxValue = ORMCDAttr(element, @"maxValueString");
 	attribute.regularExpression = ORMCDAttr(element, @"regularExpressionString");
 	attribute.allowsExternalStorage = ORMCDYes(element, @"allowsExternalBinaryDataStorage");
+	attribute.derivation = ORMCDYes(element, @"derived") ? ORMCDAttr(element, @"derivationExpression") : nil;
 	attribute.userInfo = ORMCDUserInfo(element);
 	attribute.extraAttributes = ORMCDExtras(element, @[ @"name", @"optional", @"attributeType", @"defaultValueString",
 	                                                    @"minValueString", @"maxValueString",
 	                                                    @"regularExpressionString",
-	                                                    @"allowsExternalBinaryDataStorage" ]);
+	                                                    @"allowsExternalBinaryDataStorage", @"derived",
+	                                                    @"derivationExpression" ]);
 	return attribute;
 }
 
@@ -529,6 +532,8 @@ ORMCDIsScalar(NSString *type)
 	ORMCDPut(out, @"defaultValueString", attribute.defaultValue);
 	ORMCDPut(out, @"regularExpressionString", attribute.regularExpression);
 	ORMCDPut(out, @"allowsExternalBinaryDataStorage", attribute.allowsExternalStorage ? @"YES" : nil);
+	ORMCDPut(out, @"derived", attribute.derivation != nil ? @"YES" : nil);
+	ORMCDPut(out, @"derivationExpression", attribute.derivation);
 	NSMutableDictionary *extras = [attribute.extraAttributes mutableCopy];
 	if ([extras objectForKey:@"usesScalarValueType"] == nil
 	    && (ORMCDIsScalar(attribute.attributeType) || [attribute.attributeType isEqualToString:@"Date"]

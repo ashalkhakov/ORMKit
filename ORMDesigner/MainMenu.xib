@@ -23,6 +23,11 @@
                                     <action selector="orderFrontStandardAboutPanel:" target="-3" id="aboutORMDesignerAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Check for Updates…" tag="1001" id="checkForUpdatesItem">
+                                <connections>
+                                    <action selector="checkForUpdates:" target="-2" id="checkForUpdatesAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem isSeparatorItem="YES" id="separator"/>
                             <menuItem title="Hide ORMDesigner" keyEquivalent="h" id="hideORMDesigner">
                                 <connections>
@@ -302,6 +307,11 @@ CA
                             <menuItem title="Unobjectify Fact Type" id="unobjectifyFactType">
                                 <connections>
                                     <action selector="unobjectifyFactType:" target="-1" id="unobjectifyFactTypeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Merge Entity Types" id="mergeEntityTypes">
+                                <connections>
+                                    <action selector="mergeEntityTypes:" target="-1" id="mergeEntityTypesAction"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Show Verbalization of Model" keyEquivalent="v" id="showVerbalizationofModel">

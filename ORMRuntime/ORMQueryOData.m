@@ -1,8 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryOData.h"
-#import "ORMQueryPlanner.h"
 #import "ORMCursor.h"
-#import "ORMCDModel+CoreData.h"
 #import <CoreData/CoreData.h>
 #import <ODataKit/ODataApply.h>
 #import <ODataKit/ODataExpression.h>
@@ -149,6 +147,9 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 - (instancetype)initWithPlan:(ORMQueryPlan *)plan read:(NSEntityDescription *)read mapper:(ODataPropertyMapper *)mapper;
 /* The key paths from the object read that the rows look at. */
 - (NSArray<NSArray<NSString *> *> *)neededPaths;
+/* The key paths the condition reads, from what bound says each variable
+ * is; at the top, only what binds a listed variable. */
+- (void)collect:(ORMPlanCondition *)condition bound:(NSDictionary *)bound into:(NSMutableArray *)paths top:(BOOL)top;
 - (NSArray<NSArray *> *)rowsOf:(NSDictionary *)json;
 /* Whether the condition holds of the object, the variables bound. */
 - (BOOL)holds:(ORMPlanCondition *)condition object:(ORMODataObject *)read bindings:(NSDictionary *)bindings;
@@ -173,6 +174,36 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 	/* A bag's rows by group, where a group is a value (an identifier), by
 	 * the rows answered. */
 	NSMapTable<NSArray *, NSDictionary *> *_bagGroups;
+}
+
+/* A join that binds: the joined objects read for the page with the pairs'
+ * values. */
+- (NSArray<ORMODataObject *> *)membersMatching:(ORMPlanCondition *)condition
+                                        object:(ORMODataObject *)read
+                                      bindings:(NSDictionary *)bindings
+{
+	NSArray *joined = condition.definition.name != nil ? [self.answers objectForKey:condition.definition.name] : nil;
+	NSMutableArray *ours = [NSMutableArray array];
+	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
+		id our = [[self valuesAt:[pair firstObject] object:read bindings:bindings] firstObject];
+		if (our == nil || our == [NSNull null]) {
+			return @[];
+		}
+		[ours addObject:our];
+	}
+	NSMutableArray *found = [NSMutableArray array];
+	for (ORMODataObject *theirs in joined ?: @[]) {
+		BOOL equal = YES;
+		for (NSUInteger i = 0; i < [condition.pairs count] && equal; i++) {
+			id our = [ours objectAtIndex:i];
+			id their = [[self valuesAt:[[condition.pairs objectAtIndex:i] lastObject] object:theirs bindings:@{}] firstObject];
+			equal = [our isKindOfClass:[ORMODataObject class]] ? [self object:our is:their] : ORMJSONCompare(our, @"=", their);
+		}
+		if (equal) {
+			[found addObject:theirs];
+		}
+	}
+	return found;
 }
 
 /* Whether one of the join's objects has the pairs' values and meets its
@@ -277,6 +308,10 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 	    && [_listed containsObject:condition.variable]) {
 		return YES;
 	}
+	if (condition.kind == ORMPlanMatches && condition.boundVariable != nil
+	    && ([_listed containsObject:condition.boundVariable] || [self bindsListed:condition.operand])) {
+		return YES;
+	}
 	for (ORMPlanCondition *operand in condition.operands) {
 		if ([self bindsListed:operand]) {
 			return YES;
@@ -303,6 +338,26 @@ ORMKeysFromRead(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
 	return base != nil ? [base arrayByAddingObjectsFromArray:path.keys] : nil;
 }
 
+/* The keys of each variable the condition binds, from what bound holds,
+ * added to it. */
+static void
+ORMVariableKeys(ORMPlanCondition *condition, NSMutableDictionary<NSString *, NSArray *> *bound)
+{
+	if (condition == nil) {
+		return;
+	}
+	if (condition.variable != nil && condition.kind != ORMPlanMatches && condition.kind != ORMPlanNot) {
+		NSArray *collection = ORMKeysFromRead(condition.path, bound);
+		if (collection != nil) {
+			[bound setObject:collection forKey:condition.variable];
+		}
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMVariableKeys(operand, bound);
+	}
+	ORMVariableKeys(condition.operand, bound);
+}
+
 - (void)collect:(ORMPlanCondition *)condition bound:(NSDictionary *)bound into:(NSMutableArray *)paths top:(BOOL)top
 {
 	if (condition == nil) {
@@ -314,7 +369,9 @@ ORMKeysFromRead(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
 		}
 		return;
 	}
-	BOOL binds = (condition.kind == ORMPlanExists || condition.kind == ORMPlanMaybe) && [self bindsListed:condition];
+	BOOL binds = (condition.kind == ORMPlanExists || condition.kind == ORMPlanMaybe
+	              || (condition.kind == ORMPlanMatches && condition.boundVariable != nil))
+		&& [self bindsListed:condition];
 	if (top && !binds) {
 		/* The filter's. */
 		return;
@@ -360,7 +417,8 @@ ORMKeysFromRead(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
 		}
 	}
 	add(condition.valuePath, inner);
-	if (condition.kind != ORMPlanMatches && condition.operand != nil) {
+	if ((condition.kind != ORMPlanMatches || condition.boundVariable != nil) && condition.operand != nil) {
+		/* A join's binding: what is asked of the object read in it. */
 		[self collect:condition.operand bound:inner into:paths top:NO];
 	}
 }
@@ -690,6 +748,19 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		return NO;
 	}
 	case ORMPlanMatches:
+		if (condition.boundVariable != nil) {
+			if (condition.isOptional) {
+				return YES;
+			}
+			for (ORMODataObject *member in [self membersMatching:condition object:read bindings:bindings]) {
+				NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+				[inner setObject:member forKey:condition.boundVariable];
+				if (condition.operand == nil || [self holds:condition.operand object:read bindings:inner]) {
+					return YES;
+				}
+			}
+			return NO;
+		}
 		return [self matches:condition object:read bindings:bindings];
 	case ORMPlanMaybe:
 		/* Asking nothing. */
@@ -753,6 +824,23 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		}
 		return ways;
 	}
+	case ORMPlanMatches: {
+		if (condition.boundVariable == nil || (top && ![self bindsListed:condition] && condition.isOptional)) {
+			return top || [self holds:condition object:read bindings:bindings] ? @[ bindings ] : @[];
+		}
+		/* Each joined object that matches, bound; or, optional, none. */
+		NSMutableArray *ways = [NSMutableArray array];
+		for (ORMODataObject *member in [self membersMatching:condition object:read bindings:bindings]) {
+			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+			[inner setObject:member forKey:condition.boundVariable];
+			if (condition.operand == nil) {
+				[ways addObject:inner];
+			} else {
+				[ways addObjectsFromArray:[self bindingsOf:condition.operand object:read bindings:inner top:NO]];
+			}
+		}
+		return [ways count] > 0 || !condition.isOptional ? ways : @[ bindings ];
+	}
 	default:
 		return top || [self holds:condition object:read bindings:bindings] ? @[ bindings ] : @[];
 	}
@@ -813,7 +901,6 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 
 @implementation ORMQueryOData
 {
-	ORMCDModel *_coreData;
 	NSManagedObjectModel *_managed;
 	ODataPropertyMapper *_mapper;
 	NSEntityDescription *_read;
@@ -842,21 +929,11 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSMutableArray<ORMQueryODataJoin *> *_wholeJoins;
 }
 
-+ (instancetype)requestForQuery:(ORMQuery *)query
-                          model:(ORMModel *)model
-                        mapping:(ORMCoreDataMapping *)mapping
-                          error:(NSError **)error
-{
-	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:mapping];
-	return [self requestForPlan:[planner planForQuery:query] coreData:planner.coreData error:error];
-}
-
-+ (instancetype)requestForPlan:(ORMQueryPlan *)plan coreData:(ORMCDModel *)coreData error:(NSError **)error
++ (instancetype)requestForPlan:(ORMQueryPlan *)plan model:(NSManagedObjectModel *)model error:(NSError **)error
 {
 	ORMQueryOData *request = [[self alloc] init];
 	request->_plan = plan;
-	request->_coreData = coreData;
-	request->_managed = [coreData managedObjectModel];
+	request->_managed = model;
 	request->_mapper = [[ODataPropertyMapper alloc] init];
 	request->_notes = [NSMutableArray arrayWithArray:plan.notes ?: @[]];
 	request->_joins = [NSMutableArray array];
@@ -948,7 +1025,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 - (BOOL)correlated:(ORMPlanCondition *)condition
 {
 	return condition.kind == ORMPlanMatches
-	       && (condition.variable != nil || [[condition.plan.condition freeVariables] count] > 0);
+	       && (condition.variable != nil || condition.boundVariable != nil
+	           || [[condition.plan.condition freeVariables] count] > 0);
 }
 
 /* A request reading whole each correlated join in the condition. */
@@ -979,7 +1057,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSError *error = nil;
 	ORMQueryOData *joined = [ORMQueryOData requestForPlan:[ORMQueryPlan planReading:condition.plan.entityName where:reduced
 	                                                                        columns:@[] sorts:@[] notes:@[]]
-	                                             coreData:_coreData error:&error];
+	                                             model:_managed error:&error];
 	if (joined == nil || theirEntity == nil) {
 		[self fail:error];
 		return;
@@ -996,6 +1074,23 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSMutableArray *read = [NSMutableArray arrayWithArray:[paths pathsOf:joinedCondition from:nil]];
 	for (NSArray<ORMPlanPath *> *pair in condition.pairs) {
 		[read addObject:[pair lastObject].keys];
+	}
+	if (condition.boundVariable != nil) {
+		/* A join that binds: what is asked of the objects it binds, and
+		 * what the columns list of them, or of what is bound from them. */
+		NSMutableDictionary *bound = [NSMutableDictionary dictionaryWithObject:@[] forKey:condition.boundVariable];
+		ORMVariableKeys(condition.operand, bound);
+		[paths collect:condition.operand bound:bound into:read top:NO];
+		for (ORMPlanColumn *column in _plan.columns) {
+			NSArray *base = column.path.variable != nil ? [bound objectForKey:column.path.variable] : nil;
+			ORMPlanPath *value = [column valuePath];
+			if (base != nil && value != nil) {
+				[read addObject:[base arrayByAddingObjectsFromArray:value.keys]];
+			}
+			for (NSArray *keys in base != nil ? column.identifierParts ?: @[] : @[]) {
+				[read addObject:[[base arrayByAddingObjectsFromArray:column.path.keys] arrayByAddingObjectsFromArray:keys]];
+			}
+		}
 	}
 	ORMODataLevel *level = [ORMODataLevel levelOf:theirEntity];
 	[self need:read from:theirEntity into:level];
@@ -1231,7 +1326,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			continue;
 		}
 		NSError *error = nil;
-		ORMQueryOData *request = [ORMQueryOData requestForPlan:bag.plan coreData:_coreData error:&error];
+		ORMQueryOData *request = [ORMQueryOData requestForPlan:bag.plan model:_managed error:&error];
 		if (request == nil) {
 			[self fail:error];
 			return;
@@ -1701,7 +1796,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		return [ODataExpression literalWithValue:@YES];
 	}
 	NSError *error = nil;
-	ORMQueryOData *joined = [ORMQueryOData requestForPlan:condition.plan coreData:_coreData error:&error];
+	ORMQueryOData *joined = [ORMQueryOData requestForPlan:condition.plan model:_managed error:&error];
 	if (joined == nil) {
 		[self fail:error];
 		return nil;
@@ -1831,7 +1926,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSError *error = nil;
 	ORMQueryOData *joined = [ORMQueryOData requestForPlan:[ORMQueryPlan planReading:condition.plan.entityName where:reduced
 	                                                                        columns:@[] sorts:@[] notes:@[]]
-	                                             coreData:_coreData error:&error];
+	                                             model:_managed error:&error];
 	if (joined == nil) {
 		[self fail:error];
 		return NO;
@@ -1990,7 +2085,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSArray *conjuncts = condition == nil ? @[] : (condition.kind == ORMPlanAnd ? condition.operands : @[ condition ]);
 	NSMutableArray *kept = [NSMutableArray array];
 	for (ORMPlanCondition *conjunct in conjuncts) {
-		if (conjunct.kind == ORMPlanMaybe || (conjunct.kind == ORMPlanMatches && [self pageJoin:conjunct])) {
+		if (conjunct.kind == ORMPlanMaybe
+		    || (conjunct.kind == ORMPlanMatches && conjunct.boundVariable == nil && [self pageJoin:conjunct])) {
 			continue;
 		}
 		if ([self checked:conjunct]) {
@@ -2024,8 +2120,29 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 
 /* $select and $expand: each column's identifier, or its value, at the level
  * its path expands to; the key wherever nothing else is. */
+/* The variables a join that binds binds, and those bound from them. */
+static void
+ORMJoinedVariables(ORMPlanCondition *condition, BOOL inside, NSMutableSet *variables)
+{
+	if (condition == nil) {
+		return;
+	}
+	BOOL binding = condition.kind == ORMPlanMatches && condition.boundVariable != nil;
+	if (binding) {
+		[variables addObject:condition.boundVariable];
+	} else if (inside && condition.variable != nil && condition.kind != ORMPlanMatches) {
+		[variables addObject:condition.variable];
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMJoinedVariables(operand, inside, variables);
+	}
+	ORMJoinedVariables(condition.operand, inside || binding, variables);
+}
+
 - (BOOL)selectInto:(ODataMutableQueryOptions *)options
 {
+	NSMutableSet *joinedVariables = [NSMutableSet set];
+	ORMJoinedVariables(_plan.condition, NO, joinedVariables);
 	ORMODataLevel *top = [ORMODataLevel levelOf:_read];
 	NSMutableArray *computed = [NSMutableArray array];
 	for (ORMPlanColumn *column in _plan.columns) {
@@ -2034,6 +2151,12 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			[computed addObjectsFromArray:[_rows pathsOf:[ORMPlanCondition compare:column.value comparison:@"="
 			                                                                   with:column.value]
 			                                         from:nil]];
+			[_columnWire addObject:@[]];
+			continue;
+		}
+		if (column.path.variable != nil && [joinedVariables containsObject:column.path.variable]) {
+			/* A joined entity's (docs/JOINED-ENTITIES.md): its join reads
+			 * it. */
 			[_columnWire addObject:@[]];
 			continue;
 		}

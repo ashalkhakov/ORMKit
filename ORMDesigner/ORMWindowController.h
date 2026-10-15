@@ -48,6 +48,14 @@
 - (IBAction)showRelated:(id)sender;
 - (IBAction)objectifyFactType:(id)sender;
 - (IBAction)unobjectifyFactType:(id)sender;
+/* Model > Merge Entity Types: the two entity types selected made one, kept
+ * in both their entities (docs/JOINED-ENTITIES.md), by a value both have;
+ * asked which where there are several. */
+- (IBAction)mergeEntityTypes:(id)sender;
+/* The ways two entity types can be merged: each @[ the kept one, its
+ * value's role, the absorbed one, its value's role ], a candidate the
+ * model sees first. */
+- (NSArray<NSArray *> *)mergesOf:(NSArray<NSString *> *)entityTypeIds;
 - (IBAction)verbalizeModel:(id)sender;
 - (IBAction)exportDiagramAsPDF:(id)sender;
 - (IBAction)exportDiagramAsPNG:(id)sender;

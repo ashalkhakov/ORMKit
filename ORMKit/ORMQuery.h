@@ -55,6 +55,8 @@ typedef NS_ENUM(NSInteger, ORMQueryKind) {
 	ORMQueryList,
 	ORMQueryConstraint,
 	ORMQueryCalculation,
+	/* Its rows are a fact type's facts (docs/DERIVATION.md). */
+	ORMQueryDerivation,
 };
 
 /* What a calculation computes of its node's values: the one value, or an
@@ -85,6 +87,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, weak) ORMQueryStep *step;
 /* Ticked: listed in the result. */
 @property (nonatomic, readonly) BOOL isProjected;
+/* A derivation's column: the role of its fact type it is, where the query
+ * says (a NORMA rule's projections are not in outline order); nil for the
+ * role at its place. */
+@property (nonatomic, readonly, weak) ORMRole *derivedRole;
 /* A condition on it: "=", "<>", "<", "<=", ">", ">=", and the value, as
  * typed (an entity's is its identifier's). nil for none. */
 @property (nonatomic, readonly, copy) NSString *comparison;
@@ -153,12 +159,34 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly) BOOL isDeontic;
 @property (nonatomic, readonly) ORMQueryCalculationFunction calculationFunction;
 @property (nonatomic, readonly, weak) ORMQueryNode *calculatedNode;
+/* A derivation's fact type: its listed columns are that fact type's roles,
+ * in its order (nil: none yet). */
+@property (nonatomic, readonly, weak) ORMFactType *derivedFactType;
 /* "value", "count", "total", "avg", "max", "min". */
 + (NSString *)nameOfCalculationFunction:(ORMQueryCalculationFunction)function;
 
 /* The model's queries, read from its document. */
 + (NSArray<ORMQuery *> *)queriesInModel:(ORMModel *)model;
 + (ORMQuery *)queryWithId:(NSString *)identifier inModel:(ORMModel *)model;
+/* The derivation of the fact type, if a query derives it. */
++ (ORMQuery *)derivationOf:(ORMFactType *)factType inModel:(ORMModel *)model;
+/* The model's derivations: its derivation queries, and the rules NORMA
+ * keeps as a role path, read as queries where one is plain (one path, no
+ * split, calculation, condition, negation or outer join, each role
+ * projected), for fact types no query derives. Such a query is not in the
+ * document: its id is the rule's path's. */
++ (NSArray<ORMQuery *> *)derivationsInModel:(ORMModel *)model;
+/* A derivation's ticked nodes, in the order of its fact type's roles: each
+ * the role its node says it is, else the one at its place; nil when they
+ * are not one of each role. */
+- (NSArray<ORMQueryNode *> *)derivedColumns;
+/* The query as the planner plans it (docs/DERIVATION.md): each step through
+ * a derived fact type that is not stored put as its derivation's path, the
+ * derivation's columns for the step's roles the step's nodes. The query
+ * itself where there is none; nil, and why in notes, where a step cannot
+ * be expanded (a rule NORMA keeps as a path that is not plain, a
+ * derivation through itself, a path that is not plain). */
+- (ORMQuery *)expandedInModel:(ORMModel *)model notes:(NSMutableArray<NSString *> *)notes;
 /* The roles a query can go on through from a node of the type: those it
  * and its supertypes play, its subtype links included, its reference mode
  * not (a condition on the node compares its identifier). */
@@ -183,6 +211,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* What a step reads as from the node above: "was awarded {1} in {2}",
  * with {n} the step's nth node. */
 + (NSString *)readingOfStep:(ORMQueryStep *)step;
+/* The same of a step not made: entered by the role, a node for each of the
+ * others but an implicit Boolean's, in the fact type's order. */
++ (NSString *)readingFrom:(ORMRole *)entry nodeRoles:(NSArray<ORMRole *> *)nodeRoles;
++ (NSArray<ORMRole *> *)nodeRolesFrom:(ORMRole *)entry;
 @end
 
 /* A document's queries, edited: each change through the editor, undone with
@@ -198,6 +230,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* What the query is for. Leaving a kind drops what was only its (a
  * constraint's modality, a calculation's function and node). */
 - (BOOL)setKind:(ORMQueryKind)kind ofQuery:(NSString *)queryId reason:(NSString **)reason;
+/* The fact type a derivation derives, written for NORMA too as the fact
+ * type's DerivationRule (docs/DERIVATION.md). NO for a query of another
+ * kind, a fact type another query derives, or one with NORMA's own rule. */
+- (BOOL)setDerivedFactType:(NSString *)factTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* A constraint's modality; NO for a query of another kind. */
 - (BOOL)setDeontic:(BOOL)deontic ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* A calculation's function, of a node of the query below its root; NO for

@@ -12,16 +12,14 @@ image=ormkit-gnustep
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   cat >&2 <<MSG
-$image has not been built yet. It is a local image, not one to pull:
+$image has not been built yet. It is a local image:
 
     docker build -f .tools/gnustep.Dockerfile -t $image .
 
-That compiles libobjc2, libdispatch, gnustep-make, base, gui, back and
-tools-xctest from source, so expect it to take a while. Afterwards this
-script is fast.
+That unpacks the releases .github/pins.env names, the ones CI builds on.
 MSG
   exit 1
 fi
 
 exec docker run --rm -t -v "$root":/src -w /src "$image" \
-  sh -c '. /gnustep/System/Library/Makefiles/GNUstep.sh; xvfb-run -a "$@"' -- "$@"
+  sh -c '. /opt/gnustep/System/Library/Makefiles/GNUstep.sh; xvfb-run -a "$@"' -- "$@"

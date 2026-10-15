@@ -237,6 +237,8 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 @property (nonatomic, readwrite, strong) ORMQueryPlan *plan;
 @property (nonatomic, readwrite, strong) ORMPlanDefinition *definition;
 @property (nonatomic, readwrite, copy) NSArray<NSArray<ORMPlanPath *> *> *pairs;
+@property (nonatomic, readwrite, copy) NSString *boundVariable;
+@property (nonatomic, readwrite) BOOL isOptional;
 @end
 
 @implementation ORMPlanCondition
@@ -398,6 +400,19 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 	return condition;
 }
 
++ (instancetype)matchesDefinition:(ORMPlanDefinition *)definition
+                            pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs
+                          binding:(NSString *)variable
+                            where:(ORMPlanCondition *)condition
+                         optional:(BOOL)optional
+{
+	ORMPlanCondition *matches = [self matchesDefinition:definition pairs:pairs outer:nil];
+	matches.boundVariable = variable;
+	matches.operand = condition;
+	matches.isOptional = optional;
+	return matches;
+}
+
 + (instancetype)among:(ORMPlanPath *)path trail:(NSArray<NSString *> *)keys from:(ORMPlanPath *)base
 {
 	ORMPlanCondition *condition = [self among:path trail:keys];
@@ -435,6 +450,12 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 			[inner removeObject:self.variable];
 		}
 		[free unionSet:inner];
+		/* What is asked of the object it binds. */
+		NSMutableSet *bound = [NSMutableSet setWithSet:[self.operand freeVariables] ?: [NSSet set]];
+		if (self.boundVariable != nil) {
+			[bound removeObject:self.boundVariable];
+		}
+		[free unionSet:bound];
 		return free;
 	}
 	if (self.operand != nil) {
@@ -517,6 +538,13 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 		NSMutableArray *pairs = [NSMutableArray array];
 		for (NSArray *pair in self.pairs) {
 			[pairs addObject:[NSString stringWithFormat:@"%@ = %@", [pair firstObject], [pair lastObject]]];
+		}
+		if (self.boundVariable != nil) {
+			return [NSString stringWithFormat:@"%@ %@ in %@ with %@%@", self.isOptional ? @"maybe" : @"some",
+			                                  self.boundVariable, self.definition.name ?: @"[a plan]",
+			                                  [pairs componentsJoinedByString:@", "],
+			                                  self.operand != nil ? [@" has " stringByAppendingString:[self.operand wrapped]]
+			                                                      : @""];
 		}
 		if (self.definition != nil) {
 			return [NSString stringWithFormat:@"%@ in %@%@", [pairs componentsJoinedByString:@", "], self.definition.name,
@@ -771,6 +799,164 @@ ORMHasPrefix(NSArray *path, NSArray *prefix)
 	return [self rowsFollowOrder:order key:nil];
 }
 
+/* The keys a path reads from the object read: its variable's collection's
+ * first. nil where its variable is bound nowhere this walk sees. */
+static NSArray<NSString *> *
+ORMTrailOf(ORMPlanPath *path, NSDictionary<NSString *, NSArray *> *bound)
+{
+	if (path == nil) {
+		return nil;
+	}
+	if (path.variable == nil) {
+		return path.keys;
+	}
+	NSArray *base = [bound objectForKey:path.variable];
+	return base != nil ? [base arrayByAddingObjectsFromArray:path.keys] : nil;
+}
+
+/* The path's trail, into trails when it has one. */
+static void
+ORMAddTrail(ORMPlanPath *path, NSDictionary *bound, NSMutableSet *trails)
+{
+	NSArray *trail = ORMTrailOf(path, bound);
+	if ([trail count] > 0) {
+		[trails addObject:trail];
+	}
+}
+
+/* Trails in the order of their dotted names. */
+static NSInteger
+ORMCompareTrails(NSArray *a, NSArray *b, void *context)
+{
+	(void)context;
+	return [[a componentsJoinedByString:@"."] compare:[b componentsJoinedByString:@"."]];
+}
+
+/* What the condition reads, into trails; NO where it reads what no path
+ * says. */
+static BOOL
+ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet *trails)
+{
+	if (condition == nil) {
+		return YES;
+	}
+	BOOL ok = YES;
+	switch (condition.kind) {
+	case ORMPlanAnd:
+	case ORMPlanOr:
+		for (ORMPlanCondition *operand in condition.operands) {
+			ok = ORMCollectTrails(operand, bound, trails) && ok;
+		}
+		return ok;
+	case ORMPlanNot:
+		return ORMCollectTrails(condition.operand, bound, trails);
+	case ORMPlanCompare:
+		if (condition.left.bag != nil || condition.right.bag != nil) {
+			return NO;
+		}
+		ORMAddTrail(condition.left.path, bound, trails);
+		ORMAddTrail(condition.right.path, bound, trails);
+		return YES;
+	case ORMPlanNotNull:
+	case ORMPlanIsOf:
+		ORMAddTrail(condition.path, bound, trails);
+		return YES;
+	case ORMPlanSame:
+		ORMAddTrail(condition.path, bound, trails);
+		ORMAddTrail(condition.otherPath, bound, trails);
+		return YES;
+	case ORMPlanAmong:
+		ORMAddTrail(condition.path, bound, trails);
+		return YES;
+	case ORMPlanExists:
+	case ORMPlanCount:
+	case ORMPlanAggregate:
+	case ORMPlanMaybe: {
+		NSArray *collection = ORMTrailOf(condition.path, bound);
+		if (collection == nil) {
+			return NO;
+		}
+		[trails addObject:collection];
+		NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bound];
+		if (condition.variable != nil) {
+			[inner setObject:collection forKey:condition.variable];
+		}
+		if (condition.valuePath != nil) {
+			NSArray *value = ORMTrailOf(condition.valuePath, inner);
+			if ([value count] > 0) {
+				[trails addObject:value];
+			}
+		}
+		return ORMCollectTrails(condition.operand, inner, trails);
+	}
+	case ORMPlanMatches:
+		return NO;
+	}
+	return NO;
+}
+
+/* The variables bound where the condition binds them, to their trails. */
+static void
+ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionary *all)
+{
+	if (condition == nil) {
+		return;
+	}
+	NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bound];
+	if (condition.variable != nil && condition.kind != ORMPlanMatches) {
+		NSArray *collection = ORMTrailOf(condition.path, bound);
+		if (collection != nil) {
+			[inner setObject:collection forKey:condition.variable];
+			[all setObject:collection forKey:condition.variable];
+		}
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMBindings(operand, inner, all);
+	}
+	ORMBindings(condition.operand, inner, all);
+}
+
+- (NSArray<NSArray<NSString *> *> *)trailsFromRead
+{
+	NSMutableSet *trails = [NSMutableSet set];
+	if (!ORMCollectTrails(self.condition, @{}, trails) || [self.definitions count] > 0) {
+		return nil;
+	}
+	for (ORMPlanColumn *column in self.columns) {
+		if (column.value != nil) {
+			return nil;
+		}
+		NSArray *trail = [self trailOfColumn:column];
+		if (trail == nil) {
+			return nil;
+		}
+		if ([trail count] > 0) {
+			[trails addObject:trail];
+		}
+	}
+	return [[trails allObjects] sortedArrayUsingFunction:ORMCompareTrails context:NULL];
+}
+
+- (ORMPlanColumn *)columnOfNode:(NSString *)nodeId
+{
+	for (ORMPlanColumn *column in self.columns) {
+		if ([column.nodeId isEqualToString:nodeId]) {
+			return column;
+		}
+	}
+	return nil;
+}
+
+- (NSArray<NSString *> *)trailOfColumn:(ORMPlanColumn *)column
+{
+	if (column.value != nil || column.path == nil) {
+		return nil;
+	}
+	NSMutableDictionary *bound = [NSMutableDictionary dictionary];
+	ORMBindings(self.condition, @{}, bound);
+	return ORMTrailOf(column.path, bound);
+}
+
 - (BOOL)listsTheObjectRead
 {
 	for (ORMPlanColumn *column in self.columns) {
@@ -934,6 +1120,12 @@ ORMConditionList(ORMPlanCondition *condition)
 		}
 		[list setObject:pairs forKey:@"pairs"];
 	}
+	if (condition.boundVariable != nil) {
+		[list setObject:condition.boundVariable forKey:@"binding"];
+	}
+	if (condition.isOptional) {
+		[list setObject:@YES forKey:@"optional"];
+	}
 	return list;
 }
 
@@ -1026,7 +1218,9 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 {
 	if ([list isKindOfClass:[NSDictionary class]] && [list objectForKey:@"aggregate"] != nil) {
 		id function = [list objectForKey:@"aggregate"];
-		if (![@[ @"count", @"sum", @"average", @"max", @"min" ] containsObject:function]) {
+		/* As the interpreter reads them: also the one value, and how many
+		 * values there are. */
+		if (![@[ @"value", @"distinct", @"count", @"sum", @"average", @"max", @"min" ] containsObject:function]) {
 			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no aggregate function.", function]);
 			return nil;
 		}
@@ -1186,6 +1380,13 @@ ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined
 		}
 		condition.pairs = pairs;
 	}
+	id binding = [list objectForKey:@"binding"];
+	if (binding != nil && !ORMPlanIsName(binding)) {
+		*error = ORMPlanError([NSString stringWithFormat:@"%@ is no variable's name.", binding]);
+		return nil;
+	}
+	condition.boundVariable = binding;
+	condition.isOptional = [[list objectForKey:@"optional"] boolValue];
 	return condition;
 }
 

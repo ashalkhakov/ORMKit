@@ -24,6 +24,11 @@
 /* Derived fact types keep their rule as NORMA's DerivationRule; ORMKit
  * edits only its free-text description. */
 - (BOOL)setDerivationNote:(NSString *)text of:(NSString *)factTypeId reason:(NSString **)reason;
+/* A derived fact type's completeness and storage, as NORMA keeps them on
+ * its rule (docs/DERIVATION.md): partly derived, some of its facts
+ * asserted; stored, its facts kept once derived. NO for a fact type with
+ * no rule, or only an older one (a DerivationExpression). */
+- (BOOL)setDerivationPartial:(BOOL)partial stored:(BOOL)stored of:(NSString *)factTypeId reason:(NSString **)reason;
 /* An objectified type nesting the fact type, and the link fact types
  * NORMA implies for it. Its id. */
 - (NSString *)objectifyFactType:(NSString *)factTypeId named:(NSString *)name reason:(NSString **)reason;

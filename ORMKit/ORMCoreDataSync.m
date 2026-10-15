@@ -232,10 +232,144 @@
 
 - (void)setMapping:(ORMObjectTypeMapping)how ofObjectType:(NSString *)objectTypeId inMapping:(NSString *)mappingId
 {
-	NSArray *names = @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable" ];
+	NSArray *names = @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable", @"Joined" ];
 	[self setChild:@"ObjectTypeMapping" target:objectTypeId attribute:@"As"
 	         value:how == ORMMapAutomatically ? nil : [names objectAtIndex:how] inMapping:mappingId
 	        action:@"Set Object Type Mapping"];
+}
+
+/* A member's element, and the mapping's. */
+- (NSXMLElement *)memberElement:(NSString *)memberId inMapping:(NSString *)mappingId
+{
+	for (NSXMLElement *option in ORMChildren([self mappingElement:mappingId], CD, @"ObjectTypeMapping")) {
+		for (NSXMLElement *member in ORMChildren(option, CD, @"Member")) {
+			if ([ORMAttribute(member, @"id") isEqualToString:memberId]) {
+				return member;
+			}
+		}
+	}
+	return nil;
+}
+
+- (NSString *)addMemberNamed:(NSString *)name
+                          by:(NSString *)identifierId
+                         via:(NSString *)viaMemberId
+                       outer:(BOOL)outer
+                ofObjectType:(NSString *)objectTypeId
+                   inMapping:(NSString *)mappingId
+{
+	if ([self mappingElement:mappingId] == nil || [name length] == 0) {
+		return nil;
+	}
+	NSXMLElement *was = nil;
+	for (NSXMLElement *each in ORMChildren([self mappingElement:mappingId], CD, @"ObjectTypeMapping")) {
+		was = [ORMRef(each) isEqualToString:objectTypeId] ? each : was;
+	}
+	/* Joined again, after it was mapped otherwise: its members, kept all
+	 * along, are back; its hub, the first, is not added twice. */
+	NSXMLElement *hub = ![ORMAttribute(was, @"As") isEqualToString:@"Joined"] ? ORMChild(was, CD, @"Member") : nil;
+	if (hub != nil) {
+		[self setMapping:ORMMapJoined ofObjectType:objectTypeId inMapping:mappingId];
+		return ORMAttribute(hub, @"id");
+	}
+	__block NSString *created = nil;
+	[_editor group:@"Add Joined Entity" with:^{
+		[self setMapping:ORMMapJoined ofObjectType:objectTypeId inMapping:mappingId];
+		NSXMLElement *option = nil;
+		for (NSXMLElement *each in ORMChildren([self mappingElement:mappingId], CD, @"ObjectTypeMapping")) {
+			option = [ORMRef(each) isEqualToString:objectTypeId] ? each : option;
+		}
+		[_editor change:@"Add Joined Entity" with:^{
+			NSXMLElement *member = ORMNewElementWithId(_editor.document, CD, @"Member", nil);
+			ORMSetAttribute(member, @"Name", name);
+			ORMSetAttribute(member, @"By", identifierId);
+			ORMSetAttribute(member, @"Via", viaMemberId);
+			if (outer) {
+				ORMSetAttribute(member, @"Outer", @"true");
+			}
+			[option addChild:member];
+			created = ORMAttribute(member, @"id");
+		}];
+	}];
+	return created;
+}
+
+- (void)removeMember:(NSString *)memberId inMapping:(NSString *)mappingId
+{
+	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
+	if (member == nil) {
+		return;
+	}
+	[_editor change:@"Remove Joined Entity" with:^{
+		[member detach];
+	}];
+}
+
+- (void)setOuter:(BOOL)outer ofMember:(NSString *)memberId inMapping:(NSString *)mappingId
+{
+	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
+	if (member == nil || ORMBoolAttribute(member, @"Outer", NO) == outer) {
+		return;
+	}
+	[_editor change:outer ? @"Make Joined Entity Outer" : @"Make Joined Entity Inner" with:^{
+		ORMSetAttribute(member, @"Outer", outer ? @"true" : nil);
+	}];
+}
+
+- (void)setCorrelationOptional:(BOOL)optional ofMember:(NSString *)memberId inMapping:(NSString *)mappingId
+{
+	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
+	if (member == nil || ORMBoolAttribute(member, @"OptionalBy", NO) == optional) {
+		return;
+	}
+	[_editor change:@"Set Joined Entity's Values Optional" with:^{
+		ORMSetAttribute(member, @"OptionalBy", optional ? @"true" : nil);
+	}];
+}
+
+- (void)setHeld:(BOOL)held role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId
+{
+	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
+	if (member == nil || roleId == nil) {
+		return;
+	}
+	NSMutableArray *holding = [NSMutableArray array];
+	for (NSXMLElement *other in ORMChildren((NSXMLElement *)[member parent], CD, @"Member")) {
+		for (NSXMLElement *holds in ORMChildren(other, CD, @"Holds")) {
+			if ([ORMRef(holds) isEqualToString:roleId]) {
+				[holding addObject:holds];
+			}
+		}
+	}
+	BOOL already = NO;
+	for (NSXMLElement *holds in holding) {
+		already = already || [holds parent] == member;
+	}
+	if (already == held && [holding count] == (held ? 1u : 0u)) {
+		return;
+	}
+	[_editor change:held ? @"Keep in Joined Entity" : @"Keep in Hub" with:^{
+		for (NSXMLElement *holds in holding) {
+			[holds detach];
+		}
+		if (held) {
+			[member addChild:ORMNewRef(_editor.document, CD, @"Holds", roleId)];
+		}
+	}];
+}
+
+- (void)setRequired:(BOOL)required role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId
+{
+	NSXMLElement *holds = nil;
+	for (NSXMLElement *each in ORMChildren([self memberElement:memberId inMapping:mappingId], CD, @"Holds")) {
+		holds = [ORMRef(each) isEqualToString:roleId] ? each : holds;
+	}
+	if (holds == nil || ORMBoolAttribute(holds, @"Required", NO) == required) {
+		return;
+	}
+	[_editor change:required ? @"Require in Joined Entity" : @"Make Optional in Joined Entity" with:^{
+		ORMSetAttribute(holds, @"Required", required ? @"true" : nil);
+	}];
 }
 
 - (void)setExcluded:(BOOL)excluded source:(NSString *)sourceId inMapping:(NSString *)mappingId

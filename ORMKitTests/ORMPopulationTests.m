@@ -252,6 +252,245 @@
 	XCTAssertEqual([broken() count], 1u, @"%@", broken());
 }
 
+/* The fact type with this primary reading. */
+- (ORMFactType *)factReading:(NSString *)text in:(ORMModel *)model
+{
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:text]) {
+			return fact;
+		}
+	}
+	return nil;
+}
+
+/* The node a new step from the node reaches. */
+- (NSString *)step:(ORMQueryEditor *)queries from:(NSString *)nodeId through:(NSString *)roleId in:(NSString *)queryId
+                in:(ORMEditor *)editor
+{
+	NSString *reason = nil;
+	NSString *step = [queries addStepTo:nodeId through:roleId reason:&reason];
+	XCTAssertNotNil(step, @"%@", reason);
+	for (ORMQueryNode *node in [[ORMQuery queryWithId:queryId inModel:editor.model] nodes]) {
+		if ([node.step.identifier isEqualToString:step]) {
+			return node.identifier;
+		}
+	}
+	return nil;
+}
+
+/* The texts of what the checker finds wrong in the model's population. */
+static NSArray *
+ORMViolationTexts(ORMModel *model)
+{
+	return [[[[ORMPopulationChecker alloc] initWithModel:model] violations] valueForKey:@"text"];
+}
+
+/* Derived facts in a sample population (docs/DERIVATION.md): the Company
+ * sample's "Employee reports to Employee", from the branch one works for
+ * and the other heads, derived from its population as its instances;
+ * checked against the constraints on the derived fact type; an asserted
+ * fact of a fully derived one, and stored ones out of date, said wrong. */
+- (void)testDerivedFactsAreCheckedAsTheSamplesFacts
+{
+	NSString *root = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByDeletingLastPathComponent];
+	NSData *data = [NSData dataWithContentsOfFile:[root stringByAppendingPathComponent:@"Samples/Company.orm"]];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:self.undoManager];
+	ORMModel *model = editor.model;
+	NSString *employee = [[model objectTypeNamed:@"Employee"] identifier];
+	ORMFactType *worksFor = [self factReading:@"Employee works for Branch" in:model];
+	ORMFactType *heads = [self factReading:@"Employee heads Branch" in:model];
+	XCTAssertNotNil(worksFor);
+	XCTAssertNotNil(heads);
+	NSString *diagram = [[model.diagrams firstObject] identifier];
+	NSString *reason = nil;
+	NSString *reports = [editor.factTypeEditor addFactTypeWithPlayers:@[ employee, employee ] reading:@"{0} reports to {1}"
+	                                                        onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(reports, @"%@", reason);
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *q = [queries addQueryNamed:@"Reporting" from:employee reason:NULL];
+	NSString *start = [ORMQuery queryWithId:q inModel:editor.model].root.identifier;
+	NSString *branch = [self step:queries from:start through:[[worksFor.roles firstObject] identifier] in:q in:editor];
+	NSString *head = [self step:queries from:branch through:[[heads.roles lastObject] identifier] in:q in:editor];
+	[queries setProjected:YES ofNode:head];
+	XCTAssertTrue([queries setKind:ORMQueryDerivation ofQuery:q reason:&reason], @"%@", reason);
+	XCTAssertTrue([queries setDerivedFactType:reports ofQuery:q reason:&reason], @"%@", reason);
+
+	/* One fact for each employee whose branch has a head, its players the
+	 * population's own instances. */
+	ORMDeriver *deriver = [[ORMDeriver alloc] initWithModel:editor.model];
+	NSArray *derived = [[deriver derivedFacts] objectForKey:reports];
+	XCTAssertEqualObjects([deriver notes], @[]);
+	XCTAssertGreaterThan([derived count], 3u);
+	for (ORMDerivedFact *fact in derived) {
+		XCTAssertTrue([fact isOfInstances], @"%@", fact.players);
+	}
+	NSArray *before = ORMViolationTexts(editor.model);
+	/* Each employee reports to one head at most: holds. Each head is
+	 * reported to by one employee at most: does not, being derived. */
+	NSArray *roles = [[editor.model elementWithId:reports] roles];
+	XCTAssertNotNil([editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[0] identifier] ] reason:&reason]);
+	NSArray *texts = ORMViolationTexts(editor.model);
+	XCTAssertEqual([texts count], [before count], @"%@", texts);
+	NSString *oneReporter = [editor.constraintEditor addUniquenessConstraintOverRoles:@[ [roles[1] identifier] ] reason:&reason];
+	XCTAssertNotNil(oneReporter);
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertGreaterThan([texts count], [before count], @"%@", texts);
+
+	/* Asserted, though fully derived. */
+	ORMDerivedFact *some = [derived firstObject];
+	NSMutableDictionary *named = [NSMutableDictionary dictionary];
+	for (NSString *roleId in some.players) {
+		[named setObject:[editor.populationEditor nameOf:[some.players objectForKey:roleId]] forKey:roleId];
+	}
+	XCTAssertNotNil([editor.populationEditor addFactOf:reports named:named reason:&reason], @"%@", reason);
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertTrue([texts containsObject:@"\"Employee reports to Employee\" is derived: its facts are not asserted."], @"%@",
+	              texts);
+	/* Stored, with one fact of many written: out of date. */
+	XCTAssertTrue([editor.factTypeEditor setDerivationPartial:NO stored:YES of:reports reason:&reason], @"%@", reason);
+	NSString *stale = [NSString stringWithFormat:@"\"Employee reports to Employee\" is stored out of date: %lu facts its "
+	                                             @"rule derives are missing, 0 are not derived.",
+	                                             (unsigned long)[derived count] - 1];
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertTrue([texts containsObject:stale], @"%@", texts);
+
+	/* Brought up to date: each derived fact stored, once. */
+	XCTAssertTrue([editor.populationEditor bringStoredDerivationsUpToDate:&reason], @"%@", reason);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count]);
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertFalse([[texts componentsJoinedByString:@"\n"] containsString:@"stored out of date"], @"%@", texts);
+	/* A new employee of a branch with a head: their report is stored with
+	 * the edit, and undone with it. */
+	heads = [self factReading:@"Employee heads Branch" in:editor.model];
+	worksFor = [self factReading:@"Employee works for Branch" in:editor.model];
+	ORMFactInstance *headed = [[heads instances] firstObject];
+	ORMInstance *ofBranch = [headed.instancesByRole objectForKey:[[heads.roles lastObject] identifier]];
+	NSDictionary *joins = @{ [[worksFor.roles firstObject] identifier]: @"999",
+		                     [[worksFor.roles lastObject] identifier]: [editor.populationEditor nameOf:ofBranch] };
+	/* Counted now: the projection is read again after the edit. */
+	NSUInteger working = [[worksFor instances] count];
+	XCTAssertNotNil([editor.populationEditor addFactOf:worksFor.identifier named:joins reason:&reason], @"%@", reason);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count] + 1);
+	[self.undoManager undo];
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count]);
+	XCTAssertEqual([[[self factReading:@"Employee works for Branch" in:editor.model] instances] count], working);
+
+	/* Stored from what another stores: "Employee answers to Employee", each
+	 * report. A new report is stored, and its answer with it, in one edit.
+	 * A head is reported to by several again, as the store can keep. */
+	[editor.elementEditor deleteElements:@[ oneReporter ]];
+	NSString *answers = [editor.factTypeEditor addFactTypeWithPlayers:@[ employee, employee ] reading:@"{0} answers to {1}"
+	                                                        onDiagram:diagram at:ORMAutomaticPlacement reason:&reason];
+	NSString *a = [queries addQueryNamed:@"Answering" from:employee reason:NULL];
+	NSString *from = [ORMQuery queryWithId:a inModel:editor.model].root.identifier;
+	NSString *to = [self step:queries from:from through:[[[(ORMFactType *)[editor.model elementWithId:reports] roles] firstObject]
+	                                                      identifier]
+	                       in:a in:editor];
+	[queries setProjected:YES ofNode:to];
+	XCTAssertTrue([queries setKind:ORMQueryDerivation ofQuery:a reason:&reason], @"%@", reason);
+	XCTAssertTrue([queries setDerivedFactType:answers ofQuery:a reason:&reason], @"%@", reason);
+	XCTAssertTrue([editor.factTypeEditor setDerivationPartial:NO stored:YES of:answers reason:&reason], @"%@", reason);
+	XCTAssertTrue([editor.populationEditor bringStoredDerivationsUpToDate:&reason], @"%@", reason);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:answers] instances] count], [derived count]);
+	XCTAssertNotNil([editor.populationEditor addFactOf:worksFor.identifier named:joins reason:&reason], @"%@", reason);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:reports] instances] count], [derived count] + 1);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:answers] instances] count], [derived count] + 1);
+	texts = ORMViolationTexts(editor.model);
+	XCTAssertFalse([[texts componentsJoinedByString:@"\n"] containsString:@"stored out of date"], @"%@", texts);
+}
+
+/* NORMA's own rule (docs/DERIVATION.md): CinemaTickets derives "Session
+ * has Seat" by a role path, the session's cinema's rows' seats. Read as a
+ * query, its projections not in outline order, it derives each seat of each
+ * session's cinema from a generated population; a query through the fact
+ * type finds the same. */
+- (void)testNormasRulesDeriveAsQueriesDo
+{
+	NSData *data = [NSData dataWithContentsOfFile:[self fixturePath:@"ActiveFacts/CinemaTickets.orm"]];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
+	[editor.populationEditor removePopulation];
+	ORMPopulationGenerator *generator = [[ORMPopulationGenerator alloc] initWithModel:editor.model];
+	NSString *reason = nil;
+	XCTAssertTrue([editor.populationEditor addPopulation:[generator population] reason:&reason], @"%@", reason);
+	ORMModel *model = editor.model;
+	ORMFactType *hasSeat = [model elementWithId:@"_90E3EEDA-78D3-4EF4-86E2-70894A2D1104"];
+	ORMQuery *rule = nil;
+	for (ORMQuery *query in [ORMQuery derivationsInModel:model]) {
+		rule = query.derivedFactType == hasSeat ? query : rule;
+	}
+	XCTAssertNotNil(rule);
+	XCTAssertEqualObjects(rule.name, @"SessionHasSeat");
+	XCTAssertEqualObjects([[rule derivedColumns] valueForKeyPath:@"objectType.name"], (@[ @"Session", @"Seat" ]));
+	XCTAssertNil([ORMQuery derivationOf:hasSeat inModel:model], @"not a query of the document");
+
+	/* Rows and seats are entities of their own: an application's store
+	 * absorbs a Row into its Seats, and joins on it are not planned. */
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
+	[mappings setStyle:ORMStyleEntities ofMapping:[mappings addCoreDataMappingNamed:@"Test" path:@"Test.xcdatamodeld"]];
+	model = editor.model;
+	hasSeat = [model elementWithId:hasSeat.identifier];
+
+	/* Each seat of each session's cinema: a row's cinema, a seat's row,
+	 * what identifies them. */
+	ORMFactType *session = [model elementWithId:@"_6C4EA5E7-22CD-49A2-80F0-E024D2014110"];
+	NSString *rowsCinema = @"_F5EE5A4F-2B2B-4A86-A513-3E7125DCAFC2";
+	NSString *seatsRow = @"_D52FD4FD-18B9-4D0C-8BA2-276E6D542133";
+	ORMObjectType *cinema = [model objectTypeNamed:@"Cinema"];
+	NSMutableSet *expected = [NSMutableSet set];
+	for (ORMFactInstance *each in [session instances]) {
+		ORMInstance *at = nil;
+		for (ORMRole *role in session.roles) {
+			at = role.player == cinema ? [each.instancesByRole objectForKey:role.identifier] : at;
+		}
+		for (ORMInstance *row in [[model objectTypeNamed:@"Row"] instances]) {
+			if ([[row identifyingInstancesByRole] objectForKey:rowsCinema] != at) {
+				continue;
+			}
+			for (ORMInstance *seat in [[model objectTypeNamed:@"Seat"] instances]) {
+				if ([[seat identifyingInstancesByRole] objectForKey:seatsRow] == row) {
+					[expected addObject:@[ each.identifier, seat.identifier ]];
+				}
+			}
+		}
+	}
+	XCTAssertGreaterThan([expected count], 0u);
+	ORMDeriver *deriver = [[ORMDeriver alloc] initWithModel:model];
+	NSArray *derived = [[deriver derivedFacts] objectForKey:hasSeat.identifier];
+	XCTAssertEqualObjects([deriver notes], @[]);
+	NSMutableSet *found = [NSMutableSet set];
+	NSArray *roles = [hasSeat visibleRoles];
+	for (ORMDerivedFact *fact in derived) {
+		XCTAssertTrue([fact isOfInstances], @"%@", fact.players);
+		ORMInstance *of = [fact.players objectForKey:[roles[0] identifier]];
+		[found addObject:@[ [[of objectifiedInstance] identifier] ?: @"?",
+		                    [[fact.players objectForKey:[roles[1] identifier]] identifier] ]];
+	}
+	XCTAssertEqualObjects(found, expected);
+
+	/* A query from Session through it: its rule put in its place. */
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *q = [queries addQueryNamed:@"Seats" from:[[roles[0] player] identifier] reason:NULL];
+	NSString *start = [ORMQuery queryWithId:q inModel:editor.model].root.identifier;
+	NSString *seat = [self step:queries from:start through:[roles[0] identifier] in:q in:editor];
+	[queries setProjected:YES ofNode:seat];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc]
+		initWithModel:editor.model
+		      mapping:[[ORMCoreDataMapping mappingsOfDocument:editor.document] firstObject]];
+	ORMQueryPlan *plan = [planner planForQuery:[ORMQuery queryWithId:q inModel:editor.model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:editor.model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
+	__block ORMQueryResult *result = nil;
+	[context performBlockAndWait:^{
+		result = [interpreter executePlan:plan inContext:context error:NULL];
+	}];
+	XCTAssertEqual([[NSSet setWithArray:result.rows] count], [expected count], @"%@", [plan text]);
+}
+
 /* An entity type identified by the facts it plays in, not one value: the
  * roles of its preferred identifier and their players. */
 - (NSString *)entity:(NSString *)name identifiedBy:(NSArray<NSString *> *)players readings:(NSArray<NSString *> *)readings
@@ -466,7 +705,7 @@
 	NSString *samples = [[[[self fixturePath:@"x"] stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
 		stringByDeletingLastPathComponent];
 	NSMutableArray *paths = [NSMutableArray array];
-	for (NSString *name in @[ @"Company.orm", @"University.orm", @"UMLandORM.orm" ]) {
+	for (NSString *name in @[ @"Company.orm", @"University.orm", @"UMLandORM.orm", @"Customers.orm" ]) {
 		[paths addObject:[[samples stringByAppendingPathComponent:@"Samples"] stringByAppendingPathComponent:name]];
 	}
 	for (NSString *name in [@[ @"StockMate.orm", @"WorkMate.orm" ] arrayByAddingObjectsFromArray:[self activeFactsFixtures]]) {
@@ -476,8 +715,8 @@
 }
 
 /* Every model gets a population that is written, read back and put in the
- * store of its default mapping. All but five break nothing (the samples,
- * StockMate, WorkMate, 24 of the 29 ActiveFacts models); for those five the
+ * store of its default mapping. All but two break nothing (the samples,
+ * StockMate, WorkMate, 27 of the 29 ActiveFacts models); for those two the
  * generator says why. */
 - (void)testAGeneratedPopulationMeetsTheConstraints
 {
@@ -515,8 +754,7 @@
 		}
 	}
 	/* What the generator cannot yet make whole: docs/POPULATIONS.md. */
-	XCTAssertEqualObjects(broken, ([NSSet setWithArray:@[ @"Blog.orm", @"Diplomacy.orm", @"Metamodel.orm",
-	                                                      @"Monogamy.orm", @"Supervision.orm" ]]));
+	XCTAssertEqualObjects(broken, ([NSSet setWithArray:@[ @"Diplomacy.orm", @"Metamodel.orm" ]]));
 }
 
 /* The samples' own populations: each query finds what its paper says, or
@@ -527,7 +765,10 @@
 	NSDictionary *expected = @{
 		@"Company.orm": @{ @"Q1": @[ @1, @3 ], @"Q2": @[ @1, @3, @4 ], @"Q3": @[ @102 ], @"Q4": @[ @2 ],
 		                   @"Q5": @[ @1, @4 ], @"Payroll": @[ @52, @7 ], @"Polyglots": @[ @1 ],
-		                   @"Lives near work": @[ @21 ] },
+		                   @"Lives near work": @[ @21 ], @"Workplace": @[ @1, @2, @3, @4, @5, @10, @21 ],
+		                   @"Works where": @[ @1, @2, @3, @4, @5, @10, @21 ], @"Branch country": @[ @7, @52, @101, @102 ],
+		                   @"Australian branches": @[ @7, @52 ] },
+		@"Customers.orm": @{ @"Owing": @[ @1, @2, @3 ], @"Mailing list": @[ @1, @3 ], @"Readers": @[ @"deals", @"news" ] },
 		@"University.orm": @{ @"Q1": @[ @430, @715, @720 ], @"Q2": @[ @720 ], @"Q3": @[ @430, @503, @651, @715, @720 ] },
 		@"UMLandORM.orm": @{ @"Rooms lacking a facility": @[], @"Coauthored papers": @[ @1 ] },
 	};
@@ -555,7 +796,8 @@
 		XCTAssertEqualObjects(store.notes, @[]);
 		ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:store.managedObjectModel];
 		for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
-			ORMQueryPlan *plan = [planner planForQuery:query];
+			/* Run as an app runs it: from its table. */
+			ORMQueryPlan *plan = [self archived:[planner planForQuery:query]];
 			ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
 			XCTAssertNotNil(result, @"%@: %@", query.name, error);
 			NSMutableOrderedSet *firsts = [NSMutableOrderedSet orderedSet];
@@ -654,6 +896,103 @@
 	XCTAssertEqualObjects([covers valueForKey:@"code"], (@[ @"TTP", @"TTPFT" ]));
 	XCTAssertEqualObjects([covers valueForKey:@"coverTypeName"],
 	                      (@[ @"Third Party Property", @"Third Party Property Fire and Theft" ]));
+}
+
+/* A unary fact as newer NORMA writes it: no fact instance, but the role
+ * referred to from the instance playing it (EntityTypeUnaryRoleInstance).
+ * Read as a fact of the unary fact type, it is kept in the store as the
+ * player's Boolean, true. */
+- (void)testAUnaryFactKeptOnItsPlayerIsRead
+{
+	[self addAnnAndBob];
+	NSString *diagram = [[_editor.model.diagrams firstObject] identifier];
+	NSString *smokes = [_editor.factTypeEditor addFactTypeWithPlayers:@[ _person ] reading:@"{0} smokes"
+	                                                       onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	ORMFactType *fact = [_editor.model elementWithId:smokes];
+	ORMRole *role = [[fact visibleRoles] firstObject];
+	ORMInstance *ann = nil;
+	for (ORMInstance *instance in [(ORMObjectType *)[_editor.model elementWithId:_person] instances]) {
+		ann = [[instance displayText] isEqualToString:@"1"] ? instance : ann;
+	}
+	XCTAssertNotNil(ann);
+	NSXMLElement *roleInstances = nil;
+	for (NSXMLNode *node in [ann.element children]) {
+		roleInstances = [[node localName] isEqualToString:@"RoleInstances"] ? (NSXMLElement *)node : roleInstances;
+	}
+	XCTAssertNotNil(roleInstances);
+	NSXMLElement *unary = [[NSXMLElement alloc] initWithName:@"orm:EntityTypeUnaryRoleInstance" URI:ORMCoreNamespace];
+	[unary addAttribute:[NSXMLNode attributeWithName:@"ref" stringValue:role.identifier]];
+	[roleInstances addChild:unary];
+
+	NSString *reason = nil;
+	ORMModel *model = [ORMModel modelOfDocument:_editor.document reason:&reason];
+	XCTAssertNotNil(model, @"%@", reason);
+	NSArray *facts = [(ORMFactType *)[model elementWithId:smokes] instances];
+	XCTAssertEqual([facts count], 1u);
+	ORMFactInstance *read = [facts firstObject];
+	XCTAssertEqualObjects([[read.instancesByRole objectForKey:role.identifier] displayText], @"1");
+	XCTAssertEqualObjects([[[ORMPopulationChecker alloc] initWithModel:model] violations], @[]);
+
+	ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:model mapping:nil] map];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	NSString *flag = nil;
+	ORMRole *implicit = nil;
+	for (ORMRole *each in fact.roles) {
+		implicit = each != role ? each : implicit;
+	}
+	for (ORMCDAttribute *attribute in [coreData entityNamed:@"Person"].attributes) {
+		flag = [attribute.source isEqualToString:implicit.identifier] ? attribute.name : flag;
+	}
+	XCTAssertNotNil(flag);
+	NSFetchRequest *request = [NSFetchRequest fetchRequestWithEntityName:@"Person"];
+	request.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"id" ascending:YES] ];
+	NSArray *people = [context executeFetchRequest:request error:&error];
+	XCTAssertEqual([people count], 2u);
+	XCTAssertTrue([[[people firstObject] valueForKey:flag] boolValue]);
+	XCTAssertFalse([[[people lastObject] valueForKey:flag] boolValue], @"Bob does not smoke: no fact says so");
+}
+
+/* An objectifying type with an identifier of its own (Orienteering's Entry,
+ * by its ID, is where a Person entered a Course of an Event): its instance
+ * and its fact are each the other, so they are added together, and neither
+ * alone. */
+- (void)testAnObjectifyingInstanceWithItsOwnIdentifierIsAddedWithItsFact
+{
+	NSData *data = [NSData dataWithContentsOfFile:[self fixturePath:@"ActiveFacts/Orienteering.orm"]];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:ORMParseDocument(data, NULL) undoManager:nil];
+	[editor.populationEditor removePopulation];
+	ORMObjectType *entry = [editor.model objectTypeNamed:@"Entry"];
+	ORMFactType *entered = entry.nestedFactType;
+	XCTAssertNotNil(entered);
+	NSMutableDictionary *texts = [NSMutableDictionary dictionary];
+	for (ORMRole *role in [entered visibleRoles]) {
+		NSArray *parts = [editor.populationEditor compositeRolesOf:role.player.identifier];
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSUInteger k = 0; k < MAX([parts count], 1u); k++) {
+			[values addObject:[NSString stringWithFormat:@"%lu", (unsigned long)k + 1]];
+		}
+		[texts setObject:[values componentsJoinedByString:@", "] forKey:role.identifier];
+	}
+	NSString *reason = nil;
+	XCTAssertNil([editor.populationEditor addFactOf:entered.identifier named:texts reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Each such fact is objectified by Entry, identified by its own Entry ID: add the Entry "
+	                              @"with its fact.");
+	XCTAssertNil([editor.populationEditor addInstanceOf:entry.identifier named:@"7" reason:&reason]);
+	XCTAssertTrue([reason hasPrefix:@"Each Entry is a fact of "], @"%@", reason);
+	NSString *made = [editor.populationEditor addInstanceOf:entry.identifier named:@"7" objectifying:texts reason:&reason];
+	XCTAssertNotNil(made, @"%@", reason);
+	ORMInstance *instance = [editor.model elementWithId:made];
+	XCTAssertEqualObjects([editor.populationEditor nameOf:instance], @"7");
+	ORMFactInstance *fact = [instance objectifiedInstance];
+	XCTAssertEqual(fact.factType, [editor.model elementWithId:entered.identifier]);
+	XCTAssertEqual([fact.instancesByRole count], [[entered visibleRoles] count]);
+	XCTAssertEqual([[(ORMFactType *)[editor.model elementWithId:entered.identifier] instances] count], 1u);
+	/* The same again: there is one. */
+	XCTAssertNil([editor.populationEditor addInstanceOf:entry.identifier named:@"8" objectifying:texts reason:&reason]);
+	XCTAssertEqualObjects(reason, @"That fact is there already.");
 }
 
 @end

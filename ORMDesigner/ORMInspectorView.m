@@ -358,11 +358,48 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 			return [editor.elementEditor rename:type.identifier to:value reason:reason];
 		})];
 	}
-	[rows addObject:ORMRow(ORMRowText, @"Derivation", ^id {
-		return [[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] informalText] ?: @"";
-	}, ^BOOL(id value, NSString **reason) {
-		return [editor.factTypeEditor setDerivationNote:value of:identifier reason:reason];
-	})];
+	/* Derived (docs/DERIVATION.md): by what, and how; a query's words are
+	 * its own, kept by the normalizer. */
+	ORMQuery *derivation = fact.isDerived ? [ORMQuery derivationOf:fact inModel:editor.model] : nil;
+	if (fact.isDerived) {
+		/* The query by its name, as the Queries window lists it; its rule,
+		 * in its words, below. */
+		[rows addObject:ORMRow(ORMRowLabel, @"Derived by", ^id {
+			ORMFactType *now = [editor.model elementWithId:identifier];
+			ORMQuery *query = [ORMQuery derivationOf:now inModel:editor.model];
+			if (query != nil) {
+				return [NSString stringWithFormat:@"the query \u201C%@\u201D", query.name];
+			}
+			return [[now derivationRule].paths count] > 0 ? @"NORMA's rule" : @"its note";
+		}, nil)];
+	}
+	if (derivation != nil) {
+		[rows addObject:ORMRow(ORMRowLabel, @"Rule", ^id {
+			return [[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] informalText] ?: @"";
+		}, nil)];
+	} else {
+		[rows addObject:ORMRow(ORMRowText, @"Derivation", ^id {
+			return [[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] informalText] ?: @"";
+		}, ^BOOL(id value, NSString **reason) {
+			return [editor.factTypeEditor setDerivationNote:value of:identifier reason:reason];
+		})];
+	}
+	if (fact.isDerived) {
+		[rows addObject:ORMRow(ORMRowCheck, @"Partly Derived", ^id {
+			return @([[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] isPartial]);
+		}, ^BOOL(id value, NSString **reason) {
+			ORMDerivationRule *rule = [(ORMFactType *)[editor.model elementWithId:identifier] derivationRule];
+			return [editor.factTypeEditor setDerivationPartial:[value boolValue] stored:rule.isStored of:identifier
+			                                            reason:reason];
+		})];
+		[rows addObject:ORMRow(ORMRowCheck, @"Stored", ^id {
+			return @([[(ORMFactType *)[editor.model elementWithId:identifier] derivationRule] isStored]);
+		}, ^BOOL(id value, NSString **reason) {
+			ORMDerivationRule *rule = [(ORMFactType *)[editor.model elementWithId:identifier] derivationRule];
+			return [editor.factTypeEditor setDerivationPartial:rule.isPartial stored:[value boolValue] of:identifier
+			                                            reason:reason];
+		})];
+	}
 	[rows addObjectsFromArray:[self textRowsFor:identifier]];
 	return rows;
 }
@@ -580,12 +617,23 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 		}
 		NSRect frame = NSMakeRect(ORMLabelWidth, y, width - ORMLabelWidth - 8, 20);
 		NSControl *control = nil;
+		/* What a wrapped label needs beyond a row. */
+		double extra = 0;
 		switch (row.kind) {
 		case ORMRowLabel: {
+			/* As tall as its text, wrapped: a derivation's sentence. */
 			NSTextField *field = [self labelWithText:@"" font:font];
 			[field setSelectable:YES];
+			[[field cell] setWraps:YES];
+			[[field cell] setLineBreakMode:NSLineBreakByWordWrapping];
+			id value = row.value != nil ? row.value() : nil;
+			NSString *text = [value isKindOfClass:[NSString class]] ? value : @"";
+			NSRect needed = [text boundingRectWithSize:NSMakeSize(NSWidth(frame) - 4, 10000)
+			                                   options:NSStringDrawingUsesLineFragmentOrigin
+			                                attributes:@{ NSFontAttributeName: font }];
 			frame.origin.y += 3;
-			frame.size.height = 16;
+			frame.size.height = MAX(16, ceil(NSHeight(needed)) + 2);
+			extra = frame.size.height - 16;
 			[field setFrame:frame];
 			control = field;
 			break;
@@ -628,7 +676,7 @@ ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
 		row.control = control;
 		[self addSubview:control];
 		[_views addObject:control];
-		y += ORMRowHeight;
+		y += ORMRowHeight + extra;
 	}
 	NSRect frame = [self frame];
 	frame.size.height = MAX(y + 8, NSHeight([[self superview] bounds]));

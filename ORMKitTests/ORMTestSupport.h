@@ -22,6 +22,10 @@
  * where PATH has it; nil when it accepts it, or there is none. */
 - (NSString *)momcRejects:(ORMCDModel *)model;
 @property (nonatomic, readonly, strong) NSUndoManager *undoManager;
+/* The plan as the tables an app runs have it (docs/RUNTIME.md): written as
+ * an XML property list and read back, which must change nothing. The plan
+ * read; fails the test where it is not the same. */
+- (ORMQueryPlan *)archived:(ORMQueryPlan *)plan;
 /* The real NORMA files: written by NORMA itself, so they say what NORMA's
  * derived data and layout are, and normalizing them changes nothing.
  * StockMate is from a recent NORMA; the ActiveFacts examples from NORMA
@@ -37,5 +41,12 @@
  * dropped; those are read and written back byte for byte, but not
  * normalized. */
 - (NSArray<NSString *> *)allNormaFiles;
+#if defined(__APPLE__)
+/* Generated code (ORMValidationGenerator's files) built as a library and
+ * loaded, the class headers it imports stubbed, and the tables among them
+ * registered (+[ORMTables registerTables:named:]). NO, with clang's word,
+ * where it does not build. */
+- (BOOL)load:(NSDictionary<NSString *, NSString *> *)files in:(NSString *)directory why:(NSString **)why;
+#endif
 @end
 

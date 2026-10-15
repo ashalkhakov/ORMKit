@@ -61,6 +61,73 @@
 	return [place lastObject];
 }
 
++ (NSString *)sourceOfRole:(ORMRole *)role
+{
+	if (role.proxiedRole != nil) {
+		return role.proxiedRole.identifier;
+	}
+	for (ORMRole *other in role.factType.roles) {
+		if (other != role && other.proxiedRole != nil) {
+			return [other.proxiedRole.factType.identifier stringByAppendingFormat:@".%@", other.proxiedRole.identifier];
+		}
+	}
+	return role.identifier;
+}
+
+- (NSArray<NSArray *> *)joinsTo:(NSString *)source from:(ORMCDEntity *)entity
+{
+	return [self joinsToMember:source != nil ? [[_bySource objectForKey:source] firstObject] : nil from:entity];
+}
+
+- (NSArray<NSArray *> *)joinsToMember:(ORMCDEntity *)member from:(ORMCDEntity *)entity
+{
+	ORMCDEntity *at = member;
+	NSMutableArray *hops = [NSMutableArray array];
+	while (at != nil && at != entity && [hops count] < 16) {
+		NSString *via = [at.userInfo objectForKey:@"ormkit.via"];
+		NSString *on = [at.userInfo objectForKey:@"ormkit.on"];
+		if (via == nil || [on length] == 0) {
+			return nil;
+		}
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSString *pair in [on componentsSeparatedByString:@","]) {
+			NSArray *names = [pair componentsSeparatedByString:@" "];
+			if ([names count] != 2) {
+				return nil;
+			}
+			[pairs addObject:names];
+		}
+		[hops insertObject:@[ at, pairs, @([[at.userInfo objectForKey:@"ormkit.outer"] isEqualToString:@"YES"]) ]
+		           atIndex:0];
+		at = [_coreData entityNamed:via];
+	}
+	return at == entity && [hops count] > 0 ? hops : nil;
+}
+
+- (NSArray<NSArray *> *)joinsToHubFrom:(ORMCDEntity *)member
+{
+	NSMutableArray *hops = [NSMutableArray array];
+	ORMCDEntity *at = member;
+	while ([at.userInfo objectForKey:@"ormkit.via"] != nil && [hops count] < 16) {
+		NSString *on = [at.userInfo objectForKey:@"ormkit.on"];
+		ORMCDEntity *via = [_coreData entityNamed:[at.userInfo objectForKey:@"ormkit.via"]];
+		if (via == nil || [on length] == 0) {
+			return nil;
+		}
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSString *pair in [on componentsSeparatedByString:@","]) {
+			NSArray *names = [pair componentsSeparatedByString:@" "];
+			if ([names count] != 2) {
+				return nil;
+			}
+			[pairs addObject:@[ [names lastObject], [names firstObject] ]];
+		}
+		[hops addObject:@[ via, pairs, @NO ]];
+		at = via;
+	}
+	return [hops count] > 0 ? hops : nil;
+}
+
 - (ORMCDProperty *)property:(NSString *)name of:(ORMCDEntity *)entity
 {
 	for (ORMCDEntity *at = entity; at != nil; at = [self parentOf:at]) {
@@ -123,6 +190,16 @@
 			[parts addObject:@[ property.name ]];
 			continue;
 		}
+		if (property == nil) {
+			/* A part absorbed into the entity (a City's State, as its
+			 * country and code): by its own parts. */
+			NSArray *inner = [self identifyingPartsOfAbsorbed:role.player base:role.identifier on:entity];
+			if (inner == nil) {
+				return nil;
+			}
+			[parts addObjectsFromArray:inner];
+			continue;
+		}
 		ORMCDRelationship *relationship = [property isKindOfClass:[ORMCDRelationship class]] ? (ORMCDRelationship *)property : nil;
 		ORMCDEntity *destination = relationship != nil && !relationship.toMany ? [_coreData entityNamed:relationship.destination] : nil;
 		if (destination == nil) {
@@ -137,6 +214,47 @@
 		for (NSArray *keys in inner) {
 			[parts addObject:[@[ relationship.name ] arrayByAddingObjectsFromArray:keys]];
 		}
+	}
+	return parts;
+}
+
+- (NSArray<NSArray<NSString *> *> *)identifyingPartsOfAbsorbed:(ORMObjectType *)type
+                                                          base:(NSString *)base
+                                                            on:(ORMCDEntity *)entity
+{
+	NSArray<ORMRole *> *roles = [type.preferredIdentifier allRoles];
+	if ([roles count] == 0) {
+		return nil;
+	}
+	NSMutableArray *parts = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		NSString *source = [base stringByAppendingFormat:@"/%@", role.identifier];
+		ORMCDProperty *property = [self propertyOf:entity source:source];
+		if ([property isKindOfClass:[ORMCDAttribute class]]) {
+			[parts addObject:@[ property.name ]];
+			continue;
+		}
+		if ([property isKindOfClass:[ORMCDRelationship class]]) {
+			ORMCDRelationship *to = (ORMCDRelationship *)property;
+			ORMCDEntity *reached = !to.toMany ? [_coreData entityNamed:to.destination] : nil;
+			ORMCDAttribute *key = reached != nil ? [self identifierOf:role.player on:reached] : nil;
+			NSArray *inner = reached != nil && key == nil ? [self identifyingPartsOf:role.player on:reached] : nil;
+			if (key != nil) {
+				[parts addObject:@[ to.name, key.name ]];
+			} else if (inner != nil) {
+				for (NSArray *keys in inner) {
+					[parts addObject:[@[ to.name ] arrayByAddingObjectsFromArray:keys]];
+				}
+			} else {
+				return nil;
+			}
+			continue;
+		}
+		NSArray *inner = [self identifyingPartsOfAbsorbed:role.player base:source on:entity];
+		if (inner == nil) {
+			return nil;
+		}
+		[parts addObjectsFromArray:inner];
 	}
 	return parts;
 }

@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCoreDataImport.h"
+#import "ORMEntityMerger.h"
 #import "ORMEditorPriv.h"
 
 static NSString *
@@ -637,6 +638,14 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 		[self.mappingEditor setBaseline:model ofMapping:state.mapping];
 		[_editor.diagramEditor arrangeDiagram:state.diagram];
 	}];
+	/* Tables that may be one thing kept twice (docs/JOINED-ENTITIES.md):
+	 * Merge Entity Types makes them one. */
+	NSSet *imported = [NSSet setWithArray:[state.types allValues]];
+	for (ORMMergeCandidate *candidate in [[[ORMEntityMerger alloc] initWithEditor:_editor] candidates]) {
+		if ([imported containsObject:candidate.kept.identifier] && [imported containsObject:candidate.absorbed.identifier]) {
+			[state.notes addObject:[candidate.text stringByAppendingString:@" Merge Entity Types makes them one."]];
+		}
+	}
 	if (notes != NULL) {
 		*notes = state.notes;
 	}

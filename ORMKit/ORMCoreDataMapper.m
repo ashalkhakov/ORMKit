@@ -4,6 +4,9 @@
 #import "ORMDiagram.h"
 #import "ORMReadingText.h"
 #import "ORMVerbalizer.h"
+#import "ORMQuery.h"
+#import "ORMQueryPlanner.h"
+#import "ORMPath.h"
 
 @interface ORMMappingNote ()
 @property (nonatomic, readwrite) ORMMappingNoteKind kind;
@@ -61,6 +64,9 @@ typedef NS_ENUM(NSInteger, ORMResolved) {
 	/* A folded objectification's id -> the role of the player it folds
 	 * into. */
 	NSMutableDictionary<NSString *, ORMRole *> *_folds;
+	/* A property's trace -> the joined entity type's member entity that
+	 * has it (docs/JOINED-ENTITIES.md). */
+	NSMutableDictionary<NSString *, ORMCDEntity *> *_heldBy;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping
@@ -649,7 +655,8 @@ ORMReservedNames(void)
 			continue;
 		}
 		ORMCDEntity *entity = [[ORMCDEntity alloc] init];
-		entity.name = [self claimEntityName:type.name source:type.identifier];
+		ORMJoinMember *hub = [[self membersOf:type] firstObject];
+		entity.name = [self claimEntityName:[hub.name length] > 0 ? hub.name : type.name source:type.identifier];
 		entity.source = type.identifier;
 		entity.codeGenerationType = self.mapping.codeGenerationType;
 		if (parent != nil) {
@@ -702,6 +709,225 @@ ORMReservedNames(void)
 - (ORMCDEntity *)entityOf:(ORMObjectType *)type
 {
 	return type != nil ? [_entityOf objectForKey:type.identifier] : nil;
+}
+
+/* The entity a property of the type, by its trace, goes in: the member of
+ * its join that holds it, else its own. */
+- (ORMCDEntity *)entityOf:(ORMObjectType *)type forSource:(NSString *)source
+{
+	ORMCDEntity *member = source != nil ? [_heldBy objectForKey:source] : nil;
+	if (member != nil && [[member.userInfo objectForKey:@"ormkit.joins"] isEqualToString:type.identifier]) {
+		return member;
+	}
+	return [self entityOf:type];
+}
+
+#pragma mark Joined entity types
+
+/* A joined entity type's members, where it maps as one: an entity type
+ * with no supertype or subtype. */
+- (NSArray<ORMJoinMember *> *)membersOf:(ORMObjectType *)type
+{
+	if ([self.mapping mappingOfObjectType:type.identifier] != ORMMapJoined || !type.isEntity
+	    || [type.supertypes count] > 0 || [type.subtypes count] > 0) {
+		return nil;
+	}
+	NSArray *members = [self.mapping.joins objectForKey:type.identifier];
+	return [members count] > 0 ? members : nil;
+}
+
+/* The identifier a member correlates by, as the far roles of the type's
+ * one-to-one fact types: the preferred identifier's, or an alternate's.
+ * nil where it is no identifier of the type. */
+- (NSArray<ORMRole *> *)correlationOf:(ORMJoinMember *)member type:(ORMObjectType *)type
+{
+	ORMConstraint *constraint = member.correlationId != nil ? [self.model elementWithId:member.correlationId]
+	                                                        : type.preferredIdentifier;
+	if (![constraint isKindOfClass:[ORMConstraint class]] || constraint.kind != ORMUniquenessConstraint) {
+		return nil;
+	}
+	NSArray *roles = [constraint allRoles];
+	for (ORMRole *role in roles) {
+		ORMRole *own = [role oppositeRole];
+		if (own.player != type || !own.isUnique || [self resolved:role.player] != ORMResolvedValue) {
+			return nil;
+		}
+	}
+	return [roles count] > 0 ? roles : nil;
+}
+
+/* Each member other than the hub an entity: its correlating values as
+ * attributes, traced member id/role id, and what joins it to its Via in
+ * its userInfo (ormkit.joins, ormkit.via, ormkit.outer, ormkit.on: "theirs
+ * ours" pairs of names, by space and comma). */
+- (void)makeJoins
+{
+	for (ORMObjectType *type in self.model.objectTypes) {
+		NSArray *members = [self.mapping mappingOfObjectType:type.identifier] == ORMMapJoined ? [self membersOf:type]
+		                                                                                         : nil;
+		ORMCDEntity *hub = [self entityOf:type];
+		if ([self.mapping mappingOfObjectType:type.identifier] == ORMMapJoined && (members == nil || hub == nil)) {
+			[self note:ORMMappingWarning
+			      text:[NSString stringWithFormat:@"%@ is not joined: only an entity type with members, no supertype "
+			                                      @"and no subtype is.", type.name]
+			   element:type.identifier];
+			continue;
+		}
+		if (members == nil) {
+			continue;
+		}
+		NSMutableDictionary<NSString *, ORMCDEntity *> *entities = [NSMutableDictionary dictionary];
+		ORMJoinMember *first = [members firstObject];
+		if (first.identifier != nil) {
+			[entities setObject:hub forKey:first.identifier];
+		}
+		for (ORMJoinMember *member in members) {
+			if (member == first) {
+				continue;
+			}
+			/* Nothing can trace to a member without an id: it is left out. */
+			if (member.identifier == nil) {
+				[self note:ORMMappingWarning
+				      text:[NSString stringWithFormat:@"%@'s member %@ has no id: it is left out.", type.name,
+				                                      [member.name length] > 0 ? member.name : @"(unnamed)"]
+				   element:type.identifier];
+				continue;
+			}
+			ORMCDEntity *entity = [[ORMCDEntity alloc] init];
+			entity.name = [self claimEntityName:[member.name length] > 0 ? member.name : type.name
+			                             source:member.identifier];
+			entity.source = member.identifier;
+			entity.codeGenerationType = self.mapping.codeGenerationType;
+			[_out.entities addObject:entity];
+			[entities setObject:entity forKey:member.identifier];
+		}
+		for (ORMJoinMember *member in members) {
+			ORMCDEntity *entity = [entities objectForKey:member.identifier ?: @""];
+			if (entity == nil) {
+				continue;
+			}
+			for (NSString *held in member == first ? @[] : member.heldRoleIds) {
+				if ([_heldBy objectForKey:held] == nil) {
+					[_heldBy setObject:entity forKey:held];
+				}
+			}
+		}
+		for (ORMJoinMember *member in members) {
+			if (member == first) {
+				continue;
+			}
+			ORMCDEntity *entity = [entities objectForKey:member.identifier ?: @""];
+			if (entity == nil) {
+				continue;
+			}
+			ORMCDEntity *via = [entities objectForKey:member.viaId ?: @""];
+			NSArray *roles = [self correlationOf:member type:type];
+			NSMutableDictionary *info = [entity.userInfo mutableCopy];
+			[info setObject:type.identifier forKey:@"ormkit.joins"];
+			entity.userInfo = info;
+			if (roles == nil || via == nil) {
+				[self note:ORMMappingWarning
+				      text:[NSString stringWithFormat:@"%@ is not joined to %@: %@.", entity.name, type.name,
+				                                      roles == nil ? @"what it correlates by is no identifier of it"
+				                                                   : @"it joins to no member of it"]
+				   element:type.identifier];
+				continue;
+			}
+			/* Its correlating values, as the hub's attributes for them are
+			 * named; the member joined to has them by correlating by them,
+			 * holding their fact types, or being the hub. */
+			NSMutableArray *roleIds = [NSMutableArray array];
+			NSMutableArray *names = [NSMutableArray array];
+			for (ORMRole *role in roles) {
+				ORMObjectType *valueType = [self valueTypeOf:role.player];
+				NSString *source = [member.identifier stringByAppendingFormat:@"/%@", role.identifier];
+				NSString *name = [self claimName:[self candidatesFor:role near:[role oppositeRole] toMany:NO]
+				                          source:source on:entity];
+				ORMCDAttribute *attribute = [self attributeFor:valueType name:name source:source
+				                                      optional:member.correlationIsOptional
+				                                roleConstraint:role.valueConstraint];
+				[entity.attributes addObject:attribute];
+				[roleIds addObject:role.identifier];
+				[names addObject:name];
+			}
+			[entity.uniquenessConstraints addObject:names];
+			/* A row for each instance, whatever it says: a mandatory role
+			 * held there. */
+			BOOL outer = member.isOuter;
+			for (NSString *held in outer ? member.heldRoleIds : @[]) {
+				ORMRole *far = [self.model elementWithId:held];
+				ORMRole *near = [far isKindOfClass:[ORMRole class]] ? [far oppositeRole] : nil;
+				if (near.player == type && near.isMandatory && outer) {
+					outer = NO;
+					[self note:ORMMappingWarning
+					      text:[NSString stringWithFormat:@"%@ has a row for each %@: it holds a mandatory role of it, "
+					                                      @"so it is joined as inner.", entity.name, type.name]
+					   element:type.identifier];
+				}
+			}
+			NSMutableDictionary *joined = [entity.userInfo mutableCopy];
+			[joined setObject:via.name forKey:@"ormkit.via"];
+			[joined setObject:outer ? @"YES" : @"NO" forKey:@"ormkit.outer"];
+			[joined setObject:[roleIds componentsJoinedByString:@","] forKey:@"ormkit.on"];
+			entity.userInfo = joined;
+		}
+	}
+}
+
+/* The names of a joined member's correlating attributes on the member it
+ * joins to, now its properties are made: ormkit.on becomes "theirs ours"
+ * pairs of property names. */
+- (void)nameJoins
+{
+	/* What each member's rows always have. */
+	for (NSString *typeId in self.mapping.joins) {
+		for (ORMJoinMember *member in [self.mapping.joins objectForKey:typeId]) {
+			ORMCDEntity *entity = member.identifier != nil ? [_out entityWithSource:member.identifier] : nil;
+			for (ORMCDProperty *property in [entity properties]) {
+				if ([member.requiredRoleIds containsObject:property.source ?: @""]
+				    && !([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany)) {
+					property.optional = NO;
+				}
+			}
+		}
+	}
+	for (ORMCDEntity *entity in _out.entities) {
+		NSString *roles = [entity.userInfo objectForKey:@"ormkit.on"];
+		ORMObjectType *type = [self.model elementWithId:[entity.userInfo objectForKey:@"ormkit.joins"] ?: @""];
+		ORMCDEntity *via = [_out entityNamed:[entity.userInfo objectForKey:@"ormkit.via"] ?: @""];
+		if (roles == nil || type == nil || via == nil) {
+			continue;
+		}
+		NSMutableArray *pairs = [NSMutableArray array];
+		for (NSString *roleId in [roles componentsSeparatedByString:@","]) {
+			NSString *ours = nil;
+			NSString *theirs = nil;
+			for (ORMCDProperty *property in [entity properties]) {
+				ours = [property.source hasSuffix:[@"/" stringByAppendingString:roleId]]
+					&& [property.source hasPrefix:entity.source] ? property.name : ours;
+			}
+			for (ORMCDProperty *property in [via properties]) {
+				BOOL copy = [property.source isEqualToString:[via.source stringByAppendingFormat:@"/%@", roleId]];
+				theirs = [property.source isEqualToString:roleId] || copy ? property.name : theirs;
+			}
+			if (ours == nil || theirs == nil) {
+				pairs = nil;
+				break;
+			}
+			[pairs addObject:[NSString stringWithFormat:@"%@ %@", theirs, ours]];
+		}
+		NSMutableDictionary *info = [entity.userInfo mutableCopy];
+		if (pairs == nil) {
+			[info removeObjectForKey:@"ormkit.on"];
+			[self note:ORMMappingWarning
+			      text:[NSString stringWithFormat:@"%@ is not joined to %@: %@ does not have what it correlates by.",
+			                                      entity.name, type.name, via.name]
+			   element:type.identifier];
+		} else {
+			[info setObject:[pairs componentsJoinedByString:@","] forKey:@"ormkit.on"];
+		}
+		entity.userInfo = info;
+	}
 }
 
 #pragma mark Attributes
@@ -1091,7 +1317,7 @@ ORMDeletionRule(ORMRole *far)
 	if ((a == ORMResolvedEntity && b == ORMResolvedComposite) || (a == ORMResolvedComposite && b == ORMResolvedEntity)) {
 		ORMRole *near = a == ORMResolvedEntity ? first : second;
 		ORMRole *far = near == first ? second : first;
-		ORMCDEntity *entity = [self entityOf:near.player];
+		ORMCDEntity *entity = [self entityOf:near.player forSource:far.identifier];
 		NSString *prefix = [[self candidatesFor:far near:near toMany:NO] firstObject]
 			?: [ORMCoreDataMapper propertyNameFor:far.player.name ?: @"value"];
 		NSArray *names = [self absorb:far.player into:entity prefix:prefix source:far.identifier
@@ -1117,8 +1343,8 @@ ORMDeletionRule(ORMRole *far)
 
 - (void)mapEntity:(ORMRole *)first toEntity:(ORMRole *)second
 {
-	ORMCDEntity *from = [self entityOf:first.player];
-	ORMCDEntity *to = [self entityOf:second.player];
+	ORMCDEntity *from = [self entityOf:first.player forSource:second.identifier];
+	ORMCDEntity *to = [self entityOf:second.player forSource:first.identifier];
 	BOOL forwardMany = !first.isUnique;
 	BOOL backwardMany = !second.isUnique;
 	if (!first.isUnique && !second.isUnique && ![first.factType hasUniquenessOverRoles:@[ first, second ]]) {
@@ -1145,7 +1371,7 @@ ORMDeletionRule(ORMRole *far)
 
 - (void)mapEntity:(ORMRole *)near toValue:(ORMRole *)far
 {
-	ORMCDEntity *entity = [self entityOf:near.player];
+	ORMCDEntity *entity = [self entityOf:near.player forSource:far.identifier];
 	ORMObjectType *valueType = [self valueTypeOf:far.player];
 	ORMFactType *fact = near.factType;
 	if (near.isUnique) {
@@ -1206,7 +1432,7 @@ ORMDeletionRule(ORMRole *far)
 			implicit = each;
 		}
 	}
-	ORMCDEntity *entity = [self entityOf:role.player];
+	ORMCDEntity *entity = [self entityOf:role.player forSource:implicit.identifier];
 	if (entity == nil || [self.mapping.excludedSources containsObject:implicit.identifier]) {
 		return;
 	}
@@ -1257,7 +1483,8 @@ ORMDeletionRule(ORMRole *far)
 			NSArray *parts = [self absorb:role.player into:entity prefix:name source:role.identifier optional:NO];
 			[names setObject:parts forKey:role.identifier];
 		} else if (resolved == ORMResolvedEntity || resolved == ORMResolvedFolded) {
-			ORMCDEntity *player = [self entityOf:role.player];
+			ORMCDEntity *player = [self entityOf:role.player
+			                           forSource:[fact.identifier stringByAppendingFormat:@".%@", role.identifier]];
 			ORMCDRelationship *forward = [self relationshipNamed:name source:role.identifier to:player toMany:NO near:nil];
 			forward.optional = NO;
 			/* Unique by itself, the role is one to one: Core Data's inverse
@@ -1346,6 +1573,17 @@ ORMDeletionRule(ORMRole *far)
 		if (![self isMappable:fact]) {
 			continue;
 		}
+		/* Fully derived, not stored: nothing to keep, worked out by the
+		 * queries that go through it (docs/DERIVATION.md). */
+		ORMDerivationRule *rule = fact.isDerived ? [fact derivationRule] : nil;
+		if (rule != nil && !rule.isPartial && !rule.isStored) {
+			[self note:ORMMappingDerived
+			      text:[NSString stringWithFormat:@"\"%@\" is derived and not stored: nothing keeps it, and queries work "
+			                                      @"it out.",
+			                                      [[fact primaryReading] expandedText] ?: fact.name]
+			   element:fact.identifier];
+			continue;
+		}
 		NSUInteger arity = [fact arity];
 		BOOL folded = fact.objectifyingType != nil && [self resolved:fact.objectifyingType] == ORMResolvedFolded;
 		if ((fact.objectifyingType != nil && !folded) || arity > 2) {
@@ -1388,7 +1626,7 @@ ORMDeletionRule(ORMRole *far)
 		}
 		joined = player;
 	}
-	ORMCDEntity *entity = [self entityOf:joined];
+	ORMCDEntity *entity = [self entityOf:joined forSource:[[[constraint allRoles] firstObject] identifier]];
 	NSMutableArray *names = [NSMutableArray array];
 	for (ORMRole *role in [constraint allRoles]) {
 		ORMCDProperty *property = entity != nil ? [self propertyOn:entity forFarRole:role] : nil;
@@ -1549,6 +1787,61 @@ ORMDeletionRule(ORMRole *far)
 
 #pragma mark Mapping
 
+/* A stored derived fact type whose rule is a key path through one to-one,
+ * from an entity to a value of it, is derived by Core Data itself: an
+ * NSDerivedAttributeDescription, kept up to date at save. Others are
+ * worked out by the code generated for saving (docs/DERIVATION.md). */
+- (void)mapStoredDerivations
+{
+	ORMQueryPlanner *planner = nil;
+	for (ORMQuery *query in [ORMQuery derivationsInModel:self.model]) {
+		ORMFactType *fact = query.derivedFactType;
+		ORMDerivationRule *rule = fact.isDerived ? [fact derivationRule] : nil;
+		if (!rule.isStored || ![self isMappable:fact]) {
+			continue;
+		}
+		NSString *what = [[fact primaryReading] expandedText] ?: fact.name;
+		NSArray *roles = [fact visibleRoles];
+		NSArray *columns = [query derivedColumns];
+		/* A plain chain from the first role's player to the second's. */
+		BOOL chain = !rule.isPartial && [roles count] == 2 && [columns count] == 2 && [columns firstObject] == query.root;
+		for (ORMQueryNode *node in chain ? [query nodes] : @[]) {
+			chain = chain && [node.steps count] <= ([node isEqual:[columns lastObject]] ? 0 : 1) && node.comparison == nil
+			        && node.label == nil && !node.combinesWithOr;
+			for (ORMQueryStep *step in node.steps) {
+				chain = chain && step.operatorKind == ORMQueryAnd && step.countComparison == nil;
+			}
+		}
+		ORMCDEntity *entity = chain ? [self entityOf:[(ORMRole *)[roles firstObject] player]] : nil;
+		ORMCDProperty *attribute = entity != nil ? [self propertyOn:entity forFarRole:[roles lastObject]] : nil;
+		NSString *derivation = nil;
+		if ([attribute isKindOfClass:[ORMCDAttribute class]]) {
+			planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_out];
+			ORMQueryPlan *plan = [planner planForQuery:query];
+			ORMPlanColumn *value = [plan.columns count] == 2 ? [plan columnOfNode:[(ORMQueryNode *)[columns lastObject] identifier]] : nil;
+			/* Through one to-one: a to-many would bind a variable, and Core
+			 * Data derives through one relationship at most. */
+			if ([plan.notes count] == 0 && value != nil && value.path.variable == nil && [value.identifierParts count] == 0
+			    && [[value valuePath].keys count] == 2) {
+				derivation = [[value valuePath].keys componentsJoinedByString:@"."];
+			}
+		}
+		if (derivation != nil) {
+			((ORMCDAttribute *)attribute).derivation = derivation;
+			[self note:ORMMappingDerived
+			      text:[NSString stringWithFormat:@"\"%@\" is derived and stored: Core Data derives %@.%@ as %@.", what,
+			                                      entity.name, attribute.name, derivation]
+			   element:fact.identifier];
+		} else {
+			[self note:ORMMappingDerived
+			      text:[NSString stringWithFormat:@"\"%@\" is derived and stored: its facts are worked out when changes "
+			                                      @"are saved.",
+			                                      what]
+			   element:fact.identifier];
+		}
+	}
+}
+
 - (ORMCDModel *)map
 {
 	_out = [ORMCDModel model];
@@ -1559,11 +1852,15 @@ ORMDeletionRule(ORMRole *far)
 	_valueEntities = [NSMutableDictionary dictionary];
 	_names = [NSMutableDictionary dictionary];
 	_entityNames = [NSMutableSet set];
+	_heldBy = [NSMutableDictionary dictionary];
 	[self resolveObjectTypes];
 	[self makeEntities];
+	[self makeJoins];
 	[self makeIdentifiers];
 	[self mapFactTypes];
 	[self mapConstraints];
+	[self nameJoins];
+	[self mapStoredDerivations];
 	[self loosenMandatoryReferencesToUniqueEntities];
 	if (self.mapping.servesOData) {
 		[_notes addObjectsFromArray:[[[ORMODataAnnotator alloc] initWithModel:self.model mapping:self.mapping] annotate:_out]];

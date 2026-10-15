@@ -131,7 +131,10 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 	 * it). In the set's plan, variable (o1), where it is set, is the object
 	 * this plan reads; it may also name the variables bound where the match
 	 * is. A set that names neither is uncorrelated: the same for every object
-	 * of this one. */
+	 * of this one. With boundVariable, each matching object is bound to it
+	 * and meets operand (nil: any), as a some's members are: a join that
+	 * lists what it joins (a joined entity type's members); optional, as a
+	 * maybe: none, and the variable unbound, when none does. */
 	ORMPlanMatches,
 	/* Maybe: each member of the collection at path (or the object a to-one
 	 * reaches), bound to variable, that meets operand (nil: each); none, and
@@ -171,6 +174,13 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 + (instancetype)matchesDefinition:(ORMPlanDefinition *)definition
                             pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs
                             outer:(NSString *)variable;
+/* The same, each matching object bound to variable and meeting the
+ * condition (nil: any); optional: or none (docs/JOINED-ENTITIES.md). */
++ (instancetype)matchesDefinition:(ORMPlanDefinition *)definition
+                            pairs:(NSArray<NSArray<ORMPlanPath *> *> *)pairs
+                          binding:(NSString *)variable
+                            where:(ORMPlanCondition *)condition
+                         optional:(BOOL)optional;
 /* The variables the condition names that it does not bind itself: those
  * bound around it, or an enclosing plan's object. */
 - (NSSet<NSString *> *)freeVariables;
@@ -195,6 +205,10 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 @property (nonatomic, readonly, strong) ORMQueryPlan *plan;
 @property (nonatomic, readonly, strong) ORMPlanDefinition *definition;
 @property (nonatomic, readonly, copy) NSArray<NSArray<ORMPlanPath *> *> *pairs;
+/* A matches' variable for each matching object, and whether there may be
+ * none. */
+@property (nonatomic, readonly, copy) NSString *boundVariable;
+@property (nonatomic, readonly) BOOL isOptional;
 @end
 
 /* A ticked node: its title, the query node, and where it is: from the
@@ -264,6 +278,17 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* Whether a column lists the object read itself: then no row of one
  * object is another's. */
 - (BOOL)listsTheObjectRead;
+/* Every key path the plan reads from the object it reads, through the
+ * collections its variables range over: "branch.employees.salary". nil
+ * where it reads what no path from that object says: a set it joins on
+ * values, a bag. What generated code walks back from a change to the
+ * objects it can affect (docs/DERIVATION.md). */
+- (NSArray<NSArray<NSString *> *> *)trailsFromRead;
+/* The key path of a column from the object read, its identifier left
+ * out; nil for one computed, or past a join. */
+- (NSArray<NSString *> *)trailOfColumn:(ORMPlanColumn *)column;
+/* The column of a ticked node of the query, by its id; nil for none. */
+- (ORMPlanColumn *)columnOfNode:(NSString *)nodeId;
 /* Whether equal rows are of objects read one after another, the objects
  * in the order (each part a key path from the object read; the key's
  * parts last, when it is given): a prefix of the order determines the

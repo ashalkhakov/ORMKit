@@ -211,11 +211,10 @@ tab, and `ormtool query` prints the request.
 
 ORMKit links ODataKit's `ODataKit` and `ODataIncrementalStore` libraries (the
 query builder is the client's). The tests also link `ODataService`.
-- **Xcode:** build through `ORMKit.xcworkspace`, which holds
-  `../ODataKit/ODataKit.xcodeproj` beside this project.
+- **Xcode:** ODataKit's XCFrameworks, from its release, in `.deps/`.
 - **GNUstep:** link an installed ODataKit, over FreeCoreData, or a built
   checkout (`make ODATAKIT=../ODataKit`, `odatakit.make`).
-- **CI:** pins both, as `ODATAKIT_REF` and `FREECOREDATA_REF`.
+- **CI:** both by their releases' exact versions, in `.github/pins.env`.
 
 ## Not done yet
 

@@ -59,30 +59,39 @@ would have made it. See [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPING.md).
 
 ## Building
 
-ORMKit links [ODataKit](https://github.com/ashalkhakov/ODataKit), checked out
-beside this repository as `../ODataKit` ([docs/ODATA.md](docs/ODATA.md)).
+ORMKit links [ODataKit](https://github.com/ashalkhakov/ODataKit) ([docs/ODATA.md](docs/ODATA.md)),
+and on GNUstep [FreeCoreData](https://github.com/ashalkhakov/FreeCoreData) under it;
+`.github/pins.env` names the exact releases it builds on, with the GNUstep
+stack and Sparkle (ORMDesigner's updates on macOS).
 
-macOS, through the workspace, which builds ODataKit's frameworks too:
+macOS, with ODataKit's XCFrameworks and Sparkle's in `.deps/`
+(gnustep-release-actions' `scripts/deps.sh apple` fetches them by those
+versions):
 
 ```sh
-xcodebuild -workspace ORMKit.xcworkspace -scheme ORMDesigner build
-xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKitTests -destination 'platform=macOS' test
+make -f Makefile.apple && make -f Makefile.apple check
+make -f Makefile.apple install DESTDIR=out
 ```
 
-GNUstep (clang, libobjc2, gnustep-2.0 runtime, tools-xctest), with
-[FreeCoreData](https://github.com/ashalkhakov/gnustep-coredata) (its `Tools/momc`
-too) and then ODataKit built and installed first, at the commits CI pins
-(`FREECOREDATA_REF`, `ODATAKIT_REF` in `.github/workflows/ci.yml`; GNUstep
-itself with the fixes `GNUSTEP_PATCHES_REF` names applied):
+or open `ORMKit.xcworkspace` (`python3 .tools/genxcodeproj.py` writes it).
+
+GNUstep (clang, libobjc2, gnustep-2.0 runtime, tools-xctest), with those
+releases installed (`scripts/deps.sh linux` unpacks them into `/opt/gnustep`):
 
 ```sh
 . /path/to/GNUstep.sh
-make -C ORMKit && make -C Tools/ormtool && make -C ORMDesigner
-make -C ORMKitTests run-tests
-xvfb-run -a make -C ORMDesignerTests run-tests
+make && make check && make install
 ```
 
-or in docker, in an image that has them: `.tools/gnustep.sh make -C ORMKitTests run-tests`.
+or in docker, in an image that has them: `.tools/gnustep.sh make check`.
+
+One workflow, `.github/workflows/build.yml`, runs the same on every push and
+`v*` tag, by gnustep-release-actions' workflows (the same as every
+repository's), and packages what was installed: ORMDesigner for macOS, and an
+AppImage with ORMDesigner and `ormtool`
+(`./ORMKit-*.AppImage ormtool check model.orm`). A tag releases them:
+ORMDesigner signed and notarized with the Sparkle appcast its Check for
+Updates… reads, the AppImage with its update information.
 
 ## ormtool
 

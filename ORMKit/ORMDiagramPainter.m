@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMDiagramPainter.h"
 #import "ORMReadingText.h"
+#import "ORMPath.h"
 #include <float.h>
 #include <math.h>
 
@@ -358,8 +359,24 @@ ORMRoleAttachment(ORMShape *factTypeShape, ORMRole *role, NSPoint from)
 	return NSMakePoint(from.x < NSMidX(box) ? NSMinX(box) : NSMaxX(box), NSMidY(box));
 }
 
+static NSString *ORMReadingPhrase(ORMShape *factTypeShape, ORMReadingOrder *order);
+
 NSString *
 ORMReadingDisplayText(ORMShape *factTypeShape, ORMReadingOrder *order)
+{
+	NSString *phrase = ORMReadingPhrase(factTypeShape, order);
+	/* NORMA's marks after a derived fact type's reading: * derived, +
+	 * partly; doubled, stored. */
+	ORMDerivationRule *rule = order.factType.isDerived ? [order.factType derivationRule] : nil;
+	if (rule == nil || [phrase length] == 0) {
+		return phrase;
+	}
+	NSString *mark = rule.isPartial ? @"+" : @"*";
+	return [NSString stringWithFormat:@"%@ %@%@", phrase, mark, rule.isStored ? mark : @""];
+}
+
+static NSString *
+ORMReadingPhrase(ORMShape *factTypeShape, ORMReadingOrder *order)
 {
 	ORMReading *reading = [order.readings firstObject];
 	if (reading == nil) {

@@ -19,6 +19,10 @@
 	NSMutableDictionary<NSString *, NSCountedSet *> *_frequencies;
 	/* An objectified fact type's facts' ids, in their order. */
 	NSMutableDictionary<NSString *, NSArray<NSString *> *> *_factIds;
+	/* The facts identifying instances are, by fact type id: what a subset
+	 * of one compares with ("CEO runs Company" only where the CEO works
+	 * for it, an Employee identified by Company and number). */
+	NSMutableDictionary<NSString *, NSMutableArray<NSDictionary<NSString *, NSString *> *> *> *_identifying;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model
@@ -183,12 +187,57 @@ ORMReadingOf(ORMFactType *fact)
 	return type.preferredIdentifier != nil;
 }
 
+/* How many instances the type needs at least: one for each instance of
+ * another type that must play a role with it (each Company run by a CEO),
+ * and enough for each subtype's share to have what it needs. */
+- (NSUInteger)demandOf:(ORMObjectType *)type depth:(NSUInteger)depth
+{
+	NSUInteger demand = 0;
+	for (ORMRole *own in type.playedRoles) {
+		ORMRole *other = [own oppositeRole];
+		if (other != nil && own.factType.kind == ORMFactTypeOrdinary && other.player != type && [other.player isEntity]
+		    && [self mandatory:other]) {
+			demand = MAX(demand, _size);
+		}
+	}
+	/* Roles it plays one of at most (each Content the text of a Comment or
+	 * of a Paragraph, not both), each with others that must play them with
+	 * it: an instance for each of those, of each. An objectifying one has
+	 * as many as its fact has facts, half as many again as others. */
+	for (ORMConstraint *constraint in _model.constraints) {
+		if (constraint.kind != ORMExclusionConstraint || [constraint.roleSequences count] < 2) {
+			continue;
+		}
+		NSUInteger sum = 0;
+		BOOL ours = YES;
+		for (ORMRoleSequence *sequence in constraint.roleSequences) {
+			ORMRole *role = [sequence.roles count] == 1 ? [sequence.roles firstObject] : nil;
+			ORMRole *other = [role oppositeRole];
+			ours = ours && role.player == type;
+			if (other != nil && [other.player isEntity] && [self mandatory:other]) {
+				sum += other.player.nestedFactType != nil ? _size * 3 / 2 : _size;
+			}
+		}
+		if (ours) {
+			demand = MAX(demand, sum);
+		}
+	}
+	NSUInteger stride = [type.subtypes count] + 1;
+	for (ORMObjectType *subtype in depth < 8 ? type.subtypes : @[]) {
+		if ([subtype identifyingSupertype] == type && ![self isIdentifiedRoot:subtype]) {
+			demand = MAX(demand, [self demandOf:subtype depth:depth + 1] * stride);
+		}
+	}
+	return demand;
+}
+
 - (void)makeInstancesOf:(ORMObjectType *)type
 {
 	NSArray<ORMRole *> *roles = [type.preferredIdentifier allRoles];
 	NSMutableArray *pool = [NSMutableArray array];
-	/* How many identities there are: values run out where constrained. */
-	NSUInteger count = _size;
+	/* How many identities there are: values run out where constrained.
+	 * As many as its subtypes' shares need. */
+	NSUInteger count = MAX(_size, [self demandOf:type depth:0]);
 	NSUInteger combinations = 1;
 	BOOL unbounded = NO;
 	for (ORMRole *role in roles) {
@@ -236,7 +285,21 @@ ORMReadingOf(ORMFactType *fact)
 				           forKey:role.identifier];
 			}
 		}
-		[pool addObject:[_population instanceOf:type.identifier identifiedBy:byRole]];
+		NSString *instance = [_population instanceOf:type.identifier identifiedBy:byRole];
+		[pool addObject:instance];
+		/* Each identifying binary's fact. */
+		for (ORMRole *role in roles) {
+			ORMRole *own = [role oppositeRole];
+			if (own.player != type || [byRole objectForKey:role.identifier] == nil) {
+				continue;
+			}
+			NSMutableArray *facts = [_identifying objectForKey:role.factType.identifier];
+			if (facts == nil) {
+				facts = [NSMutableArray array];
+				[_identifying setObject:facts forKey:role.factType.identifier];
+			}
+			[facts addObject:@{ own.identifier: instance, role.identifier: [byRole objectForKey:role.identifier] }];
+		}
 	}
 	[_pools setObject:pool forKey:type.identifier];
 }
@@ -440,7 +503,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 
 - (NSArray<NSDictionary *> *)factsOf:(ORMFactType *)fact
 {
-	return [_facts objectForKey:fact.identifier] ?: @[];
+	return [_facts objectForKey:fact.identifier] ?: [_identifying objectForKey:fact.identifier] ?: @[];
 }
 
 /* Whether the fact keeps every constraint on its fact type, with the facts
@@ -584,6 +647,19 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			}
 		}
 	}
+	if ((type & ORMRingTransitive) && !self_) {
+		/* Transitive where there are no chains of two: no fact goes on from
+		 * where this one ends, or ends where it begins. */
+		for (NSArray *pair in pairs) {
+			NSString *a = [pair firstObject], *b = [pair lastObject];
+			if ([a isEqualToString:b]) {
+				continue;
+			}
+			if ([a isEqualToString:y] || [b isEqualToString:x]) {
+				return NO;
+			}
+		}
+	}
 	if (type & (ORMRingIntransitive | ORMRingStronglyIntransitive)) {
 		for (NSArray *pair in pairs) {
 			NSString *a = [pair firstObject], *b = [pair lastObject];
@@ -659,6 +735,13 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			continue;
 		}
 		if ([[ring firstObject] player] != [[ring lastObject] player]) {
+			/* No fact can be of its roles' types the other way round: kept
+			 * only by there being none, where none need be. */
+			if (![self mandatory:[ring firstObject]] && ![self mandatory:[ring lastObject]]) {
+				[self note:@"%@ is kept by \"%@\" having no facts: one the other way round would not be of its roles' "
+				           @"types.", constraint.name, ORMReadingOf(fact)];
+				return NO;
+			}
 			[self note:@"%@ is not kept: a fact the other way round would not be of its roles' types.", constraint.name];
 			break;
 		}
@@ -963,6 +1046,19 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 
 /* Disjunctive mandatories: an instance playing none of the roles plays the
  * first it can. */
+/* Whether the instance plays in a fact made. */
+- (BOOL)playsAnything:(NSString *)instance
+{
+	for (NSArray *facts in [_facts allValues]) {
+		for (NSDictionary *fact in facts) {
+			if ([[fact allValues] containsObject:instance]) {
+				return YES;
+			}
+		}
+	}
+	return NO;
+}
+
 - (void)coverDisjunctions
 {
 	for (ORMConstraint *constraint in _model.constraints) {
@@ -978,7 +1074,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 		if (![player isEntity] || !filled) {
 			continue;
 		}
-		for (NSString *instance in [_pools objectForKey:player.identifier]) {
+		for (NSString *instance in [[_pools objectForKey:player.identifier] copy]) {
 			BOOL plays = NO;
 			for (ORMRole *role in roles) {
 				plays = plays || [[self playersOf:role] containsObject:[self rootOf:instance]];
@@ -986,6 +1082,11 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			BOOL covered = plays;
 			for (ORMRole *role in roles) {
 				covered = covered || [self cover:instance role:role];
+			}
+			/* One too many, playing nothing at all: there is no need of it. */
+			if (!covered && ![self playsAnything:instance] && [_population removeInstance:instance]) {
+				[[_pools objectForKey:player.identifier] removeObject:instance];
+				continue;
 			}
 			if (!covered) {
 				[self note:@"%@ cannot play any of the roles %@ says one of which it must.", player.name, constraint.name];
@@ -1071,6 +1172,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	_seen = [NSMutableDictionary dictionary];
 	_frequencies = [NSMutableDictionary dictionary];
 	_factIds = [NSMutableDictionary dictionary];
+	_identifying = [NSMutableDictionary dictionary];
 	[self makeInstances];
 	for (ORMFactType *fact in [self factOrder]) {
 		[self fill:fact];
@@ -1088,7 +1190,8 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	}
 	for (ORMFactType *fact in _model.factTypes) {
 		NSArray *ids = [_factIds objectForKey:fact.identifier];
-		NSArray *facts = [self factsOf:fact];
+		/* Those made, not those identifying instances are. */
+		NSArray *facts = [_facts objectForKey:fact.identifier] ?: @[];
 		for (NSUInteger i = 0; i < [facts count]; i++) {
 			if (i < [ids count]) {
 				[_population factOf:fact.identifier players:[facts objectAtIndex:i] identifier:[ids objectAtIndex:i]];

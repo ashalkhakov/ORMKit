@@ -217,8 +217,11 @@ applied, and applying is one undoable step in the ORM document.
 
 Core Data checks optionality, counts, bounds, patterns and single-entity
 uniqueness. The rest of the model's constraints the mapping reports as not
-enforced, and generates as code: `<Name>Validation.h` and `.m`, a category
-`(ORMValidation)` on each entity's class that has something to check.
+enforced, and generates as rules in the model's tables, `<Name>.ormplans`,
+which ORMRuntime's `ORMValidator` checks ([RUNTIME.md](RUNTIME.md)). The
+code is `<Name>Validation.h` and `.m`: a category `(ORMValidation)` on the
+topmost classes with something to check, which calls the driver. A
+subentity's objects meet their ancestors' rules and their own.
 
 Xcode usually generates the classes (Codegen "class" or "category"), and the
 user adds validation in a category of their own. The generated category sits
@@ -266,6 +269,10 @@ top of the `.m`:
 - frequencies over several roles;
 - set comparisons through join paths;
 - constraints over the roles of n-ary fact types.
+
+Where the model has stored derivations, the files include
+`<Name>.ormplans`, the tables the save hook runs: the app adds it to its
+resources and links ORMRuntime ([RUNTIME.md](RUNTIME.md)).
 
 The directory is the mapping's `ValidationPath`. **Synchronize** writes the
 code there, generated from the model it has just written, so the names are

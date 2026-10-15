@@ -429,7 +429,9 @@ ORMCellText(id value)
 	/* Refused, the population there stays. */
 	[self.editor group:@"Make Up a Sample Population" trying:^BOOL {
 		[self.editor.populationEditor removePopulation];
-		added = [self.editor.populationEditor addPopulation:population reason:&reason];
+		/* With what the stored derivations derive from it. */
+		added = [self.editor.populationEditor addPopulation:population reason:&reason]
+		        && [self.editor.populationEditor bringStoredDerivationsUpToDate:&reason];
 		return added;
 	}];
 	if (!added) {
@@ -553,7 +555,37 @@ ORMCellText(id value)
 			[_ofPopUp selectItem:[_ofPopUp lastItem]];
 		}
 	}
-	[_ofPopUp setEnabled:kind == ORMQueryCalculation];
+	/* What a derivation can derive: the fact types its columns are the
+	 * roles of, in order, and the one it derives. */
+	for (ORMFactType *fact in kind == ORMQueryDerivation ? [self derivableBy:_query] : @[]) {
+		[_ofPopUp addItemWithTitle:[[fact primaryReading] expandedText] ?: fact.name];
+		[[_ofPopUp lastItem] setRepresentedObject:fact.identifier];
+		if (fact == _query.derivedFactType) {
+			[_ofPopUp selectItem:[_ofPopUp lastItem]];
+		}
+	}
+	[_ofPopUp setEnabled:kind == ORMQueryCalculation || kind == ORMQueryDerivation];
+}
+
+/* The fact types the query's listed nodes play the roles of, in the order
+ * the reading shows them: those it could derive. */
+- (NSArray<ORMFactType *> *)derivableBy:(ORMQuery *)query
+{
+	NSArray *columns = [query projectedNodes];
+	NSMutableArray *found = [NSMutableArray array];
+	for (ORMFactType *fact in [_model ordinaryFactTypes]) {
+		NSArray *roles = [fact visibleRoles];
+		BOOL fits = [roles count] == [columns count] && fact != nil;
+		for (NSUInteger i = 0; fits && i < [roles count]; i++) {
+			ORMObjectType *player = [(ORMRole *)[roles objectAtIndex:i] player];
+			ORMObjectType *listed = [(ORMQueryNode *)[columns objectAtIndex:i] objectType];
+			fits = [player.identifier isEqualToString:listed.identifier];
+		}
+		if (fits || fact == query.derivedFactType) {
+			[found addObject:fact];
+		}
+	}
+	return found;
 }
 
 #pragma mark Actions
@@ -582,6 +614,17 @@ ORMCellText(id value)
 - (void)calculationChanged:(id)sender
 {
 	(void)sender;
+	if (_query.kind == ORMQueryDerivation) {
+		NSString *factId = [[_ofPopUp selectedItem] representedObject];
+		NSString *reason = nil;
+		if (factId == nil) {
+			[self say:@"Choose the fact type the derivation derives."];
+		} else if (![[self queries] setDerivedFactType:factId ofQuery:self.queryId reason:&reason]) {
+			NSBeep();
+			[self say:reason ?: @"It cannot derive that fact type."];
+		}
+		return;
+	}
 	NSString *nodeId = [[_ofPopUp selectedItem] representedObject];
 	if (nodeId == nil) {
 		[self say:@"Choose the node the calculation is of."];
@@ -608,6 +651,47 @@ ORMCellText(id value)
 	_selectedId = nil;
 	[self modelDidChange];
 	return query;
+}
+
+- (NSString *)addQueryFromOutline:(NSString *)text
+{
+	NSString *reason = nil;
+	NSString *query = [[[ORMOutlineReader alloc] initWithEditor:self.editor] addQueryNamed:nil outline:text ?: @""
+	                                                                               reason:&reason];
+	if (query == nil) {
+		NSBeep();
+		[self say:reason];
+		return nil;
+	}
+	self.queryId = query;
+	_selectedId = nil;
+	[self modelDidChange];
+	return query;
+}
+
+- (IBAction)copy:(id)sender
+{
+	(void)sender;
+	NSString *outline = [_query outlineText];
+	if ([outline length] == 0) {
+		NSBeep();
+		return;
+	}
+	NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
+	/* Declared rather than cleared: gnustep-gui has no -clearContents. */
+	[pasteboard declareTypes:@[ NSPasteboardTypeString ] owner:nil];
+	[pasteboard setString:outline forType:NSPasteboardTypeString];
+}
+
+- (IBAction)paste:(id)sender
+{
+	(void)sender;
+	NSString *text = [[NSPasteboard generalPasteboard] stringForType:NSPasteboardTypeString];
+	if ([text length] == 0) {
+		NSBeep();
+		return;
+	}
+	[self addQueryFromOutline:text];
 }
 
 - (void)newQuery:(id)sender

@@ -20,7 +20,34 @@ typedef NS_ENUM(NSInteger, ORMObjectTypeMapping) {
 	 * kind of string with more to it: an e-mail address, a URL), with the
 	 * value transformer that stores it. */
 	ORMMapTransformable,
+	/* An entity type kept in several entities, joined on its identifiers:
+	 * its members (docs/JOINED-ENTITIES.md). */
+	ORMMapJoined,
 };
+
+/* An entity of a joined entity type: the first is the hub, which every
+ * instance has a row in. */
+@interface ORMJoinMember : NSObject
+@property (nonatomic, readonly, copy) NSString *identifier;
+/* Its entity's name. */
+@property (nonatomic, readonly, copy) NSString *name;
+/* The identifier it correlates by: a uniqueness constraint's id, the
+ * preferred identifier's where it says none. */
+@property (nonatomic, readonly, copy) NSString *correlationId;
+/* The member it joins to; nil for the hub. */
+@property (nonatomic, readonly, copy) NSString *viaId;
+/* Not every instance has a row. */
+@property (nonatomic, readonly) BOOL isOuter;
+/* Its rows need not have what joins them (OptionalBy="true"), as a store
+ * read back may have it: a row without is no instance's. */
+@property (nonatomic, readonly) BOOL correlationIsOptional;
+/* The roles whose properties it has: each the far role, as a property's
+ * trace is. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *heldRoleIds;
+/* Those its rows always have, though not every instance has a row: the
+ * properties required in its entity (Holds Required="true"). */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *requiredRoleIds;
+@end
 
 /* What the Core Data model is for, which sets how the conceptual model
  * becomes a logical one where there is more than one good way; the
@@ -95,6 +122,8 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 /* A Transformable value type's class and value transformer, by its id:
  * @[ class, transformer ]. */
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, NSArray<NSString *> *> *transformables;
+/* A joined entity type's members, in order, by its id. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSArray<ORMJoinMember *> *> *joins;
 /* ORM elements the mapping leaves out: a role (the property made for it
  * is not made) or a fact type. */
 @property (nonatomic, readonly, copy) NSSet<NSString *> *excludedSources;

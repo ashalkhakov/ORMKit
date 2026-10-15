@@ -4,7 +4,8 @@
 
 /* The schemas of Halpin's papers, our own models of them, with the papers'
  * queries: what Samples/Company.orm, University.orm and UMLandORM.orm are
- * made by (Samples/README.md says which figures). Each is built through
+ * made by (Samples/README.md says which figures); and Customers.orm, a
+ * customer kept in three tables, which is not Halpin's. Each is built through
  * ORMEditor and its diagrams laid out by arrangeDiagram:.
  *
  *   xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKit -derivedDataPath /tmp/ormkit build
@@ -403,6 +404,7 @@ check(BOOL ok, const char *what)
 - (void)add:(ORMSamplePopulation *)population
 {
 	NSString *reason = nil;
+	/* Its stored derived facts made with it. */
 	CHECK([_editor.populationEditor addPopulation:population reason:&reason], reason);
 }
 
@@ -603,6 +605,7 @@ check(BOOL ok, const char *what)
 	check([[self queries] setKind:ORMQueryConstraint ofQuery:near reason:NULL], "a rule");
 	check([[self queries] setDeontic:YES ofQuery:near reason:NULL], "a deontic rule");
 	[self name:who through:@"hasName" in:near];
+	[self derivations];
 	/* Q4's: and whom they supervise. */
 	for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
 		if ([query.name isEqualToString:@"Q4"]) {
@@ -614,6 +617,48 @@ check(BOOL ok, const char *what)
 			}
 		}
 	}
+}
+
+/* Derived fact types (docs/DERIVATION.md). "Employee works in City", the
+ * city of the branch one works for, is stored: kept in the population as
+ * it changes, and worked out at save by the generated code. "Branch is in
+ * Country", through its city's state, is not: a query through it goes that
+ * way. A query of each. */
+- (void)derivations
+{
+	NSString *employee = [self typeId:@"Employee"];
+	NSString *branch = [self typeId:@"Branch"];
+	NSString *reason = nil;
+	NSArray *worksIn = [self fact:@"worksIn" players:@[ employee, [self typeId:@"City"] ] reading:@"{0} works in {1}"
+	                      inverse:nil uniqueness:@"1"];
+	NSString *d = [[self queries] addQueryNamed:@"Workplace" from:employee reason:NULL];
+	ORMQueryNode *at = [self from:[self root:d].identifier through:[self role:@"worksFor" at:0] in:d];
+	ORMQueryNode *city = [self from:at.identifier through:[self role:@"locatedIn" at:0] in:d];
+	[[self queries] setProjected:YES ofNode:city.identifier];
+	CHECK([[self queries] setKind:ORMQueryDerivation ofQuery:d reason:&reason], reason);
+	NSString *worksInFact = [[(ORMRole *)[_editor.model elementWithId:worksIn[0]] factType] identifier];
+	CHECK([[self queries] setDerivedFactType:worksInFact ofQuery:d reason:&reason], reason);
+	CHECK([_editor.factTypeEditor setDerivationPartial:NO stored:YES of:worksInFact reason:&reason], reason);
+
+	NSArray *inCountry = [self fact:@"inCountry" players:@[ branch, [self typeId:@"Country"] ] reading:@"{0} is in {1}"
+	                        inverse:@"{0} has {1}" uniqueness:@"1"];
+	NSString *c = [[self queries] addQueryNamed:@"Branch country" from:branch reason:NULL];
+	ORMQueryNode *located = [self from:[self root:c].identifier through:[self role:@"locatedIn" at:0] in:c];
+	ORMQueryNode *state = [self from:located.identifier through:[self role:@"cityState" at:0] in:c];
+	ORMQueryNode *country = [self from:state.identifier through:[self role:@"stateCountry" at:0] in:c];
+	[[self queries] setProjected:YES ofNode:country.identifier];
+	CHECK([[self queries] setKind:ORMQueryDerivation ofQuery:c reason:&reason], reason);
+	NSString *inCountryFact = [[(ORMRole *)[_editor.model elementWithId:inCountry[0]] factType] identifier];
+	CHECK([[self queries] setDerivedFactType:inCountryFact ofQuery:c reason:&reason], reason);
+
+	/* Through them: where each employee works, and Australia's branches. */
+	NSString *w = [[self queries] addQueryNamed:@"Works where" from:employee reason:NULL];
+	ORMQueryNode *workCity = [self from:[self root:w].identifier through:worksIn[0] in:w];
+	[[self queries] setProjected:YES ofNode:workCity.identifier];
+	[self name:[self root:w].identifier through:@"hasName" in:w];
+	NSString *u = [[self queries] addQueryNamed:@"Australian branches" from:branch reason:NULL];
+	ORMQueryNode *australia = [self from:[self root:u].identifier through:inCountry[0] in:u];
+	CHECK([[self queries] setCondition:@"=" value:@"Australia" ofNode:australia.identifier reason:&reason], reason);
 }
 
 /* The node's name listed beside it, through the fact type naming it. */
@@ -802,6 +847,105 @@ check(BOOL ok, const char *what)
 	[[self queries] setCount:@">" value:1 ofStep:by reason:NULL];
 }
 
+#pragma mark Customers
+
+/* Not Halpin's: one entity type kept in three tables, as three processes
+ * keep facts of the same customers (docs/JOINED-ENTITIES.md). The CRM has
+ * each customer, by user id, with a name and a GUID; billing has an account
+ * for some, by user id; the newsletter has a subscriber for some, by GUID,
+ * with an e-mail address and the topics they read. */
+- (void)customers
+{
+	NSString *customer = [self entity:@"Customer" mode:@"userId" numeric:YES];
+	NSString *topic = [self entity:@"Topic" mode:@"code" numeric:NO];
+	NSString *guid = [self text:@"Guid"];
+	NSString *name = [self text:@"CustomerName"];
+	NSString *balance = [self value:@"Balance" numeric:YES];
+	NSString *email = [self text:@"Email"];
+	[self fact:@"guid" players:@[ customer, guid ] reading:@"{0} has {1}" inverse:nil uniqueness:@"11!"];
+	[self fact:@"named" players:@[ customer, name ] reading:@"{0} is called {1}" inverse:nil uniqueness:@"1!"];
+	[self fact:@"owes" players:@[ customer, balance ] reading:@"{0} owes {1}" inverse:nil uniqueness:@"1"];
+	[self fact:@"mailed" players:@[ customer, email ] reading:@"{0} is mailed at {1}" inverse:nil uniqueness:@"1"];
+	[self fact:@"reads" players:@[ customer, topic ] reading:@"{0} subscribes to {1}" inverse:@"{0} is read by {1}"
+	    uniqueness:@"*"];
+	[self note:@"A customer of any of the three processes: kept in CRMCustomer, BillingAccount and Subscriber, "
+	           @"joined by user id and GUID (the Core Data mapping)."
+	        on:customer];
+	/* Each customer, and what billing says they owe, where it says. */
+	NSString *owing = [[self queries] addQueryNamed:@"Owing" from:customer reason:NULL];
+	NSString *who = [self root:owing].identifier;
+	[self name:who through:@"named" in:owing];
+	NSString *owesStep = nil;
+	ORMQueryNode *owed = [[self from:who through:[self role:@"owes" at:0] in:owing step:&owesStep] firstObject];
+	[[self queries] setOperator:ORMQueryMaybe ofStep:owesStep];
+	[[self queries] setProjected:YES ofNode:owed.identifier];
+	/* The newsletter's: who is mailed where. */
+	NSString *mailing = [[self queries] addQueryNamed:@"Mailing list" from:customer reason:NULL];
+	ORMQueryNode *address = [self from:[self root:mailing].identifier through:[self role:@"mailed" at:0] in:mailing];
+	[[self queries] setProjected:YES ofNode:address.identifier];
+	[self name:[self root:mailing].identifier through:@"named" in:mailing];
+	/* From a topic: its readers are customers, with their CRM names. */
+	NSString *readers = [[self queries] addQueryNamed:@"Readers" from:topic reason:NULL];
+	ORMQueryNode *reader = [self from:[self root:readers].identifier through:[self role:@"reads" at:1] in:readers];
+	[[self queries] setProjected:YES ofNode:reader.identifier];
+	[self name:reader.identifier through:@"named" in:readers];
+}
+
+/* Ann owes 50 and reads the news; Bob has neither an account nor a
+ * subscription; Cy owes 500 and reads the news and the deals. */
+- (void)customersPopulation
+{
+	ORMSamplePopulation *p = [[ORMSamplePopulation alloc] init];
+	NSString *news = [self one:@"Topic" value:@"news" in:p];
+	NSString *deals = [self one:@"Topic" value:@"deals" in:p];
+	NSArray *people = @[ @[ @"1", @"Ann", @"g-ann" ], @[ @"2", @"Bob", @"g-bob" ], @[ @"3", @"Cy", @"g-cy" ] ];
+	NSMutableArray *customers = [NSMutableArray array];
+	for (NSArray *person in people) {
+		NSString *customer = [self one:@"Customer" value:person[0] in:p];
+		[customers addObject:customer];
+		[self fact:@"named" of:@[ customer, [p value:person[1] of:[self typeId:@"CustomerName"]] ] in:p];
+		[self fact:@"guid" of:@[ customer, [p value:person[2] of:[self typeId:@"Guid"]] ] in:p];
+	}
+	[self fact:@"owes" of:@[ customers[0], [p value:@"50" of:[self typeId:@"Balance"]] ] in:p];
+	[self fact:@"owes" of:@[ customers[2], [p value:@"500" of:[self typeId:@"Balance"]] ] in:p];
+	[self fact:@"mailed" of:@[ customers[0], [p value:@"ann@example.test" of:[self typeId:@"Email"]] ] in:p];
+	[self fact:@"mailed" of:@[ customers[2], [p value:@"cy@example.test" of:[self typeId:@"Email"]] ] in:p];
+	[self fact:@"reads" of:@[ customers[0], news ] in:p];
+	[self fact:@"reads" of:@[ customers[2], news ] in:p];
+	[self fact:@"reads" of:@[ customers[2], deals ] in:p];
+	[self add:p];
+}
+
+/* The three tables, one Customer: the CRM's the hub, billing's joined by
+ * user id, the newsletter's by GUID through the CRM, which has both. */
+- (void)customersMapping
+{
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:_editor];
+	NSString *mapping = [mappings addCoreDataMappingNamed:@"Customers" path:@"Customers.xcdatamodeld"];
+	NSString *customer = [self typeId:@"Customer"];
+	NSString *hub = [mappings addMemberNamed:@"CRMCustomer" by:nil via:nil outer:NO ofObjectType:customer
+	                               inMapping:mapping];
+	NSString *billing = [mappings addMemberNamed:@"BillingAccount" by:nil via:nil outer:YES ofObjectType:customer
+	                                   inMapping:mapping];
+	[mappings setHeld:YES role:[self role:@"owes" at:1] byMember:billing inMapping:mapping];
+	NSString *guidUniqueness = nil;
+	for (ORMConstraint *constraint in [(ORMRole *)[_editor.model elementWithId:[self role:@"guid" at:1]] constraints]) {
+		if (constraint.kind == ORMUniquenessConstraint && [[constraint allRoles] count] == 1) {
+			guidUniqueness = constraint.identifier;
+		}
+	}
+	NSString *subscriber = [mappings addMemberNamed:@"Subscriber" by:guidUniqueness via:hub outer:YES
+	                                   ofObjectType:customer inMapping:mapping];
+	[mappings setHeld:YES role:[self role:@"mailed" at:1] byMember:subscriber inMapping:mapping];
+	[mappings setHeld:YES role:[self role:@"reads" at:1] byMember:subscriber inMapping:mapping];
+	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc]
+		initWithModel:_editor.model mapping:[ORMCoreDataMapping mappingWithId:mapping inDocument:_editor.document]];
+	[mapper map];
+	for (ORMMappingNote *note in mapper.notes) {
+		check(note.kind != ORMMappingWarning, [note.text UTF8String]);
+	}
+}
+
 @end
 
 int main(int argc, char **argv)
@@ -825,6 +969,11 @@ int main(int argc, char **argv)
 		[uml umlAndORM];
 		[uml umlAndORMPopulation];
 		[uml save:[out stringByAppendingPathComponent:@"UMLandORM.orm"]];
+		Builder *customers = [[Builder alloc] initNamed:@"Customers"];
+		[customers customers];
+		[customers customersPopulation];
+		[customers customersMapping];
+		[customers save:[out stringByAppendingPathComponent:@"Customers.orm"]];
 	}
 	return failures > 0;
 }

@@ -1,6 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCoreDataMapper.h"
 
+@class ORMTables;
+
 /* What Core Data cannot enforce, as code: a category on each entity's class
  * that checks the ORM constraints its model leaves out, for the class's own
  * validation methods to call.
@@ -58,8 +60,14 @@
                      coreData:(ORMCDModel *)coreData
                          name:(NSString *)name;
 
-/* File name -> contents: <Name>Validation.h and <Name>Validation.m. */
+/* File name -> contents: <Name>Validation.h and <Name>Validation.m, and
+ * <Name>.ormplans, the tables the code's checks and save hook run
+ * (docs/RUNTIME.md), where there are any: the app adds it to its
+ * resources, and links ORMRuntime. */
 - (NSDictionary<NSString *, NSString *> *)files;
+/* The tables the code runs: each entity's rules, and the stored
+ * derivations, in the order they are worked out. */
+- (ORMTables *)tables;
 /* The constraints no code checks, and why. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
 /* How many constraints the code checks. */

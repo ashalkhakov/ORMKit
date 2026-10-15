@@ -18,6 +18,9 @@ typedef NS_ENUM(NSInteger, ORMMappingNoteKind) {
 	ORMMappingUnenforced,
 	/* Something mapped in a way the modeller should know of. */
 	ORMMappingWarning,
+	/* A derived fact type: left out, worked out by queries; or derived by
+	 * Core Data (docs/DERIVATION.md). */
+	ORMMappingDerived,
 };
 
 @interface ORMMappingNote : NSObject

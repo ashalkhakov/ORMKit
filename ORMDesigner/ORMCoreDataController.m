@@ -14,7 +14,7 @@
 static NSArray *
 ORMMappingTitles(void)
 {
-	return @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable" ];
+	return @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable", @"Joined" ];
 }
 
 static NSArray *
@@ -295,6 +295,35 @@ ORMActionTitles(void)
 	}
 }
 
+/* "Kept in CRMCustomer; BillingAccount (outer, by UserId); Subscriber
+ * (outer, by Guid, through CRMCustomer)": a joined type's members. */
+- (NSString *)membersTextOf:(ORMObjectType *)type
+{
+	NSArray<ORMJoinMember *> *members = [[self mapping].joins objectForKey:type.identifier];
+	NSMutableArray *parts = [NSMutableArray array];
+	for (ORMJoinMember *member in members) {
+		if (member == [members firstObject]) {
+			[parts addObject:member.name];
+			continue;
+		}
+		ORMConstraint *by = member.correlationId != nil ? [self.editor.model elementWithId:member.correlationId]
+		                                                : type.preferredIdentifier;
+		NSArray *values = [[by allRoles] valueForKeyPath:@"player.name"] ?: @[];
+		NSMutableArray *says = [NSMutableArray array];
+		if (member.isOuter) {
+			[says addObject:@"outer"];
+		}
+		[says addObject:[NSString stringWithFormat:@"by %@", [values componentsJoinedByString:@" and "]]];
+		for (ORMJoinMember *via in members) {
+			if (via != [members firstObject] && [via.identifier isEqualToString:member.viaId]) {
+				[says addObject:[NSString stringWithFormat:@"through %@", via.name]];
+			}
+		}
+		[parts addObject:[NSString stringWithFormat:@"%@ (%@)", member.name, [says componentsJoinedByString:@", "]]];
+	}
+	return [NSString stringWithFormat:@"%@ is kept in %@.", type.name, [parts componentsJoinedByString:@"; "]];
+}
+
 - (void)typeMappingChanged:(id)sender
 {
 	(void)sender;
@@ -309,7 +338,19 @@ ORMActionTitles(void)
 	}
 	ORMObjectType *type = [_objectTypes objectAtIndex:(NSUInteger)row];
 	ORMObjectTypeMapping how = (ORMObjectTypeMapping)[_typeMappingPopUp indexOfSelectedItem];
-	if (how == ORMMapTransformable) {
+	if (how == ORMMapJoined && [[[self mapping].joins objectForKey:type.identifier] count] == 0) {
+		/* Its entity the hub, to add members to (Merge Entity Types). */
+		if (!type.isEntity) {
+			NSBeep();
+			[self say:@"Only an entity type is kept in several entities."];
+			[_typeMappingPopUp selectItemAtIndex:[[self mapping] mappingOfObjectType:type.identifier]];
+			return;
+		}
+		ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:self.editor.model mapping:[self mapping]] map];
+		NSString *name = [mapped entityWithSource:type.identifier].name ?: [ORMCoreDataMapper entityNameFor:type.name];
+		[[self mappings] addMemberNamed:name by:nil via:nil outer:NO ofObjectType:type.identifier inMapping:self.mappingId];
+		[self say:[self membersTextOf:type]];
+	} else if (how == ORMMapTransformable) {
 		[[self mappings] setTransformableClass:[_transformableClassField stringValue] transformer:nil ofObjectType:type.identifier
 		                         inMapping:self.mappingId];
 	} else {
@@ -433,6 +474,10 @@ ORMActionTitles(void)
 			return [NSString stringWithFormat:@"Automatic: %@", type.kind == ORMValueType ? @"Attribute"
 			                                  : [ORMMappingTitles() objectAtIndex:automatic]];
 		}
+		if (how == ORMMapJoined) {
+			NSArray *members = [[mapping.joins objectForKey:type.identifier] valueForKey:@"name"];
+			return [NSString stringWithFormat:@"Joined: %@", [members componentsJoinedByString:@", "]];
+		}
 		return [ORMMappingTitles() objectAtIndex:how];
 	}
 	if (tableView == _changesTable) {
@@ -454,6 +499,9 @@ ORMActionTitles(void)
 		[_typeMappingPopUp selectItemAtIndex:[[self mapping] mappingOfObjectType:type.identifier]];
 		[_transformableClassField setStringValue:[[[self mapping].transformables objectForKey:type.identifier] firstObject] ?: @""];
 		[_transformableClassField setEnabled:type.kind == ORMValueType];
+		if ([[[self mapping].joins objectForKey:type.identifier] count] > 0) {
+			[self say:[self membersTextOf:type]];
+		}
 	} else if (table == _changesTable && row >= 0 && _sync != nil) {
 		[_changeActionPopUp selectItemAtIndex:[[_sync.changes objectAtIndex:(NSUInteger)row] action]];
 	}

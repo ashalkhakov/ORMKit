@@ -7,7 +7,8 @@ editor. It follows the shape of WorkflowKit (the XML document is the model)
 and RDLKit (library, designer, tests, CI, AppImage).
 
 ```
-ORMKit/            the library: Foundation, NSXML, Core Data and ODataKit; no AppKit
+ORMRuntime/        what apps run: plans and their driver; no ORM model, no NSXML (RUNTIME.md)
+ORMKit/            the library: Foundation, NSXML, Core Data and ODataKit; no AppKit; links ORMRuntime
 ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
 Tools/ormtool/     check, verbalize, normalize, draw as SVG, and map to and from Core Data from a shell
 ORMDesigner/       the editor (AppKit): its windows and menu bar XIBs, springs and struts
@@ -23,6 +24,7 @@ The other documents:
 - [QUERIES.md](QUERIES.md): conceptual queries, their plans, and the two backends;
 - [CURSORS.md](CURSORS.md): how a plan is read, as a tree of cursors;
 - [RULES.md](RULES.md): queries as constraints and calculations;
+- [RUNTIME.md](RUNTIME.md): what apps run: the model's plans as tables, and a small driver;
 - [POPULATIONS.md](POPULATIONS.md): sample populations, made up and edited;
 - [WINDOW.md](WINDOW.md): the designer's document window;
 - [VERBALIZATION.md](VERBALIZATION.md): the FORML templates.
@@ -99,10 +101,12 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMCoreDataMapping`, `ORMCoreDataMapper`, `ORMCoreDataSync`, `ORMMappingEditor` | the mapping, both ways ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)) |
 | `ORMCoreDataImporter` | a Core Data model brought into ORM, with a mapping back to it |
 | `ORMQuery`, `ORMQueryEditor` | conceptual queries after ConQuer, as logic ([QUERIES.md](QUERIES.md)) |
-| `ORMQueryPlanner`, `ORMQueryPlan` | a query planned against a mapping: public, a property list |
-| `ORMQueryInterpreter`, `ORMQueryOData` | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
+| `ORMQueryPlanner` | a query planned against a mapping |
+| `ORMQueryPlan` (ORMRuntime) | a plan: public, a property list |
+| `ORMQueryInterpreter`, `ORMQueryOData` (ORMRuntime) | a plan's two backends: run against a Core Data store, or sent to ODataKit's service |
+| `ORMTables`, `ORMSaveHook`, `ORMValidator`, `ORMJoinedObject` (ORMRuntime) | what an app runs: the model's tables, and their driver ([RUNTIME.md](RUNTIME.md)) |
 | `ORMPopulationEditor`, `ORMPopulationChecker`, `ORMPopulationGenerator`, `ORMPopulationStore` | sample populations: written as NORMA keeps them, checked, made up, and put in a Core Data store for queries ([POPULATIONS.md](POPULATIONS.md)) |
-| `ORMCursor` | the cursors a plan is read through, page by page, and keyset paging ([CURSORS.md](CURSORS.md)) |
+| `ORMCursor` (ORMRuntime) | the cursors a plan is read through, page by page, and keyset paging ([CURSORS.md](CURSORS.md)) |
 | `ORMRuleChecker` | queries that are rules: constraints and calculations, checked on a population ([RULES.md](RULES.md)) |
 | `ORMIssueFinder` | what is wrong with a model, as the designer's Issues navigator lists it |
 | `ORMODataAnnotator` | the mapping's annotations for ODataKit: keys, descriptions, validation terms ([ODATA.md](ODATA.md)) |
@@ -153,14 +157,36 @@ Working and tested on both platforms:
   fact types and readings, every constraint kind, subtyping,
   objectification, notes, diagrams, deletion with its cascade, undo;
 - verbalization of object types, fact types and every constraint kind;
-- the Core Data mapping and three-way synchronization, import from Core
-  Data, and validation code for what Core Data cannot enforce;
+- the Core Data mapping and three-way synchronization, and import from
+  Core Data;
 - the mapping annotated for ODataKit to serve: entity sets, keys
-  (surrogates where needed), descriptions, validation terms; conceptual
-  queries as requests to that service ([ODATA.md](ODATA.md));
+  (surrogates where needed), descriptions, validation terms;
+- conceptual queries after ConQuer ([QUERIES.md](QUERIES.md)): planned
+  against the mapping, run against a Core Data store a page at a time, or
+  sent to the OData service ([ODATA.md](ODATA.md)); read back from their
+  outlines;
+- queries as rules: constraints and calculations, checked on a population
+  ([RULES.md](RULES.md));
+- derived fact types ([DERIVATION.md](DERIVATION.md)): queries as their
+  rules, NORMA's role-path rules read as queries, queries through them,
+  and stored ones kept up to date at save;
+- entity types kept in several entities ([JOINED-ENTITIES.md](JOINED-ENTITIES.md)):
+  the mapping's members, queries that join them, the sample population
+  stored in them, a façade class, and Merge Entity Types for imported
+  tables;
+- sample populations ([POPULATIONS.md](POPULATIONS.md)): edited, checked
+  against the constraints, made up, and put in a store for queries;
+- what apps run ([RUNTIME.md](RUNTIME.md)): ORMRuntime, a small library with
+  no ORM model, reading the model's tables (`<Name>.ormplans`) of rules,
+  stored derivations, joined types and queries; the generated code is
+  declarations and calls into it;
 - ORMDesigner: opening NORMA's diagrams, selecting, moving, the tools, the
   fact editor, the inspector, verbalization, PDF/PNG/HTML export, the Core
-  Data window, the query builder.
+  Data window, the query builder, the Population tab, the Issues
+  navigator, and updating itself (Sparkle, on macOS);
+- building, testing, installing and releasing as gnustep-release-actions'
+  repositories do: `make`, `make check`, `make install` on GNUstep,
+  `Makefile.apple` on the Mac, the AppImage.
 
 Not done yet:
 
@@ -168,18 +194,21 @@ Not done yet:
   role name, value constraint and frequency shapes placed for new elements;
   a layered layout (WorkflowKit's `WKDLayout` is the one to port) instead
   of the grid-and-spiral `arrangeDiagram:`; printing across pages.
-- **NORMA features kept but not edited**: derivation rules (only their
-  free-text note), constraint join paths, most of NORMA's model error checks
-  (the Issues navigator has the basic ones, and readings that do not read).
-  Sample populations are edited by hand in the Population tab, except an
-  objectifying type's instances identified otherwise than by their fact
-  ([POPULATIONS.md](POPULATIONS.md#not-done-yet)).
+- **NORMA features kept but not edited**: NORMA's derivation role paths
+  (read and run as queries, not written back as paths), constraint join
+  paths, most of NORMA's model error checks (the Issues navigator has the
+  basic ones, and readings that do not read). Unary facts kept on their
+  player are read, not written ([POPULATIONS.md](POPULATIONS.md#not-done-yet)).
+- **Queries, rules, derivations**: each document's "not done" list. In
+  short: a join within a join over OData, rules enforced by the OData
+  service at the end of a change set, recursive and subtype derivations,
+  typed rows for a query's results.
 - **Verbalization**: wording checked against NORMA's report only by eye.
 - **Core Data**: per-relationship deletion rule overrides; watching the
   `.xcdatamodeld` for changes; a live `NSManagedObjectModel` preview with
-  FreeCoreData; validation code for what needs a fetch (uniqueness across
-  objects, frequencies over several roles) and for set comparisons through
-  join paths; class names that clash with the SDK's (`Comment` and
+  FreeCoreData; rules for what needs a fetch (uniqueness across objects,
+  frequencies over several roles) and for set comparisons through join
+  paths; class names that clash with the SDK's (`Comment` and
   `Component` are Carbon types, so a class of that name does not compile).
 
 ### Assumptions to check against NORMA

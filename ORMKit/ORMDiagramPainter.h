@@ -116,6 +116,8 @@ BOOL ORMRoleLine(ORMDiagram *diagram, ORMShape *factTypeShape, ORMRole *role, NS
 NSPoint ORMRoleAttachment(ORMShape *factTypeShape, ORMRole *role, NSPoint from);
 /* The text a reading shape shows: "was born in", or "◀ is birthplace of"
  * when it reads against the boxes, or "… gave … to …". */
+/* With NORMA's mark of a derived fact type after it: * derived, + partly
+ * derived, doubled when stored. */
 NSString *ORMReadingDisplayText(ORMShape *factTypeShape, ORMReadingOrder *order);
 
 /* The bounds an object type shape needs for its name and reference mode in

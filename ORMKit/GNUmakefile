@@ -10,9 +10,10 @@ LIBRARY_NAME = ORMKit
 # ODataKit for the OData requests.
 ORMKit_NEEDS_GUI = no
 include ../odatakit.make
-ORMKit_INCLUDE_DIRS += $(ODATAKIT_INCLUDE_DIRS)
-ORMKit_LIB_DIRS += $(ODATAKIT_LIB_DIRS)
-ORMKit_LIBRARIES_DEPEND_UPON += $(ODATAKIT_LIBS)
+# ORMRuntime, built in the tree beside this one: the plans and their driver.
+ORMKit_INCLUDE_DIRS += -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
+ORMKit_LIB_DIRS += -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+ORMKit_LIBRARIES_DEPEND_UPON += -lORMRuntime $(ODATAKIT_LIBS)
 ORMKit_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
 ORMKit_HEADER_FILES = \
   ORMKit.h \
@@ -49,13 +50,14 @@ ORMKit_HEADER_FILES = \
   ORMODataAnnotator.h \
   ORMQuery.h \
   ORMCDModel+CoreData.h \
-  ORMQueryPlan.h \
   ORMQueryPlanner.h \
-  ORMQueryInterpreter.h \
-  ORMQueryOData.h \
-  ORMCursor.h \
+  ORMQueryOData+ORMKit.h \
   ORMRuleChecker.h \
-  ORMIssueFinder.h
+  ORMIssueFinder.h \
+  ORMDeriver.h \
+  ORMJoinedFacade.h \
+  ORMEntityMerger.h \
+  ORMOutlineReader.h
 ORMKit_OBJC_FILES = \
   ORMXML.m \
   ORMModel.m \
@@ -92,13 +94,14 @@ ORMKit_OBJC_FILES = \
   ORMQuery.m \
   ORMCDModel+CoreData.m \
   ORMQueryPlaces.m \
-  ORMQueryPlan.m \
   ORMQueryPlanner.m \
-  ORMQueryInterpreter.m \
-  ORMCursor.m \
   ORMRuleChecker.m \
   ORMIssueFinder.m \
-  ORMQueryOData.m
+  ORMDeriver.m \
+  ORMJoinedFacade.m \
+  ORMEntityMerger.m \
+  ORMOutlineReader.m \
+  ORMQueryOData+ORMKit.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the
 # moment it happens, instead of whatever allocation later notices.
