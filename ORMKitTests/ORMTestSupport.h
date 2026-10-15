@@ -18,6 +18,8 @@
 /* An editor on a new model, with an undo manager that does not group by
  * event: each operation is its own step. */
 - (ORMEditor *)newEditor;
+/* The same, on the document. */
+- (ORMEditor *)newEditorWithDocument:(NSXMLDocument *)document;
 /* What a model compiler says of the model: Apple's on a Mac, FreeCoreData's
  * where PATH has it; nil when it accepts it, or there is none. */
 - (NSString *)momcRejects:(ORMCDModel *)model;

@@ -222,10 +222,33 @@
 	[super tearDown];
 }
 
+/* The company model every test starts from, built once: each test gets
+ * a copy of its document, and the roles of its fact types by name. Built
+ * edit by edit it takes a while, every edit reading the model again. */
+static NSXMLDocument *ORMCompanyDocument;
+static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
+
 - (void)setUp
 {
 	[super setUp];
+	if (ORMCompanyDocument != nil) {
+		_editor = [self newEditorWithDocument:ORMCopyDocument(ORMCompanyDocument)];
+		_diagram = [[_editor.model.diagrams firstObject] identifier];
+		_facts = [ORMCompanyFacts mutableCopy];
+		return;
+	}
 	_editor = [self newEditor];
+	[self buildCompany];
+	ORMCompanyDocument = ORMCopyDocument(_editor.document);
+	ORMCompanyFacts = [_facts copy];
+	/* As every other test starts: from the model as it is, nothing to undo. */
+	_editor = [self newEditorWithDocument:ORMCopyDocument(ORMCompanyDocument)];
+	_diagram = [[_editor.model.diagrams firstObject] identifier];
+}
+
+/* Figure 1 of ConQuer-II's paper, and what the tests add to it. */
+- (void)buildCompany
+{
 	_diagram = [[_editor.model.diagrams firstObject] identifier];
 	_facts = [NSMutableDictionary dictionary];
 	NSString *employee = [self entity:@"Employee" mode:@"nr" numeric:YES];
