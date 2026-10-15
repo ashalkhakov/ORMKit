@@ -1,4 +1,5 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
+#import "ORMXML.h"
 #import "ORMCoreDataMapper.h"
 #import "ORMODataAnnotator.h"
 #import "ORMDiagram.h"
@@ -84,7 +85,7 @@ static NSArray *
 ORMWordsOf(NSString *name)
 {
 	NSMutableArray *words = [NSMutableArray array];
-	NSCharacterSet *separators = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+	NSCharacterSet *separators = ORMNonAlphanumericCharacters();
 	for (NSString *word in [name componentsSeparatedByCharactersInSet:separators]) {
 		if ([word length] > 0) {
 			[words addObject:word];

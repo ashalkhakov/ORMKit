@@ -155,14 +155,45 @@ ORMTrimmed(NSString *text)
 	return [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
-/* A literal as a pattern, any run of spaces matching any run. */
+/* A literal as a pattern, any run of spaces matching any run. Escaped and
+ * spaced by hand: it is made for every name of every role a sentence is
+ * matched against, and GNUstep compiles a regular expression for each of
+ * +escapedPatternForString: and a replacement. */
+static NSCharacterSet *
+ORMPatternSpecials(void)
+{
+	static NSCharacterSet *set;
+	@synchronized([NSCharacterSet class]) {
+		if (set == nil) {
+			set = [NSCharacterSet characterSetWithCharactersInString:@"\\^$.|?*+()[]{}-"];
+		}
+		return set;
+	}
+}
+
 static NSString *
 ORMLiteralPattern(NSString *literal)
 {
-	NSString *escaped = [NSRegularExpression escapedPatternForString:literal ?: @""];
-	NSRegularExpression *spaces = [NSRegularExpression regularExpressionWithPattern:@"\\s+" options:0 error:NULL];
-	return [spaces stringByReplacingMatchesInString:escaped options:0 range:NSMakeRange(0, [escaped length])
-	                                   withTemplate:@"\\\\s+"];
+	NSCharacterSet *special = ORMPatternSpecials();
+	NSCharacterSet *spaces = [NSCharacterSet whitespaceAndNewlineCharacterSet];
+	NSMutableString *pattern = [NSMutableString string];
+	BOOL spaced = NO;
+	for (NSUInteger i = 0; i < [literal length]; i++) {
+		unichar c = [literal characterAtIndex:i];
+		if ([spaces characterIsMember:c]) {
+			if (!spaced) {
+				[pattern appendString:@"\\s+"];
+			}
+			spaced = YES;
+			continue;
+		}
+		spaced = NO;
+		if ([special characterIsMember:c]) {
+			[pattern appendString:@"\\"];
+		}
+		[pattern appendFormat:@"%C", c];
+	}
+	return pattern;
 }
 
 /* The names a role's player may go by in a sentence: its own, a

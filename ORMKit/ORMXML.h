@@ -27,6 +27,13 @@ NSArray<NSString *> *ORMGeneratedNamespaces(void);
 
 /* The node is the element of that namespace and local name; local nil:
  * any element of the namespace. */
+/* The characters that are not alphanumerics, not whitespace, not letters:
+ * made once. GNUstep's -invertedSet builds a whole Unicode bitmap each time,
+ * which the normalizer, run after every edit, asked of each fact type. */
+NSCharacterSet *ORMNonAlphanumericCharacters(void);
+NSCharacterSet *ORMNonWhitespaceCharacters(void);
+NSCharacterSet *ORMNonLetterCharacters(void);
+
 BOOL ORMIs(NSXMLNode *node, NSString *uri, NSString *local);
 NSArray<NSXMLElement *> *ORMChildren(NSXMLElement *element, NSString *uri, NSString *local);
 NSXMLElement *ORMChild(NSXMLElement *element, NSString *uri, NSString *local);

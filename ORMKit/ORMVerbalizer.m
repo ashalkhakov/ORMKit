@@ -362,7 +362,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		NSString *following = part.followingText;
 		/* With the subject left out, the clause starts at its verb. */
 		if (skippedSubject && [builder.spans count] == 0) {
-			NSRange words = [following rangeOfCharacterFromSet:[[NSCharacterSet whitespaceCharacterSet] invertedSet]];
+			NSRange words = [following rangeOfCharacterFromSet:ORMNonWhitespaceCharacters()];
 			following = words.location == NSNotFound ? @"" : [following substringFromIndex:words.location];
 		}
 		[builder predicate:following];

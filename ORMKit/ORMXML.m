@@ -31,6 +31,42 @@ ORMGeneratedNamespaces(void)
 
 #pragma mark Reading
 
+NSCharacterSet *
+ORMNonAlphanumericCharacters(void)
+{
+	static NSCharacterSet *set;
+	@synchronized([NSCharacterSet class]) {
+		if (set == nil) {
+			set = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+		}
+		return set;
+	}
+}
+
+NSCharacterSet *
+ORMNonWhitespaceCharacters(void)
+{
+	static NSCharacterSet *set;
+	@synchronized([NSCharacterSet class]) {
+		if (set == nil) {
+			set = [[NSCharacterSet whitespaceCharacterSet] invertedSet];
+		}
+		return set;
+	}
+}
+
+NSCharacterSet *
+ORMNonLetterCharacters(void)
+{
+	static NSCharacterSet *set;
+	@synchronized([NSCharacterSet class]) {
+		if (set == nil) {
+			set = [[NSCharacterSet letterCharacterSet] invertedSet];
+		}
+		return set;
+	}
+}
+
 BOOL
 ORMIs(NSXMLNode *node, NSString *uri, NSString *local)
 {

@@ -188,7 +188,7 @@ static NSString *
 ORMCapitalizedWords(NSString *text)
 {
 	NSMutableString *out = [NSMutableString string];
-	for (NSString *word in [text componentsSeparatedByCharactersInSet:[[NSCharacterSet alphanumericCharacterSet] invertedSet]]) {
+	for (NSString *word in [text componentsSeparatedByCharactersInSet:ORMNonAlphanumericCharacters()]) {
 		if ([word length] > 0) {
 			[out appendString:[[word substringToIndex:1] uppercaseString]];
 			[out appendString:[word substringFromIndex:1]];
@@ -244,7 +244,7 @@ ORMCapitalizedWords(NSString *text)
 		return name;
 	}
 	NSArray *roles = reading.readingOrder.roles;
-	NSCharacterSet *separators = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+	NSCharacterSet *separators = ORMNonAlphanumericCharacters();
 	NSScanner *scanner = [NSScanner scannerWithString:reading.text];
 	[scanner setCharactersToBeSkipped:nil];
 	while (![scanner isAtEnd]) {
