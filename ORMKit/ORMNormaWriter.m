@@ -257,6 +257,9 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			[self writeElement:shape];
 		}
 	}
+	for (ORMCoreDataMapping *mapping in self.model.coreDataMappings) {
+		[self writeElement:mapping];
+	}
 }
 
 - (void)writeReferenceModes
@@ -523,6 +526,10 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 - (void)writeElement:(ORMElement *)element
 {
 	if (element == nil) {
+		return;
+	}
+	if ([element isKindOfClass:[ORMCoreDataMapping class]]) {
+		[self writeCoreDataMapping:(ORMCoreDataMapping *)element];
 		return;
 	}
 	if (element.element == nil) {

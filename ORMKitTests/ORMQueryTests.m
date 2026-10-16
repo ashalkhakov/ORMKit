@@ -397,13 +397,13 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
  * employees and branches. */
 - (ORMCoreDataMapping *)mapping
 {
-	ORMCoreDataMapping *found = [[ORMCoreDataMapping mappingsOfDocument:_editor.document] firstObject];
+	ORMCoreDataMapping *found = [_editor.model.coreDataMappings firstObject];
 	if (found != nil) {
 		return found;
 	}
 	NSString *mapping = [[[ORMMappingEditor alloc] initWithEditor:_editor] addCoreDataMappingNamed:@"Company" path:@"Company.xcdatamodeld"];
 	[[[ORMMappingEditor alloc] initWithEditor:_editor] setMapping:ORMMapAsEntity ofObjectType:[self typeId:@"City"] inMapping:mapping];
-	return [ORMCoreDataMapping mappingWithId:mapping inDocument:_editor.document];
+	return [_editor.model coreDataMappingWithId:mapping];
 }
 
 /* What the interpreter does to run the query's plan, to read. */

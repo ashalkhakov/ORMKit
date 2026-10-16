@@ -244,7 +244,7 @@ static const NSUInteger ORMResultsPage = 200;
 	if (_query == nil) {
 		return @"";
 	}
-	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
 	NSError *error = nil;
 	ORMQueryOData *odata = [ORMQueryOData requestForQuery:_query model:self.editor.model mapping:mapping error:&error];
 	if (odata == nil) {
@@ -262,7 +262,7 @@ static const NSUInteger ORMResultsPage = 200;
 	if (_query == nil) {
 		return @"";
 	}
-	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
 	ORMQueryPlan *plan = [planner planForQuery:_query];
 	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
@@ -308,7 +308,7 @@ static const NSUInteger ORMResultsPage = 200;
 	if (![self hasPopulation]) {
 		return [NSSet set];
 	}
-	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
 	ORMRuleChecker *checker = [[ORMRuleChecker alloc] initWithModel:self.editor.model mapping:mapping];
 	if ([checker.rules count] == 0 && [checker.valueCalculations count] == 0) {
 		return [NSSet set];
@@ -328,7 +328,7 @@ static const NSUInteger ORMResultsPage = 200;
 		_resultsNote = @"The model has no sample population: Make Up a Population gives it one.";
 		return nil;
 	}
-	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
 	NSError *error = nil;
 	if ([self populationContext:planner.coreData error:&error] == nil) {

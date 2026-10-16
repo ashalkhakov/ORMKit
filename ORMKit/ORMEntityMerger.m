@@ -188,7 +188,7 @@ ORMEntityNameIn(ORMCDModel *mapped, ORMObjectType *type)
 			[traces addObject:ORMTraceOf(role)];
 		}
 	}
-	NSArray *mappings = [ORMCoreDataMapping mappingsOfDocument:_editor.document];
+	NSArray *mappings = _editor.model.coreDataMappings;
 	NSMutableArray *places = [NSMutableArray array];
 	for (ORMCoreDataMapping *mapping in mappings) {
 		/* As it maps now: the names the store has. */

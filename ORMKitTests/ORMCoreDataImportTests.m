@@ -62,7 +62,7 @@ static NSString *const ORMShopModel =
 
 - (ORMCDModel *)remap:(ORMEditor *)editor mapping:(NSString *)mapping
 {
-	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	ORMCoreDataMapping *read = [editor.model coreDataMappingWithId:mapping];
 	return [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:read] map];
 }
 

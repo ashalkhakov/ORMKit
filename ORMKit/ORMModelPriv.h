@@ -1,6 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMDiagram.h"
 #import "ORMPath.h"
+#import "ORMCoreDataMapping.h"
+#import "ORMNormaWriter.h"
 
 /* What the projection's builders set: the public classes are read-only. */
 
@@ -216,10 +218,75 @@
 /* What ORMPath reads beside the model: join paths, derivation rules,
  * populations, cardinalities, each a dictionary by owner id. */
 @property (nonatomic, strong) NSMutableDictionary *extras;
+@property (nonatomic, readwrite, copy) NSArray<ORMCoreDataMapping *> *coreDataMappings;
 @end
 
 @interface ORMModel (ORMPathReading)
 - (void)readPathsAndPopulations;
+@end
+
+@interface ORMModel (ORMCoreDataMappingReading)
+- (void)readCoreDataMappings;
+@end
+
+/* What a mapping's element has, as it has it (ORMCoreDataMapping.m): its
+ * public values are worked out from these. */
+@interface ORMMappingMember : NSObject
+@property (nonatomic, copy) NSString *identifier;
+@property (nonatomic, copy) NSString *name;
+/* By and Via as written, nil where not. */
+@property (nonatomic, copy) NSString *correlationId;
+@property (nonatomic, copy) NSString *viaId;
+@property (nonatomic) BOOL isOuter;
+@property (nonatomic) BOOL correlationIsOptional;
+@property (nonatomic, copy) NSArray<NSString *> *heldRoleIds;
+@property (nonatomic, copy) NSArray<NSString *> *requiredRoleIds;
+@end
+
+/* An object type's <ObjectTypeMapping>: a joined type's members, and a
+ * transformable's class and transformer, stay when it is mapped
+ * otherwise. */
+@interface ORMMappingOption : NSObject
+@property (nonatomic, copy) NSString *objectTypeId;
+@property (nonatomic) ORMObjectTypeMapping how;
+@property (nonatomic, copy) NSString *className;
+@property (nonatomic, copy) NSString *transformerName;
+@property (nonatomic, copy) NSArray<ORMMappingMember *> *members;
+@end
+
+@interface ORMCoreDataMapping ()
+@property (nonatomic, readwrite, copy) NSString *path;
+@property (nonatomic, readwrite, copy) NSString *validationPath;
+@property (nonatomic, readwrite) ORMMappingScope scope;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *scopeIds;
+@property (nonatomic, readwrite) BOOL materializesIdentifiers;
+@property (nonatomic, readwrite) BOOL servesOData;
+@property (nonatomic, readwrite, copy) NSString *odataNamespace;
+@property (nonatomic, readwrite) ORMMappingStyle style;
+/* Set for the mapping, nil for the style's. */
+@property (nonatomic, copy) NSNumber *flattensSubtypesSet;
+@property (nonatomic, copy) NSNumber *absorbsIdentifierTypesSet;
+@property (nonatomic, readwrite) BOOL valueSetsAsEntities;
+@property (nonatomic, readwrite, copy) NSString *codeGenerationType;
+/* In the order of the document: [source id, name] pairs, options,
+ * excluded source ids, kept element paths. */
+@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *overrides;
+@property (nonatomic, copy) NSArray<ORMMappingOption *> *options;
+@property (nonatomic, copy) NSArray<NSString *> *excluded;
+@property (nonatomic, copy) NSArray<NSString *> *kept;
+/* The baseline's contents, as kept. */
+@property (nonatomic, copy) NSString *baselineXML;
+/* Every value a new mapping's, by the name; every value as the element
+ * has it. */
+- (void)resetNamed:(NSString *)name;
+- (void)readElement:(NSXMLElement *)element;
+- (ORMMappingOption *)optionFor:(NSString *)objectTypeId;
+- (ORMMappingMember *)memberWithId:(NSString *)memberId;
+@end
+
+@interface ORMNormaWriter (ORMCoreDataMappings)
+/* A mapping's element, made where it has none, its values as the model's. */
+- (void)writeCoreDataMapping:(ORMCoreDataMapping *)mapping;
 @end
 
 /* Where two models read differ, the first place found, in words; nil when

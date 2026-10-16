@@ -41,7 +41,7 @@
 	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[self fixtureDocument:fixture] undoManager:nil];
 	NSString *mappingId = [[self mappingsOf:editor] addCoreDataMappingNamed:@"Test" path:@"Test.xcdatamodeld"];
 	configure(editor, mappingId);
-	ORMCoreDataMapping *mapping = [ORMCoreDataMapping mappingWithId:mappingId inDocument:editor.document];
+	ORMCoreDataMapping *mapping = [editor.model coreDataMappingWithId:mappingId];
 	return [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping] map];
 }
 
@@ -418,12 +418,12 @@ ORMSquashed(NSString *name)
 	[editor.constraintEditor setUnique:YES role:[[self rolesOf:knows in:editor][0] identifier] reason:NULL];
 	NSString *mapping = [[self mappingsOf:editor] addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
 	[[self mappingsOf:editor] setName:@"Human" forSource:person inMapping:mapping];
-	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	ORMCoreDataMapping *read = [editor.model coreDataMappingWithId:mapping];
 	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:read] map];
 	XCTAssertNotNil([mapped entityNamed:@"Human"]);
 	XCTAssertNotNil([[mapped entityNamed:@"Human"] relationshipNamed:@"secret"]);
 	[[self mappingsOf:editor] setMapping:ORMMapIgnored ofObjectType:secret inMapping:mapping];
-	read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	read = [editor.model coreDataMappingWithId:mapping];
 	mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:read] map];
 	XCTAssertNil([mapped entityNamed:@"Secret"]);
 	XCTAssertNil([[mapped entityNamed:@"Human"] relationshipNamed:@"secret"]);
@@ -441,13 +441,13 @@ ORMSquashed(NSString *name)
 	ORMCoreDataSync *sync = [[ORMCoreDataSync alloc] initWithEditor:editor mapping:mapping theirs:nil];
 	XCTAssertEqual([sync.changes count], (NSUInteger)0);
 	[sync apply];
-	XCTAssertNotNil([[ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document] baseline]);
+	XCTAssertNotNil([[editor.model coreDataMappingWithId:mapping] baseline]);
 	return mapping;
 }
 
 - (ORMCDModel *)baselineOf:(NSString *)mapping in:(ORMEditor *)editor
 {
-	return [[[ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document] baseline] copy];
+	return [[[editor.model coreDataMappingWithId:mapping] baseline] copy];
 }
 
 - (ORMEditor *)personModel

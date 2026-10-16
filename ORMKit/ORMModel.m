@@ -1115,6 +1115,8 @@ ORMWithout(NSArray *array, id object)
 		_constraints = [_constraints arrayByAddingObject:(id)element];
 	} else if ([element isKindOfClass:[ORMModelNote class]]) {
 		_notes = [_notes arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMCoreDataMapping class]]) {
+		self.coreDataMappings = [self.coreDataMappings ?: @[] arrayByAddingObject:element];
 	}
 }
 
@@ -1154,6 +1156,7 @@ ORMWithout(NSArray *array, id object)
 	_factTypes = ORMWithout(_factTypes, element);
 	_constraints = ORMWithout(_constraints, element);
 	_notes = ORMWithout(_notes, element);
+	self.coreDataMappings = ORMWithout(self.coreDataMappings, element);
 }
 
 - (void)registerElement:(ORMElement *)element
@@ -1166,6 +1169,16 @@ ORMWithout(NSArray *array, id object)
 - (NSDictionary *)elementsById
 {
 	return _elements;
+}
+
+- (ORMCoreDataMapping *)coreDataMappingWithId:(NSString *)identifier
+{
+	for (ORMCoreDataMapping *mapping in self.coreDataMappings) {
+		if ([mapping.identifier isEqualToString:identifier]) {
+			return mapping;
+		}
+	}
+	return nil;
 }
 
 - (id)elementWithId:(NSString *)identifier
@@ -1271,6 +1284,7 @@ ORMWithout(NSArray *array, id object)
 	[self derive];
 	self.extras = [NSMutableDictionary dictionary];
 	[self readPathsAndPopulations];
+	[self readCoreDataMappings];
 }
 
 - (void)readDataTypes
@@ -2045,7 +2059,7 @@ ORMModelDisagreement(ORMModel *model, ORMModel *other)
 	[model diagrams];
 	[other diagrams];
 	NSDictionary *mine = [model valueForKey:@"elementsById"], *theirs = [other valueForKey:@"elementsById"];
-	for (NSString *key in @[ @"identifier", @"name", @"referenceModeFormats", @"customReferenceModes", @"derivationRules", @"objectTypes", @"factTypes", @"constraints", @"dataTypes",
+	for (NSString *key in @[ @"identifier", @"name", @"referenceModeFormats", @"customReferenceModes", @"derivationRules", @"coreDataMappings", @"objectTypes", @"factTypes", @"constraints", @"dataTypes",
 	                         @"notes", @"diagrams" ]) {
 		if (!ORMSameValue([model valueForKey:key], [other valueForKey:key])) {
 			return [NSString stringWithFormat:@"the model's %@ differ", key];

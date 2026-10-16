@@ -11,7 +11,7 @@
 
 @class ORMReadingText;
 @class ORMModel, ORMObjectType, ORMFactType, ORMRole, ORMReadingOrder, ORMReading, ORMConstraint, ORMRoleSequence,
-	ORMValueConstraint, ORMDataType, ORMModelNote, ORMDiagram;
+	ORMValueConstraint, ORMDataType, ORMModelNote, ORMDiagram, ORMCoreDataMapping;
 
 /* What every projected element has. */
 @interface ORMElement : NSObject
@@ -433,6 +433,9 @@ typedef NS_ENUM(NSInteger, ORMDataTypeFamily) {
 @property (nonatomic, readonly, copy) NSArray<ORMDataType *> *dataTypes;
 @property (nonatomic, readonly, copy) NSArray<ORMModelNote *> *notes;
 @property (nonatomic, readonly, copy) NSArray<ORMDiagram *> *diagrams;
+/* The Core Data mappings the document keeps (ORMCoreDataMapping.h). */
+@property (nonatomic, readonly, copy) NSArray<ORMCoreDataMapping *> *coreDataMappings;
+- (ORMCoreDataMapping *)coreDataMappingWithId:(NSString *)identifier;
 
 /* Any projected element by id: object types, fact types, roles, readings,
  * constraints, shapes. */

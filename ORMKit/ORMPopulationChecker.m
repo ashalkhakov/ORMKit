@@ -332,8 +332,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 /* The constraint queries, run against the population in a store. */
 - (void)checkRules
 {
-	NSXMLDocument *document = [_model.modelElement rootDocument];
-	ORMCoreDataMapping *mapping = document != nil ? [[ORMCoreDataMapping mappingsOfDocument:document] firstObject] : nil;
+	ORMCoreDataMapping *mapping = [_model.coreDataMappings firstObject];
 	ORMRuleChecker *rules = [[ORMRuleChecker alloc] initWithModel:_model mapping:mapping];
 	if ([rules.rules count] == 0 && [rules.valueCalculations count] == 0) {
 		return;

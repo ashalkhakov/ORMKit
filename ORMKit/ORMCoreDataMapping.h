@@ -5,8 +5,9 @@
 /* A Core Data mapping of an ORM model, as the .orm file keeps it
  * (docs/COREDATA-MAPPING.md): where the .xcdatamodeld is, what of the model
  * it covers, how it maps, what the user renamed, and the model as last
- * written. Read from the document like the rest of the model; changed
- * through ORMEditor's Core Data operations, so every change is undoable. */
+ * written. An element of the model (-[ORMModel coreDataMappings]), read
+ * with it; changed through ORMEditor's Core Data operations, so every
+ * change is undoable. */
 
 typedef NS_ENUM(NSInteger, ORMObjectTypeMapping) {
 	/* As the rules decide: an entity, or absorbed where it can be. */
@@ -75,9 +76,7 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 	ORMScopeObjectTypes,
 };
 
-@interface ORMCoreDataMapping : NSObject
-@property (nonatomic, readonly, copy) NSString *identifier;
-@property (nonatomic, readonly, copy) NSString *name;
+@interface ORMCoreDataMapping : ORMElement
 /* The .xcdatamodeld, relative to the .orm file (or absolute). */
 @property (nonatomic, readonly, copy) NSString *path;
 /* Where the validation code goes (ORMCoreDataValidation.h), a directory
@@ -133,12 +132,6 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 /* The Core Data model as last written; nil before the first sync. */
 @property (nonatomic, readonly, strong) ORMCDModel *baseline;
 
-/* The element it is read from. */
-@property (nonatomic, readonly, strong) NSXMLElement *element;
-
-/* The mappings a document keeps. */
-+ (NSArray<ORMCoreDataMapping *> *)mappingsOfDocument:(NSXMLDocument *)document;
-+ (ORMCoreDataMapping *)mappingWithId:(NSString *)identifier inDocument:(NSXMLDocument *)document;
 /* A mapping that is not in any document: the defaults, for a model with
  * no mapping yet, or ormtool. */
 + (instancetype)defaultMappingNamed:(NSString *)name;

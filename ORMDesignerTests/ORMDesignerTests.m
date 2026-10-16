@@ -853,7 +853,7 @@
 	ORMCDModel *written = [ORMCDModel modelAtPath:package reason:NULL];
 	XCTAssertNotNil(written);
 	XCTAssertNotNil([written entityNamed:@"Product"]);
-	XCTAssertNotNil([[ORMCoreDataMapping mappingsOfDocument:_document.editor.document].firstObject baseline]);
+	XCTAssertNotNil([_document.editor.model.coreDataMappings.firstObject baseline]);
 	/* Synchronized again with nothing changed: nothing to ask. */
 	ORMCoreDataSync *again = [[ORMCoreDataSync alloc] initWithEditor:_document.editor mapping:coreData.mappingId
 	                                                           theirs:written];

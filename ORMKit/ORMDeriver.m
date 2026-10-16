@@ -176,8 +176,7 @@ ORMRowValueIs(id value, ORMInstance *instance)
 
 - (instancetype)initWithModel:(ORMModel *)model
 {
-	NSXMLDocument *document = [model.modelElement rootDocument];
-	ORMCoreDataMapping *mapping = document != nil ? [[ORMCoreDataMapping mappingsOfDocument:document] firstObject] : nil;
+	ORMCoreDataMapping *mapping = [model.coreDataMappings firstObject];
 	return [self initWithModel:model mapping:mapping];
 }
 

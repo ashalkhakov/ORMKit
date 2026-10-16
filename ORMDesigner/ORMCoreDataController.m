@@ -78,7 +78,7 @@ ORMActionTitles(void)
 
 - (ORMCoreDataMapping *)mapping
 {
-	return self.mappingId != nil ? [ORMCoreDataMapping mappingWithId:self.mappingId inDocument:self.editor.document] : nil;
+	return self.mappingId != nil ? [self.editor.model coreDataMappingWithId:self.mappingId] : nil;
 }
 
 - (void)say:(NSString *)message
@@ -88,7 +88,7 @@ ORMActionTitles(void)
 
 - (void)modelDidChange
 {
-	NSArray *mappings = [ORMCoreDataMapping mappingsOfDocument:self.editor.document];
+	NSArray *mappings = self.editor.model.coreDataMappings;
 	if (self.mappingId == nil || [self mapping] == nil) {
 		self.mappingId = [[mappings firstObject] identifier];
 	}

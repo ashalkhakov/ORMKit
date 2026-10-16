@@ -411,11 +411,11 @@ ORMFirstDifference(NSData *one, NSData *other)
 	}
 	for (ORMElement *element in _deleted) {
 		/* With the container it leaves empty (a population's Instances,
-		 * RoleInstances): NORMA writes none empty. */
+		 * RoleInstances; the Core Data mappings): NORMA writes none empty. */
 		NSXMLElement *container = (NSXMLElement *)[element.element parent];
 		ORMDetach(element.element);
 		if ([container isKindOfClass:[NSXMLElement class]]
-		    && [@[ @"Instances", @"RoleInstances" ] containsObject:[container localName] ?: @""]) {
+		    && [@[ @"Instances", @"RoleInstances", @"CoreDataMappings" ] containsObject:[container localName] ?: @""]) {
 			BOOL empty = YES;
 			for (NSXMLNode *child in [container children]) {
 				empty = empty && [child kind] != NSXMLElementKind;
