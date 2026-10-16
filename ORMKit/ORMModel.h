@@ -169,6 +169,9 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 /* The roles a reader sees: without a unary's implicit boolean role. */
 - (NSArray<ORMRole *> *)visibleRoles;
 - (BOOL)isUnary;
+/* A unary's reading with its player's name: what names its implicit
+ * boolean type. nil for another fact type. */
+- (NSString *)unaryReading;
 /* Two roles a reader sees. */
 - (BOOL)isBinary;
 /* A unary's implicit boolean role, the one NORMA stores beside its own;

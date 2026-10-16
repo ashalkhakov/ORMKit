@@ -44,6 +44,7 @@ ORMContains(NSArray *list, id object)
 - (void)relinkIdentified:(ORMConstraint *)constraint;
 - (NSArray *)list:(NSArray *)list adding:(ORMElement *)element;
 - (NSArray *)referenceModeOf:(ORMObjectType *)type;
+- (ORMObjectType *)impliedOwnerOf:(ORMConstraint *)constraint;
 @end
 
 @interface ORMRole ()
@@ -497,6 +498,11 @@ ORMByPlace(id a, id b, void *list)
 - (NSUInteger)arity
 {
 	return [[self visibleRoles] count];
+}
+
+- (NSString *)unaryReading
+{
+	return [self isUnary] ? [[self primaryReading] expandedText] ?: @"" : nil;
 }
 
 - (BOOL)isUnary
@@ -956,6 +962,45 @@ ORMCapitalizedWords(NSString *text)
 	_ringType = 0;
 	_comparisonOperator = nil;
 	_impliedByObjectTypeId = nil;
+}
+
+/* What says it is NORMA's implied mandatory constraint of an object type,
+ * kept up in that type's list. */
+- (void)setKind:(ORMConstraintKind)kind
+{
+	ORMObjectType *was = [self impliedOwner];
+	_kind = kind;
+	[self relinkImpliedFrom:was];
+}
+
+- (void)setIsImplied:(BOOL)implied
+{
+	ORMObjectType *was = [self impliedOwner];
+	_isImplied = implied;
+	[self relinkImpliedFrom:was];
+}
+
+- (void)setImpliedByObjectTypeId:(NSString *)identifier
+{
+	ORMObjectType *was = [self impliedOwner];
+	_impliedByObjectTypeId = [identifier copy];
+	[self relinkImpliedFrom:was];
+}
+
+/* The object type it is implied by, while it is in the model. */
+- (ORMObjectType *)impliedOwner
+{
+	return [self.model holds:self] ? [self.model impliedOwnerOf:self] : nil;
+}
+
+/* Out of the list of the type it was implied by, into the one it is. */
+- (void)relinkImpliedFrom:(ORMObjectType *)was
+{
+	ORMObjectType *now = [self impliedOwner];
+	if (was != now) {
+		was.impliedMandatories = ORMWithout(was.impliedMandatories, self);
+		now.impliedMandatories = [self.model list:now.impliedMandatories adding:self];
+	}
 }
 
 - (void)setRoleSequences:(NSArray<ORMRoleSequence *> *)sequences
@@ -1456,6 +1501,9 @@ ORMWithout(NSArray *array, id object)
 	}
 	if (element.name != nil) {
 		[self.removedNames addObject:element.name];
+	}
+	if (element.identifier != nil) {
+		[self.removedIds addObject:element.identifier];
 	}
 	_dataTypes = ORMWithout(_dataTypes, element);
 	_objectTypes = ORMWithout(_objectTypes, element);
@@ -1991,11 +2039,16 @@ ORMWithout(NSArray *array, id object)
 		fact.linkFactTypes = nil;
 		fact.objectifyingType = nil;
 	}
+	for (ORMObjectType *type in self.objectTypes) {
+		type.impliedMandatories = nil;
+	}
 	for (ORMConstraint *constraint in self.constraints) {
 		constraint.preferredIdentifierFor = nil;
 		for (ORMRole *role in [constraint allRoles]) {
 			role.constraints = [role.constraints ?: @[] arrayByAddingObject:constraint];
 		}
+		ORMObjectType *owner = [self impliedOwnerOf:constraint];
+		owner.impliedMandatories = [owner.impliedMandatories ?: @[] arrayByAddingObject:constraint];
 	}
 	for (ORMFactType *fact in self.factTypes) {
 		ORMFactType *objectified = fact.impliedByFactType;
@@ -2018,6 +2071,7 @@ ORMWithout(NSArray *array, id object)
 		if (fact.savedDerivedName != nil || fact.kind == ORMFactTypeOrdinary) {
 			fact.savedDerivedName = [fact derivedName];
 		}
+		fact.lastUnaryReading = [fact unaryReading];
 	}
 }
 
@@ -2082,6 +2136,7 @@ ORMCompareOrders(NSArray<NSNumber *> *a, NSArray<NSNumber *> *b)
 	ORMObjectType *player = role.player;
 	if (player != nil) {
 		player.playedRoles = [self list:player.playedRoles adding:role];
+		[self.relinkedTypes addObject:player];
 	}
 	if (role.proxiedRole != nil) {
 		role.proxiedRole.proxies = [self list:role.proxiedRole.proxies adding:role];
@@ -2093,6 +2148,7 @@ ORMCompareOrders(NSArray<NSNumber *> *a, NSArray<NSNumber *> *b)
 	ORMObjectType *player = role.player;
 	if (player != nil) {
 		player.playedRoles = ORMWithout(player.playedRoles, role);
+		[self.relinkedTypes addObject:player];
 	}
 	if (role.proxiedRole != nil) {
 		role.proxiedRole.proxies = ORMWithout(role.proxiedRole.proxies, role);
@@ -2142,6 +2198,11 @@ ORMCompareOrders(NSArray<NSNumber *> *a, NSArray<NSNumber *> *b)
 	for (ORMRole *role in [constraint allRoles]) {
 		role.constraints = [self list:role.constraints adding:constraint];
 	}
+	[self noteRelinked:constraint];
+	ORMObjectType *owner = [self impliedOwnerOf:constraint];
+	if (owner != nil) {
+		owner.impliedMandatories = [self list:owner.impliedMandatories adding:constraint];
+	}
 }
 
 - (void)unlinkConstraint:(ORMConstraint *)constraint
@@ -2149,6 +2210,37 @@ ORMCompareOrders(NSArray<NSNumber *> *a, NSArray<NSNumber *> *b)
 	for (ORMRole *role in [constraint allRoles]) {
 		role.constraints = ORMWithout(role.constraints, constraint);
 	}
+	[self noteRelinked:constraint];
+	ORMObjectType *owner = [self impliedOwnerOf:constraint];
+	if (owner != nil) {
+		owner.impliedMandatories = ORMWithout(owner.impliedMandatories, constraint);
+	}
+}
+
+/* The object types a constraint's links tell of: the players of its fact
+ * types' roles, the one it identifies. */
+- (void)noteRelinked:(ORMConstraint *)constraint
+{
+	for (ORMRole *role in self.relinkedTypes != nil ? [constraint allRoles] : @[]) {
+		for (ORMRole *each in role.factType.roles) {
+			if (each.player != nil) {
+				[self.relinkedTypes addObject:each.player];
+			}
+		}
+	}
+	if (constraint.preferredIdentifierFor != nil) {
+		[self.relinkedTypes addObject:constraint.preferredIdentifierFor];
+	}
+}
+
+/* The object type an implied mandatory constraint says it is implied by. */
+- (ORMObjectType *)impliedOwnerOf:(ORMConstraint *)constraint
+{
+	if (constraint.kind != ORMMandatoryConstraint || !constraint.isImplied || constraint.impliedByObjectTypeId == nil) {
+		return nil;
+	}
+	ORMObjectType *owner = [self elementWithId:constraint.impliedByObjectTypeId];
+	return [owner isKindOfClass:[ORMObjectType class]] ? owner : nil;
 }
 
 /* What objectifies the fact type, what the constraint is the preferred

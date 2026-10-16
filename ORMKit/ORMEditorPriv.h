@@ -54,6 +54,8 @@
 /* The roles each object type's implied inclusive-or covers, by the
  * type's id: only the types that need one (ORMNormalizer.m). */
 NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMModel *model);
+/* The same for one object type: nil where it needs none. */
+NSArray<NSString *> *ORMImpliedMandatoryRolesOf(ORMObjectType *type);
 
 @interface ORMNormalizer : NSObject
 - (instancetype)initWithEditor:(ORMEditor *)editor;
@@ -99,10 +101,9 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 /* A reading for the roles in this order, in the reading order for them,
  * made when the fact type has none. */
 - (ORMReading *)addReading:(NSString *)text to:(ORMFactType *)fact roles:(NSArray<ORMRole *> *)roles;
-/* A unary's reading read with its players' names, nil for another fact
- * type; and its implicit type renamed after it, as NORMA renames it, when
- * it is no longer what it was. */
-- (NSString *)unaryReadingOf:(ORMFactType *)fact;
+/* A unary's implicit type renamed after its reading
+ * (-[ORMFactType unaryReading]), as NORMA renames it, when that is no
+ * longer what it was. */
 - (void)renameImplicitBooleanOf:(ORMFactType *)fact was:(NSString *)was;
 /* Inside a model change: the rule a derivation query writes, in words
  * only, made where the fact type has none (the words set only with a new
@@ -116,8 +117,9 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
  * roles, a simple mandatory on the role. */
 - (ORMConstraint *)addInternalUniqueness:(NSArray<ORMRole *> *)roles;
 - (ORMConstraint *)addSimpleMandatory:(ORMRole *)role;
-/* NORMA's implied inclusive-or constraints kept up in the model, as the
- * normalizer keeps them in the XML; whether any changed. */
-- (BOOL)keepImpliedMandatories;
+/* NORMA's implied inclusive-or constraints of the object types kept up in
+ * the model, as the normalizer keeps them in the XML; whether any changed.
+ * The types in the model's order, those gone after. */
+- (BOOL)keepImpliedMandatoriesOf:(NSArray<ORMObjectType *> *)types;
 @end
 

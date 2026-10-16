@@ -363,33 +363,30 @@ ORMFirstDifference(NSData *one, NSData *other)
 	_wrote = [NSMutableArray array];
 	_deleted = [NSMutableArray array];
 	model.removedNames = [NSMutableSet set];
-	/* Each unary's reading as the change finds it: an implicit type is
-	 * named by its reading when that changes, its player renamed too. */
-	NSMutableDictionary *unaries = [NSMutableDictionary dictionary];
-	for (ORMFactType *fact in model.factTypes) {
-		NSString *reading = [self.factTypeEditor unaryReadingOf:fact];
-		if (reading != nil) {
-			[unaries setObject:reading forKey:fact.identifier];
-		}
-	}
+	model.removedIds = [NSMutableSet set];
+	model.relinkedTypes = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
 	change();
-	/* Shapes whose subject is gone go with it (the normalizer's rule). */
-	for (ORMDiagram *diagram in model.diagrams) {
+	/* Shapes of what is gone go with it (the normalizer's rule). */
+	NSSet *removed = model.removedIds;
+	for (ORMDiagram *diagram in [removed count] > 0 ? model.diagrams : @[]) {
 		for (ORMShape *shape in [diagram allShapes]) {
-			if (shape.subjectId != nil && [model elementWithId:shape.subjectId] == nil
-			    && [model elementWithId:shape.identifier] == shape) {
+			if (shape.subjectId != nil && [removed containsObject:shape.subjectId]
+			    && [model elementWithId:shape.subjectId] == nil && [model elementWithId:shape.identifier] == shape) {
 				[diagram removeShape:shape];
 				[self deleted:shape];
 			}
 		}
 	}
-	for (ORMFactType *fact in model.factTypes) {
-		NSString *was = [unaries objectForKey:fact.identifier];
-		if (was != nil) {
-			[self.factTypeEditor renameImplicitBooleanOf:fact was:was];
+	/* An implicit type is named by its unary's reading when that changes. */
+	for (ORMFactType *fact in [self factTypesTouched]) {
+		if (fact.lastUnaryReading != nil) {
+			[self.factTypeEditor renameImplicitBooleanOf:fact was:fact.lastUnaryReading];
 		}
 	}
-	[self.constraintEditor keepImpliedMandatories];
+	[self.constraintEditor keepImpliedMandatoriesOf:[self objectTypesTouched]];
+	for (ORMFactType *fact in [self factTypesTouched]) {
+		fact.lastUnaryReading = [fact unaryReading];
+	}
 	/* What the sample population comes to: each fact's instances. */
 	BOOL populated = [model hasPopulation];
 	for (ORMElement *element in [_wrote arrayByAddingObjectsFromArray:_deleted]) {
@@ -433,6 +430,100 @@ ORMFirstDifference(NSData *one, NSData *other)
 	_wrote = nil;
 	_deleted = nil;
 	model.removedNames = nil;
+	model.removedIds = nil;
+	model.relinkedTypes = nil;
+}
+
+static NSInteger
+ORMByFirst(NSArray *a, NSArray *b, void *context)
+{
+	(void)context;
+	return [[a firstObject] compare:[b firstObject]];
+}
+
+/* Elements in the order of the model's list; those not in it after. */
+static NSArray *
+ORMInListOrder(NSArray *elements, NSArray *list)
+{
+	NSMutableArray *keyed = [NSMutableArray array];
+	for (ORMElement *element in elements) {
+		[keyed addObject:@[ @([list indexOfObjectIdenticalTo:element]), element ]];
+	}
+	[keyed sortUsingFunction:ORMByFirst context:NULL];
+	NSMutableArray *sorted = [NSMutableArray array];
+	for (NSArray *pair in keyed) {
+		[sorted addObject:[pair lastObject]];
+	}
+	return sorted;
+}
+
+/* The fact types the change being made touched: changed, or with a role,
+ * reading or player changed. */
+- (NSArray<ORMFactType *> *)factTypesTouched
+{
+	NSHashTable *facts = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	for (ORMElement *element in [_wrote arrayByAddingObjectsFromArray:_deleted]) {
+		if ([element isKindOfClass:[ORMFactType class]]) {
+			[facts addObject:element];
+		} else if ([element isKindOfClass:[ORMRole class]] && [(ORMRole *)element factType] != nil) {
+			[facts addObject:[(ORMRole *)element factType]];
+		} else if ([element isKindOfClass:[ORMReadingOrder class]] && [(ORMReadingOrder *)element factType] != nil) {
+			[facts addObject:[(ORMReadingOrder *)element factType]];
+		} else if ([element isKindOfClass:[ORMReading class]] && [[(ORMReading *)element readingOrder] factType] != nil) {
+			[facts addObject:[[(ORMReading *)element readingOrder] factType]];
+		} else if ([element isKindOfClass:[ORMObjectType class]]) {
+			for (ORMRole *role in [(ORMObjectType *)element playedRoles]) {
+				[facts addObject:role.factType];
+			}
+		}
+	}
+	NSMutableArray *held = [NSMutableArray array];
+	for (ORMFactType *fact in facts) {
+		if ([_model holds:fact]) {
+			[held addObject:fact];
+		}
+	}
+	return ORMInListOrder(held, _model.factTypes);
+}
+
+/* The object types whose implied mandatory constraint the change may
+ * change: those it changed, those whose links it changed, the players of
+ * the fact types and constraints it changed. */
+- (NSArray<ORMObjectType *> *)objectTypesTouched
+{
+	NSHashTable *types = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	for (ORMObjectType *type in _model.relinkedTypes) {
+		[types addObject:type];
+	}
+	NSMutableArray *roles = [NSMutableArray array];
+	for (ORMElement *element in [_wrote arrayByAddingObjectsFromArray:_deleted]) {
+		if ([element isKindOfClass:[ORMObjectType class]]) {
+			[types addObject:element];
+		} else if ([element isKindOfClass:[ORMFactType class]]) {
+			[roles addObjectsFromArray:[(ORMFactType *)element roles] ?: @[]];
+		} else if ([element isKindOfClass:[ORMRole class]]) {
+			[roles addObject:element];
+		} else if ([element isKindOfClass:[ORMConstraint class]] || [element isKindOfClass:[ORMRoleSequence class]]) {
+			ORMConstraint *constraint = [element isKindOfClass:[ORMConstraint class]] ? (ORMConstraint *)element
+			                                                                         : [(ORMRoleSequence *)element constraint];
+			for (ORMRole *role in [constraint allRoles]) {
+				[roles addObjectsFromArray:role.factType.roles ?: @[]];
+			}
+			if (constraint.preferredIdentifierFor != nil) {
+				[types addObject:constraint.preferredIdentifierFor];
+			}
+			ORMObjectType *owner = [_model elementWithId:constraint.impliedByObjectTypeId ?: @""];
+			if ([owner isKindOfClass:[ORMObjectType class]]) {
+				[types addObject:owner];
+			}
+		}
+	}
+	for (ORMRole *role in roles) {
+		if (role.player != nil) {
+			[types addObject:role.player];
+		}
+	}
+	return ORMInListOrder([types allObjects], _model.objectTypes);
 }
 
 /* A derivation query's fact type keeps the query's words as its rule's

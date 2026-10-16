@@ -294,33 +294,39 @@ ORMImpliedMandatoryRoles(ORMModel *model)
 {
 	NSMutableDictionary *needed = [NSMutableDictionary dictionary];
 	for (ORMObjectType *type in model.objectTypes) {
-		NSArray *identifierRoles = [type.preferredIdentifier allRoles] ?: @[];
-		NSMutableArray *roles = [NSMutableArray array];
-		BOOL mandatory = NO;
-		for (ORMRole *role in type.playedRoles) {
-			if (role.proxiedRole != nil) {
-				continue;
-			}
-			ORMRole *opposite = [role oppositeRole];
-			ORMRole *identifying = opposite.proxiedRole ?: opposite;
-			ORMDerivationRule *derivation = [role.factType derivationRule];
-			if ((identifying != nil && [identifierRoles containsObject:identifying])
-			    || (derivation != nil && !derivation.isPartial)) {
-				continue;
-			}
-			for (ORMConstraint *constraint in role.constraints) {
-				if (constraint.kind == ORMMandatoryConstraint && !constraint.isImplied
-				    && constraint.modality == ORMAlethic) {
-					mandatory = YES;
-				}
-			}
-			[roles addObject:role.identifier];
-		}
-		if (!type.isIndependent && !mandatory && [roles count] > 0 && type.identifier != nil) {
+		NSArray *roles = ORMImpliedMandatoryRolesOf(type);
+		if (roles != nil) {
 			[needed setObject:roles forKey:type.identifier];
 		}
 	}
 	return needed;
+}
+
+NSArray<NSString *> *
+ORMImpliedMandatoryRolesOf(ORMObjectType *type)
+{
+	NSArray *identifierRoles = [type.preferredIdentifier allRoles] ?: @[];
+	NSMutableArray *roles = [NSMutableArray array];
+	BOOL mandatory = NO;
+	for (ORMRole *role in type.playedRoles) {
+		if (role.proxiedRole != nil) {
+			continue;
+		}
+		ORMRole *opposite = [role oppositeRole];
+		ORMRole *identifying = opposite.proxiedRole ?: opposite;
+		ORMDerivationRule *derivation = [role.factType derivationRule];
+		if ((identifying != nil && [identifierRoles containsObject:identifying])
+		    || (derivation != nil && !derivation.isPartial)) {
+			continue;
+		}
+		for (ORMConstraint *constraint in role.constraints) {
+			if (constraint.kind == ORMMandatoryConstraint && !constraint.isImplied && constraint.modality == ORMAlethic) {
+				mandatory = YES;
+			}
+		}
+		[roles addObject:role.identifier];
+	}
+	return !type.isIndependent && !mandatory && [roles count] > 0 && type.identifier != nil ? roles : nil;
 }
 
 

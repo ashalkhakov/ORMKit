@@ -35,6 +35,9 @@
 @property (nonatomic, readwrite) BOOL isImplied;
 @property (nonatomic, readwrite) BOOL isImplicitBooleanValue;
 @property (nonatomic, readwrite, copy) NSArray<ORMRole *> *playedRoles;
+/* NORMA's implied mandatory constraints that say they are implied by it,
+ * in the model's order: one, but for a file that has more. */
+@property (nonatomic, readwrite, copy) NSArray<ORMConstraint *> *impliedMandatories;
 @property (nonatomic, readwrite, weak) ORMConstraint *preferredIdentifier;
 @property (nonatomic, readwrite, weak) ORMFactType *nestedFactType;
 @property (nonatomic, readwrite, weak) ORMDataType *dataType;
@@ -68,6 +71,9 @@
  * type, nil where it keeps none. Its name is the one given, else the
  * derived one. */
 @property (nonatomic, readwrite, copy) NSString *explicitName;
+/* A unary's reading as the last change left it (nil for another fact
+ * type): when it is no longer that, its implicit type is named after it. */
+@property (nonatomic, readwrite, copy) NSString *lastUnaryReading;
 @property (nonatomic, readwrite, copy) NSString *savedDerivedName;
 @end
 
@@ -215,8 +221,11 @@
 /* The queries the document keeps, in order. */
 @property (nonatomic, copy) NSArray<ORMStoredQuery *> *storedQueries;
 /* While a change is made: the names of the elements it took out, the
- * document's until it is written. */
+ * document's until it is written; their ids; and the object types whose
+ * links it changed (the roles they play, those roles' constraints). */
 @property (nonatomic, strong) NSMutableSet<NSString *> *removedNames;
+@property (nonatomic, strong) NSMutableSet<NSString *> *removedIds;
+@property (nonatomic, strong) NSHashTable<ORMObjectType *> *relinkedTypes;
 /* Whether a reading of the file has NORMA's <orm:ExpandedData>. */
 @property (nonatomic) BOOL readingsHaveExpandedData;
 @end

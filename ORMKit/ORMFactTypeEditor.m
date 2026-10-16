@@ -74,12 +74,6 @@
 	return created;
 }
 
-/* A unary's reading as it reads with its players' names; nil for a fact
- * type that is not unary. */
-- (NSString *)unaryReadingOf:(ORMFactType *)fact
-{
-	return [fact isUnary] ? [[fact primaryReading] expandedText] ?: @"" : nil;
-}
 
 /* A unary's implicit value type is named by its reading, when the reading
  * changed, as NORMA names it (the normalizer's rule): an older name

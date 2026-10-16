@@ -528,34 +528,26 @@ ORMIdentifiedBy(ORMConstraint *constraint)
 	return constraint;
 }
 
-- (BOOL)keepImpliedMandatories
+- (BOOL)keepImpliedMandatoriesOf:(NSArray<ORMObjectType *> *)types
 {
 	if (!_editor.writesImpliedMandatories) {
 		return NO;
 	}
 	ORMModel *model = _editor.model;
 	BOOL changed = NO;
-	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
-	for (ORMConstraint *constraint in model.constraints) {
-		NSString *owner = constraint.impliedByObjectTypeId;
-		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied && owner != nil) {
-			if ([existing objectForKey:owner] != nil || [model elementWithId:owner] == nil) {
+	for (ORMObjectType *type in types) {
+		/* One for a type in the model that needs one, the first it has; the
+		 * rest go, and all of one gone. */
+		BOOL held = [model holds:type];
+		NSArray *roleIds = held ? ORMImpliedMandatoryRolesOf(type) : nil;
+		ORMConstraint *current = roleIds != nil ? [type.impliedMandatories firstObject] : nil;
+		for (ORMConstraint *constraint in [type.impliedMandatories copy] ?: @[]) {
+			if (constraint != current) {
 				[self removeConstraint:constraint];
 				changed = YES;
-			} else {
-				[existing setObject:constraint forKey:owner];
 			}
 		}
-	}
-	NSDictionary *needed = ORMImpliedMandatoryRoles(model);
-	for (ORMObjectType *type in model.objectTypes) {
-		NSArray *roleIds = [needed objectForKey:type.identifier ?: @""];
-		ORMConstraint *current = [existing objectForKey:type.identifier ?: @""];
 		if (roleIds == nil) {
-			if (current != nil) {
-				[self removeConstraint:current];
-				changed = YES;
-			}
 			continue;
 		}
 		NSArray *have = [[current allRoles] valueForKey:@"identifier"];

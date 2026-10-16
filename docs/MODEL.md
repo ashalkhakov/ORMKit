@@ -162,8 +162,8 @@ Each step keeps every test passing.
    that compare every operation's bytes with the XML editors' still give
    the same.
 6. **Measure** (macOS, done). An edit of OrmMetaModel (163 object types)
-   takes 0.18 ms, from 30 before step 3. The Core Data import round trip
-   takes 3.2 s without the test-time checks (16.3 s before).
+   takes 0.045 ms, from 30 before step 3. The Core Data import round
+   trip takes 2.7 s without the test-time checks (16.3 s before).
 7. **Links both ways, nothing derived after a change** (done). The model
    keeps each link both ways as it changes: setting a role's player puts
    the role among the object type's played roles and takes it out of the
@@ -181,6 +181,16 @@ Each step keeps every test passing.
    and indexes this replaced saved nothing measurable; deriving after a
    change was the cost, and the links remove it. The agreement check
    compares the links with a model read afresh after every change.
+
+   NORMA's rules a change keeps go by the same links, for what the change
+   touched: a unary's implicit type is renamed when its reading is no
+   longer the one the last change left (`lastUnaryReading`); an object
+   type's implied mandatory constraint (`impliedMandatories`) is worked
+   out again where its played roles, their constraints or its identifier
+   changed, the model noting those types as their links change
+   (`relinkedTypes`); shapes are looked at only when an element was taken
+   away (`removedIds`). The next free constraint name still reads every
+   name, when a constraint is made.
 
 ## Not here
 
