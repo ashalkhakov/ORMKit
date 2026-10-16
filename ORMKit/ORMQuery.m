@@ -1058,14 +1058,8 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	if (entry.factType.kind == ORMFactTypeSubtype) {
 		return @"is {1}";
 	}
-	ORMReadingOrder *chosen = nil;
-	for (ORMReadingOrder *order in entry.factType.readingOrders) {
-		if ([order.roles firstObject] == entry && [order.readings count] > 0
-		    && [[[order.readings firstObject] text] hasPrefix:@"{0}"]) {
-			chosen = order;
-			break;
-		}
-	}
+	ORMReadingOrder *start = [entry.factType readingOrderStartingWithRole:entry];
+	ORMReadingOrder *chosen = [(ORMReading *)[start.readings firstObject] readsFromFirstRole] ? start : nil;
 	ORMReadingOrder *order = chosen ?: [entry.factType.readingOrders firstObject];
 	NSString *text = [[order.readings firstObject] text];
 	if (text == nil) {

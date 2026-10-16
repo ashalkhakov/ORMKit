@@ -255,6 +255,12 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	return nil;
 }
 
+- (ORMReading *)readingFromRole:(ORMRole *)role
+{
+	ORMReadingOrder *order = role != nil ? [self readingOrderStartingWithRole:role] : nil;
+	return [order.readings firstObject] ?: [self primaryReading];
+}
+
 - (ORMReadingOrder *)readingOrderStartingWithRole:(ORMRole *)role
 {
 	for (ORMReadingOrder *order in self.readingOrders) {
@@ -449,6 +455,13 @@ ORMCapitalizedWords(NSString *text)
 	NSArray<NSString *> *_words;
 	ORMReadingText *_parsedText;
 	BOOL _parsed;
+}
+
+- (BOOL)readsFromFirstRole
+{
+	ORMReadingText *text = [self parsedText];
+	ORMReadingPart *first = [text.parts firstObject];
+	return first != nil && [text.frontText length] == 0 && [first.preBoundText length] == 0 && first.roleIndex == 0;
 }
 
 - (ORMReadingText *)parsedText

@@ -186,6 +186,9 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 /* A reading starting at the role, and the order it reads the roles in;
  * nil when the fact type has none. */
 - (ORMReadingOrder *)readingOrderStartingWithRole:(ORMRole *)role;
+/* The reading to say it from the role: the first of an order starting
+ * with the role, else its primary reading; nil where it has none. */
+- (ORMReading *)readingFromRole:(ORMRole *)role;
 /* A reading order whose roles are exactly these in this order, or nil. */
 - (ORMReadingOrder *)readingOrderForRoles:(NSArray<ORMRole *> *)roles;
 /* The internal uniqueness constraints. */
@@ -257,6 +260,9 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 /* Its text parsed: what comes before each placeholder and binds to it
  * (ORMReadingText); nil where it does not parse. Parsed once. */
 - (ORMReadingText *)parsedText;
+/* Whether it reads from its order's first role: "{0} was born in {1}",
+ * nothing before the first placeholder, which is {0}. */
+- (BOOL)readsFromFirstRole;
 /* The reading with each placeholder replaced by its role player's name:
  * "Person was born in Country". */
 - (NSString *)expandedText;

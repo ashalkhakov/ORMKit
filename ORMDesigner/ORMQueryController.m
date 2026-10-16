@@ -1093,18 +1093,17 @@ ORMCellText(id value)
 			}
 		}
 	}
-	for (ORMReadingOrder *order in role.factType.readingOrders) {
-		NSString *text = [[order.readings firstObject] text];
-		if ([order.roles firstObject] == role && [text hasPrefix:@"{0}"]) {
-			NSMutableString *reading = [[text substringFromIndex:3] mutableCopy];
-			for (NSUInteger i = 1; i < [order.roles count]; i++) {
-				[reading replaceOccurrencesOfString:[NSString stringWithFormat:@"{%lu}", (unsigned long)i]
-				                         withString:[[order.roles objectAtIndex:i] player].name ?: @"?"
-				                            options:0
-				                              range:NSMakeRange(0, [reading length])];
-			}
-			return [reading stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+	ORMReadingOrder *order = [role.factType readingOrderStartingWithRole:role];
+	ORMReading *from = [order.readings firstObject];
+	if ([from readsFromFirstRole]) {
+		NSMutableString *reading = [[from.text substringFromIndex:3] mutableCopy];
+		for (NSUInteger i = 1; i < [order.roles count]; i++) {
+			[reading replaceOccurrencesOfString:[NSString stringWithFormat:@"{%lu}", (unsigned long)i]
+			                         withString:[[order.roles objectAtIndex:i] player].name ?: @"?"
+			                            options:0
+			                              range:NSMakeRange(0, [reading length])];
 		}
+		return [reading stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
 	}
 	return [role.factType displayText];
 }

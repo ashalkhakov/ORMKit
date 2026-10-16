@@ -286,8 +286,8 @@ ORMReservedNames(void)
  * in Country". */
 - (NSString *)phraseOf:(ORMFactType *)fact from:(ORMRole *)near
 {
-	ORMReadingOrder *order = [fact readingOrderStartingWithRole:near] ?: [[fact primaryReading] readingOrder];
-	ORMReading *reading = [order.readings firstObject];
+	ORMReading *reading = [fact readingFromRole:near];
+	ORMReadingOrder *order = reading.readingOrder;
 	if (reading == nil) {
 		return @"";
 	}
@@ -1235,8 +1235,8 @@ ORMCapitalized(NSString *name)
 - (NSString *)boundNameOf:(ORMRole *)far from:(ORMRole *)near
 {
 	ORMFactType *fact = far.factType;
-	ORMReadingOrder *order = [fact readingOrderStartingWithRole:near] ?: [[fact primaryReading] readingOrder];
-	ORMReading *reading = [order.readings firstObject];
+	ORMReading *reading = [fact readingFromRole:near];
+	ORMReadingOrder *order = reading.readingOrder;
 	if (reading.text == nil) {
 		return nil;
 	}

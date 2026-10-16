@@ -293,8 +293,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		use.isSubtype = YES;
 		return use;
 	}
-	ORMReadingOrder *order = role != nil ? [fact readingOrderStartingWithRole:role] : nil;
-	ORMReading *reading = order != nil ? [order.readings firstObject] : [fact primaryReading];
+	ORMReading *reading = [fact readingFromRole:role];
 	if (reading == nil) {
 		/* No reading at all: list the players. */
 		NSMutableArray *parts = [NSMutableArray array];
@@ -316,13 +315,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		return YES;
 	}
 	ORMReadingOrder *order = [fact readingOrderStartingWithRole:role];
-	ORMReading *reading = [order.readings firstObject];
-	if (reading == nil) {
-		return NO;
-	}
-	ORMReadingText *text = [reading parsedText];
-	ORMReadingPart *part = [text.parts firstObject];
-	return text != nil && [text.frontText length] == 0 && [part.preBoundText length] == 0;
+	return [(ORMReading *)[order.readings firstObject] readsFromFirstRole];
 }
 
 /* A reading with each role's term put in, hyphen-bound words around the
