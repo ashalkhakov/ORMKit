@@ -87,16 +87,10 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 }
 
 @implementation ORMObjectType
-{
-	NSArray<ORMObjectType *> *_family;
-	NSArray<NSString *> *_familyNames;
-}
 
 - (void)reset
 {
 	[super reset];
-	_family = nil;
-	_familyNames = nil;
 	_kind = ORMEntityType;
 	_defaultValue = nil;
 	_isIndependent = _isExternal = _isPersonal = _isImplied = _isImplicitBooleanValue = NO;
@@ -121,7 +115,8 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 - (void)forgetDerivedValues
 {
 	[super forgetDerivedValues];
-	[self forgetCaches];
+	_family = nil;
+	_familyNames = nil;
 	_playedRoles = nil;
 	_supertypes = _subtypes = nil;
 	_supertypeFacts = nil;
@@ -133,51 +128,11 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	_valueConstraint = nil;
 }
 
-- (void)forgetCaches
-{
-	_family = nil;
-	_familyNames = nil;
-}
-
 - (BOOL)isCompatibleWith:(ORMObjectType *)other
 {
 	return other != nil && (other == self || [self isSubtypeOf:other] || [other isSubtypeOf:self]);
 }
 
-- (NSArray<ORMObjectType *> *)family
-{
-	if (_family != nil) {
-		return _family;
-	}
-	NSMutableArray *family = [NSMutableArray array];
-	NSMutableArray *pending = [NSMutableArray arrayWithObject:self];
-	while ([pending count] > 0) {
-		ORMObjectType *type = [pending lastObject];
-		[pending removeLastObject];
-		if ([family indexOfObjectIdenticalTo:type] != NSNotFound) {
-			continue;
-		}
-		[family addObject:type];
-		[pending addObjectsFromArray:type.subtypes];
-		[pending addObjectsFromArray:type.supertypes];
-	}
-	_family = family;
-	return _family;
-}
-
-- (NSArray<NSString *> *)familyNames
-{
-	if (_familyNames == nil) {
-		NSMutableArray *names = [NSMutableArray array];
-		for (ORMObjectType *type in [self family]) {
-			if (type.name != nil && ![names containsObject:type.name]) {
-				[names addObject:type.name];
-			}
-		}
-		_familyNames = [names sortedArrayUsingFunction:ORMLongerFirst context:NULL];
-	}
-	return _familyNames;
-}
 
 - (ORMObjectType *)valueType
 {
@@ -256,7 +211,6 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 
 @implementation ORMFactType
 {
-	NSString *_displayText;
 	/* The derived name, and what it was worked out from: worked out again
 	 * only when that changes, -[ORMModel derive] asking after every edit. */
 	NSString *_derivedName;
@@ -266,7 +220,6 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 - (void)reset
 {
 	[super reset];
-	_displayText = nil;
 	_kind = ORMFactTypeOrdinary;
 	_roles = nil;
 	_readingOrders = nil;
@@ -284,7 +237,6 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 - (void)forgetDerivedValues
 {
 	[super forgetDerivedValues];
-	_displayText = nil;
 	_internalConstraints = nil;
 	_objectifyingType = nil;
 	_linkFactTypes = nil;
@@ -313,10 +265,7 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 
 - (NSString *)displayText
 {
-	if (_displayText == nil) {
-		_displayText = [[self primaryReading] expandedText] ?: self.name ?: @"";
-	}
-	return _displayText;
+	return [[self primaryReading] expandedText] ?: self.name ?: @"";
 }
 
 - (NSArray<ORMRole *> *)visibleRoles
@@ -632,28 +581,14 @@ ORMCapitalizedWords(NSString *text)
 @end
 
 @implementation ORMReading
-{
-	NSArray<NSString *> *_words;
-	ORMReadingText *_parsedText;
-	BOOL _parsed;
-}
 
 - (void)reset
 {
 	[super reset];
 	_words = nil;
 	_parsedText = nil;
-	_parsed = NO;
 	_readingOrder = nil;
 	_text = nil;
-}
-
-- (void)forgetDerivedValues
-{
-	[super forgetDerivedValues];
-	_words = nil;
-	_parsedText = nil;
-	_parsed = NO;
 }
 
 - (BOOL)readsFromFirstRole
@@ -663,22 +598,7 @@ ORMCapitalizedWords(NSString *text)
 	return first != nil && [text.frontText length] == 0 && [first.preBoundText length] == 0 && first.roleIndex == 0;
 }
 
-- (ORMReadingText *)parsedText
-{
-	if (!_parsed) {
-		_parsedText = [ORMReadingText readingTextWithString:self.text arity:[self.readingOrder.roles count] reason:NULL];
-		_parsed = YES;
-	}
-	return _parsedText;
-}
 
-- (NSArray<NSString *> *)words
-{
-	if (_words == nil) {
-		_words = [ORMReadingText wordsOf:self.text ?: @""];
-	}
-	return _words;
-}
 
 - (NSString *)expandedText
 {
@@ -1763,17 +1683,16 @@ ORMWithout(NSArray *array, id object)
 			[role forgetDerivedValues];
 			[role.valueConstraint forgetDerivedValues];
 		}
-		for (ORMReadingOrder *order in fact.readingOrders) {
-			for (ORMReading *reading in order.readings) {
-				[reading forgetDerivedValues];
-			}
-		}
 	}
 	for (ORMCoreDataMapping *mapping in self.coreDataMappings) {
 		[mapping forgetDerivedValues];
 	}
 	[self linkObjectTypes];
 	[self linkFactTypes];
+	[self deriveFamiliesOf:self.objectTypes];
+	for (ORMFactType *fact in self.factTypes) {
+		[self deriveReadingsOf:fact];
+	}
 	[self linkRoles];
 	[self deriveReferenceModes];
 	[self linkValueConstraints];
@@ -2070,6 +1989,10 @@ ORMIsInternalConstraint(ORMConstraint *constraint, ORMFactType *fact)
 		[wasProxies setObject:role.proxies ?: @[] forKey:role];
 		[wasConstraints setObject:role.constraints ?: @[] forKey:role];
 	}
+	NSMutableArray *wasFamilies = [NSMutableArray array];
+	for (ORMObjectType *type in typeList) {
+		[wasFamilies addObjectsFromArray:type.family ?: @[]];
+	}
 	NSMapTable *wasPlayed = [NSMapTable strongToStrongObjectsMapTable];
 	NSMapTable *wasSubtyping = [NSMapTable strongToStrongObjectsMapTable];
 	for (ORMObjectType *type in typeList) {
@@ -2082,20 +2005,12 @@ ORMIsInternalConstraint(ORMConstraint *constraint, ORMFactType *fact)
 	}
 
 	/* Forgotten, as derive forgets everything. */
-	for (ORMObjectType *type in self.objectTypes) {
-		[type forgetCaches];
-	}
 	for (ORMObjectType *type in typeList) {
 		[type forgetDerivedValues];
 		[type.ownValueConstraint forgetDerivedValues];
 	}
 	for (ORMFactType *fact in factList) {
 		[fact forgetDerivedValues];
-		for (ORMReadingOrder *order in fact.readingOrders) {
-			for (ORMReading *reading in order.readings) {
-				[reading forgetDerivedValues];
-			}
-		}
 	}
 	for (ORMRole *role in roles) {
 		[role forgetDerivedValues];
@@ -2211,7 +2126,10 @@ ORMIsInternalConstraint(ORMConstraint *constraint, ORMFactType *fact)
 	}
 	for (ORMFactType *fact in factList) {
 		[self deriveProvidesPreferredIdentifierOf:fact];
+		[self deriveReadingsOf:fact];
 	}
+	/* Families: the types' now, and the rest of those they were in. */
+	[self deriveFamiliesOf:[typeList arrayByAddingObjectsFromArray:[self inModelOrder:wasFamilies]]];
 
 	/* linkRoles: each role's constraints, and what they make of it. */
 	for (ORMRole *role in roles) {
@@ -2396,6 +2314,54 @@ ORMIsInternalConstraint(ORMConstraint *constraint, ORMFactType *fact)
 	}
 	for (ORMFactType *fact in self.factTypes) {
 		[self deriveProvidesPreferredIdentifierOf:fact];
+	}
+}
+
+/* A fact type's readings taken apart: their words, their text parsed. */
+- (void)deriveReadingsOf:(ORMFactType *)fact
+{
+	for (ORMReadingOrder *order in fact.readingOrders) {
+		for (ORMReading *reading in order.readings) {
+			reading.words = [ORMReadingText wordsOf:reading.text ?: @""];
+			reading.parsedText = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
+		}
+	}
+}
+
+/* The families of the object types, from their subtyping: each the types
+ * it is related to up and down, in the model's order, and their names,
+ * longest first; one family, one list, for all its types. */
+- (void)deriveFamiliesOf:(NSArray<ORMObjectType *> *)types
+{
+	NSHashTable *done = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	for (ORMObjectType *type in types) {
+		if ([done containsObject:type]) {
+			continue;
+		}
+		NSHashTable *members = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+		NSMutableArray *pending = [NSMutableArray arrayWithObject:type];
+		while ([pending count] > 0) {
+			ORMObjectType *each = [pending lastObject];
+			[pending removeLastObject];
+			if (![members containsObject:each]) {
+				[members addObject:each];
+				[pending addObjectsFromArray:each.subtypes];
+				[pending addObjectsFromArray:each.supertypes];
+			}
+		}
+		NSArray *family = [members count] == 1 ? @[ type ] : [self inModelOrder:members];
+		NSMutableOrderedSet *names = [NSMutableOrderedSet orderedSet];
+		for (ORMObjectType *each in family) {
+			if (each.name != nil) {
+				[names addObject:each.name];
+			}
+		}
+		NSArray *sorted = [[names array] sortedArrayUsingFunction:ORMLongerFirst context:NULL];
+		for (ORMObjectType *each in family) {
+			each.family = family;
+			each.familyNames = sorted;
+			[done addObject:each];
+		}
 	}
 }
 

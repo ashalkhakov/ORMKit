@@ -540,7 +540,7 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 static NSArray<NSString *> *
 ORMNamesOf(ORMObjectType *player)
 {
-	return [[player familyNames] count] > 0 ? [player familyNames] : @[ @"?" ];
+	return [player.familyNames count] > 0 ? player.familyNames : @[ @"?" ];
 }
 
 /* A reading's atoms: each placeholder an optionally quantified,

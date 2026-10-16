@@ -122,11 +122,11 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
  * what set comparison and ring constraints ask of the players they span. */
 - (BOOL)isCompatibleWith:(ORMObjectType *)other;
 /* Its family: it, and the types subtyping relates it to at any depth, up
- * and down, a sibling subtype too. Found once. */
-- (NSArray<ORMObjectType *> *)family;
+ * and down, a sibling subtype too, in the model's order. */
+@property (nonatomic, readonly, copy) NSArray<ORMObjectType *> *family;
 /* Their names, longest first: what a sentence may call one of its roles'
- * players (ORMConstraintSentence). Found once. */
-- (NSArray<NSString *> *)familyNames;
+ * players (ORMConstraintSentence). */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *familyNames;
 @end
 
 #pragma mark Fact types
@@ -263,11 +263,11 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 @property (nonatomic, readonly, weak) ORMReadingOrder *readingOrder;
 /* As NORMA keeps it: "{0} was born in {1}". */
 @property (nonatomic, readonly, copy) NSString *text;
-/* Its own words, its placeholders left out: was, born, in. Found once. */
-- (NSArray<NSString *> *)words;
+/* Its own words, its placeholders left out: was, born, in. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *words;
 /* Its text parsed: what comes before each placeholder and binds to it
- * (ORMReadingText); nil where it does not parse. Parsed once. */
-- (ORMReadingText *)parsedText;
+ * (ORMReadingText); nil where it does not parse. */
+@property (nonatomic, readonly, strong) ORMReadingText *parsedText;
 /* Whether it reads from its order's first role: "{0} was born in {1}",
  * nothing before the first placeholder, which is {0}. */
 - (BOOL)readsFromFirstRole;

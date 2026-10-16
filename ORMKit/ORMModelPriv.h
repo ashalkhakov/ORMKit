@@ -30,9 +30,9 @@
 @end
 
 @interface ORMObjectType ()
-/* Its family, worked out when asked, forgotten. */
-- (void)forgetCaches;
 @property (nonatomic, readwrite) ORMObjectTypeKind kind;
+@property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *family;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *familyNames;
 @property (nonatomic, readwrite, copy) NSString *defaultValue;
 @property (nonatomic, readwrite) BOOL isIndependent;
 @property (nonatomic, readwrite) BOOL isExternal;
@@ -115,6 +115,8 @@
 @interface ORMReading ()
 @property (nonatomic, readwrite, weak) ORMReadingOrder *readingOrder;
 @property (nonatomic, readwrite, copy) NSString *text;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *words;
+@property (nonatomic, readwrite, strong) ORMReadingText *parsedText;
 @end
 
 @interface ORMRoleSequence ()
