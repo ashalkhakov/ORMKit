@@ -16,32 +16,25 @@
  * editor of its parts. */
 @interface ORMEditor ()
 
-/* One undoable step: the document as it was is what undo restores. Inside
- * a group, or another change, it joins the step being made, and the
- * projection is rebuilt after it so the next operation sees its result. */
-- (void)change:(NSString *)name with:(void (^)(void))change;
+/* One undoable step (docs/MODEL.md): it changes the model's elements,
+ * saying which with -wrote: and -deleted:, and the model is derived again
+ * and the elements written to the document after it. Inside a group, or
+ * another change, it joins the step being made. */
+- (void)modelChange:(NSString *)name with:(void (^)(void))change;
+/* An element a model change changed, to be written. */
+- (void)wrote:(ORMElement *)element;
+/* An element a model change took out of the model: its XML element goes. */
+- (void)deleted:(ORMElement *)element;
 
-/* The element with the id, made since the projection was built or not. */
-- (NSXMLElement *)xml:(NSString *)elementId;
-/* A section of the orm:ORMModel element (Objects, Facts, Constraints,
- * DataTypes, ...), made when missing. */
-- (NSXMLElement *)section:(NSString *)local;
 /* "InternalUniquenessConstraint7": the prefix and the next number no
  * constraint of the model has. */
 - (NSString *)nextName:(NSString *)prefix;
 /* An object type name no object type has: the name, or the name and a
  * number. */
 - (NSString *)uniqueObjectTypeName:(NSString *)name;
-/* The data type element of the model for the type name, made when the
- * model has none. Its id. */
-- (NSString *)dataTypeIdNamed:(NSString *)typeName;
 
 /* The ids' roles, refused with why when one is not a role. */
 - (NSArray<ORMRole *> *)rolesWithIds:(NSArray<NSString *> *)roleIds reason:(NSString **)reason;
-/* <orm:RoleSequence> holding <orm:Role id ref/> for the roles. */
-- (NSXMLElement *)newRoleSequence:(NSArray<NSString *> *)roleIds withId:(BOOL)withId;
-/* A new constraint element of the kind named, in Constraints. */
-- (NSXMLElement *)newConstraint:(NSString *)local named:(NSString *)prefix;
 
 /* Whether readings get NORMA's <orm:ExpandedData>: as the file had it
  * when opened (older NORMA did not write it). */
@@ -54,35 +47,46 @@
 
 /* NORMA's denormalized data (each object type's PlayedRoles, each fact
  * type's InternalConstraints, _IsMandatory, _Multiplicity, _Name,
- * _ReferenceMode, readings' ExpandedData, implied mandatories), kept up
- * from the model after each change, as the version of NORMA that wrote the
- * file keeps it. */
+ * _ReferenceMode, readings' ExpandedData, implied mandatories), worked
+ * out from the XML as the version of NORMA that wrote the file keeps it:
+ * in tests, a check that the writer, which keeps it from the model, left
+ * nothing to do. */
+/* The roles each object type's implied inclusive-or covers, by the
+ * type's id: only the types that need one (ORMNormalizer.m). */
+NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMModel *model);
+/* The same for one object type: nil where it needs none. */
+NSArray<NSString *> *ORMImpliedMandatoryRolesOf(ORMObjectType *type);
+
 @interface ORMNormalizer : NSObject
 - (instancetype)initWithEditor:(ORMEditor *)editor;
-@property (nonatomic, readonly) BOOL writesExpandedData;
-@property (nonatomic, readonly) BOOL writesImpliedMandatories;
 /* The unary readings as a change starts: an implicit boolean value type is
  * renamed only when its reading was changed. */
 - (void)rememberUnaryReadings;
-- (void)normalize;
+/* NORMA's data kept up in the XML; YES when it changed what the model
+ * reads and does not keep up itself (a derivation rule's words, from its
+ * query). */
+- (BOOL)normalize;
 @end
 
 @interface ORMDiagramEditor ()
-- (NSXMLElement *)newShape:(NSString *)local subject:(NSString *)subjectId bounds:(NSRect)bounds;
-- (NSXMLElement *)shapesOf:(NSXMLElement *)diagram;
 /* Where a new shape for the element goes when no point is given: beside
  * the shapes it links to. */
 - (NSPoint)placeFor:(NSString *)elementId onDiagram:(NSString *)diagramId;
 /* Places what a new fact type needs on the diagram: the fact type, and
  * its players when not shown. */
 - (void)showFactType:(NSString *)factTypeId onDiagram:(NSString *)diagramId at:(NSPoint)point;
-/* Removes every shape of the elements, on every diagram. */
-- (void)removeShapesOfSubjects:(NSSet<NSString *> *)subjectIds;
+/* Takes the shapes off their diagrams, inside a model change, with the
+ * shapes placed on them. */
+- (void)removeShapes:(NSArray<ORMShape *> *)shapes;
 @end
 
-/* Builders the editors share; each only makes XML, inside a change. */
+/* Builders the editors share: each changes the model, inside a model change. */
 @interface ORMObjectTypeEditor ()
-- (NSXMLElement *)newValueTypeNamed:(NSString *)name dataType:(NSString *)typeName;
+/* In the model, inside a model change: a new object type (a value type
+ * with its data type, an entity type with no reference mode yet); a value
+ * type's or role's value constraint set to parsed ranges, or taken away. */
+- (ORMObjectType *)newObjectTypeNamed:(NSString *)name kind:(ORMObjectTypeKind)kind dataType:(NSString *)typeName;
+- (void)setRanges:(NSArray<NSDictionary *> *)parsed of:(ORMElement *)owner;
 /* The reference mode value type's name for the entity type: "Person_id". */
 - (NSString *)valueTypeNameFor:(NSString *)entity mode:(NSString *)mode kind:(ORMReferenceModeKind)kind;
 /* Refuses a name another object type (but the one named) has, or none. */
@@ -90,16 +94,32 @@
 @end
 
 @interface ORMFactTypeEditor ()
-/* A new <orm:Fact> over the players with one reading for its first roles;
- * the new roles' ids are added to roleIds. */
-- (NSXMLElement *)newFactWithPlayers:(NSArray<NSString *> *)playerIds
-                             reading:(NSString *)reading
-                               roles:(NSMutableArray *)roleIds;
-- (NSXMLElement *)appendReading:(NSString *)text to:(NSXMLElement *)fact roles:(NSArray<NSString *> *)roleIds;
+/* Inside a model change: a new ordinary fact type
+ * over the players, read as the reading says from its first roles (all,
+ * or a unary's one). */
+- (ORMFactType *)addFactWithPlayers:(NSArray<ORMObjectType *> *)players reading:(NSString *)reading;
+/* A reading for the roles in this order, in the reading order for them,
+ * made when the fact type has none. */
+- (ORMReading *)addReading:(NSString *)text to:(ORMFactType *)fact roles:(NSArray<ORMRole *> *)roles;
+/* A unary's implicit type renamed after its reading
+ * (-[ORMFactType unaryReading]), as NORMA renames it, when that is no
+ * longer what it was. */
+- (void)renameImplicitBooleanOf:(ORMFactType *)fact was:(NSString *)was;
+/* Inside a model change: the rule a derivation query writes, in words
+ * only, made where the fact type has none (the words set only with a new
+ * note); and taken away with the query, but for NORMA's own. */
+- (void)setQueryRuleOf:(ORMFactType *)fact words:(NSString *)text;
+- (void)removeQueryRuleOf:(ORMFactType *)fact;
 @end
 
 @interface ORMConstraintEditor ()
-- (NSXMLElement *)newInternalUniqueness:(NSArray<NSString *> *)roleIds;
-- (NSXMLElement *)newSimpleMandatory:(NSString *)roleId;
+/* Inside a model change: an internal uniqueness constraint over the
+ * roles, a simple mandatory on the role. */
+- (ORMConstraint *)addInternalUniqueness:(NSArray<ORMRole *> *)roles;
+- (ORMConstraint *)addSimpleMandatory:(ORMRole *)role;
+/* NORMA's implied inclusive-or constraints of the object types kept up in
+ * the model, as the normalizer keeps them in the XML; whether any changed.
+ * The types in the model's order, those gone after. */
+- (BOOL)keepImpliedMandatoriesOf:(NSArray<ORMObjectType *> *)types;
 @end
 

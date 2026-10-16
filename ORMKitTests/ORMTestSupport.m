@@ -8,6 +8,12 @@
 	NSUndoManager *_undoManager;
 }
 
++ (void)setUp
+{
+	[super setUp];
+	ORMEditor.checksAgreement = YES;
+}
+
 - (ORMQueryPlan *)archived:(ORMQueryPlan *)plan
 {
 	NSError *error = nil;
@@ -133,9 +139,14 @@
 
 - (ORMEditor *)newEditor
 {
+	return [self newEditorWithDocument:[ORMEditor newDocumentNamed:@"Test"]];
+}
+
+- (ORMEditor *)newEditorWithDocument:(NSXMLDocument *)document
+{
 	_undoManager = [[NSUndoManager alloc] init];
 	[_undoManager setGroupsByEvent:NO];
-	return [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Test"] undoManager:_undoManager];
+	return [[ORMEditor alloc] initWithDocument:document undoManager:_undoManager];
 }
 
 /* What Apple's model compiler says of the model, on a Mac; nil elsewhere

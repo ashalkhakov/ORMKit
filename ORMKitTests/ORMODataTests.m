@@ -33,7 +33,7 @@
 	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
 	NSString *mappingId = [mappings addCoreDataMappingNamed:@"Test" path:@"Test.xcdatamodeld"];
 	[mappings setServesOData:serving ofMapping:mappingId];
-	ORMCoreDataMapping *mapping = [ORMCoreDataMapping mappingWithId:mappingId inDocument:editor.document];
+	ORMCoreDataMapping *mapping = [editor.model coreDataMappingWithId:mappingId];
 	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping];
 	ORMCDModel *mapped = [mapper map];
 	if (notes != NULL) {

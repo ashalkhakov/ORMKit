@@ -6,6 +6,12 @@
 #import "ORMKit.h"
 #endif
 
+/* The XML element an element was read from and is written to: the
+ * writer's business, which the tests look at to see what it wrote. */
+@interface ORMElement (ORMWrittenElement)
+@property (nonatomic, readonly, strong) NSXMLElement *element;
+@end
+
 /* What every ORMKit test shares: the fixtures, found beside this file, so
  * the tests run from a source tree on both platforms. */
 @interface ORMTestCase : XCTestCase
@@ -18,6 +24,8 @@
 /* An editor on a new model, with an undo manager that does not group by
  * event: each operation is its own step. */
 - (ORMEditor *)newEditor;
+/* The same, on the document. */
+- (ORMEditor *)newEditorWithDocument:(NSXMLDocument *)document;
 /* What a model compiler says of the model: Apple's on a Mac, FreeCoreData's
  * where PATH has it; nil when it accepts it, or there is none. */
 - (NSString *)momcRejects:(ORMCDModel *)model;

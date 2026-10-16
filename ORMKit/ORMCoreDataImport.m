@@ -192,11 +192,10 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 		NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:@[ typeId ] reading:ORMUnaryReadingFor(attribute.name)
 		                                    onDiagram:state.diagram at:ORMAutomaticPlacement reason:NULL];
 		ORMFactType *made = [_editor.model elementWithId:fact];
-		for (ORMRole *role in made.roles) {
-			if (role.player.isImplicitBooleanValue) {
-				[self.mappingEditor setName:attribute.name forSource:role.identifier inMapping:state.mapping];
-				[state.roles setObject:role.identifier forKey:path];
-			}
+		ORMRole *role = [made implicitRole];
+		if (role != nil) {
+			[self.mappingEditor setName:attribute.name forSource:role.identifier inMapping:state.mapping];
+			[state.roles setObject:role.identifier forKey:path];
 		}
 		return;
 	}
@@ -495,13 +494,11 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 			           reason:NULL];
 			/* The model is rebuilt: what it held is gone. */
 			entityType = [_editor.model elementWithId:type];
-			value = entityType.referenceModeValueType;
-			for (ORMRole *role in entityType.referenceModeFactType.roles) {
-				if (role.player == value) {
-					[self.mappingEditor setName:identifier.name forSource:role.identifier inMapping:state.mapping];
-					[state.roles setObject:role.identifier forKey:[NSString stringWithFormat:@"%@.%@", entity.name,
-					                                                                       identifier.name]];
-				}
+			ORMRole *role = entityType.referenceModeRole;
+			if (role != nil) {
+				[self.mappingEditor setName:identifier.name forSource:role.identifier inMapping:state.mapping];
+				[state.roles setObject:role.identifier forKey:[NSString stringWithFormat:@"%@.%@", entity.name,
+				                                                                       identifier.name]];
 			}
 			[identifiers setObject:identifier.name forKey:entity.name];
 		}

@@ -244,7 +244,7 @@ static const NSUInteger ORMResultsPage = 200;
 	if (_query == nil) {
 		return @"";
 	}
-	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
 	NSError *error = nil;
 	ORMQueryOData *odata = [ORMQueryOData requestForQuery:_query model:self.editor.model mapping:mapping error:&error];
 	if (odata == nil) {
@@ -262,7 +262,7 @@ static const NSUInteger ORMResultsPage = 200;
 	if (_query == nil) {
 		return @"";
 	}
-	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
 	ORMQueryPlan *plan = [planner planForQuery:_query];
 	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
@@ -308,7 +308,7 @@ static const NSUInteger ORMResultsPage = 200;
 	if (![self hasPopulation]) {
 		return [NSSet set];
 	}
-	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
 	ORMRuleChecker *checker = [[ORMRuleChecker alloc] initWithModel:self.editor.model mapping:mapping];
 	if ([checker.rules count] == 0 && [checker.valueCalculations count] == 0) {
 		return [NSSet set];
@@ -328,7 +328,7 @@ static const NSUInteger ORMResultsPage = 200;
 		_resultsNote = @"The model has no sample population: Make Up a Population gives it one.";
 		return nil;
 	}
-	ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject];
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:self.editor.model mapping:mapping];
 	NSError *error = nil;
 	if ([self populationContext:planner.coreData error:&error] == nil) {
@@ -558,7 +558,7 @@ ORMCellText(id value)
 	/* What a derivation can derive: the fact types its columns are the
 	 * roles of, in order, and the one it derives. */
 	for (ORMFactType *fact in kind == ORMQueryDerivation ? [self derivableBy:_query] : @[]) {
-		[_ofPopUp addItemWithTitle:[[fact primaryReading] expandedText] ?: fact.name];
+		[_ofPopUp addItemWithTitle:[fact displayText]];
 		[[_ofPopUp lastItem] setRepresentedObject:fact.identifier];
 		if (fact == _query.derivedFactType) {
 			[_ofPopUp selectItem:[_ofPopUp lastItem]];
@@ -778,7 +778,7 @@ ORMCellText(id value)
 	if (entry == nil) {
 		NSBeep();
 		[self say:[NSString stringWithFormat:@"%@ plays no role of \"%@\".", node.objectType.name,
-		                                     [[role.factType primaryReading] expandedText] ?: role.factType.name]];
+		                                     [role.factType displayText]]];
 		return nil;
 	}
 	NSString *step = [self addStepThrough:entry];
@@ -1093,20 +1093,19 @@ ORMCellText(id value)
 			}
 		}
 	}
-	for (ORMReadingOrder *order in role.factType.readingOrders) {
-		NSString *text = [[order.readings firstObject] text];
-		if ([order.roles firstObject] == role && [text hasPrefix:@"{0}"]) {
-			NSMutableString *reading = [[text substringFromIndex:3] mutableCopy];
-			for (NSUInteger i = 1; i < [order.roles count]; i++) {
-				[reading replaceOccurrencesOfString:[NSString stringWithFormat:@"{%lu}", (unsigned long)i]
-				                         withString:[[order.roles objectAtIndex:i] player].name ?: @"?"
-				                            options:0
-				                              range:NSMakeRange(0, [reading length])];
-			}
-			return [reading stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+	ORMReadingOrder *order = [role.factType readingOrderStartingWithRole:role];
+	ORMReading *from = [order.readings firstObject];
+	if ([from readsFromFirstRole]) {
+		NSMutableString *reading = [[from.text substringFromIndex:3] mutableCopy];
+		for (NSUInteger i = 1; i < [order.roles count]; i++) {
+			[reading replaceOccurrencesOfString:[NSString stringWithFormat:@"{%lu}", (unsigned long)i]
+			                         withString:[[order.roles objectAtIndex:i] player].name ?: @"?"
+			                            options:0
+			                              range:NSMakeRange(0, [reading length])];
 		}
+		return [reading stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
 	}
-	return [[role.factType primaryReading] expandedText] ?: role.factType.name;
+	return [role.factType displayText];
 }
 
 @end

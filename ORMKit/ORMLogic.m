@@ -343,8 +343,8 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 		/* And within one, NORMA names the objectified role a proxy
 		 * stands for rather than the proxy. */
 		if (pathed.purpose == ORMPathSameFactType && role.factType != fact) {
-			for (ORMRole *proxy in fact.roles) {
-				if (proxy.proxiedRole == role) {
+			for (ORMRole *proxy in role.proxies) {
+				if (proxy.factType == fact) {
 					role = proxy;
 				}
 			}

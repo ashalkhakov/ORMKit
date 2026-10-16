@@ -138,7 +138,7 @@
 
 - (ORMCoreDataMapping *)mapping
 {
-	for (ORMCoreDataMapping *mapping in [ORMCoreDataMapping mappingsOfDocument:_editor.document]) {
+	for (ORMCoreDataMapping *mapping in _editor.model.coreDataMappings) {
 		if ([mapping.identifier isEqualToString:_mapping]) {
 			return mapping;
 		}
@@ -728,7 +728,7 @@ ORMShapeOf(ORMCDModel *model)
 	XCTAssertNil([model objectTypeNamed:@"Subscriber"]);
 	XCTAssertEqual([[merger candidates] count], 0u);
 	ORMObjectType *customer = [model objectTypeNamed:@"CRMCustomer"];
-	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	ORMCoreDataMapping *read = [editor.model coreDataMappingWithId:mapping];
 	XCTAssertEqualObjects([[read.joins objectForKey:customer.identifier] valueForKey:@"name"],
 	                      (@[ @"CRMCustomer", @"BillingAccount", @"Subscriber" ]));
 
@@ -823,7 +823,7 @@ ORMCandidateOf(ORMEntityMerger *merger, NSString *one, NSString *other)
 	              @"%@", reason);
 
 	ORMObjectType *customer = [editor.model objectTypeNamed:@"CRMCustomer"];
-	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	ORMCoreDataMapping *read = [editor.model coreDataMappingWithId:mapping];
 	NSArray *members = [read.joins objectForKey:customer.identifier];
 	XCTAssertEqualObjects([members valueForKey:@"name"], (@[ @"CRMCustomer", @"BillingAccount", @"Subscriber" ]));
 	if ([members count] == 3) {

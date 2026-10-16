@@ -21,7 +21,7 @@
 - (void)reload
 {
 	ORMCoreDataMapping *mapping = self.editor != nil
-		? [[ORMCoreDataMapping mappingsOfDocument:self.editor.document] firstObject] : nil;
+		? [self.editor.model.coreDataMappings firstObject] : nil;
 	_issues = self.editor != nil ? [[[ORMIssueFinder alloc] initWithModel:self.editor.model mapping:mapping] issues] : @[];
 	_reloading = YES;
 	[_table reloadData];

@@ -194,7 +194,7 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 			return [editor.objectTypeEditor setReferenceMode:value kind:ORMReferenceModeGeneral ofEntity:identifier reason:reason];
 		})];
 	}
-	ORMObjectType *valueType = type.kind == ORMValueType ? type : type.referenceModeValueType;
+	ORMObjectType *valueType = [type valueType];
 	if (valueType != nil) {
 		NSString *valueId = valueType.identifier;
 		NSArray *typeNames = [ORMDataType allTypeNames];
@@ -255,27 +255,17 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 	return rows;
 }
 
-/* NORMA's Definitions/Definition/Text, or Notes/Note/Text, of an object
- * type or fact type. */
-static NSString *
-ORMNestedTextOf(ORMElement *element, NSString *container, NSString *item)
-{
-	NSXMLElement *first = [ORMGrandchildren(element.element, ORMCoreNamespace, container, ORMCoreNamespace, item)
-		firstObject];
-	return ORMChildText(first, ORMCoreNamespace, @"Text") ?: @"";
-}
-
 - (NSArray *)textRowsFor:(NSString *)identifier
 {
 	ORMEditor *editor = self.editor;
 	return @[
 		ORMRow(ORMRowText, @"Definition", ^id {
-			return ORMNestedTextOf([editor.model elementWithId:identifier], @"Definitions", @"Definition");
+			return [[editor.model elementWithId:identifier] definitionText] ?: @"";
 		}, ^BOOL(id value, NSString **reason) {
 			return [editor.elementEditor setDefinition:value of:identifier reason:reason];
 		}),
 		ORMRow(ORMRowText, @"Note", ^id {
-			return ORMNestedTextOf([editor.model elementWithId:identifier], @"Notes", @"Note");
+			return [[editor.model elementWithId:identifier] noteText] ?: @"";
 		}, ^BOOL(id value, NSString **reason) {
 			return [editor.elementEditor setNote:value of:identifier reason:reason];
 		}),

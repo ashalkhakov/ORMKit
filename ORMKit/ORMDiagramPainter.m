@@ -383,7 +383,7 @@ ORMReadingPhrase(ORMShape *factTypeShape, ORMReadingOrder *order)
 		return @"";
 	}
 	NSArray *shown = ORMShownRoles(factTypeShape);
-	ORMReadingText *text = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
+	ORMReadingText *text = [reading parsedText];
 	if (text == nil) {
 		return reading.text;
 	}
@@ -897,7 +897,7 @@ ORMDrawSubtypeLinks(ORMPainting *p, ORMDiagram *diagram)
 			continue;
 		}
 		for (ORMFactType *fact in sub.supertypeFacts) {
-			ORMObjectType *sup = [[fact.roles lastObject] player];
+			ORMObjectType *sup = [fact supertype];
 			ORMShape *target = ORMShapeOfObjectType(diagram, sup, [shape center]);
 			if (target == nil) {
 				continue;

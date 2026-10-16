@@ -24,6 +24,44 @@ ORMShapeKindNamed(NSString *local)
 
 @implementation ORMShape
 
+/* Kept as the file will have them: NORMA's inches read back into points,
+ * until reading what is written gives them back (formatting and parsing
+ * are not exact inverses everywhere), so that the model is what reading
+ * the written file gives. */
+- (void)setBounds:(NSRect)bounds
+{
+	NSRect kept = ORMParseBounds(ORMFormatBounds(bounds));
+	for (NSUInteger i = 0; i < 8; i++) {
+		NSRect again = ORMParseBounds(ORMFormatBounds(kept));
+		if (NSEqualRects(again, kept)) {
+			break;
+		}
+		kept = again;
+	}
+	_bounds = kept;
+}
+
+- (void)setBoundsAsRead:(NSRect)bounds
+{
+	_bounds = bounds;
+}
+
+- (void)reset
+{
+	[super reset];
+	_kind = ORMShapeUnknown;
+	_bounds = NSZeroRect;
+	_subject = nil;
+	_subjectId = nil;
+	_diagram = nil;
+	_parent = nil;
+	_relativeShapes = nil;
+	_isExpanded = NO;
+	_roleDisplayOrder = nil;
+	_orientation = ORMFactTypeHorizontal;
+	_constraintsBelow = _expandsReferenceMode = NO;
+}
+
 - (ORMObjectType *)objectType
 {
 	return [self.subject isKindOfClass:[ORMObjectType class]] ? self.subject : nil;
@@ -51,13 +89,23 @@ ORMShapeKindNamed(NSString *local)
 	NSArray<ORMShape *> *_allShapes;
 }
 
+- (void)reset
+{
+	[super reset];
+	_allShapes = nil;
+	_shapes = nil;
+	_isCompleteView = NO;
+	_baseFontName = nil;
+	_baseFontSize = 0;
+}
+
 - (ORMShape *)readShape:(NSXMLElement *)element parent:(ORMShape *)parent into:(NSMutableArray *)all
 {
-	ORMShape *shape = [[ORMShape alloc] initWithElement:element model:self.model];
+	ORMShape *shape = [self.model element:[ORMShape class] for:element];
 	shape.kind = ORMShapeKindNamed([element localName]);
 	shape.diagram = self;
 	shape.parent = parent;
-	shape.bounds = ORMParseBounds(ORMAttribute(element, @"AbsoluteBounds"));
+	[shape setBoundsAsRead:ORMParseBounds(ORMAttribute(element, @"AbsoluteBounds"))];
 	shape.isExpanded = ORMBoolAttribute(element, @"IsExpanded", NO);
 	shape.subjectId = ORMRef(ORMChild(element, DIAGRAM, @"Subject"));
 	shape.subject = [self.model elementWithId:shape.subjectId];
@@ -119,7 +167,45 @@ ORMShapeKindNamed(NSString *local)
 
 - (NSArray<ORMShape *> *)allShapes
 {
-	return _allShapes ?: @[];
+	if (_allShapes == nil) {
+		/* Each shape, then those placed on it, in the file's order. */
+		NSMutableArray *all = [NSMutableArray array];
+		NSMutableArray *pending = [NSMutableArray arrayWithArray:[[self.shapes reverseObjectEnumerator] allObjects]];
+		while ([pending count] > 0) {
+			ORMShape *shape = [pending lastObject];
+			[pending removeLastObject];
+			[all addObject:shape];
+			[pending addObjectsFromArray:[[shape.relativeShapes reverseObjectEnumerator] allObjects]];
+		}
+		_allShapes = all;
+	}
+	return _allShapes;
+}
+
+- (void)addShape:(ORMShape *)shape
+{
+	shape.diagram = self;
+	if (shape.parent != nil) {
+		shape.parent.relativeShapes = [shape.parent.relativeShapes ?: @[] arrayByAddingObject:shape];
+	} else {
+		self.shapes = [self.shapes ?: @[] arrayByAddingObject:shape];
+	}
+	[self.model registerElement:shape];
+	_allShapes = nil;
+}
+
+- (void)removeShape:(ORMShape *)shape
+{
+	for (ORMShape *child in [shape.relativeShapes copy]) {
+		[self removeShape:child];
+	}
+	if (shape.parent != nil) {
+		shape.parent.relativeShapes = ORMWithout(shape.parent.relativeShapes, shape);
+	} else {
+		self.shapes = ORMWithout(self.shapes, shape);
+	}
+	[self.model removeElement:shape];
+	_allShapes = nil;
 }
 
 - (NSArray<ORMShape *> *)shapesForSubject:(NSString *)subjectId

@@ -53,40 +53,18 @@
 	}
 	__block NSString *created = nil;
 	[_editor group:@"Add Fact Type" with:^{
-		[_editor change:@"Add Fact Type" with:^{
-			NSMutableArray *ids = [objectTypeIds mutableCopy];
+		[_editor modelChange:@"Add Fact Type" with:^{
+			NSMutableArray *rolePlayers = [players mutableCopy];
 			if ([players count] == 1) {
 				/* NORMA's unary: a binary whose other role an implicit
 				 * boolean value type plays, constrained to true. */
-				ORMObjectType *subject = [players firstObject];
-				ORMReadingText *parsed = [ORMReadingText readingTextWithString:text arity:1 reason:NULL];
-				NSString *name = [_editor uniqueObjectTypeName:[parsed expandWithNames:^NSString *(NSUInteger index,
-				                                                                               NSString *pre,
-				                                                                               NSString *post) {
-					return [NSString stringWithFormat:@"%@%@%@", pre ?: @"", subject.name, post ?: @""];
-				}]];
-				NSXMLElement *value = [_editor.objectTypeEditor newValueTypeNamed:name dataType:@"TrueOrFalseLogicalDataType"];
-				ORMSetAttribute(value, @"IsImplicitBooleanValue", @"true");
-				NSXMLElement *restriction = ORMEnsureChild(_editor.document, value, CORE, @"ValueRestriction");
-				NSXMLElement *constraint = ORMNewElementWithId(_editor.document, CORE, @"ValueConstraint", nil);
-				ORMSetAttribute(constraint, @"Name", [_editor nextName:@"ValueTypeValueConstraint"]);
-				NSXMLElement *ranges = ORMNewElement(_editor.document, CORE, @"ValueRanges");
-				NSXMLElement *range = ORMNewElementWithId(_editor.document, CORE, @"ValueRange", nil);
-				ORMSetAttribute(range, @"MinValue", @"True");
-				ORMSetAttribute(range, @"MaxValue", @"True");
-				ORMSetAttribute(range, @"MinInclusion", @"NotSet");
-				ORMSetAttribute(range, @"MaxInclusion", @"NotSet");
-				[ranges addChild:range];
-				[constraint addChild:ranges];
-				[restriction addChild:constraint];
-				[ids addObject:ORMAttribute(value, @"id")];
+				[rolePlayers addObject:[self implicitBooleanFor:[players firstObject] reading:text]];
 			}
-			NSMutableArray *roles = [NSMutableArray array];
-			NSXMLElement *fact = [self newFactWithPlayers:ids reading:text roles:roles];
-			created = ORMAttribute(fact, @"id");
+			ORMFactType *fact = [self addFactWithPlayers:rolePlayers reading:text];
+			created = fact.identifier;
 			if ([players count] == 1) {
 				/* Each instance is or is not: the subject's role unique. */
-				[_editor.constraintEditor newInternalUniqueness:@[ [roles firstObject] ]];
+				[_editor.constraintEditor addInternalUniqueness:@[ [fact.roles firstObject] ]];
 			}
 		}];
 		if (diagramId != nil) {
@@ -94,6 +72,44 @@
 		}
 	}];
 	return created;
+}
+
+
+/* A unary's implicit value type is named by its reading, when the reading
+ * changed, as NORMA names it (the normalizer's rule): an older name
+ * ("Person isDead"), or one another type has, is left as it is. */
+- (void)renameImplicitBooleanOf:(ORMFactType *)fact was:(NSString *)was
+{
+	if (was == nil) {
+		return;
+	}
+	NSString *name = [[fact primaryReading] expandedText];
+	ORMObjectType *implicit = [fact implicitRole].player;
+	NSString *older = [name stringByReplacingOccurrencesOfString:@"-" withString:@" "];
+	if ([was isEqualToString:name ?: @""] || implicit == nil || [name length] == 0 || [implicit.name isEqualToString:name]
+	    || [implicit.name isEqualToString:older] || [_editor.model objectTypeNamed:name] != nil) {
+		return;
+	}
+	implicit.name = name;
+	[_editor wrote:implicit];
+}
+
+/* A unary's implicit value type, named as its reading reads of the
+ * subject: true only. */
+- (ORMObjectType *)implicitBooleanFor:(ORMObjectType *)subject reading:(NSString *)text
+{
+	ORMReadingText *parsed = [ORMReadingText readingTextWithString:text arity:1 reason:NULL];
+	NSString *name = [_editor uniqueObjectTypeName:[parsed expandWithNames:^NSString *(NSUInteger index, NSString *pre,
+	                                                                                   NSString *post) {
+		return [NSString stringWithFormat:@"%@%@%@", pre ?: @"", subject.name, post ?: @""];
+	}]];
+	ORMObjectType *value = [_editor.objectTypeEditor newObjectTypeNamed:name kind:ORMValueType
+	                                                          dataType:@"TrueOrFalseLogicalDataType"];
+	value.isImplicitBooleanValue = YES;
+	[_editor.objectTypeEditor setRanges:@[ @{ @"min": @"True", @"max": @"True", @"minInclusion": @"NotSet",
+	                                          @"maxInclusion": @"NotSet" } ]
+	                                 of:value];
+	return value;
 }
 
 - (NSString *)addReading:(NSString *)text forRoles:(NSArray<NSString *> *)roleIds reason:(NSString **)reason
@@ -121,8 +137,8 @@
 		return nil;
 	}
 	__block NSString *created = nil;
-	[_editor change:@"Add Reading" with:^{
-		created = ORMAttribute([self appendReading:text to:fact.element roles:roleIds], @"id");
+	[_editor modelChange:@"Add Reading" with:^{
+		created = [self addReading:text to:fact roles:roles].identifier;
 	}];
 	return created;
 }
@@ -149,11 +165,15 @@
 			}
 			return NO;
 		}
-		[_editor change:@"Delete Reading" with:^{
-			[reading.element detach];
-			if ([order.readings count] <= 1) {
-				[order.element detach];
+		[_editor modelChange:@"Delete Reading" with:^{
+			ORMModel *model = _editor.model;
+			order.readings = ORMWithout(order.readings, reading);
+			[model removeElement:reading];
+			if ([order.readings count] == 0) {
+				fact.readingOrders = ORMWithout(fact.readingOrders, order);
+				[model removeElement:order];
 			}
+			[_editor wrote:fact];
 		}];
 		return YES;
 	}
@@ -163,8 +183,9 @@
 	if ([text isEqualToString:reading.text]) {
 		return YES;
 	}
-	[_editor change:@"Edit Reading" with:^{
-		ORMSetChildText(_editor.document, reading.element, CORE, @"Data", text);
+	[_editor modelChange:@"Edit Reading" with:^{
+		reading.text = text;
+		[_editor wrote:reading];
 	}];
 	return YES;
 }
@@ -188,13 +209,12 @@
 	if (role.player == player) {
 		return YES;
 	}
-	[_editor change:@"Connect Role" with:^{
-		NSXMLElement *rolePlayer = ORMChild(role.element, CORE, @"RolePlayer");
-		if (rolePlayer == nil) {
-			[role.element insertChild:ORMNewRef(_editor.document, CORE, @"RolePlayer", objectTypeId) atIndex:0];
-		} else {
-			ORMSetAttribute(rolePlayer, @"ref", objectTypeId);
-		}
+	ORMObjectType *was = role.player;
+	[_editor modelChange:@"Connect Role" with:^{
+		role.player = player;
+		[_editor wrote:role];
+		/* It no longer plays the role. */
+		[_editor wrote:was];
 	}];
 	return YES;
 }
@@ -211,35 +231,24 @@
 		}
 		return NO;
 	}
-	[_editor change:@"Set Derivation" with:^{
-		NSXMLElement *rule = ORMChild(fact.element, CORE, @"DerivationRule");
-		NSXMLElement *path = ORMChild(rule, CORE, @"FactTypeDerivationPath");
-		NSXMLElement *informal = ORMChild(path, CORE, @"InformalRule");
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:fact.identifier];
+	if ([text length] == 0 && (rule == nil || rule.pathId == nil)) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Derivation" with:^{
 		if ([text length] == 0) {
-			[informal detach];
-			if (path != nil && ORMChild(path, CORE, @"PathComponents") == nil && ORMChild(path, CORE, @"PathComponent") == nil) {
-				[rule detach];
+			/* Words only, the rule goes with them. */
+			if (!rule.hasRolePath) {
+				[_editor.model setDerivationRule:nil ofFactType:fact];
+			} else {
+				rule.informalText = nil;
 			}
-			return;
+		} else {
+			ORMDerivationRule *kept = [self ruleOf:fact];
+			kept.noteId = kept.noteId ?: ORMNewId();
+			kept.informalText = text;
 		}
-		if (rule == nil) {
-			rule = ORMNewElement(_editor.document, CORE, @"DerivationRule");
-			ORMInsertChild(fact.element, rule);
-		}
-		if (path == nil) {
-			path = ORMNewElementWithId(_editor.document, CORE, @"FactTypeDerivationPath", nil);
-			[rule addChild:path];
-		}
-		if (informal == nil) {
-			informal = ORMNewElement(_editor.document, CORE, @"InformalRule");
-			[path addChild:informal];
-		}
-		NSXMLElement *note = ORMChild(informal, CORE, @"DerivationNote");
-		if (note == nil) {
-			note = ORMNewElementWithId(_editor.document, CORE, @"DerivationNote", nil);
-			[informal addChild:note];
-		}
-		ORMSetChildText(_editor.document, note, CORE, @"Body", text);
+		[_editor wrote:fact];
 	}];
 	return YES;
 }
@@ -248,26 +257,60 @@
 - (BOOL)setDerivationPartial:(BOOL)partial stored:(BOOL)stored of:(NSString *)factTypeId reason:(NSString **)reason
 {
 	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
-	NSXMLElement *path = [fact isKindOfClass:[ORMFactType class]]
-		? ORMChild(ORMChild(fact.element, CORE, @"DerivationRule"), CORE, @"FactTypeDerivationPath") : nil;
-	if (path == nil) {
+	ORMDerivationRule *rule = [fact isKindOfClass:[ORMFactType class]]
+		? [_editor.model.derivationRules objectForKey:fact.identifier] : nil;
+	if (rule.pathId == nil) {
 		if (reason != NULL) {
 			*reason = fact.isDerived ? @"Its rule is an older one, which says this itself." : @"It is not derived.";
 		}
 		return NO;
 	}
-	/* NORMA leaves out its defaults: fully derived, not stored. */
-	NSString *completeness = partial ? @"PartiallyDerived" : nil;
-	NSString *storage = stored ? @"Stored" : nil;
-	if ([ORMAttribute(path, @"DerivationCompleteness") ?: @"" isEqualToString:completeness ?: @""]
-	    && [ORMAttribute(path, @"DerivationStorage") ?: @"" isEqualToString:storage ?: @""]) {
+	if (rule.isPartial == partial && rule.isStored == stored) {
 		return YES;
 	}
-	[_editor change:@"Set Derivation" with:^{
-		ORMSetAttribute(path, @"DerivationCompleteness", completeness);
-		ORMSetAttribute(path, @"DerivationStorage", storage);
+	[_editor modelChange:@"Set Derivation" with:^{
+		rule.isPartial = partial;
+		rule.isStored = stored;
+		[_editor wrote:fact];
 	}];
 	return YES;
+}
+
+/* The fact type's rule, made with a path (and so derived) where it has
+ * none; one without a path gets one. */
+- (ORMDerivationRule *)ruleOf:(ORMFactType *)fact
+{
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:fact.identifier];
+	if (rule == nil) {
+		rule = [[ORMDerivationRule alloc] initWithModel:_editor.model];
+		rule.identifier = nil;
+		rule.paths = @[];
+		rule.calculations = @[];
+		rule.conditions = @[];
+		rule.projections = @{};
+	}
+	rule.pathId = rule.pathId ?: ORMNewId();
+	[_editor.model setDerivationRule:rule ofFactType:fact];
+	return rule;
+}
+
+- (void)setQueryRuleOf:(ORMFactType *)fact words:(NSString *)text
+{
+	ORMDerivationRule *rule = [self ruleOf:fact];
+	if (rule.noteId == nil) {
+		rule.noteId = ORMNewId();
+		rule.informalText = text;
+	}
+	[_editor wrote:fact];
+}
+
+- (void)removeQueryRuleOf:(ORMFactType *)fact
+{
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:fact.identifier];
+	if (fact != nil && rule != nil && !rule.hasRolePath && !rule.hasExpression) {
+		[_editor.model setDerivationRule:nil ofFactType:fact];
+		[_editor wrote:fact];
+	}
 }
 
 #pragma mark Objectification
@@ -304,52 +347,45 @@
 		}
 	}
 	__block NSString *created = nil;
-	[_editor change:@"Objectify Fact Type" with:^{
-		NSString *identifierId = identifier.identifier;
-		if (identifierId == nil) {
-			NSMutableArray *all = [NSMutableArray array];
-			for (ORMRole *role in fact.roles) {
-				[all addObject:role.identifier];
-			}
-			identifierId = ORMAttribute([_editor.constraintEditor newInternalUniqueness:all], @"id");
-		}
-		NSXMLElement *type = ORMNewElementWithId(_editor.document, CORE, @"ObjectifiedType", nil);
-		ORMSetAttribute(type, @"Name", typeName);
-		ORMSetAttribute(type, @"IsIndependent", @"true");
-		ORMSetAttribute(type, @"_ReferenceMode", @"");
-		ORMInsertChild(type, ORMNewRef(_editor.document, CORE, @"PreferredIdentifier", identifierId));
-		NSXMLElement *nested = ORMNewElementWithId(_editor.document, CORE, @"NestedPredicate", nil);
-		ORMSetAttribute(nested, @"ref", factTypeId);
-		ORMSetAttribute(nested, @"IsImplied", @"false");
-		ORMInsertChild(type, nested);
-		[[_editor section:@"Objects"] addChild:type];
-		created = ORMAttribute(type, @"id");
+	[_editor modelChange:@"Objectify Fact Type" with:^{
+		ORMModel *model = _editor.model;
+		ORMConstraint *preferred = identifier ?: [_editor.constraintEditor addInternalUniqueness:fact.roles];
+		ORMObjectType *type = [[ORMObjectType alloc] initWithModel:model];
+		type.name = typeName;
+		type.kind = ORMObjectifiedType;
+		type.isIndependent = YES;
+		type.savedReferenceMode = @"";
+		type.preferredIdentifier = preferred;
+		type.nestedFactType = fact;
+		type.objectificationId = ORMNewId();
+		[model addElement:type];
+		[_editor wrote:type];
+		created = type.identifier;
 
 		/* NORMA's link fact types: for each role, "{objectified} involves
 		 * {player}", the objectified type's role unique and mandatory. */
 		for (ORMRole *role in [fact visibleRoles]) {
-			NSXMLElement *link = ORMNewElementWithId(_editor.document, CORE, @"ImpliedFact", nil);
-			ORMSetAttribute(link, @"_Name", [NSString stringWithFormat:@"%@Involves%@", typeName, role.player.name]);
-			NSXMLElement *roles = ORMEnsureChild(_editor.document, link, CORE, @"FactRoles");
-			NSXMLElement *proxy = ORMNewElementWithId(_editor.document, CORE, @"RoleProxy", nil);
-			[proxy addChild:ORMNewRef(_editor.document, CORE, @"Role", role.identifier)];
-			[roles addChild:proxy];
-			NSXMLElement *own = ORMNewElementWithId(_editor.document, CORE, @"Role", nil);
-			ORMSetAttribute(own, @"_IsMandatory", @"true");
-			ORMSetAttribute(own, @"_Multiplicity", @"ExactlyOne");
-			ORMSetAttribute(own, @"Name", @"");
-			[own addChild:ORMNewRef(_editor.document, CORE, @"RolePlayer", created)];
-			[roles addChild:own];
-			[[_editor section:@"Facts"] addChild:link];
-			NSString *proxyId = ORMAttribute(proxy, @"id");
-			NSString *ownId = ORMAttribute(own, @"id");
-			[self appendReading:@"{0} involves {1}" to:link roles:@[ ownId, proxyId ]];
-			[self appendReading:@"{0} is involved in {1}" to:link roles:@[ proxyId, ownId ]];
-			NSXMLElement *unique = [_editor.constraintEditor newInternalUniqueness:@[ ownId ]];
-			ORMSetAttribute(unique, @"IsImplied", @"true");
-			NSXMLElement *mandatory = [_editor.constraintEditor newSimpleMandatory:ownId];
-			ORMSetAttribute(mandatory, @"IsImplied", @"true");
-			[link addChild:ORMNewRef(_editor.document, CORE, @"ImpliedByObjectification", ORMAttribute(nested, @"id"))];
+			ORMFactType *link = [[ORMFactType alloc] initWithModel:model];
+			link.kind = ORMFactTypeImplied;
+			link.savedDerivedName = [NSString stringWithFormat:@"%@Involves%@", typeName, role.player.name];
+			link.impliedByFactType = fact;
+			ORMRole *proxy = [[ORMRole alloc] initWithModel:model];
+			proxy.factType = link;
+			proxy.proxiedRole = role;
+			ORMRole *own = [[ORMRole alloc] initWithModel:model];
+			own.factType = link;
+			own.index = 1;
+			own.player = type;
+			link.roles = @[ proxy, own ];
+			link.readingOrders = @[];
+			[model registerElement:proxy];
+			[model registerElement:own];
+			[model addElement:link];
+			[_editor wrote:link];
+			[self addReading:@"{0} involves {1}" to:link roles:@[ own, proxy ]];
+			[self addReading:@"{0} is involved in {1}" to:link roles:@[ proxy, own ]];
+			[_editor.constraintEditor addInternalUniqueness:@[ own ]].isImplied = YES;
+			[_editor.constraintEditor addSimpleMandatory:own].isImplied = YES;
 		}
 	}];
 	return created;
@@ -371,7 +407,7 @@
 		}
 		return NO;
 	}
-	[_editor change:@"Unobjectify Fact Type" with:^{
+	[_editor group:@"Unobjectify Fact Type" with:^{
 		[_editor.elementEditor deleteElements:@[ type.identifier ]];
 	}];
 	return YES;
@@ -379,64 +415,59 @@
 
 #pragma mark Building
 
-/* A new <orm:Fact> over the players with one reading, roles' ids out. */
-- (NSXMLElement *)newFactWithPlayers:(NSArray<NSString *> *)playerIds
-                             reading:(NSString *)reading
-                               roles:(NSMutableArray *)roleIds
+- (ORMFactType *)addFactWithPlayers:(NSArray<ORMObjectType *> *)players reading:(NSString *)reading
 {
-	NSXMLElement *fact = ORMNewElementWithId(_editor.document, CORE, @"Fact", nil);
-	NSXMLElement *roles = ORMEnsureChild(_editor.document, fact, CORE, @"FactRoles");
-	for (NSString *playerId in playerIds) {
-		NSXMLElement *role = ORMNewElementWithId(_editor.document, CORE, @"Role", nil);
-		ORMSetAttribute(role, @"_IsMandatory", @"false");
-		ORMSetAttribute(role, @"_Multiplicity", @"Unspecified");
-		ORMSetAttribute(role, @"Name", @"");
-		[role addChild:ORMNewRef(_editor.document, CORE, @"RolePlayer", playerId)];
-		[roles addChild:role];
-		[roleIds addObject:ORMAttribute(role, @"id")];
+	ORMModel *model = _editor.model;
+	ORMFactType *fact = [[ORMFactType alloc] initWithModel:model];
+	fact.kind = ORMFactTypeOrdinary;
+	NSMutableArray *roles = [NSMutableArray array];
+	for (ORMObjectType *player in players) {
+		ORMRole *role = [[ORMRole alloc] initWithModel:model];
+		role.factType = fact;
+		role.index = [roles count];
+		role.player = player;
+		[model registerElement:role];
+		[roles addObject:role];
 	}
-	[[_editor section:@"Facts"] addChild:fact];
+	fact.roles = roles;
+	fact.readingOrders = @[];
+	[model addElement:fact];
+	[_editor wrote:fact];
 	if (reading != nil) {
-		NSUInteger readable = [playerIds count];
+		NSUInteger readable = [players count];
 		/* A unary's reading names its one role, not the implicit one. */
 		if (readable == 2 && [reading rangeOfString:@"{1}"].location == NSNotFound) {
 			readable = 1;
 		}
-		[self appendReading:reading to:fact roles:[roleIds subarrayWithRange:NSMakeRange(0, readable)]];
+		[self addReading:reading to:fact roles:[roles subarrayWithRange:NSMakeRange(0, readable)]];
 	}
 	return fact;
 }
 
-/* A reading in the reading order for the roles, making the order. */
-- (NSXMLElement *)appendReading:(NSString *)text to:(NSXMLElement *)fact roles:(NSArray<NSString *> *)roleIds
+- (ORMReading *)addReading:(NSString *)text to:(ORMFactType *)fact roles:(NSArray<ORMRole *> *)roles
 {
-	NSXMLElement *orders = ORMEnsureChild(_editor.document, fact, CORE, @"ReadingOrders");
-	NSXMLElement *order = nil;
-	for (NSXMLElement *existing in ORMChildren(orders, CORE, @"ReadingOrder")) {
-		NSMutableArray *refs = [NSMutableArray array];
-		for (NSXMLElement *ref in ORMChildren(ORMChild(existing, CORE, @"RoleSequence"), CORE, @"Role")) {
-			[refs addObject:ORMRef(ref) ?: @""];
-		}
-		if ([refs isEqualToArray:roleIds]) {
+	ORMModel *model = _editor.model;
+	ORMReadingOrder *order = nil;
+	for (ORMReadingOrder *existing in fact.readingOrders) {
+		if ([existing.roles isEqualToArray:roles]) {
 			order = existing;
 			break;
 		}
 	}
 	if (order == nil) {
-		order = ORMNewElementWithId(_editor.document, CORE, @"ReadingOrder", nil);
-		[order addChild:ORMNewElement(_editor.document, CORE, @"Readings")];
-		NSXMLElement *sequence = ORMNewElement(_editor.document, CORE, @"RoleSequence");
-		for (NSString *roleId in roleIds) {
-			[sequence addChild:ORMNewRef(_editor.document, CORE, @"Role", roleId)];
-		}
-		[order addChild:sequence];
-		[orders addChild:order];
+		order = [[ORMReadingOrder alloc] initWithModel:model];
+		order.factType = fact;
+		order.roles = roles;
+		order.readings = @[];
+		[model registerElement:order];
+		fact.readingOrders = [fact.readingOrders arrayByAddingObject:order];
 	}
-	NSXMLElement *reading = ORMNewElementWithId(_editor.document, CORE, @"Reading", nil);
-	NSXMLElement *data = ORMNewElement(_editor.document, CORE, @"Data");
-	[data setStringValue:text];
-	[reading addChild:data];
-	[ORMChild(order, CORE, @"Readings") addChild:reading];
+	ORMReading *reading = [[ORMReading alloc] initWithModel:model];
+	reading.readingOrder = order;
+	reading.text = text;
+	[model registerElement:reading];
+	order.readings = [order.readings arrayByAddingObject:reading];
+	[_editor wrote:fact];
 	return reading;
 }
 

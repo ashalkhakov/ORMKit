@@ -39,15 +39,7 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 - (NSString *)valueTypeNameFor:(NSString *)entity mode:(NSString *)mode kind:(ORMReferenceModeKind)kind
 {
 	NSString *type = kind == ORMReferenceModeUnitBased ? @"UnitBased" : kind == ORMReferenceModeGeneral ? @"General" : @"Popular";
-	NSString *format = kind == ORMReferenceModeUnitBased ? @"{1}Value" : kind == ORMReferenceModeGeneral ? @"{1}" : @"{0}_{1}";
-	for (NSXMLElement *kindElement in ORMGrandchildren(_editor.model.modelElement, ORMCoreNamespace, @"ReferenceModeKinds",
-	                                                   ORMCoreNamespace, @"ReferenceModeKind")) {
-		NSString *saved = ORMAttribute(kindElement, @"FormatString");
-		if ([ORMAttribute(kindElement, @"ReferenceModeType") isEqualToString:type]
-		    && [saved rangeOfString:@"{1}"].location != NSNotFound) {
-			format = saved;
-		}
-	}
+	NSString *format = [_editor.model.referenceModeFormats objectForKey:type];
 	format = [format stringByReplacingOccurrencesOfString:@"{0}" withString:entity ?: @""];
 	return [format stringByReplacingOccurrencesOfString:@"{1}" withString:mode ?: @""];
 }
@@ -71,83 +63,67 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	return YES;
 }
 
-/* A new <orm:ValueType>, its data type set. */
-- (NSXMLElement *)newValueTypeNamed:(NSString *)name dataType:(NSString *)typeName
+/* The model's data type of the name, made when it has none. */
+- (ORMDataType *)dataTypeNamed:(NSString *)typeName
 {
-	NSXMLElement *type = ORMNewElementWithId(_editor.document, CORE, @"ValueType", nil);
-	ORMSetAttribute(type, @"Name", name);
-	NSXMLElement *dataType = ORMNewElementWithId(_editor.document, CORE, @"ConceptualDataType", nil);
-	ORMSetAttribute(dataType, @"ref", [_editor dataTypeIdNamed:typeName ?: @"UnspecifiedDataType"]);
-	ORMSetAttribute(dataType, @"Scale", @"0");
-	ORMSetAttribute(dataType, @"Length", @"0");
-	ORMInsertChild(type, dataType);
-	[[_editor section:@"Objects"] addChild:type];
+	for (ORMDataType *type in _editor.model.dataTypes) {
+		if ([type.typeName isEqualToString:typeName]) {
+			return type;
+		}
+	}
+	ORMDataType *made = [[ORMDataType alloc] initWithModel:_editor.model];
+	made.typeName = typeName;
+	[_editor.model addElement:made];
+	[_editor wrote:made];
+	return made;
+}
+
+/* A new object type in the model: a value type with its data type, an
+ * entity type with no reference mode yet. */
+- (ORMObjectType *)newObjectTypeNamed:(NSString *)name kind:(ORMObjectTypeKind)kind dataType:(NSString *)typeName
+{
+	ORMModel *model = _editor.model;
+	ORMObjectType *type = [[ORMObjectType alloc] initWithModel:model];
+	type.name = name;
+	type.kind = kind;
+	if (kind == ORMValueType) {
+		type.dataType = [self dataTypeNamed:typeName ?: @"UnspecifiedDataType"];
+	} else {
+		type.savedReferenceMode = @"";
+	}
+	[model addElement:type];
+	[_editor wrote:type];
 	return type;
 }
 
-/* Gives the entity type its reference mode, as NORMA builds one: the
- * value type, "{0} has {1}" read back as "{0} is of {1}", the entity's
- * role unique and mandatory, the value's role unique and the preferred
- * identifier. */
-- (void)buildReferenceMode:(NSString *)mode kind:(ORMReferenceModeKind)kind forEntity:(NSXMLElement *)entity
+/* Gives the entity type its reference mode, as NORMA builds one, inside
+ * a model change: the value type (shared for a unit or general mode), "{0} has {1}" read back as "{0} is of {1}",
+ * the entity's role unique and mandatory, the value's role unique and the
+ * preferred identifier. */
+- (void)addReferenceMode:(NSString *)mode kind:(ORMReferenceModeKind)kind to:(ORMObjectType *)entity
 {
-	NSString *entityName = ORMAttribute(entity, @"Name");
-	NSString *valueName = [self valueTypeNameFor:entityName mode:mode kind:kind];
-	/* A unit or general mode's value type is shared: kgValue identifies
-	 * every entity type measured in kg. */
-	NSXMLElement *value = nil;
-	ORMObjectType *existing = [_editor.model objectTypeNamed:valueName];
-	if (existing != nil && existing.kind == ORMValueType) {
-		value = existing.element;
-	} else {
-		value = [self newValueTypeNamed:[_editor uniqueObjectTypeName:valueName]
-		                       dataType:ORMDefaultDataTypeForMode(mode, kind)];
+	ORMModel *model = _editor.model;
+	NSString *valueName = [self valueTypeNameFor:entity.name mode:mode kind:kind];
+	ORMObjectType *value = [model objectTypeNamed:valueName];
+	if (value == nil || value.kind != ORMValueType) {
+		value = [self newObjectTypeNamed:[_editor uniqueObjectTypeName:valueName] kind:ORMValueType
+		                        dataType:ORMDefaultDataTypeForMode(mode, kind)];
 	}
-	NSMutableArray *roles = [NSMutableArray array];
-	NSXMLElement *fact = [_editor.factTypeEditor newFactWithPlayers:@[ ORMAttribute(entity, @"id"), ORMAttribute(value, @"id") ]
-	                                      reading:@"{0} has {1}"
-	                                        roles:roles];
-	[_editor.factTypeEditor appendReading:@"{0} is of {1}" to:fact roles:@[ [roles objectAtIndex:1], [roles objectAtIndex:0] ]];
-	[_editor.constraintEditor newInternalUniqueness:@[ [roles objectAtIndex:0] ]];
-	[_editor.constraintEditor newSimpleMandatory:[roles objectAtIndex:0]];
-	NSXMLElement *identifier = [_editor.constraintEditor newInternalUniqueness:@[ [roles objectAtIndex:1] ]];
-	[ORMChild(entity, CORE, @"PreferredIdentifier") detach];
-	ORMInsertChild(entity, ORMNewRef(_editor.document, CORE, @"PreferredIdentifier", ORMAttribute(identifier, @"id")));
-	ORMSetAttribute(entity, @"_ReferenceMode", mode);
-	[self registerCustomReferenceMode:mode kind:kind];
-}
-
-/* A mode NORMA does not know gets a custom reference mode of its kind,
- * so NORMA reads the value type's name back as this mode. */
-- (void)registerCustomReferenceMode:(NSString *)mode kind:(ORMReferenceModeKind)kind
-{
-	if (kind == ORMReferenceModePopular) {
-		return;
+	ORMFactType *fact = [_editor.factTypeEditor addFactWithPlayers:@[ entity, value ] reading:@"{0} has {1}"];
+	NSArray<ORMRole *> *roles = fact.roles;
+	[_editor.factTypeEditor addReading:@"{0} is of {1}" to:fact roles:@[ roles[1], roles[0] ]];
+	[_editor.constraintEditor addInternalUniqueness:@[ roles[0] ]];
+	[_editor.constraintEditor addSimpleMandatory:roles[0]];
+	entity.preferredIdentifier = [_editor.constraintEditor addInternalUniqueness:@[ roles[1] ]];
+	entity.savedReferenceMode = mode;
+	[_editor wrote:entity];
+	/* A mode NORMA does not know gets a custom reference mode of its kind,
+	 * so NORMA reads the value type's name back as this mode. */
+	if (kind != ORMReferenceModePopular && [model.customReferenceModes objectForKey:mode] == nil) {
+		NSMutableDictionary *customs = [model.customReferenceModes mutableCopy] ?: [NSMutableDictionary dictionary];
+		[customs setObject:kind == ORMReferenceModeUnitBased ? @"UnitBased" : @"General" forKey:mode];
+		model.customReferenceModes = customs;
 	}
-	NSString *kindName = kind == ORMReferenceModeUnitBased ? @"UnitBased" : @"General";
-	NSXMLElement *modes = ORMChild(ORMModelElementOfDocument(_editor.document), CORE, @"CustomReferenceModes");
-	for (NSXMLElement *custom in ORMChildren(modes, CORE, @"CustomReferenceMode")) {
-		if ([ORMAttribute(custom, @"Name") isEqualToString:mode]) {
-			return;
-		}
-	}
-	NSString *kindId = nil;
-	for (NSXMLElement *element in ORMChildren([_editor section:@"ReferenceModeKinds"], CORE, @"ReferenceModeKind")) {
-		if ([ORMAttribute(element, @"ReferenceModeType") isEqualToString:kindName]) {
-			kindId = ORMAttribute(element, @"id");
-		}
-	}
-	if (kindId == nil) {
-		NSXMLElement *element = ORMNewElementWithId(_editor.document, CORE, @"ReferenceModeKind", nil);
-		ORMSetAttribute(element, @"FormatString", kind == ORMReferenceModeUnitBased ? @"{1}Value" : @"{1}");
-		ORMSetAttribute(element, @"ReferenceModeType", kindName);
-		[[_editor section:@"ReferenceModeKinds"] addChild:element];
-		kindId = ORMAttribute(element, @"id");
-	}
-	NSXMLElement *custom = ORMNewElementWithId(_editor.document, CORE, @"CustomReferenceMode", nil);
-	ORMSetAttribute(custom, @"Name", mode);
-	[custom addChild:ORMNewRef(_editor.document, CORE, @"Kind", kindId)];
-	[[_editor section:@"CustomReferenceModes"] addChild:custom];
 }
 
 - (NSString *)addEntityTypeNamed:(NSString *)name
@@ -162,16 +138,14 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	}
 	NSString *trimmed = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 	__block NSString *created = nil;
+	BOOL identified = [mode length] > 0 && kind != ORMReferenceModeNone;
 	[_editor group:@"Add Entity Type" with:^{
-		[_editor change:@"Add Entity Type" with:^{
-			NSXMLElement *entity = ORMNewElementWithId(_editor.document, CORE, @"EntityType", nil);
-			ORMSetAttribute(entity, @"Name", trimmed);
-			ORMSetAttribute(entity, @"_ReferenceMode", @"");
-			[[_editor section:@"Objects"] addChild:entity];
-			created = ORMAttribute(entity, @"id");
-			if ([mode length] > 0 && kind != ORMReferenceModeNone) {
-				[self buildReferenceMode:mode kind:kind forEntity:entity];
+		[_editor modelChange:@"Add Entity Type" with:^{
+			ORMObjectType *entity = [self newObjectTypeNamed:trimmed kind:ORMEntityType dataType:nil];
+			if (identified) {
+				[self addReferenceMode:mode kind:kind to:entity];
 			}
+			created = entity.identifier;
 		}];
 		/* Placed once the projection knows the entity type. */
 		if (diagramId != nil) {
@@ -193,8 +167,8 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	NSString *trimmed = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 	__block NSString *created = nil;
 	[_editor group:@"Add Value Type" with:^{
-		[_editor change:@"Add Value Type" with:^{
-			created = ORMAttribute([self newValueTypeNamed:trimmed dataType:typeName], @"id");
+		[_editor modelChange:@"Add Value Type" with:^{
+			created = [self newObjectTypeNamed:trimmed kind:ORMValueType dataType:typeName].identifier;
 		}];
 		if (diagramId != nil) {
 			[_editor.diagramEditor placeElement:created onDiagram:diagramId at:point];
@@ -242,25 +216,30 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	 * its constraints stay. Otherwise the old identification goes. */
 	ORMObjectType *oldValue = entity.referenceModeValueType;
 	ORMFactType *oldFact = entity.referenceModeFactType;
-	[_editor change:removing ? @"Remove Reference Mode" : @"Set Reference Mode" with:^{
-		if (removing) {
-			ORMSetAttribute(entity.element, @"_ReferenceMode", @"");
-			return;
-		}
-		if (oldValue != nil && entity.referenceModeKind == ORMReferenceModePopular && kind == ORMReferenceModePopular
-		    && [oldValue.playedRoles count] == 1) {
-			ORMSetAttribute(oldValue.element, @"Name",
-			                [self valueTypeNameFor:entity.name mode:trimmed kind:ORMReferenceModePopular]);
-			ORMSetAttribute(entity.element, @"_ReferenceMode", trimmed);
-			return;
-		}
-		if (oldFact != nil) {
-			[_editor.elementEditor deleteElements:@[ oldFact.identifier ]];
-			if (oldValue != nil && [oldValue.playedRoles count] <= 1) {
-				[_editor.elementEditor deleteElements:@[ oldValue.identifier ]];
+	BOOL renaming = oldValue != nil && entity.referenceModeKind == ORMReferenceModePopular
+		&& kind == ORMReferenceModePopular && [oldValue.playedRoles count] == 1;
+	if (removing || renaming) {
+		[_editor modelChange:removing ? @"Remove Reference Mode" : @"Set Reference Mode" with:^{
+			if (renaming) {
+				oldValue.name = [self valueTypeNameFor:entity.name mode:trimmed kind:ORMReferenceModePopular];
+				[_editor wrote:oldValue];
 			}
+			entity.savedReferenceMode = removing ? @"" : trimmed;
+			[_editor wrote:entity];
+		}];
+		return YES;
+	}
+	/* The old identification goes: its fact type, and its value type when
+	 * nothing else uses it. */
+	BOOL valueGoes = oldValue != nil && [oldValue.playedRoles count] <= 1;
+	[_editor group:@"Set Reference Mode" with:^{
+		if (oldFact != nil) {
+			[_editor.elementEditor deleteElements:valueGoes ? @[ oldFact.identifier, oldValue.identifier ]
+			                                                : @[ oldFact.identifier ]];
 		}
-		[self buildReferenceMode:trimmed kind:kind forEntity:[_editor xml:entityId]];
+		[_editor modelChange:@"Set Reference Mode" with:^{
+			[self addReferenceMode:trimmed kind:kind to:entity];
+		}];
 	}];
 	return YES;
 }
@@ -287,20 +266,17 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Data Type" with:^{
-		NSXMLElement *dataType = ORMChild(type.element, CORE, @"ConceptualDataType");
-		if (dataType == nil) {
-			dataType = ORMNewElementWithId(_editor.document, CORE, @"ConceptualDataType", nil);
-			ORMInsertChild(type.element, dataType);
-		}
-		ORMSetAttribute(dataType, @"ref", [_editor dataTypeIdNamed:typeName]);
-		ORMSetAttribute(dataType, @"Scale", [NSString stringWithFormat:@"%ld", (long)MAX(scale, (NSInteger)0)]);
-		ORMSetAttribute(dataType, @"Length", [NSString stringWithFormat:@"%ld", (long)MAX(length, (NSInteger)0)]);
+	[_editor modelChange:@"Set Data Type" with:^{
+		type.dataType = [self dataTypeNamed:typeName];
+		type.dataTypeScale = MAX(scale, (NSInteger)0);
+		type.dataTypeLength = MAX(length, (NSInteger)0);
+		[_editor wrote:type];
 	}];
 	return YES;
 }
 
-- (BOOL)setFlag:(NSString *)attribute to:(BOOL)flag of:(NSString *)objectTypeId named:(NSString *)action
+/* One of an object type's flags, by its property's key. */
+- (BOOL)setFlag:(NSString *)key to:(BOOL)flag of:(NSString *)objectTypeId named:(NSString *)action
          reason:(NSString **)reason
 {
 	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
@@ -310,28 +286,29 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		}
 		return NO;
 	}
-	if (ORMBoolAttribute(type.element, attribute, NO) == flag) {
+	if ([[type valueForKey:key] boolValue] == flag) {
 		return YES;
 	}
-	[_editor change:action with:^{
-		ORMSetBoolAttribute(type.element, attribute, flag, NO);
+	[_editor modelChange:action with:^{
+		[type setValue:@(flag) forKey:key];
+		[_editor wrote:type];
 	}];
 	return YES;
 }
 
 - (BOOL)setIndependent:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason
 {
-	return [self setFlag:@"IsIndependent" to:flag of:objectTypeId named:@"Set Independent" reason:reason];
+	return [self setFlag:@"isIndependent" to:flag of:objectTypeId named:@"Set Independent" reason:reason];
 }
 
 - (BOOL)setPersonal:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason
 {
-	return [self setFlag:@"IsPersonal" to:flag of:objectTypeId named:@"Set Personal" reason:reason];
+	return [self setFlag:@"isPersonal" to:flag of:objectTypeId named:@"Set Personal" reason:reason];
 }
 
 - (BOOL)setExternal:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason
 {
-	return [self setFlag:@"IsExternal" to:flag of:objectTypeId named:@"Set External" reason:reason];
+	return [self setFlag:@"isExternal" to:flag of:objectTypeId named:@"Set External" reason:reason];
 }
 
 - (BOOL)setValueType:(BOOL)value of:(NSString *)objectTypeId reason:(NSString **)reason
@@ -352,31 +329,20 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		}
 		return NO;
 	}
-	[_editor change:value ? @"Make Value Type" : @"Make Entity Type" with:^{
-		NSXMLElement *old = type.element;
-		NSXMLElement *replacement = ORMNewElement(_editor.document, CORE, value ? @"ValueType" : @"EntityType");
-		for (NSXMLNode *attribute in [old attributes]) {
-			if (![[attribute name] isEqualToString:@"_ReferenceMode"]) {
-				[replacement addAttribute:[attribute copy]];
-			}
-		}
-		for (NSXMLNode *child in [old children]) {
-			NSString *local = [child localName];
-			if (!value && ([local isEqualToString:@"ConceptualDataType"] || [local isEqualToString:@"ValueRestriction"])) {
-				continue;
-			}
-			[replacement addChild:[child copy]];
-		}
+	[_editor modelChange:value ? @"Make Value Type" : @"Make Entity Type" with:^{
 		if (value) {
-			NSXMLElement *dataType = ORMNewElementWithId(_editor.document, CORE, @"ConceptualDataType", nil);
-			ORMSetAttribute(dataType, @"ref", [_editor dataTypeIdNamed:@"UnspecifiedDataType"]);
-			ORMSetAttribute(dataType, @"Scale", @"0");
-			ORMSetAttribute(dataType, @"Length", @"0");
-			ORMInsertChild(replacement, dataType);
+			type.kind = ORMValueType;
+			type.dataType = [self dataTypeNamed:@"UnspecifiedDataType"];
+			type.savedReferenceMode = nil;
 		} else {
-			ORMSetAttribute(replacement, @"_ReferenceMode", @"");
+			type.kind = ORMEntityType;
+			type.dataType = nil;
+			[_editor.model removeElement:type.ownValueConstraint];
+			type.ownValueConstraint = nil;
+			type.savedReferenceMode = @"";
 		}
-		[(NSXMLElement *)[old parent] replaceChildAtIndex:[old index] withNode:replacement];
+		type.dataTypeLength = type.dataTypeScale = 0;
+		[_editor wrote:type];
 	}];
 	return YES;
 }
@@ -402,40 +368,51 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 			return NO;
 		}
 	}
-	NSXMLElement *owner = [(ORMElement *)target element];
-	[_editor change:@"Set Value Constraint" with:^{
-		NSXMLElement *restriction = ORMChild(owner, CORE, @"ValueRestriction");
-		NSXMLElement *constraint = nil;
-		for (NSXMLNode *node in [restriction children]) {
-			if ([node kind] == NSXMLElementKind) {
-				constraint = (NSXMLElement *)node;
-			}
-		}
-		if (ranges == nil) {
-			[restriction detach];
-			return;
-		}
-		if (constraint == nil) {
-			restriction = restriction ?: ORMEnsureChild(_editor.document, owner, CORE, @"ValueRestriction");
-			constraint = ORMNewElementWithId(_editor.document, CORE,
-			                                 isRole ? @"RoleValueConstraint" : @"ValueConstraint", nil);
-			ORMSetAttribute(constraint, @"Name",
-			                [_editor nextName:isRole ? @"RoleValueConstraint" : @"ValueTypeValueConstraint"]);
-			[restriction addChild:constraint];
-		}
-		[ORMChild(constraint, CORE, @"ValueRanges") detach];
-		NSXMLElement *rangesElement = ORMNewElement(_editor.document, CORE, @"ValueRanges");
-		for (NSDictionary *range in ranges) {
-			NSXMLElement *element = ORMNewElementWithId(_editor.document, CORE, @"ValueRange", nil);
-			ORMSetAttribute(element, @"MinValue", [range objectForKey:@"min"]);
-			ORMSetAttribute(element, @"MaxValue", [range objectForKey:@"max"]);
-			ORMSetAttribute(element, @"MinInclusion", [range objectForKey:@"minInclusion"]);
-			ORMSetAttribute(element, @"MaxInclusion", [range objectForKey:@"maxInclusion"]);
-			[rangesElement addChild:element];
-		}
-		[constraint addChild:rangesElement];
+	[_editor modelChange:@"Set Value Constraint" with:^{
+		[self setRanges:ranges of:target];
 	}];
 	return YES;
+}
+
+/* A value type's or a role's value constraint, its ranges those parsed
+ * (ORMValueConstraintParser's): made when it has none, taken away when
+ * there are none. */
+- (void)setRanges:(NSArray<NSDictionary *> *)parsed of:(ORMElement *)owner
+{
+	BOOL isRole = [owner isKindOfClass:[ORMRole class]];
+	ORMValueConstraint *values = isRole ? [(ORMRole *)owner valueConstraint] : [(ORMObjectType *)owner ownValueConstraint];
+	ORMModel *model = _editor.model;
+	if (parsed == nil) {
+		[model removeElement:values];
+		values = nil;
+	} else if (values == nil) {
+		values = [[ORMValueConstraint alloc] initWithModel:model];
+		values.name = [_editor nextName:isRole ? @"RoleValueConstraint" : @"ValueTypeValueConstraint"];
+		[model addElement:values];
+	} else {
+		for (ORMValueRange *range in values.ranges) {
+			[model removeElement:range];
+		}
+	}
+	NSMutableArray *ranges = [NSMutableArray array];
+	for (NSDictionary *range in parsed) {
+		ORMValueRange *made = [[ORMValueRange alloc] initWithModel:model];
+		made.minValue = [range objectForKey:@"min"] ?: @"";
+		made.maxValue = [range objectForKey:@"max"] ?: @"";
+		made.minInclusion = ORMInclusionNamed([range objectForKey:@"minInclusion"]);
+		made.maxInclusion = ORMInclusionNamed([range objectForKey:@"maxInclusion"]);
+		made.constraint = values;
+		[model addElement:made];
+		[ranges addObject:made];
+	}
+	values.ranges = ranges;
+	if (isRole) {
+		[(ORMRole *)owner setValueConstraint:values];
+	} else {
+		[(ORMObjectType *)owner setOwnValueConstraint:values];
+	}
+	[_editor wrote:owner];
+	[_editor wrote:values];
 }
 
 - (NSString *)addSubtype:(NSString *)subtypeId of:(NSString *)supertypeId reason:(NSString **)reason
@@ -467,31 +444,36 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		return nil;
 	}
 	__block NSString *created = nil;
-	[_editor change:@"Add Subtype" with:^{
-		NSXMLElement *fact = ORMNewElementWithId(_editor.document, CORE, @"SubtypeFact", nil);
-		ORMSetAttribute(fact, @"_Name", [NSString stringWithFormat:@"%@IsSubtypeOf%@", sub.name, sup.name]);
+	[_editor modelChange:@"Add Subtype" with:^{
+		ORMModel *model = _editor.model;
+		ORMFactType *fact = [[ORMFactType alloc] initWithModel:model];
+		fact.kind = ORMFactTypeSubtype;
+		fact.savedDerivedName = [NSString stringWithFormat:@"%@IsSubtypeOf%@", sub.name, sup.name];
 		/* The first supertype identifies a subtype with no identifier. */
 		if ([sub.supertypes count] == 0 && sub.preferredIdentifier == nil) {
-			ORMSetAttribute(fact, @"PreferredIdentificationPath", @"true");
+			fact.preferredIdentificationPath = @YES;
 		}
-		NSXMLElement *roles = ORMEnsureChild(_editor.document, fact, CORE, @"FactRoles");
-		NSMutableArray *roleIds = [NSMutableArray array];
-		for (NSArray *pair in @[ @[ @"SubtypeMetaRole", subtypeId ], @[ @"SupertypeMetaRole", supertypeId ] ]) {
-			NSXMLElement *role = ORMNewElementWithId(_editor.document, CORE, [pair objectAtIndex:0], nil);
-			ORMSetAttribute(role, @"_IsMandatory", @"false");
-			ORMSetAttribute(role, @"_Multiplicity", @"Unspecified");
-			ORMSetAttribute(role, @"Name", @"");
-			[role addChild:ORMNewRef(_editor.document, CORE, @"RolePlayer", [pair objectAtIndex:1])];
-			[roles addChild:role];
-			[roleIds addObject:ORMAttribute(role, @"id")];
+		NSMutableArray *roles = [NSMutableArray array];
+		for (ORMObjectType *player in @[ sub, sup ]) {
+			ORMRole *role = [[ORMRole alloc] initWithModel:model];
+			role.factType = fact;
+			role.index = [roles count];
+			role.player = player;
+			role.isSubtypeMetaRole = player == sub;
+			role.isSupertypeMetaRole = player == sup;
+			[model registerElement:role];
+			[roles addObject:role];
 		}
-		[[_editor section:@"Facts"] addChild:fact];
+		fact.roles = roles;
+		fact.readingOrders = @[];
+		[model addElement:fact];
+		[_editor wrote:fact];
 		/* Each subtype instance is exactly one supertype instance, and
 		 * the other way round at most one. */
-		[_editor.constraintEditor newSimpleMandatory:[roleIds firstObject]];
-		[_editor.constraintEditor newInternalUniqueness:@[ [roleIds firstObject] ]];
-		[_editor.constraintEditor newInternalUniqueness:@[ [roleIds lastObject] ]];
-		created = ORMAttribute(fact, @"id");
+		[_editor.constraintEditor addSimpleMandatory:roles[0]];
+		[_editor.constraintEditor addInternalUniqueness:@[ roles[0] ]];
+		[_editor.constraintEditor addInternalUniqueness:@[ roles[1] ]];
+		created = fact.identifier;
 	}];
 	return created;
 }

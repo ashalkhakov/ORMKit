@@ -293,8 +293,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		use.isSubtype = YES;
 		return use;
 	}
-	ORMReadingOrder *order = role != nil ? [fact readingOrderStartingWithRole:role] : nil;
-	ORMReading *reading = order != nil ? [order.readings firstObject] : [fact primaryReading];
+	ORMReading *reading = [fact readingFromRole:role];
 	if (reading == nil) {
 		/* No reading at all: list the players. */
 		NSMutableArray *parts = [NSMutableArray array];
@@ -316,13 +315,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		return YES;
 	}
 	ORMReadingOrder *order = [fact readingOrderStartingWithRole:role];
-	ORMReading *reading = [order.readings firstObject];
-	if (reading == nil) {
-		return NO;
-	}
-	ORMReadingText *text = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
-	ORMReadingPart *part = [text.parts firstObject];
-	return text != nil && [text.frontText length] == 0 && [part.preBoundText length] == 0;
+	return [(ORMReading *)[order.readings firstObject] readsFromFirstRole];
 }
 
 /* A reading with each role's term put in, hyphen-bound words around the
@@ -362,7 +355,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		NSString *following = part.followingText;
 		/* With the subject left out, the clause starts at its verb. */
 		if (skippedSubject && [builder.spans count] == 0) {
-			NSRange words = [following rangeOfCharacterFromSet:[[NSCharacterSet whitespaceCharacterSet] invertedSet]];
+			NSRange words = [following rangeOfCharacterFromSet:ORMNonWhitespaceCharacters()];
 			following = words.location == NSNotFound ? @"" : [following substringFromIndex:words.location];
 		}
 		[builder predicate:following];
@@ -481,7 +474,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		[self emit:b kind:ORMVerbalInformation];
 	}
 
-	ORMObjectType *valueType = type.kind == ORMValueType ? type : type.referenceModeValueType;
+	ORMObjectType *valueType = [type valueType];
 	if (valueType.dataType != nil) {
 		b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"Portable data type: "];
@@ -660,8 +653,8 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	}
 	self.source = fact.identifier;
 	if (fact.kind == ORMFactTypeSubtype) {
-		ORMObjectType *sub = [[fact.roles firstObject] player];
-		ORMObjectType *sup = [[fact.roles lastObject] player];
+		ORMObjectType *sub = [fact subtype];
+		ORMObjectType *sup = [fact supertype];
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"Each "];
 		[b objectType:sub.name id:sub.identifier];

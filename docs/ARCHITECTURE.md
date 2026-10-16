@@ -29,24 +29,22 @@ The other documents:
 - [WINDOW.md](WINDOW.md): the designer's document window;
 - [VERBALIZATION.md](VERBALIZATION.md): the FORML templates.
 
-## The XML document is the model
+## The model, and NORMA's XML
 
-A `.orm` file is parsed into an `NSXMLDocument` and stays one. Nothing
-regenerates it: an edit changes the nodes it touches and leaves the rest,
-which is how a model goes back to NORMA with everything NORMA keeps beside it
-(its relational bridges, name generators, join paths, extension data) and
-how an unchanged file is written back byte for byte (`ORMXML` writes NORMA's
-layout: BOM, CRLF, tabs, `" />"`).
-
-`ORMModel` is a read-only projection of the document into objects (object
-types, fact types, roles, readings, constraints, value constraints, data
-types, notes, diagrams and shapes), rebuilt after every change. Its objects
-hold the element they were read from; their links to one another are weak
-and the model holds them all.
+The model is objects: `ORMModel` and its object types, fact types, roles,
+readings, constraints, value constraints, data types, notes, diagrams and
+shapes, edited through `ORMEditor`. The `.orm` XML is how NORMA keeps it:
+read once into the objects, and written from them on saving, into the
+document read, so that what NORMA keeps beside the model (its relational
+bridges, name generators, join paths, extension data) goes back with it,
+and an unchanged file is written back byte for byte (`ORMXML` writes
+NORMA's layout: BOM, CRLF, tabs, `" />"`). [MODEL.md](MODEL.md) has the
+design, and the steps that bring ORMKit there.
 
 `ORMEditor` is the editing session over one document: every change goes
-through it, as one undoable step (undo restores a snapshot of the document).
-The changes themselves are made by objects with one responsibility each:
+through it, as one undoable step (undo puts back the elements of the
+document it touched, and reads the model again). The changes themselves
+are made by objects with one responsibility each:
 
 - the parts of every session, reached through it: `objectTypeEditor`,
   `factTypeEditor`, `constraintEditor`, `diagramEditor` and `elementEditor`
@@ -56,8 +54,9 @@ The changes themselves are made by objects with one responsibility each:
   `ORMSentenceEditor` (the Fact Editor), `ORMJoinPathBuilder`.
 
 Operations take ids and refuse with a reason in words (`NSString **reason`)
-rather than an `NSError`, for the status line. After each change the
-session's `ORMNormalizer` keeps up what NORMA keeps denormalized:
+rather than an `NSError`, for the status line. Each changes the model's
+objects; the model is derived again, and `ORMNormaWriter` writes what
+changed into the document, with what NORMA keeps denormalized beside it:
 
 - each object type's `PlayedRoles` and each fact type's `InternalConstraints`;
 - the derived attributes `_IsMandatory`, `_Multiplicity`, `_Name`, `_ReferenceMode`;
@@ -68,9 +67,11 @@ session's `ORMNormalizer` keeps up what NORMA keeps denormalized:
 - preferred identifiers' back references, shapes whose subject is gone.
 
 The rules were taken from what NORMA itself saved, and are checked against
-it: normalizing a NORMA file changes nothing (`ORMEditorTests`,
-`ormtool normalize` in CI), and the projection's mandatory, multiplicity,
-name and reference mode agree with NORMA's own on every role and fact type.
+it: every NORMA fixture written again from the model is the same bytes
+(`ORMWriterTests`), and the model's mandatory, multiplicity, name and
+reference mode agree with NORMA's own on every role and fact type. In
+tests, `ORMNormalizer` works the same data out from the XML after every
+change, as a check that the writer left it nothing to do.
 
 ### When the model changed
 
@@ -83,11 +84,12 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | | |
 | --- | --- |
 | `ORMXML` | namespaces, element helpers, ids (`_` + GUID), inches to points, NORMA's serialization |
-| `ORMModel`, `ORMDiagram` | the projection |
+| `ORMModel`, `ORMDiagram` | the model: every element, read once from the XML |
+| `ORMNormaWriter` | the model written into the document as NORMA writes it |
 | `ORMDiagramPainter` | ORM2 notation and its geometry, drawn onto any `ORMDrawingSurface`: the editor's AppKit view, `ORMSVGSurface` |
 | `ORMEditor` | the editing session: every change as an undoable step, saving |
 | `ORMObjectTypeEditor`, `ORMFactTypeEditor`, `ORMConstraintEditor`, `ORMDiagramEditor`, `ORMElementEditor` | the session's parts: each kind of element edited |
-| `ORMNormalizer` | NORMA's denormalized data, kept up after each change |
+| `ORMNormalizer` | in tests, NORMA's denormalized data worked out from the XML: the writer's check |
 | `ORMReadingText` | readings taken apart: placeholders, front text, hyphen-bound text |
 | `ORMValueConstraintParser` | `{'M', 'F'}`, `[0..100)`, `{18..}` |
 | `ORMFactSentence` | NORMA's Fact Editor: `Person(.id) was born in Country(.code)` |
@@ -136,7 +138,7 @@ disagree, the specification is right.
 `ORMPane` with its own XIB), alignment across the top, the diagram, tabs
 under it (the verbalization, NORMA's Fact Editor, `ORMPopulationView`), and
 the inspector. `ORMQueryController` is the Queries window. `ORMCanvasView` draws through
-`ORMRenderer` (plain functions of the projection, in diagram points) and
+`ORMRenderer` (plain functions of the model, in diagram points) and
 turns gestures into editor operations, one per gesture. `ORMInspectorView`
 is built from rows that know where their value lives and which operation
 sets it. `ORMCoreDataController` is the mappings window.
@@ -150,7 +152,7 @@ reason in place.
 Working and tested on both platforms:
 
 - reading and writing NORMA files, byte for byte when unchanged;
-- the projection of every construct NORMA files hold (subtypes,
+- the model of every construct NORMA files hold (subtypes,
   objectification, unaries, all constraint kinds, value constraints, data
   types, notes, diagrams and shapes);
 - editing: object types, reference modes, data types, value constraints,

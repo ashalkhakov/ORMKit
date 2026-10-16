@@ -16,6 +16,9 @@
 	NSMutableDictionary<NSString *, NSMutableArray<NSDictionary<NSString *, NSString *> *> *> *_facts;
 	/* What each uniqueness constraint has seen. */
 	NSMutableDictionary<NSString *, NSMutableSet *> *_seen;
+	/* The values each value constraint allows, made once: by the
+	 * constraint, then numeric or not. */
+	NSMapTable<ORMValueConstraint *, NSMutableDictionary *> *_allowed;
 	NSMutableDictionary<NSString *, NSCountedSet *> *_frequencies;
 	/* An objectified fact type's facts' ids, in their order. */
 	NSMutableDictionary<NSString *, NSArray<NSString *> *> *_factIds;
@@ -50,18 +53,18 @@
 	}
 }
 
-static NSString *
-ORMReadingOf(ORMFactType *fact)
-{
-	return [[fact primaryReading] expandedText] ?: fact.name;
-}
-
 #pragma mark Values
 
 /* The values a constraint lists, or its ranges' first ones, numbers
- * counted up within a range. */
-- (NSString *)value:(NSUInteger)index allowedBy:(ORMValueConstraint *)constraint numeric:(BOOL)numeric
+ * counted up within a range: up to a thousand, made once. */
+- (NSArray<NSString *> *)valuesAllowedBy:(ORMValueConstraint *)constraint numeric:(BOOL)numeric
 {
+	_allowed = _allowed ?: [NSMapTable strongToStrongObjectsMapTable];
+	NSMutableDictionary *byKind = [_allowed objectForKey:constraint];
+	NSArray *made = [byKind objectForKey:@(numeric)];
+	if (made != nil) {
+		return made;
+	}
 	NSMutableArray *values = [NSMutableArray array];
 	for (ORMValueRange *range in constraint.ranges) {
 		NSString *min = range.minValue ?: @"", *max = range.maxValue ?: @"";
@@ -79,6 +82,18 @@ ORMReadingOf(ORMFactType *fact)
 			[values addObject:[NSString stringWithFormat:@"%lld", n]];
 		}
 	}
+	if (byKind == nil) {
+		byKind = [NSMutableDictionary dictionary];
+		[_allowed setObject:byKind forKey:constraint];
+	}
+	[byKind setObject:values forKey:@(numeric)];
+	return values;
+}
+
+/* The index'th of them, round again past the last. */
+- (NSString *)value:(NSUInteger)index allowedBy:(ORMValueConstraint *)constraint numeric:(BOOL)numeric
+{
+	NSArray *values = [self valuesAllowedBy:constraint numeric:numeric];
 	return [values count] > 0 ? [values objectAtIndex:index % [values count]] : nil;
 }
 
@@ -89,10 +104,10 @@ ORMReadingOf(ORMFactType *fact)
 	if (constraint == nil) {
 		return NSUIntegerMax;
 	}
+	/* Up to the first value listed twice. */
 	NSMutableSet *values = [NSMutableSet set];
-	for (NSUInteger i = 0; i < 1000; i++) {
-		NSString *value = [self value:i allowedBy:constraint numeric:numeric];
-		if (value == nil || [values containsObject:value]) {
+	for (NSString *value in [self valuesAllowedBy:constraint numeric:numeric]) {
+		if ([values containsObject:value]) {
 			break;
 		}
 		[values addObject:value];
@@ -739,7 +754,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			 * only by there being none, where none need be. */
 			if (![self mandatory:[ring firstObject]] && ![self mandatory:[ring lastObject]]) {
 				[self note:@"%@ is kept by \"%@\" having no facts: one the other way round would not be of its roles' "
-				           @"types.", constraint.name, ORMReadingOf(fact)];
+				           @"types.", constraint.name, [fact displayText]];
 				return NO;
 			}
 			[self note:@"%@ is not kept: a fact the other way round would not be of its roles' types.", constraint.name];
@@ -893,7 +908,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	NSArray<ORMRole *> *roles = [fact visibleRoles];
 	for (ORMRole *role in roles) {
 		if ([role.player isEntity] && [[_pools objectForKey:role.player.identifier] count] == 0) {
-			[self note:@"\"%@\" has no facts: %@ has no instances.", ORMReadingOf(fact), role.player.name];
+			[self note:@"\"%@\" has no facts: %@ has no instances.", [fact displayText], role.player.name];
 			return;
 		}
 	}
@@ -908,7 +923,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 		for (NSString *instance in [_pools objectForKey:role.player.identifier]) {
 			if (![[self playersOf:role] containsObject:[self rootOf:instance]] && ![self cover:instance role:role]) {
 				[self note:@"%@ cannot play its role in \"%@\" as the constraints have it.", role.player.name,
-				           ORMReadingOf(fact)];
+				           [fact displayText]];
 				break;
 			}
 		}
@@ -1147,7 +1162,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			}
 			if ([self mandatory:[last oppositeRole]] || last.factType.objectifyingType != nil) {
 				[self note:@"%@ is not kept: %@ must play its role in \"%@\".", constraint.name,
-				           [last oppositeRole].player.name, ORMReadingOf(last.factType)];
+				           [last oppositeRole].player.name, [last.factType displayText]];
 				break;
 			}
 			NSMutableArray *facts = [_facts objectForKey:last.factType.identifier];

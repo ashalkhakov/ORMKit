@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCoreDataSync.h"
 #import "ORMEditorPriv.h"
+#import "ORMModelPriv.h"
 
 #define CD ORMCoreDataNamespace
 
@@ -18,67 +19,36 @@
 	return self;
 }
 
-
-- (NSXMLElement *)mappingsContainer
+- (ORMCoreDataMapping *)mapping:(NSString *)mappingId
 {
-	NSXMLElement *root = [_editor.document rootElement];
-	NSXMLElement *container = ORMChild(root, CD, @"CoreDataMappings");
-	if (container == nil) {
-		container = ORMNewElement(_editor.document, CD, @"CoreDataMappings");
-		[root addChild:container];
-	}
-	return container;
-}
-
-- (NSXMLElement *)mappingElement:(NSString *)mappingId
-{
-	for (NSXMLElement *element in ORMChildren(ORMChild([_editor.document rootElement], CD, @"CoreDataMappings"), CD,
-	                                          @"Mapping")) {
-		if ([ORMAttribute(element, @"id") isEqualToString:mappingId]) {
-			return element;
-		}
-	}
-	return nil;
+	return mappingId != nil ? [_editor.model coreDataMappingWithId:mappingId] : nil;
 }
 
 - (NSString *)addCoreDataMappingNamed:(NSString *)name path:(NSString *)path
 {
 	__block NSString *created = nil;
-	[_editor change:@"Add Core Data Mapping" with:^{
-		NSXMLElement *mapping = ORMNewElementWithId(_editor.document, CD, @"Mapping", nil);
-		NSString *mappingName = [name length] > 0 ? name : _editor.model.name;
-		ORMSetAttribute(mapping, @"Name", mappingName);
-		ORMSetAttribute(mapping, @"Path", [path length] > 0 ? path
-		                                                 : [mappingName stringByAppendingPathExtension:@"xcdatamodeld"]);
-		ORMSetAttribute(mapping, @"Scope", @"Model");
-		[[self mappingsContainer] addChild:mapping];
-		created = ORMAttribute(mapping, @"id");
+	[_editor modelChange:@"Add Core Data Mapping" with:^{
+		ORMCoreDataMapping *mapping = [[ORMCoreDataMapping alloc] initWithModel:_editor.model];
+		[mapping resetNamed:[name length] > 0 ? name : _editor.model.name];
+		if ([path length] > 0) {
+			mapping.path = path;
+		}
+		[_editor.model addElement:mapping];
+		[_editor wrote:mapping];
+		created = mapping.identifier;
 	}];
 	return created;
 }
 
 - (void)removeCoreDataMapping:(NSString *)mappingId
 {
-	NSXMLElement *mapping = [self mappingElement:mappingId];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
 	if (mapping == nil) {
 		return;
 	}
-	[_editor change:@"Remove Core Data Mapping" with:^{
-		NSXMLElement *container = (NSXMLElement *)[mapping parent];
-		[mapping detach];
-		ORMPruneIfEmpty(container);
-	}];
-}
-
-- (void)setMappingAttribute:(NSString *)attribute value:(NSString *)value of:(NSString *)mappingId
-                     action:(NSString *)action
-{
-	NSXMLElement *mapping = [self mappingElement:mappingId];
-	if (mapping == nil || [ORMAttribute(mapping, attribute) ?: @"" isEqualToString:value ?: @""]) {
-		return;
-	}
-	[_editor change:action with:^{
-		ORMSetAttribute(mapping, attribute, value);
+	[_editor modelChange:@"Remove Core Data Mapping" with:^{
+		[_editor.model removeElement:mapping];
+		[_editor deleted:mapping];
 	}];
 }
 
@@ -90,127 +60,145 @@
 		}
 		return NO;
 	}
-	[self setMappingAttribute:@"Path" value:path of:mappingId action:@"Set Model Path"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || [mapping.path isEqualToString:path]) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Model Path" with:^{
+		mapping.path = path;
+		[_editor wrote:mapping];
+	}];
 	return YES;
 }
 
 - (void)setValidationPath:(NSString *)path ofMapping:(NSString *)mappingId
 {
-	[self setMappingAttribute:@"ValidationPath" value:[path length] > 0 ? path : nil of:mappingId
-	                   action:@"Set Validation Code Path"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	NSString *value = [path length] > 0 ? path : nil;
+	if (mapping == nil || mapping.validationPath == value || [mapping.validationPath isEqualToString:value]) {
+		return;
+	}
+	[_editor modelChange:@"Set Validation Code Path" with:^{
+		mapping.validationPath = value;
+		[_editor wrote:mapping];
+	}];
 }
 
 - (void)setScope:(ORMMappingScope)scope ids:(NSArray<NSString *> *)ids ofMapping:(NSString *)mappingId
 {
-	NSXMLElement *mapping = [self mappingElement:mappingId];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
 	if (mapping == nil) {
 		return;
 	}
-	[_editor change:@"Set Mapping Scope" with:^{
-		ORMSetAttribute(mapping, @"Scope", scope == ORMScopeDiagram ? @"Diagram"
-		                                   : scope == ORMScopeObjectTypes ? @"ObjectTypes" : @"Model");
-		for (NSXMLElement *include in ORMChildren(mapping, CD, @"Include")) {
-			[include detach];
-		}
-		NSUInteger index = 0;
-		for (NSString *identifier in scope == ORMScopeModel ? @[] : ids) {
-			[mapping insertChild:ORMNewRef(_editor.document, CD, @"Include", identifier) atIndex:index++];
-		}
+	[_editor modelChange:@"Set Mapping Scope" with:^{
+		mapping.scope = scope;
+		mapping.scopeIds = scope == ORMScopeModel ? @[] : ids ?: @[];
+		[_editor wrote:mapping];
 	}];
 }
 
 - (void)setMaterializesIdentifiers:(BOOL)flag ofMapping:(NSString *)mappingId
 {
-	[self setMappingAttribute:@"MaterializeIdentifiers" value:flag ? nil : @"false" of:mappingId
-	                   action:@"Set Identifier Mapping"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || mapping.materializesIdentifiers == flag) {
+		return;
+	}
+	[_editor modelChange:@"Set Identifier Mapping" with:^{
+		mapping.materializesIdentifiers = flag;
+		[_editor wrote:mapping];
+	}];
 }
 
 - (void)setServesOData:(BOOL)flag ofMapping:(NSString *)mappingId
 {
-	[self setMappingAttribute:@"ServeOData" value:flag ? nil : @"false" of:mappingId action:@"Set OData Mapping"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || mapping.servesOData == flag) {
+		return;
+	}
+	[_editor modelChange:@"Set OData Mapping" with:^{
+		mapping.servesOData = flag;
+		[_editor wrote:mapping];
+	}];
 }
 
 - (void)setFlattensSubtypes:(BOOL)flag ofMapping:(NSString *)mappingId
 {
-	[self setMappingAttribute:@"FlattenSubtypes" value:flag ? @"true" : @"false" of:mappingId action:@"Set Subtype Mapping"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || [mapping.flattensSubtypesSet isEqual:@(flag)]) {
+		return;
+	}
+	[_editor modelChange:@"Set Subtype Mapping" with:^{
+		mapping.flattensSubtypesSet = @(flag);
+		[_editor wrote:mapping];
+	}];
 }
 
 - (void)setValueSetsAsEntities:(BOOL)flag ofMapping:(NSString *)mappingId
 {
-	[self setMappingAttribute:@"ValueSetsAsEntities" value:flag ? nil : @"false" of:mappingId
-	                   action:@"Set Value Set Mapping"];
-}
-
-/* The child of the mapping of the kind for the target, made or removed. */
-- (void)setChild:(NSString *)local target:(NSString *)target attribute:(NSString *)attribute value:(NSString *)value
-       inMapping:(NSString *)mappingId action:(NSString *)action
-{
-	NSXMLElement *mapping = [self mappingElement:mappingId];
-	if (mapping == nil) {
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || mapping.valueSetsAsEntities == flag) {
 		return;
 	}
-	NSXMLElement *existing = nil;
-	for (NSXMLElement *child in ORMChildren(mapping, CD, local)) {
-		BOOL matches = attribute == nil ? [ORMAttribute(child, @"Name") isEqualToString:target]
-		                                : [ORMRef(child) isEqualToString:target];
-		if (matches) {
-			existing = child;
-		}
-	}
-	BOOL wanted = value != nil;
-	if (!wanted && existing == nil) {
-		return;
-	}
-	if (wanted && existing != nil && (attribute == nil || [ORMAttribute(existing, attribute) isEqualToString:value])) {
-		return;
-	}
-	[_editor change:action with:^{
-		if (!wanted) {
-			[existing detach];
-			return;
-		}
-		NSXMLElement *child = existing;
-		if (child == nil) {
-			child = ORMNewElement(_editor.document, CD, local);
-			if (attribute == nil) {
-				ORMSetAttribute(child, @"Name", target);
-			} else {
-				ORMSetAttribute(child, @"ref", target);
-			}
-			/* Before the baseline, which stays last. */
-			NSXMLElement *baseline = ORMChild(mapping, CD, @"Baseline");
-			[mapping insertChild:child atIndex:baseline != nil ? [baseline index] : [mapping childCount]];
-		}
-		if (attribute != nil) {
-			ORMSetAttribute(child, attribute, value);
-		}
+	[_editor modelChange:@"Set Value Set Mapping" with:^{
+		mapping.valueSetsAsEntities = flag;
+		[_editor wrote:mapping];
 	}];
 }
 
 - (void)setName:(NSString *)name forSource:(NSString *)sourceId inMapping:(NSString *)mappingId
 {
-	[self setChild:@"Override" target:sourceId attribute:@"Name" value:[name length] > 0 ? name : nil
-	     inMapping:mappingId action:@"Rename in Core Data"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	NSString *value = [name length] > 0 ? name : nil;
+	NSString *was = [mapping.nameOverrides objectForKey:sourceId ?: @""];
+	if (mapping == nil || sourceId == nil || was == value || [was isEqualToString:value]) {
+		return;
+	}
+	[_editor modelChange:@"Rename in Core Data" with:^{
+		NSMutableArray *overrides = [NSMutableArray array];
+		BOOL renamed = NO;
+		for (NSArray *override in mapping.overrides) {
+			if (![[override firstObject] isEqualToString:sourceId]) {
+				[overrides addObject:override];
+			} else if (value != nil && !renamed) {
+				[overrides addObject:@[ sourceId, value ]];
+				renamed = YES;
+			}
+		}
+		if (value != nil && !renamed) {
+			[overrides addObject:@[ sourceId, value ]];
+		}
+		mapping.overrides = overrides;
+		[_editor wrote:mapping];
+	}];
 }
 
 - (void)setStyle:(ORMMappingStyle)style ofMapping:(NSString *)mappingId
 {
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || (mapping.style == style && mapping.flattensSubtypesSet == nil
+	                       && mapping.absorbsIdentifierTypesSet == nil)) {
+		return;
+	}
 	/* The style's own defaults then hold: what was set for another is
 	 * cleared. */
-	[_editor group:@"Set Mapping Style" with:^{
-		[self setMappingAttribute:@"FlattenSubtypes" value:nil of:mappingId action:@"Set Mapping Style"];
-		[self setMappingAttribute:@"AbsorbIdentifierTypes" value:nil of:mappingId action:@"Set Mapping Style"];
-		[self setMappingAttribute:@"Style"
-		                    value:style == ORMStyleRelational ? @"Relational" : style == ORMStyleEntities ? @"Entities" : nil
-		                       of:mappingId
-		                   action:@"Set Mapping Style"];
+	[_editor modelChange:@"Set Mapping Style" with:^{
+		mapping.flattensSubtypesSet = nil;
+		mapping.absorbsIdentifierTypesSet = nil;
+		mapping.style = style;
+		[_editor wrote:mapping];
 	}];
 }
 
 - (void)setAbsorbsIdentifierTypes:(BOOL)flag ofMapping:(NSString *)mappingId
 {
-	[self setMappingAttribute:@"AbsorbIdentifierTypes" value:flag ? @"true" : @"false" of:mappingId
-	                   action:@"Set Identifier Type Mapping"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || [mapping.absorbsIdentifierTypesSet isEqual:@(flag)]) {
+		return;
+	}
+	[_editor modelChange:@"Set Identifier Type Mapping" with:^{
+		mapping.absorbsIdentifierTypesSet = @(flag);
+		[_editor wrote:mapping];
+	}];
 }
 
 - (void)setTransformableClass:(NSString *)className
@@ -218,37 +206,54 @@
                  ofObjectType:(NSString *)objectTypeId
                     inMapping:(NSString *)mappingId
 {
-	[_editor group:@"Map as Transformable" with:^{
-		[self setMapping:ORMMapTransformable ofObjectType:objectTypeId inMapping:mappingId];
-		[self setChild:@"ObjectTypeMapping" target:objectTypeId attribute:@"Class"
-		         value:[className length] > 0 ? className : @"NSString" inMapping:mappingId
-		        action:@"Set Transformable Class"];
-		[self setChild:@"ObjectTypeMapping" target:objectTypeId attribute:@"Transformer"
-		         value:[transformerName length] > 0 ? transformerName : @"NSSecureUnarchiveFromData"
-		     inMapping:mappingId
-		        action:@"Set Value Transformer"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	NSString *classValue = [className length] > 0 ? className : @"NSString";
+	NSString *transformer = [transformerName length] > 0 ? transformerName : @"NSSecureUnarchiveFromData";
+	ORMMappingOption *option = [mapping optionFor:objectTypeId];
+	if (mapping == nil || objectTypeId == nil
+	    || (option.how == ORMMapTransformable && [option.className isEqualToString:classValue]
+	        && [option.transformerName isEqualToString:transformer])) {
+		return;
+	}
+	[_editor modelChange:@"Map as Transformable" with:^{
+		ORMMappingOption *changed = [self optionFor:objectTypeId of:mapping];
+		changed.how = ORMMapTransformable;
+		changed.className = classValue;
+		changed.transformerName = transformer;
+		[_editor wrote:mapping];
 	}];
+}
+
+/* The object type's option, made where it has none. */
+- (ORMMappingOption *)optionFor:(NSString *)objectTypeId of:(ORMCoreDataMapping *)mapping
+{
+	ORMMappingOption *option = [mapping optionFor:objectTypeId];
+	if (option == nil) {
+		option = [[ORMMappingOption alloc] init];
+		option.objectTypeId = objectTypeId;
+		option.members = @[];
+		mapping.options = [mapping.options arrayByAddingObject:option];
+	}
+	return option;
 }
 
 - (void)setMapping:(ORMObjectTypeMapping)how ofObjectType:(NSString *)objectTypeId inMapping:(NSString *)mappingId
 {
-	NSArray *names = @[ @"Automatic", @"Entity", @"Absorbed", @"Ignored", @"Transformable", @"Joined" ];
-	[self setChild:@"ObjectTypeMapping" target:objectTypeId attribute:@"As"
-	         value:how == ORMMapAutomatically ? nil : [names objectAtIndex:how] inMapping:mappingId
-	        action:@"Set Object Type Mapping"];
-}
-
-/* A member's element, and the mapping's. */
-- (NSXMLElement *)memberElement:(NSString *)memberId inMapping:(NSString *)mappingId
-{
-	for (NSXMLElement *option in ORMChildren([self mappingElement:mappingId], CD, @"ObjectTypeMapping")) {
-		for (NSXMLElement *member in ORMChildren(option, CD, @"Member")) {
-			if ([ORMAttribute(member, @"id") isEqualToString:memberId]) {
-				return member;
-			}
-		}
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	ORMMappingOption *option = [mapping optionFor:objectTypeId];
+	if (mapping == nil || objectTypeId == nil || (option == nil && how == ORMMapAutomatically)
+	    || (option != nil && option.how == how)) {
+		return;
 	}
-	return nil;
+	[_editor modelChange:@"Set Object Type Mapping" with:^{
+		if (how == ORMMapAutomatically) {
+			/* With what it kept for another mapping. */
+			mapping.options = ORMWithout(mapping.options, option);
+		} else {
+			[self optionFor:objectTypeId of:mapping].how = how;
+		}
+		[_editor wrote:mapping];
+	}];
 }
 
 - (NSString *)addMemberNamed:(NSString *)name
@@ -258,144 +263,188 @@
                 ofObjectType:(NSString *)objectTypeId
                    inMapping:(NSString *)mappingId
 {
-	if ([self mappingElement:mappingId] == nil || [name length] == 0) {
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || [name length] == 0 || objectTypeId == nil) {
 		return nil;
-	}
-	NSXMLElement *was = nil;
-	for (NSXMLElement *each in ORMChildren([self mappingElement:mappingId], CD, @"ObjectTypeMapping")) {
-		was = [ORMRef(each) isEqualToString:objectTypeId] ? each : was;
 	}
 	/* Joined again, after it was mapped otherwise: its members, kept all
 	 * along, are back; its hub, the first, is not added twice. */
-	NSXMLElement *hub = ![ORMAttribute(was, @"As") isEqualToString:@"Joined"] ? ORMChild(was, CD, @"Member") : nil;
+	ORMMappingOption *was = [mapping optionFor:objectTypeId];
+	ORMMappingMember *hub = was.how != ORMMapJoined ? [was.members firstObject] : nil;
 	if (hub != nil) {
 		[self setMapping:ORMMapJoined ofObjectType:objectTypeId inMapping:mappingId];
-		return ORMAttribute(hub, @"id");
+		return hub.identifier;
 	}
-	__block NSString *created = nil;
-	[_editor group:@"Add Joined Entity" with:^{
-		[self setMapping:ORMMapJoined ofObjectType:objectTypeId inMapping:mappingId];
-		NSXMLElement *option = nil;
-		for (NSXMLElement *each in ORMChildren([self mappingElement:mappingId], CD, @"ObjectTypeMapping")) {
-			option = [ORMRef(each) isEqualToString:objectTypeId] ? each : option;
-		}
-		[_editor change:@"Add Joined Entity" with:^{
-			NSXMLElement *member = ORMNewElementWithId(_editor.document, CD, @"Member", nil);
-			ORMSetAttribute(member, @"Name", name);
-			ORMSetAttribute(member, @"By", identifierId);
-			ORMSetAttribute(member, @"Via", viaMemberId);
-			if (outer) {
-				ORMSetAttribute(member, @"Outer", @"true");
-			}
-			[option addChild:member];
-			created = ORMAttribute(member, @"id");
-		}];
+	ORMMappingMember *member = [[ORMMappingMember alloc] init];
+	member.identifier = ORMNewId();
+	member.name = name;
+	member.correlationId = [identifierId length] > 0 ? identifierId : nil;
+	member.viaId = [viaMemberId length] > 0 ? viaMemberId : nil;
+	member.isOuter = outer;
+	member.heldRoleIds = @[];
+	member.requiredRoleIds = @[];
+	[_editor modelChange:@"Add Joined Entity" with:^{
+		ORMMappingOption *option = [self optionFor:objectTypeId of:mapping];
+		option.how = ORMMapJoined;
+		option.members = [option.members arrayByAddingObject:member];
+		[_editor wrote:mapping];
 	}];
-	return created;
+	return member.identifier;
+}
+
+/* The option holding the member. */
+- (ORMMappingOption *)optionOfMember:(ORMMappingMember *)member in:(ORMCoreDataMapping *)mapping
+{
+	for (ORMMappingOption *option in mapping.options) {
+		if ([option.members indexOfObjectIdenticalTo:member] != NSNotFound) {
+			return option;
+		}
+	}
+	return nil;
 }
 
 - (void)removeMember:(NSString *)memberId inMapping:(NSString *)mappingId
 {
-	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	ORMMappingMember *member = [mapping memberWithId:memberId];
 	if (member == nil) {
 		return;
 	}
-	[_editor change:@"Remove Joined Entity" with:^{
-		[member detach];
+	[_editor modelChange:@"Remove Joined Entity" with:^{
+		ORMMappingOption *option = [self optionOfMember:member in:mapping];
+		option.members = ORMWithout(option.members, member);
+		[_editor wrote:mapping];
 	}];
 }
 
 - (void)setOuter:(BOOL)outer ofMember:(NSString *)memberId inMapping:(NSString *)mappingId
 {
-	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
-	if (member == nil || ORMBoolAttribute(member, @"Outer", NO) == outer) {
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	ORMMappingMember *member = [mapping memberWithId:memberId];
+	if (member == nil || member.isOuter == outer) {
 		return;
 	}
-	[_editor change:outer ? @"Make Joined Entity Outer" : @"Make Joined Entity Inner" with:^{
-		ORMSetAttribute(member, @"Outer", outer ? @"true" : nil);
+	[_editor modelChange:outer ? @"Make Joined Entity Outer" : @"Make Joined Entity Inner" with:^{
+		member.isOuter = outer;
+		[_editor wrote:mapping];
 	}];
 }
 
 - (void)setCorrelationOptional:(BOOL)optional ofMember:(NSString *)memberId inMapping:(NSString *)mappingId
 {
-	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
-	if (member == nil || ORMBoolAttribute(member, @"OptionalBy", NO) == optional) {
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	ORMMappingMember *member = [mapping memberWithId:memberId];
+	if (member == nil || member.correlationIsOptional == optional) {
 		return;
 	}
-	[_editor change:@"Set Joined Entity's Values Optional" with:^{
-		ORMSetAttribute(member, @"OptionalBy", optional ? @"true" : nil);
+	[_editor modelChange:@"Set Joined Entity's Values Optional" with:^{
+		member.correlationIsOptional = optional;
+		[_editor wrote:mapping];
 	}];
 }
 
 - (void)setHeld:(BOOL)held role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId
 {
-	NSXMLElement *member = [self memberElement:memberId inMapping:mappingId];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	ORMMappingMember *member = [mapping memberWithId:memberId];
 	if (member == nil || roleId == nil) {
 		return;
 	}
-	NSMutableArray *holding = [NSMutableArray array];
-	for (NSXMLElement *other in ORMChildren((NSXMLElement *)[member parent], CD, @"Member")) {
-		for (NSXMLElement *holds in ORMChildren(other, CD, @"Holds")) {
-			if ([ORMRef(holds) isEqualToString:roleId]) {
-				[holding addObject:holds];
-			}
+	NSArray *members = [self optionOfMember:member in:mapping].members;
+	NSUInteger holding = 0;
+	for (ORMMappingMember *other in members) {
+		for (NSString *each in other.heldRoleIds) {
+			holding += [each isEqualToString:roleId] ? 1 : 0;
 		}
 	}
-	BOOL already = NO;
-	for (NSXMLElement *holds in holding) {
-		already = already || [holds parent] == member;
-	}
-	if (already == held && [holding count] == (held ? 1u : 0u)) {
+	if ([member.heldRoleIds containsObject:roleId] == held && holding == (held ? 1u : 0u)) {
 		return;
 	}
-	[_editor change:held ? @"Keep in Joined Entity" : @"Keep in Hub" with:^{
-		for (NSXMLElement *holds in holding) {
-			[holds detach];
+	[_editor modelChange:held ? @"Keep in Joined Entity" : @"Keep in Hub" with:^{
+		for (ORMMappingMember *other in members) {
+			NSMutableArray *rest = [other.heldRoleIds mutableCopy];
+			[rest removeObject:roleId];
+			other.heldRoleIds = rest;
+			NSMutableArray *required = [other.requiredRoleIds mutableCopy];
+			[required removeObject:roleId];
+			other.requiredRoleIds = required;
 		}
 		if (held) {
-			[member addChild:ORMNewRef(_editor.document, CD, @"Holds", roleId)];
+			member.heldRoleIds = [member.heldRoleIds arrayByAddingObject:roleId];
 		}
+		[_editor wrote:mapping];
 	}];
 }
 
 - (void)setRequired:(BOOL)required role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId
 {
-	NSXMLElement *holds = nil;
-	for (NSXMLElement *each in ORMChildren([self memberElement:memberId inMapping:mappingId], CD, @"Holds")) {
-		holds = [ORMRef(each) isEqualToString:roleId] ? each : holds;
-	}
-	if (holds == nil || ORMBoolAttribute(holds, @"Required", NO) == required) {
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	ORMMappingMember *member = [mapping memberWithId:memberId];
+	if (member == nil || roleId == nil || ![member.heldRoleIds containsObject:roleId]
+	    || [member.requiredRoleIds containsObject:roleId] == required) {
 		return;
 	}
-	[_editor change:required ? @"Require in Joined Entity" : @"Make Optional in Joined Entity" with:^{
-		ORMSetAttribute(holds, @"Required", required ? @"true" : nil);
+	[_editor modelChange:required ? @"Require in Joined Entity" : @"Make Optional in Joined Entity" with:^{
+		NSMutableArray *ids = [member.requiredRoleIds mutableCopy];
+		if (required) {
+			[ids addObject:roleId];
+		} else {
+			[ids removeObject:roleId];
+		}
+		member.requiredRoleIds = ids;
+		[_editor wrote:mapping];
 	}];
 }
 
 - (void)setExcluded:(BOOL)excluded source:(NSString *)sourceId inMapping:(NSString *)mappingId
 {
-	[self setChild:@"Exclude" target:sourceId attribute:@"ref" value:excluded ? sourceId : nil inMapping:mappingId
-	        action:excluded ? @"Exclude from Core Data" : @"Include in Core Data"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || sourceId == nil || [mapping.excluded containsObject:sourceId] == excluded) {
+		return;
+	}
+	[_editor modelChange:excluded ? @"Exclude from Core Data" : @"Include in Core Data" with:^{
+		NSMutableArray *ids = [mapping.excluded mutableCopy];
+		if (excluded) {
+			[ids addObject:sourceId];
+		} else {
+			[ids removeObject:sourceId];
+		}
+		mapping.excluded = ids;
+		[_editor wrote:mapping];
+	}];
 }
 
 - (void)setKept:(BOOL)kept element:(NSString *)path inMapping:(NSString *)mappingId
 {
-	[self setChild:@"Keep" target:path attribute:nil value:kept ? path : nil inMapping:mappingId
-	        action:@"Keep in Core Data"];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || path == nil || [mapping.kept containsObject:path] == kept) {
+		return;
+	}
+	[_editor modelChange:@"Keep in Core Data" with:^{
+		NSMutableArray *paths = [mapping.kept mutableCopy];
+		if (kept) {
+			[paths addObject:path];
+		} else {
+			[paths removeObject:path];
+		}
+		mapping.kept = paths;
+		[_editor wrote:mapping];
+	}];
 }
 
 - (void)setBaseline:(ORMCDModel *)model ofMapping:(NSString *)mappingId
 {
-	NSXMLElement *mapping = [self mappingElement:mappingId];
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
 	if (mapping == nil) {
 		return;
 	}
 	NSString *contents = [[NSString alloc] initWithData:[model contentsXML] encoding:NSUTF8StringEncoding];
-	if ([[ORMChild(mapping, CD, @"Baseline") stringValue] isEqualToString:contents]) {
+	if ([mapping.baselineXML isEqualToString:contents]) {
 		return;
 	}
-	[_editor change:@"Synchronize Core Data" with:^{
-		ORMSetChildText(_editor.document, mapping, CD, @"Baseline", contents);
+	[_editor modelChange:@"Synchronize Core Data" with:^{
+		mapping.baselineXML = contents;
+		[_editor wrote:mapping];
 	}];
 }
 
@@ -489,7 +538,7 @@ ORMValueConstraintForAttribute(ORMCDAttribute *attribute)
 		_mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
 		_mappingId = [mappingId copy];
 		_theirs = theirs;
-		ORMCoreDataMapping *mapping = [ORMCoreDataMapping mappingWithId:mappingId inDocument:editor.document];
+		ORMCoreDataMapping *mapping = [editor.model coreDataMappingWithId:mappingId];
 		_base = mapping.baseline ?: [ORMCDModel model];
 		ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping];
 		_ours = [mapper map];
@@ -621,7 +670,7 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 
 - (NSSet *)keptElements
 {
-	return [[ORMCoreDataMapping mappingWithId:_mappingId inDocument:_editor.document] keptElements];
+	return [[_editor.model coreDataMappingWithId:_mappingId] keptElements];
 }
 
 - (void)renamedEntity:(ORMCDEntity *)before to:(ORMCDEntity *)theirs ours:(ORMCDEntity *)ours
@@ -752,7 +801,7 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 	if ([theirs isKindOfClass:[ORMCDAttribute class]] && far != nil) {
 		ORMCDAttribute *attribute = (ORMCDAttribute *)theirs;
 		ORMCDAttribute *old = (ORMCDAttribute *)was;
-		ORMObjectType *valueType = far.player.kind == ORMValueType ? far.player : far.player.referenceModeValueType;
+		ORMObjectType *valueType = [far.player valueType];
 		if (![attribute.attributeType isEqualToString:old.attributeType] && valueType != nil) {
 			NSString *dataType = ORMDataTypeForAttributeType(attribute.attributeType);
 			NSUInteger uses = [valueType.playedRoles count];
@@ -1210,7 +1259,7 @@ ORMSourcesOf(ORMCDEntity *entity, NSArray *names, ORMCDEntity *compared)
 				}
 			}
 		}
-		ORMCoreDataMapping *mapping = [ORMCoreDataMapping mappingWithId:mappingId inDocument:editor.document];
+		ORMCoreDataMapping *mapping = [editor.model coreDataMappingWithId:mappingId];
 		ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping];
 		self->_ours = [mapper map];
 		self->_notes = mapper.notes;

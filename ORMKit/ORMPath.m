@@ -5,75 +5,6 @@
 
 #define CORE ORMCoreNamespace
 
-@interface ORMPathedRole ()
-@property (nonatomic, readwrite, weak) ORMRole *role;
-@property (nonatomic, readwrite) ORMPathedRolePurpose purpose;
-@property (nonatomic, readwrite) BOOL isNegated;
-@property (nonatomic, readwrite, strong) ORMValueConstraint *valueConstraint;
-@property (nonatomic, readwrite, weak) ORMPathedRole *correlatedWith;
-@property (nonatomic, readwrite, weak) ORMRolePath *path;
-@end
-
-@interface ORMRolePath ()
-@property (nonatomic, readwrite, weak) ORMObjectType *rootObjectType;
-@property (nonatomic, readwrite, copy) NSString *rootId;
-@property (nonatomic, readwrite) BOOL rootIsNegated;
-@property (nonatomic, readwrite, strong) ORMValueConstraint *rootValueConstraint;
-@property (nonatomic, readwrite, copy) NSArray<ORMPathedRole *> *pathedRoles;
-@property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *subPaths;
-@property (nonatomic, readwrite) ORMPathSplit split;
-@property (nonatomic, readwrite) BOOL splitIsNegated;
-@property (nonatomic, readwrite, weak) ORMRolePath *parent;
-@end
-
-@interface ORMPathSource ()
-@property (nonatomic, readwrite) ORMPathSourceKind kind;
-@property (nonatomic, readwrite, weak) ORMRolePath *root;
-@property (nonatomic, readwrite, weak) ORMPathedRole *pathedRole;
-@property (nonatomic, readwrite, weak) ORMCalculation *calculation;
-@property (nonatomic, readwrite, copy) NSString *constant;
-/* Resolved once every element is read: what the source element names. */
-@property (nonatomic, copy) NSString *reference;
-@end
-
-@interface ORMCalculation ()
-@property (nonatomic, readwrite, copy) NSString *functionName;
-@property (nonatomic, readwrite) BOOL isBoolean;
-@property (nonatomic, readwrite, copy) NSArray<ORMPathSource *> *inputs;
-@property (nonatomic, readwrite, copy) NSArray<NSString *> *parameterNames;
-@property (nonatomic, readwrite, copy) NSArray<ORMPathSource *> *aggregationContext;
-@property (nonatomic, readwrite) BOOL isAggregate;
-@end
-
-@interface ORMRolePathOwner ()
-@property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *paths;
-@property (nonatomic, readwrite, copy) NSArray<ORMCalculation *> *calculations;
-@property (nonatomic, readwrite, copy) NSArray<ORMCalculation *> *conditions;
-@property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMPathSource *> *projections;
-@end
-
-@interface ORMDerivationRule ()
-@property (nonatomic, readwrite) BOOL isPartial;
-@property (nonatomic, readwrite) BOOL isStored;
-@property (nonatomic, readwrite, copy) NSString *informalText;
-@property (nonatomic, readwrite) BOOL isSubtypeRule;
-@end
-
-@interface ORMInstance ()
-@property (nonatomic, readwrite, weak) ORMObjectType *objectType;
-@property (nonatomic, readwrite, copy) NSString *value;
-/* The role instances that identify an entity instance, by id, and the
- * supertype instance a subtype instance is. */
-@property (nonatomic, copy) NSArray<NSString *> *identifyingRoleInstances;
-@property (nonatomic, copy) NSString *supertypeInstanceId;
-@property (nonatomic, copy) NSString *objectifiedInstanceId;
-@end
-
-@interface ORMFactInstance ()
-@property (nonatomic, readwrite, weak) ORMFactType *factType;
-@property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMInstance *> *instancesByRole;
-@end
-
 @interface ORMCardinality ()
 @property (nonatomic, readwrite, copy) NSArray<NSArray<NSNumber *> *> *ranges;
 @end
@@ -204,13 +135,14 @@
 	return [[self.model.extras objectForKey:@"joinPaths"] objectForKey:self.identifier ?: @""];
 }
 
-- (NSArray<NSString *> *)roleUseIds
+@end
+
+@implementation ORMRoleInstance
+
+- (ORMInstance *)instance
 {
-	NSMutableArray *ids = [NSMutableArray array];
-	for (NSXMLElement *use in ORMChildren(self.element, CORE, @"Role")) {
-		[ids addObject:ORMAttribute(use, @"id") ?: @""];
-	}
-	return ids;
+	ORMInstance *instance = self.instanceId != nil ? [self.model elementWithId:self.instanceId] : nil;
+	return [instance isKindOfClass:[ORMInstance class]] ? instance : nil;
 }
 
 @end
@@ -244,11 +176,6 @@
 - (ORMCardinality *)cardinality
 {
 	return [[self.model.extras objectForKey:@"cardinalities"] objectForKey:self.identifier];
-}
-
-- (NSString *)defaultValue
-{
-	return ORMChildText(self.element, CORE, @"DefaultValue");
 }
 
 @end
@@ -469,16 +396,22 @@
 	if (container == nil && [element parent] != nil) {
 		container = ORMChild((NSXMLElement *)[element parent], CORE, [projectionPath objectAtIndex:0]);
 	}
+	NSMutableDictionary *projectionIds = [NSMutableDictionary dictionary];
 	for (NSXMLElement *projection in ORMChildren(container, CORE, [projectionPath objectAtIndex:1])) {
+		owner.projectionId = owner.projectionId ?: ORMAttribute(projection, @"id");
 		for (NSXMLElement *item in ORMChildren(projection, CORE, [projectionPath objectAtIndex:2])) {
 			ORMPathSource *source = [self sourceIn:ORMChild(item, CORE, [projectionPath objectAtIndex:3])];
 			NSString *target = ORMRef(item);
 			if (source != nil && target != nil && [projections objectForKey:target] == nil) {
 				[projections setObject:source forKey:target];
 				[sources addObject:source];
+				if (ORMAttribute(item, @"id") != nil) {
+					[projectionIds setObject:ORMAttribute(item, @"id") forKey:target];
+				}
 			}
 		}
 	}
+	owner.projectionIds = projectionIds;
 	for (ORMPathSource *source in sources) {
 		[self resolve:source];
 	}
@@ -517,6 +450,11 @@
 	NSXMLElement *note = ORMChild(ORMChild(path, CORE, @"InformalRule"), CORE, @"DerivationNote");
 	NSString *text = ORMChildText(note, CORE, @"Body") ?: ORMChildText(expression, CORE, @"Body");
 	rule.informalText = [text length] > 0 ? text : nil;
+	rule.pathId = ORMAttribute(path, @"id");
+	rule.pathName = [ORMAttribute(path, @"Name") length] > 0 ? ORMAttribute(path, @"Name") : nil;
+	rule.noteId = ORMAttribute(note, @"id");
+	rule.hasRolePath = ORMChild(path, CORE, @"PathComponents") != nil || ORMChild(path, CORE, @"PathComponent") != nil;
+	rule.hasExpression = expression != nil;
 	if (path != nil) {
 		[self readOwner:rule from:path
 		    projections:@[ @"DerivationProjections", @"DerivationProjection", @"RoleProjection", @"DerivationSource" ]];
@@ -551,11 +489,7 @@
 
 - (void)readInstances
 {
-	/* Unary facts as newer NORMA writes them, under the entity instance
-	 * playing the role: @[ instance, role id, element ]. */
-	NSMutableArray *unaries = [NSMutableArray array];
 	NSMutableDictionary *instances = [self.extras objectForKey:@"instances"];
-	NSMutableDictionary *roleInstances = [self.extras objectForKey:@"roleInstances"];
 	for (ORMObjectType *type in self.objectTypes) {
 		NSMutableArray *list = [NSMutableArray array];
 		NSXMLElement *container = ORMChild(type.element, CORE, @"Instances");
@@ -567,8 +501,10 @@
 			ORMInstance *instance = [[ORMInstance alloc] initWithElement:element model:self];
 			instance.objectType = type;
 			NSString *local = [element localName];
+			instance.elementName = local;
 			if ([local isEqualToString:@"ValueTypeInstance"]) {
 				instance.value = ORMChildText(element, CORE, @"Value") ?: @"";
+				instance.invariantValue = ORMChildText(element, CORE, @"InvariantValue");
 			} else if ([local isEqualToString:@"EntityTypeSubtypeInstance"]) {
 				instance.supertypeInstanceId = ORMRef(ORMChild(element, CORE, @"SupertypeInstance"));
 				instance.objectifiedInstanceId = ORMRef(ORMChild(element, CORE, @"ObjectifiedInstance"));
@@ -580,12 +516,16 @@
 					[identifying addObject:ORMRef(ref) ?: @""];
 				}
 				instance.identifyingRoleInstances = identifying;
+				/* Unary facts as newer NORMA writes them, under the entity
+				 * instance playing the role. */
+				NSMutableArray *unaries = [NSMutableArray array];
 				for (NSXMLElement *ref in ORMChildren(ORMChild(element, CORE, @"RoleInstances"), CORE,
 				                                      @"EntityTypeUnaryRoleInstance")) {
 					if (ORMRef(ref) != nil) {
-						[unaries addObject:@[ instance, ORMRef(ref), ref ]];
+						[unaries addObject:ORMRef(ref)];
 					}
 				}
+				instance.unaryRoleIds = unaries;
 			}
 			[self registerElement:instance];
 			[list addObject:instance];
@@ -597,66 +537,46 @@
 	/* Role instances: under each role, an id for each instance playing it. */
 	for (ORMFactType *fact in self.factTypes) {
 		for (ORMRole *role in fact.roles) {
+			NSMutableArray *list = [NSMutableArray array];
 			for (NSXMLNode *node in [ORMChild(role.element, CORE, @"RoleInstances") children]) {
 				if ([node kind] != NSXMLElementKind) {
 					continue;
 				}
-				NSString *identifier = ORMAttribute((NSXMLElement *)node, @"id");
-				ORMInstance *instance = [self elementWithId:ORMRef((NSXMLElement *)node)];
-				if (identifier != nil && [instance isKindOfClass:[ORMInstance class]]) {
-					[roleInstances setObject:@[ role, instance ] forKey:identifier];
-				}
+				ORMRoleInstance *roleInstance = [[ORMRoleInstance alloc] initWithElement:(NSXMLElement *)node model:self];
+				roleInstance.elementName = [node localName];
+				roleInstance.role = role;
+				roleInstance.instanceId = ORMRef((NSXMLElement *)node);
+				[self registerElement:roleInstance];
+				[list addObject:roleInstance];
 			}
+			role.roleInstances = [list count] > 0 ? list : nil;
 		}
 	}
-	NSMutableDictionary *factInstances = [self.extras objectForKey:@"factInstances"];
+	NSMutableDictionary *facts = [self.extras objectForKey:@"factInstanceElements"];
 	for (ORMFactType *fact in self.factTypes) {
 		NSMutableArray *list = [NSMutableArray array];
 		for (NSXMLElement *element in ORMGrandchildren(fact.element, CORE, @"Instances", CORE, @"FactTypeInstance")) {
 			ORMFactInstance *instance = [[ORMFactInstance alloc] initWithElement:element model:self];
 			instance.factType = fact;
-			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			NSMutableArray *ids = [NSMutableArray array];
 			for (NSXMLElement *ref in ORMChildren(ORMChild(element, CORE, @"RoleInstances"), CORE,
 			                                      @"FactTypeRoleInstance")) {
-				NSArray *pair = [roleInstances objectForKey:ORMRef(ref) ?: @""];
-				if (pair != nil) {
-					[byRole setObject:[pair objectAtIndex:1] forKey:[[pair objectAtIndex:0] identifier]];
-				}
+				[ids addObject:ORMRef(ref) ?: @""];
 			}
-			instance.instancesByRole = byRole;
+			instance.roleInstanceIds = ids;
 			[self registerElement:instance];
 			[list addObject:instance];
 		}
 		if ([list count] > 0) {
-			[factInstances setObject:list forKey:fact.identifier];
+			[facts setObject:list forKey:fact.identifier];
 		}
-	}
-	/* A unary fact NORMA keeps on its player: a fact of the unary fact
-	 * type, its instance's own, named by the instance and the role (no
-	 * element of the file is it, to be found by id). */
-	for (NSArray *unary in unaries) {
-		ORMInstance *player = [unary firstObject];
-		ORMRole *role = [self elementWithId:[unary objectAtIndex:1]];
-		if (![role isKindOfClass:[ORMRole class]] || [role.factType.roles count] > 2) {
-			continue;
-		}
-		ORMFactInstance *fact = [[ORMFactInstance alloc] initWithElement:[unary lastObject] model:self];
-		fact.identifier = [NSString stringWithFormat:@"%@.%@", player.identifier, role.identifier];
-		fact.factType = role.factType;
-		fact.instancesByRole = @{ role.identifier: player };
-		NSMutableArray *list = [factInstances objectForKey:role.factType.identifier];
-		if (list == nil) {
-			list = [NSMutableArray array];
-			[factInstances setObject:list forKey:role.factType.identifier];
-		}
-		[list addObject:fact];
 	}
 }
 
 - (void)readPathsAndPopulations
 {
 	for (NSString *key in @[ @"roots", @"joinPaths", @"derivations", @"instances", @"roleInstances", @"factInstances",
-	                         @"cardinalities" ]) {
+	                         @"factInstanceElements", @"cardinalities" ]) {
 		[self.extras setObject:[NSMutableDictionary dictionary] forKey:key];
 	}
 	/* Join paths, on the sequences of the constraints. */
@@ -700,6 +620,182 @@
 		}
 	}
 	[self readInstances];
+	[self derivePopulations];
 }
 
 @end
+
+#pragma mark The sample population
+
+@implementation ORMModel (ORMPopulations)
+
+- (BOOL)hasPopulation
+{
+	return [[self.extras objectForKey:@"roleInstances"] count] > 0
+		|| [[self.extras objectForKey:@"factInstanceElements"] count] > 0
+		|| [[self.extras objectForKey:@"instances"] count] > 0;
+}
+
+- (void)derivePopulations
+{
+	/* Each role instance's role and player, by its id. */
+	NSMutableDictionary *roleInstances = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in self.factTypes) {
+		for (ORMRole *role in fact.roles) {
+			for (ORMRoleInstance *roleInstance in role.roleInstances) {
+				ORMInstance *instance = [roleInstance instance];
+				if (roleInstance.identifier != nil && instance != nil) {
+					[roleInstances setObject:@[ role, instance ] forKey:roleInstance.identifier];
+				}
+			}
+		}
+	}
+	[self.extras setObject:roleInstances forKey:@"roleInstances"];
+	NSMutableDictionary *factInstances = [NSMutableDictionary dictionary];
+	NSDictionary *elements = [self.extras objectForKey:@"factInstanceElements"];
+	for (NSString *factId in elements) {
+		for (ORMFactInstance *instance in [elements objectForKey:factId]) {
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			for (NSString *roleInstanceId in instance.roleInstanceIds) {
+				NSArray *pair = [roleInstances objectForKey:roleInstanceId];
+				if (pair != nil) {
+					[byRole setObject:[pair objectAtIndex:1] forKey:[[pair objectAtIndex:0] identifier]];
+				}
+			}
+			instance.instancesByRole = byRole;
+		}
+		[factInstances setObject:[[elements objectForKey:factId] mutableCopy] forKey:factId];
+	}
+	/* A unary fact NORMA keeps on its player: a fact of the unary fact
+	 * type, its instance's own, named by the instance and the role (no
+	 * element of the file is it, to be found by id). */
+	for (ORMObjectType *type in self.objectTypes) {
+		for (ORMInstance *player in [type instances]) {
+			for (NSString *roleId in player.unaryRoleIds) {
+				ORMRole *role = [self elementWithId:roleId];
+				if (![role isKindOfClass:[ORMRole class]] || [role.factType.roles count] > 2) {
+					continue;
+				}
+				ORMFactInstance *fact = [[ORMFactInstance alloc] initWithModel:self];
+				fact.identifier = [NSString stringWithFormat:@"%@.%@", player.identifier, role.identifier];
+				fact.factType = role.factType;
+				fact.instancesByRole = @{ role.identifier: player };
+				fact.isKeptOnPlayer = YES;
+				NSMutableArray *list = [factInstances objectForKey:role.factType.identifier];
+				if (list == nil) {
+					list = [NSMutableArray array];
+					[factInstances setObject:list forKey:role.factType.identifier];
+				}
+				[list addObject:fact];
+			}
+		}
+	}
+	[self.extras setObject:factInstances forKey:@"factInstances"];
+}
+
+/* The list an element of the population is kept in, by what it is of. */
+- (NSMutableArray *)populationListOf:(ORMElement *)element
+{
+	NSString *key = nil;
+	NSString *owner = nil;
+	if ([element isKindOfClass:[ORMInstance class]]) {
+		key = @"instances";
+		owner = [(ORMInstance *)element objectType].identifier;
+	} else if ([element isKindOfClass:[ORMFactInstance class]]) {
+		key = @"factInstanceElements";
+		owner = [(ORMFactInstance *)element factType].identifier;
+	}
+	if (key == nil || owner == nil) {
+		return nil;
+	}
+	NSMutableDictionary *lists = [self.extras objectForKey:key];
+	NSMutableArray *list = [lists objectForKey:owner];
+	if (list == nil) {
+		list = [NSMutableArray array];
+		[lists setObject:list forKey:owner];
+	}
+	return list;
+}
+
+- (void)addPopulationElement:(ORMElement *)element
+{
+	if ([element isKindOfClass:[ORMRoleInstance class]]) {
+		ORMRole *role = [(ORMRoleInstance *)element role];
+		role.roleInstances = [role.roleInstances ?: @[] arrayByAddingObject:element];
+	} else {
+		[[self populationListOf:element] addObject:element];
+	}
+	[self registerElement:element];
+}
+
+- (void)removePopulationElement:(ORMElement *)element
+{
+	if ([element isKindOfClass:[ORMRoleInstance class]]) {
+		ORMRole *role = [(ORMRoleInstance *)element role];
+		role.roleInstances = ORMWithout(role.roleInstances, element);
+	} else {
+		NSMutableArray *list = [self populationListOf:element];
+		[list removeObjectIdenticalTo:element];
+		if ([list count] == 0) {
+			NSString *key = [element isKindOfClass:[ORMInstance class]] ? @"instances" : @"factInstanceElements";
+			NSMutableDictionary *lists = [self.extras objectForKey:key];
+			for (NSString *owner in [lists allKeys]) {
+				if ([lists objectForKey:owner] == list) {
+					[lists removeObjectForKey:owner];
+				}
+			}
+		}
+	}
+	[self removeElement:element];
+}
+
+@end
+
+@implementation ORMModel (ORMDerivationRules)
+
+- (NSDictionary<NSString *, ORMDerivationRule *> *)derivationRules
+{
+	return [self.extras objectForKey:@"derivations"] ?: @{};
+}
+
+- (void)setDerivationRule:(ORMDerivationRule *)rule ofFactType:(ORMFactType *)fact
+{
+	NSMutableDictionary *rules = [self.extras objectForKey:@"derivations"];
+	if (rule != nil) {
+		[rules setObject:rule forKey:fact.identifier];
+	} else {
+		[rules removeObjectForKey:fact.identifier];
+	}
+	fact.isDerived = rule != nil && (rule.pathId != nil || rule.hasExpression);
+}
+
+@end
+
+@implementation ORMModel (ORMJoinPaths)
+
+- (void)registerPath:(ORMRolePath *)path
+{
+	[self registerElement:path];
+	if (path.rootId != nil) {
+		[[self.extras objectForKey:@"roots"] setObject:path forKey:path.rootId];
+	}
+	for (ORMPathedRole *pathed in path.pathedRoles) {
+		[self registerElement:pathed];
+	}
+	for (ORMRolePath *sub in path.subPaths) {
+		[self registerPath:sub];
+	}
+}
+
+- (void)setJoinPath:(ORMRolePathOwner *)joinPath ofSequence:(ORMRoleSequence *)sequence
+{
+	for (ORMRolePath *path in joinPath.paths) {
+		[self registerPath:path];
+	}
+	[self registerElement:joinPath];
+	[[self.extras objectForKey:@"joinPaths"] setObject:joinPath forKey:sequence.identifier];
+	sequence.hasJoinPath = YES;
+}
+
+@end
+

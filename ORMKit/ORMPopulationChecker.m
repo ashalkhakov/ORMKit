@@ -105,7 +105,7 @@ ORMRootInstance(ORMInstance *instance)
 			add(fact, byRole);
 			if ([byRole count] < [[fact visibleRoles] count]) {
 				[self violate:nil fact:fact text:[NSString stringWithFormat:@"A fact of \"%@\" lacks a role's player.",
-				                                                           [self readingOf:fact]]];
+				                                                           [fact displayText]]];
 			}
 		}
 	}
@@ -125,7 +125,7 @@ ORMRootInstance(ORMInstance *instance)
 		for (ORMFactInstance *instance in [fact instances]) {
 			if (![objectified containsObject:instance.identifier]) {
 				[self violate:nil fact:fact
-				         text:[NSString stringWithFormat:@"A fact of \"%@\" is no %@.", [self readingOf:fact],
+				         text:[NSString stringWithFormat:@"A fact of \"%@\" is no %@.", [fact displayText],
 				                                         fact.objectifyingType.name]];
 			}
 		}
@@ -136,7 +136,7 @@ ORMRootInstance(ORMInstance *instance)
 			NSDictionary *identifying = [instance identifyingInstancesByRole];
 			for (NSString *roleId in identifying) {
 				ORMRole *role = [_model elementWithId:roleId];
-				ORMRole *other = [role.factType.roles count] == 2 ? [role oppositeRole] : nil;
+				ORMRole *other = [role oppositeRole];
 				if (other != nil) {
 					add(role.factType, @{ roleId: [self keyOf:[identifying objectForKey:roleId]], other.identifier: key });
 				}
@@ -162,10 +162,8 @@ ORMRootInstance(ORMInstance *instance)
 		NSMutableSet *asserted = [NSMutableSet set];
 		for (NSDictionary *byRole in [self factsOf:fact]) {
 			NSMutableDictionary *visible = [NSMutableDictionary dictionaryWithDictionary:byRole];
-			for (ORMRole *role in fact.roles) {
-				if (role.player.isImplicitBooleanValue) {
-					[visible removeObjectForKey:role.identifier];
-				}
+			if ([fact implicitRole] != nil) {
+				[visible removeObjectForKey:[fact implicitRole].identifier];
 			}
 			[asserted addObject:visible];
 		}
@@ -187,7 +185,7 @@ ORMRootInstance(ORMInstance *instance)
 			}
 			[derived addObject:byRole];
 		}
-		NSString *reading = [self readingOf:fact];
+		NSString *reading = [fact displayText];
 		if (rule.isStored) {
 			/* Kept: what is stored is what the rule says, the asserted ones
 			 * of a partly derived one besides. */
@@ -237,11 +235,6 @@ ORMRootInstance(ORMInstance *instance)
 		[keys addObject:[self keyOf:instance]];
 	}
 	return [keys array];
-}
-
-- (NSString *)readingOf:(ORMFactType *)fact
-{
-	return [[fact primaryReading] expandedText] ?: fact.name;
 }
 
 - (void)violate:(ORMConstraint *)constraint fact:(ORMFactType *)fact text:(NSString *)text
@@ -339,8 +332,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 /* The constraint queries, run against the population in a store. */
 - (void)checkRules
 {
-	NSXMLDocument *document = [_model.modelElement rootDocument];
-	ORMCoreDataMapping *mapping = document != nil ? [[ORMCoreDataMapping mappingsOfDocument:document] firstObject] : nil;
+	ORMCoreDataMapping *mapping = [_model.coreDataMappings firstObject];
 	ORMRuleChecker *rules = [[ORMRuleChecker alloc] initWithModel:_model mapping:mapping];
 	if ([rules.rules count] == 0 && [rules.valueCalculations count] == 0) {
 		return;
@@ -375,7 +367,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 				[reported addObject:keys];
 				[self violate:constraint fact:fact
 				         text:[NSString stringWithFormat:@"%@ occurs more than once in \"%@\".", [self namesOf:keys],
-				                                         [self readingOf:fact]]];
+				                                         [fact displayText]]];
 			}
 			if (keys != nil) {
 				[seen addObject:keys];
@@ -387,7 +379,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	 * instances each have their own combination. */
 	ORMObjectType *common = nil;
 	for (ORMRole *role in roles) {
-		ORMRole *other = [role.factType.roles count] == 2 ? [role oppositeRole] : nil;
+		ORMRole *other = [role oppositeRole];
 		if (other == nil || (common != nil && other.player != common)) {
 			[_unchecked addObject:[NSString stringWithFormat:@"%@: its roles join through more than one object "
 			                                                 @"type.", constraint.name]];
@@ -454,7 +446,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 			continue;
 		}
 		NSString *what = [roles count] == 1 ? [NSString stringWithFormat:@"plays no role in \"%@\"",
-		                                                                   [self readingOf:[[roles firstObject] factType]]]
+		                                                                   [[[roles firstObject] factType] displayText]]
 		                                    : @"plays none of the roles one of which it must";
 		[self violate:constraint fact:nil text:[NSString stringWithFormat:@"%@ %@.", [self nameOf:key], what]];
 	}
@@ -485,7 +477,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 		if (count < constraint.minFrequency || (constraint.maxFrequency > 0 && count > constraint.maxFrequency)) {
 			[self violate:constraint fact:fact
 			         text:[NSString stringWithFormat:@"%@ occurs %lu times in \"%@\".", [self namesOf:keys],
-			                                         (unsigned long)count, [self readingOf:fact]]];
+			                                         (unsigned long)count, [fact displayText]]];
 		}
 	}
 }
@@ -509,7 +501,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 		}
 	}
 	ORMRingType type = constraint.ringType;
-	NSString *reading = [self readingOf:fact];
+	NSString *reading = [fact displayText];
 	void (^broken)(NSString *, NSArray *) = ^(NSString *what, NSArray *keys) {
 		[self violate:constraint fact:fact
 		         text:[NSString stringWithFormat:@"%@ in \"%@\": %@.", what, reading, [self namesOf:keys]]];
@@ -641,7 +633,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 		return;
 	}
 	NSString *(^reading)(NSUInteger) = ^NSString *(NSUInteger i) {
-		return [self readingOf:[[[[constraint.roleSequences objectAtIndex:i] roles] firstObject] factType]];
+		return [[[[[constraint.roleSequences objectAtIndex:i] roles] firstObject] factType] displayText];
 	};
 	if (constraint.kind == ORMExclusionConstraint) {
 		for (NSUInteger i = 0; i < [projections count]; i++) {
@@ -737,7 +729,7 @@ ORMValueAllowed(NSString *value, ORMValueConstraint *constraint, BOOL numeric)
 					[self violate:nil fact:fact
 					         text:[NSString stringWithFormat:@"%@ is not among the values %@ of \"%@\".",
 					                                         [self nameOf:[each objectForKey:role.identifier]],
-					                                         [constraint displayText], [self readingOf:fact]]];
+					                                         [constraint displayText], [fact displayText]]];
 				}
 			}
 		}

@@ -95,6 +95,167 @@
 	XCTAssertEqual(implied, (NSUInteger)1);
 }
 
+/* An object type's flags: the same object changed, written as NORMA
+ * writes them, the default left out; undone and done again. */
+- (void)testAnObjectTypesFlags
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	ORMObjectType *type = [editor.model elementWithId:person];
+	XCTAssertTrue([editor.objectTypeEditor setIndependent:YES of:person reason:NULL]);
+	XCTAssertTrue([editor.objectTypeEditor setPersonal:YES of:person reason:NULL]);
+	XCTAssertTrue([editor.objectTypeEditor setExternal:YES of:person reason:NULL]);
+	XCTAssertEqual([editor.model elementWithId:person], type);
+	XCTAssertTrue(type.isIndependent && type.isPersonal && type.isExternal);
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"IsIndependent"), @"true");
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"IsPersonal"), @"true");
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"IsExternal"), @"true");
+	XCTAssertTrue([editor.objectTypeEditor setIndependent:NO of:person reason:NULL]);
+	XCTAssertFalse(type.isIndependent);
+	XCTAssertNil(ORMAttribute(type.element, @"IsIndependent"));
+	[self.undoManager undo];
+	XCTAssertTrue(type.isIndependent);
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"IsIndependent"), @"true");
+	[self.undoManager undo];
+	XCTAssertFalse(type.isExternal);
+	[self.undoManager redo];
+	XCTAssertTrue(type.isExternal);
+	XCTAssertEqual([editor.model elementWithId:person], type);
+}
+
+/* A data type the model has not used yet is made, as NORMA makes one. */
+- (void)testAValueTypesDataType
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *height = [editor.objectTypeEditor addValueTypeNamed:@"Height" dataType:nil onDiagram:nil at:NSZeroPoint
+	                                                       reason:NULL];
+	ORMObjectType *type = [editor.model elementWithId:height];
+	NSUInteger before = [editor.model.dataTypes count];
+	XCTAssertTrue([editor.objectTypeEditor setDataType:@"DecimalNumericDataType" length:10 scale:2 of:height reason:NULL]);
+	XCTAssertEqualObjects(type.dataType.typeName, @"DecimalNumericDataType");
+	XCTAssertEqual(type.dataTypeLength, 10);
+	XCTAssertEqual(type.dataTypeScale, 2);
+	XCTAssertEqual([editor.model.dataTypes count], before + 1);
+	NSXMLElement *conceptual = ORMChild(type.element, ORMCoreNamespace, @"ConceptualDataType");
+	XCTAssertEqualObjects(ORMRef(conceptual), type.dataType.identifier);
+	XCTAssertEqualObjects(ORMAttribute(conceptual, @"Length"), @"10");
+	XCTAssertEqualObjects([type.dataType.element localName], @"DecimalNumericDataType");
+	/* Used again, not made again. */
+	XCTAssertTrue([editor.objectTypeEditor setDataType:@"DecimalNumericDataType" length:0 scale:0 of:height reason:NULL]);
+	XCTAssertEqual([editor.model.dataTypes count], before + 1);
+	XCTAssertEqualObjects(ORMAttribute(conceptual, @"Length"), @"0");
+	[self.undoManager undo];
+	[self.undoManager undo];
+	XCTAssertEqual([editor.model.dataTypes count], before);
+	XCTAssertEqualObjects(type.dataType.typeName, @"UnspecifiedDataType");
+}
+
+/* An entity type made a value type and back: NORMA's element of each
+ * kind, with what each kind has, the same object all along. */
+- (void)testAnObjectTypeChangesKind
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *colour = [self entity:@"Colour" mode:nil in:editor];
+	ORMObjectType *type = [editor.model elementWithId:colour];
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"_ReferenceMode"), @"");
+	XCTAssertTrue([editor.objectTypeEditor setValueType:YES of:colour reason:NULL]);
+	XCTAssertEqual([editor.model elementWithId:colour], type);
+	XCTAssertEqual(type.kind, ORMValueType);
+	XCTAssertEqualObjects([type.element localName], @"ValueType");
+	XCTAssertEqualObjects(type.dataType.typeName, @"UnspecifiedDataType");
+	XCTAssertNotNil(ORMChild(type.element, ORMCoreNamespace, @"ConceptualDataType"));
+	XCTAssertNil(ORMAttribute(type.element, @"_ReferenceMode"));
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"id"), colour);
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"{'red', 'green'}" of:colour reason:NULL]);
+	XCTAssertEqual([type.valueConstraint.ranges count], 2u);
+	XCTAssertTrue([editor.objectTypeEditor setValueType:NO of:colour reason:NULL]);
+	XCTAssertEqual(type.kind, ORMEntityType);
+	XCTAssertEqualObjects([type.element localName], @"EntityType");
+	XCTAssertNil(type.valueConstraint);
+	XCTAssertNil(ORMChild(type.element, ORMCoreNamespace, @"ValueRestriction"));
+	XCTAssertNil(ORMChild(type.element, ORMCoreNamespace, @"ConceptualDataType"));
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"_ReferenceMode"), @"");
+	[self.undoManager undo];
+	XCTAssertEqual(type.kind, ORMValueType);
+	XCTAssertEqual([type.valueConstraint.ranges count], 2u);
+	/* A value type with a value constraint, made a value type again. */
+	[self.undoManager redo];
+	XCTAssertTrue([editor.objectTypeEditor setValueType:YES of:colour reason:NULL]);
+	XCTAssertNil(type.valueConstraint);
+}
+
+/* A role's value constraint: made, its ranges replaced, taken away, as
+ * NORMA keeps one; undone. */
+- (void)testARolesValueConstraint
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *age = [editor.objectTypeEditor addValueTypeNamed:@"Age" dataType:@"UnsignedIntegerNumericDataType" onDiagram:nil
+	                                                     at:NSZeroPoint reason:NULL];
+	NSString *fact = [self fact:@[ person, age ] reading:@"{0} has {1}" in:editor];
+	ORMRole *role = [[[editor.model elementWithId:fact] roles] lastObject];
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"0..150" of:role.identifier reason:NULL]);
+	ORMValueConstraint *values = role.valueConstraint;
+	XCTAssertEqual([values.ranges count], 1u);
+	XCTAssertEqualObjects([values.element localName], @"RoleValueConstraint");
+	XCTAssertEqualObjects(ORMAttribute(values.element, @"Name"), @"RoleValueConstraint1");
+	XCTAssertEqualObjects(values.valueType.name, @"Age");
+	NSArray *ranges = ORMGrandchildren(values.element, ORMCoreNamespace, @"ValueRanges", ORMCoreNamespace, @"ValueRange");
+	XCTAssertEqual([ranges count], 1u);
+	XCTAssertEqualObjects(ORMAttribute([ranges firstObject], @"MaxValue"), @"150");
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"{1, 3..5}" of:role.identifier reason:NULL]);
+	XCTAssertEqual(role.valueConstraint, values);
+	XCTAssertEqual([values.ranges count], 2u);
+	ranges = ORMGrandchildren(values.element, ORMCoreNamespace, @"ValueRanges", ORMCoreNamespace, @"ValueRange");
+	XCTAssertEqual([ranges count], 2u);
+	XCTAssertEqualObjects([values displayText], @"{1, 3..5}");
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"" of:role.identifier reason:NULL]);
+	XCTAssertNil(role.valueConstraint);
+	XCTAssertNil(ORMChild(role.element, ORMCoreNamespace, @"ValueRestriction"));
+	[self.undoManager undo];
+	XCTAssertEqualObjects([role.valueConstraint displayText], @"{1, 3..5}");
+	[self.undoManager undo];
+	XCTAssertEqualObjects([role.valueConstraint displayText], @"{0..150}");
+}
+
+/* Readings edited and deleted, a unary's implicit type renamed with its
+ * reading, a role given another player; undone. */
+- (void)testReadingsAndPlayers
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:nil in:editor];
+	NSString *country = [self entity:@"Country" mode:nil in:editor];
+	NSString *city = [self entity:@"City" mode:nil in:editor];
+	ORMFactType *smokes = [editor.model elementWithId:[self fact:@[ person ] reading:@"{0} smokes" in:editor]];
+	ORMObjectType *implicit = [smokes implicitRole].player;
+	XCTAssertEqualObjects(implicit.name, @"Person smokes");
+	ORMReading *reading = [[[smokes.readingOrders firstObject] readings] firstObject];
+	XCTAssertTrue([editor.factTypeEditor setReadingText:@"{0} is a smoker" of:reading.identifier reason:NULL]);
+	XCTAssertEqualObjects(reading.text, @"{0} is a smoker");
+	XCTAssertEqualObjects(implicit.name, @"Person is a smoker");
+	XCTAssertEqualObjects(ORMAttribute(implicit.element, @"Name"), @"Person is a smoker");
+
+	ORMFactType *born = [editor.model elementWithId:[self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor]];
+	NSArray *roles = born.roles;
+	NSString *second = [editor.factTypeEditor addReading:@"{0} is birthplace of {1}"
+	                                            forRoles:@[ [roles[1] identifier], [roles[0] identifier] ] reason:NULL];
+	XCTAssertEqual([born.readingOrders count], 2u);
+	XCTAssertTrue([editor.factTypeEditor setReadingText:@"" of:second reason:NULL]);
+	XCTAssertEqual([born.readingOrders count], 1u);
+	XCTAssertNil([editor.model elementWithId:second]);
+	XCTAssertEqual([ORMGrandchildren(born.element, ORMCoreNamespace, @"ReadingOrders", ORMCoreNamespace, @"ReadingOrder") count], 1u);
+
+	XCTAssertTrue([editor.factTypeEditor setPlayer:city ofRole:[roles[1] identifier] reason:NULL]);
+	XCTAssertEqualObjects([roles[1] player].name, @"City");
+	XCTAssertEqualObjects(ORMRef(ORMChild([(ORMRole *)roles[1] element], ORMCoreNamespace, @"RolePlayer")), city);
+	XCTAssertEqual([[[editor.model elementWithId:country] playedRoles] count], 0u);
+
+	[self.undoManager undo];
+	XCTAssertEqualObjects([roles[1] player].name, @"Country");
+	[self.undoManager undo];
+	XCTAssertEqual([born.readingOrders count], 2u);
+}
+
 - (void)testNamesAreUnique
 {
 	ORMEditor *editor = [self newEditor];

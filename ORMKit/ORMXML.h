@@ -27,6 +27,17 @@ NSArray<NSString *> *ORMGeneratedNamespaces(void);
 
 /* The node is the element of that namespace and local name; local nil:
  * any element of the namespace. */
+/* The characters that are not alphanumerics, not whitespace, not letters:
+ * made once. GNUstep's -invertedSet builds a whole Unicode bitmap each time,
+ * which the normalizer, run after every edit, asked of each fact type. */
+NSCharacterSet *ORMNonAlphanumericCharacters(void);
+NSCharacterSet *ORMNonWhitespaceCharacters(void);
+NSCharacterSet *ORMNonLetterCharacters(void);
+
+/* Whether the character is whitespace, as a regular expression's \s is:
+ * for text scanned in C (ORMReadingText, ORMConstraintSentence). */
+BOOL ORMIsWhitespace(unichar c);
+
 BOOL ORMIs(NSXMLNode *node, NSString *uri, NSString *local);
 NSArray<NSXMLElement *> *ORMChildren(NSXMLElement *element, NSString *uri, NSString *local);
 NSXMLElement *ORMChild(NSXMLElement *element, NSString *uri, NSString *local);
@@ -95,3 +106,31 @@ NSString *ORMFormatPoint(NSPoint point);
 NSData *ORMDataOfDocument(NSXMLDocument *document);
 /* nil with why when the data is not XML. */
 NSXMLDocument *ORMParseDocument(NSData *data, NSString **reason);
+
+/* Undo by the XML elements a change touched (docs/MODEL.md): each, the
+ * first time it changes, as it was (its name, attributes and the children
+ * it held), to be put back. While a journal is kept, the helpers below
+ * and ORMSetAttribute, ORMInsertChild, ORMEnsureChild, ORMSetChildText
+ * and ORMPruneIfEmpty record what they change in a document; an element
+ * not yet in a document is new, and needs nothing. */
+@interface ORMXMLJournal : NSObject
+/* A journal of the document's elements; others are not its business. */
+- (instancetype)initWithDocument:(NSXMLDocument *)document;
+@property (nonatomic, readonly, weak) NSXMLDocument *document;
+@property (nonatomic, readonly) BOOL isEmpty;
+- (void)willChange:(NSXMLElement *)element;
+/* Each element put back as it was; the journal that does the change again. */
+- (ORMXMLJournal *)restore;
+@end
+
+/* Journals kept: a change is recorded in each, so that one opened inside
+ * another (a group that may be refused) puts back its own part. */
+void ORMOpenJournal(ORMXMLJournal *journal);
+void ORMCloseJournal(ORMXMLJournal *journal);
+void ORMWillChange(NSXMLNode *node);
+void ORMAddChild(NSXMLElement *parent, NSXMLNode *child);
+void ORMInsertChildAt(NSXMLElement *parent, NSXMLNode *child, NSUInteger index);
+void ORMDetach(NSXMLNode *node);
+void ORMSetText(NSXMLElement *element, NSString *text);
+void ORMRename(NSXMLElement *element, NSString *name);
+

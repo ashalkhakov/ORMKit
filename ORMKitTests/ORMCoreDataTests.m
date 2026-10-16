@@ -41,7 +41,7 @@
 	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[self fixtureDocument:fixture] undoManager:nil];
 	NSString *mappingId = [[self mappingsOf:editor] addCoreDataMappingNamed:@"Test" path:@"Test.xcdatamodeld"];
 	configure(editor, mappingId);
-	ORMCoreDataMapping *mapping = [ORMCoreDataMapping mappingWithId:mappingId inDocument:editor.document];
+	ORMCoreDataMapping *mapping = [editor.model coreDataMappingWithId:mappingId];
 	return [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping] map];
 }
 
@@ -247,6 +247,40 @@ ORMSquashed(NSString *name)
 	XCTAssertNil([self momcRejects:mapped]);
 }
 
+/* A deontic uniqueness or mandatory is for the app to check: the store
+ * keeps what breaks it, so the role maps as if it had none, and the rule
+ * is kept on the entity. */
+- (void)testDeonticConstraintsLeaveTheStoreLoose
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *notebook = [self entity:@"Notebook" mode:@"id" in:editor];
+	NSString *note = [self entity:@"Note" mode:@"id" in:editor];
+	NSString *contains = [editor.factTypeEditor addFactTypeWithPlayers:@[ notebook, note ] reading:@"{0} contains {1}" onDiagram:nil
+	                                                 at:NSZeroPoint reason:NULL];
+	NSString *role = [[self rolesOf:contains in:editor][1] identifier];
+	XCTAssertTrue([editor.constraintEditor setUnique:YES role:role reason:NULL]);
+	XCTAssertTrue([editor.constraintEditor setMandatory:YES role:role reason:NULL]);
+	for (ORMConstraint *constraint in [[editor.model elementWithId:role] constraints]) {
+		XCTAssertTrue([editor.constraintEditor setModality:ORMDeontic of:constraint.identifier reason:NULL]);
+	}
+	ORMRole *read = [editor.model elementWithId:role];
+	XCTAssertTrue(read.isUnique && read.isMandatory);
+	XCTAssertFalse(read.isAlethicUnique || read.isAlethicMandatory);
+	ORMCDModel *mapped = [self map:editor.model];
+	ORMCDRelationship *back = [[mapped entityNamed:@"Note"] relationshipNamed:@"notebooks"];
+	XCTAssertTrue(back.toMany);
+	XCTAssertTrue(back.optional);
+	XCTAssertNil([back.userInfo objectForKey:@"ormkit.mandatory"]);
+	NSUInteger rules = 0;
+	for (ORMCDEntity *entity in mapped.entities) {
+		for (NSString *key in entity.userInfo) {
+			rules += [key hasPrefix:@"ormkit.rule."];
+		}
+	}
+	XCTAssertEqual(rules, 2u);
+	XCTAssertNil([self momcRejects:mapped]);
+}
+
 - (void)testManyToManyAndValueSets
 {
 	ORMEditor *editor = [self newEditor];
@@ -384,12 +418,12 @@ ORMSquashed(NSString *name)
 	[editor.constraintEditor setUnique:YES role:[[self rolesOf:knows in:editor][0] identifier] reason:NULL];
 	NSString *mapping = [[self mappingsOf:editor] addCoreDataMappingNamed:@"App" path:@"App.xcdatamodeld"];
 	[[self mappingsOf:editor] setName:@"Human" forSource:person inMapping:mapping];
-	ORMCoreDataMapping *read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	ORMCoreDataMapping *read = [editor.model coreDataMappingWithId:mapping];
 	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:read] map];
 	XCTAssertNotNil([mapped entityNamed:@"Human"]);
 	XCTAssertNotNil([[mapped entityNamed:@"Human"] relationshipNamed:@"secret"]);
 	[[self mappingsOf:editor] setMapping:ORMMapIgnored ofObjectType:secret inMapping:mapping];
-	read = [ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document];
+	read = [editor.model coreDataMappingWithId:mapping];
 	mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:read] map];
 	XCTAssertNil([mapped entityNamed:@"Secret"]);
 	XCTAssertNil([[mapped entityNamed:@"Human"] relationshipNamed:@"secret"]);
@@ -407,13 +441,13 @@ ORMSquashed(NSString *name)
 	ORMCoreDataSync *sync = [[ORMCoreDataSync alloc] initWithEditor:editor mapping:mapping theirs:nil];
 	XCTAssertEqual([sync.changes count], (NSUInteger)0);
 	[sync apply];
-	XCTAssertNotNil([[ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document] baseline]);
+	XCTAssertNotNil([[editor.model coreDataMappingWithId:mapping] baseline]);
 	return mapping;
 }
 
 - (ORMCDModel *)baselineOf:(NSString *)mapping in:(ORMEditor *)editor
 {
-	return [[[ORMCoreDataMapping mappingWithId:mapping inDocument:editor.document] baseline] copy];
+	return [[[editor.model coreDataMappingWithId:mapping] baseline] copy];
 }
 
 - (ORMEditor *)personModel

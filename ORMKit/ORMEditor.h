@@ -7,12 +7,15 @@
 /* Every change to an ORM model goes through an editor: the editing
  * session over one document.
  *
- * It changes the NSXMLDocument in place, keeps up what NORMA keeps
- * denormalized beside the model (each object type's PlayedRoles, each fact
- * type's InternalConstraints, the _IsMandatory, _Multiplicity, _Name and
- * _ReferenceMode attributes, each reading's ExpandedData), and rebuilds the
- * projection (`model`) afterwards. Each operation is one undoable step:
- * undo restores the document as it was before.
+ * It keeps one model, read from the document when opened: each operation
+ * changes the model's objects, keeps NORMA's rules (implied mandatory
+ * constraints, the names NORMA derives), and has ORMNormaWriter write
+ * what it changed into the document, with what NORMA keeps denormalized
+ * beside the model (each object type's PlayedRoles, each fact type's
+ * InternalConstraints, the _IsMandatory, _Multiplicity, _Name and
+ * _ReferenceMode attributes, each reading's ExpandedData). Each operation
+ * is one undoable step: undo puts back the elements of the document it
+ * touched, and reads the model again.
  *
  * Elements are named by id. An operation that cannot be done returns nil
  * or NO and says why in `reason`, in words for the status line. */
@@ -36,11 +39,17 @@ BOOL ORMIsAutomaticPlacement(NSPoint point);
 /* A new, empty model as NORMA would start one, with one diagram. */
 + (NSXMLDocument *)newDocumentNamed:(NSString *)name;
 
+/* For tests (docs/MODEL.md): after every change, undo and redo, the model
+ * is compared with one read afresh from the document, the document with
+ * NORMA's data as worked out from the XML, and undone or done again with
+ * its bytes before; an exception raised where they differ. */
+@property (class, nonatomic) BOOL checksAgreement;
+
 /* undoManager may be nil: no undo. */
 - (instancetype)initWithDocument:(NSXMLDocument *)document undoManager:(NSUndoManager *)undoManager;
 
 @property (nonatomic, readonly, strong) NSXMLDocument *document;
-/* The projection of the document as it is now. */
+/* The model, as the changes made so far left it. */
 @property (nonatomic, readonly, strong) ORMModel *model;
 /* Called after every change, undo and redo too. */
 @property (nonatomic, copy) void (^changed)(void);

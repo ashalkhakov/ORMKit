@@ -190,6 +190,10 @@
 			fileRef = 2817731B583E545CAE0F75EB /* ORMFactTypeEditor.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		332789CC7393A456265BB50A /* ORMNormaWriter.m */ = {
+			isa = PBXBuildFile;
+			fileRef = CF7AE6C12C21895B46F3BBEF /* ORMNormaWriter.m */;
+		};
 		33A3451FF28220361BD6181C /* ORMKit.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = C9744B6FDDE92001B783F8F2 /* ORMKit.framework */;
@@ -307,6 +311,10 @@
 		4E132E7D5C810150E207AC88 /* ormtool.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 5898468D7B2737F3690110EB /* ormtool.m */;
+		};
+		51BEF6154852FE643ED2D6A7 /* ORMWriterTests.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 570B77BE41ECF63253C618A7 /* ORMWriterTests.m */;
 		};
 		52926593566B956B1529EE14 /* ORMVerbalizerPriv.h */ = {
 			isa = PBXBuildFile;
@@ -851,6 +859,11 @@
 		DF8782A47B9F56621AD798B8 /* ORMVerbalizer+Logic.m */ = {
 			isa = PBXBuildFile;
 			fileRef = AE6D64430985BCA827E2F4AB /* ORMVerbalizer+Logic.m */;
+		};
+		E195A492F10EF7A1EC09EBCD /* ORMNormaWriter.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 86F6CF7F9C331CCD6B465940 /* ORMNormaWriter.h */;
+			settings = {ATTRIBUTES = (Public, ); };
 		};
 		E2659A508B199FCA23BB8949 /* ORMJoinedFacade.h */ = {
 			isa = PBXBuildFile;
@@ -1400,6 +1413,12 @@
 			path = .deps/ODataIncrementalStore.xcframework;
 			sourceTree = SOURCE_ROOT;
 		};
+		570B77BE41ECF63253C618A7 /* ORMWriterTests.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMWriterTests.m;
+			sourceTree = "<group>";
+		};
 		5898468D7B2737F3690110EB /* ormtool.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -1636,6 +1655,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMNormalizer.m;
+			sourceTree = "<group>";
+		};
+		86F6CF7F9C331CCD6B465940 /* ORMNormaWriter.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMNormaWriter.h;
 			sourceTree = "<group>";
 		};
 		8862A70B6FE269F642927DFB /* ORMOutlineReader.m */ = {
@@ -1936,6 +1961,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMJoinPathBuilder.h;
+			sourceTree = "<group>";
+		};
+		CF7AE6C12C21895B46F3BBEF /* ORMNormaWriter.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMNormaWriter.m;
 			sourceTree = "<group>";
 		};
 		D08D47B857710F37BF3A72FD /* ORMCDModel.h */ = {
@@ -2324,6 +2355,7 @@
 				73D95C1CB5718ECFD903C6B1 /* ORMTestSupport.m */,
 				13110F95DFE652EF2EA97CE6 /* ORMTextTests.m */,
 				0EEEAC66689D2FB46B75A54E /* ORMVerbalizerTests.m */,
+				570B77BE41ECF63253C618A7 /* ORMWriterTests.m */,
 			);
 			path = ORMKitTests;
 			sourceTree = "<group>";
@@ -2404,6 +2436,8 @@
 				2487F19157AD9FEFB90955BC /* ORMModel.h */,
 				EC982668FBE20641550E0F20 /* ORMModel.m */,
 				0255901E3843BC73019C71AE /* ORMModelPriv.h */,
+				86F6CF7F9C331CCD6B465940 /* ORMNormaWriter.h */,
+				CF7AE6C12C21895B46F3BBEF /* ORMNormaWriter.m */,
 				86CE28AC08510FC853003C51 /* ORMNormalizer.m */,
 				48FD860772B447D3E632E481 /* ORMODataAnnotator.h */,
 				46B1475CEF4268FEC97A1C0C /* ORMODataAnnotator.m */,
@@ -2556,6 +2590,7 @@
 				BADD8C02E8DB13CA35AA591B /* ORMReadingText.h */,
 				6B13A7E7CC85EC24662A7717 /* ORMValueConstraintParser.h */,
 				83E2055D2C552670DE04A862 /* ORMEditor.h */,
+				E195A492F10EF7A1EC09EBCD /* ORMNormaWriter.h */,
 				BAC6868E1F7C155AAB760B22 /* ORMObjectTypeEditor.h */,
 				332036EE9010DFEDCDA53571 /* ORMFactTypeEditor.h */,
 				8F56173DC5D95CFE010CFA79 /* ORMConstraintEditor.h */,
@@ -2789,6 +2824,7 @@
 				B07F3FBC7F2887E725D42BB7 /* ORMValueConstraintParser.m */,
 				670C1F9AB256C9ADD43DCE04 /* ORMEditor.m */,
 				2FB751D5C1733E7576E7D162 /* ORMNormalizer.m */,
+				332789CC7393A456265BB50A /* ORMNormaWriter.m */,
 				36B694926859A3042D70E33A /* ORMObjectTypeEditor.m */,
 				AC7E7DC8AAE4B2AB0F3D99DD /* ORMFactTypeEditor.m */,
 				20BE8FA48A68788C0C22704C /* ORMConstraintEditor.m */,
@@ -2910,6 +2946,7 @@
 				F5AD2E4043E15A7801080CB9 /* ORMModelTests.m */,
 				862B9CDC3D1E7E9C0DC13D17 /* ORMTextTests.m */,
 				74314B8807EA9243DB528509 /* ORMEditorTests.m */,
+				51BEF6154852FE643ED2D6A7 /* ORMWriterTests.m */,
 				28614C9A787196DBDF3977FC /* ORMLogicTests.m */,
 				170943F3A9C33BCEE511F78C /* ORMConstraintSentenceTests.m */,
 				3A9781E342C2DAA4E77B3379 /* ORMSVGTests.m */,

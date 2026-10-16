@@ -8,24 +8,6 @@
 /* Whether the file is of the NORMA versions that write each reading's
  * <orm:ExpandedData>: one that has readings and none of it is older, and
  * stays as it is; one with none yet is written as NORMA writes now. */
-static BOOL ORMWritesImpliedMandatories(ORMModel *model);
-
-static BOOL
-ORMWritesExpandedData(ORMModel *model)
-{
-	BOOL readings = NO;
-	for (ORMFactType *fact in model.factTypes) {
-		for (ORMReadingOrder *order in fact.readingOrders) {
-			for (ORMReading *reading in order.readings) {
-				if (ORMChild(reading.element, CORE, @"ExpandedData") != nil) {
-					return YES;
-				}
-				readings = YES;
-			}
-		}
-	}
-	return !readings;
-}
 
 @implementation ORMNormalizer
 {
@@ -39,8 +21,6 @@ ORMWritesExpandedData(ORMModel *model)
 {
 	if ((self = [super init])) {
 		_editor = editor;
-		_writesExpandedData = ORMWritesExpandedData(editor.model);
-		_writesImpliedMandatories = ORMWritesImpliedMandatories(editor.model);
 	}
 	return self;
 }
@@ -65,7 +45,7 @@ ORMWritesExpandedData(ORMModel *model)
 /* Rewrites a list of <prefix:local ref/> children to name exactly the
  * targets: those already listed keep their place, missing ones go at the
  * end, so a model NORMA wrote comes back unchanged. */
-static void
+void
 ORMSyncRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<NSArray *> *targets)
 {
 	/* targets: [local name, id] pairs. */
@@ -77,17 +57,17 @@ ORMSyncRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<NSArray *>
 		NSArray *pair = @[ [child localName], ORMRef((NSXMLElement *)child) ?: @"" ];
 		NSUInteger index = [wanted indexOfObject:pair];
 		if (index == NSNotFound) {
-			[child detach];
+			ORMDetach(child);
 		} else {
 			[wanted removeObjectAtIndex:index];
 		}
 	}
 	for (NSArray *pair in wanted) {
-		[container addChild:ORMNewRef(document, [container URI], [pair objectAtIndex:0], [pair objectAtIndex:1])];
+		ORMAddChild(container, ORMNewRef(document, [container URI], [pair objectAtIndex:0], [pair objectAtIndex:1]));
 	}
 }
 
-static NSString *
+NSString *
 ORMMultiplicityName(ORMMultiplicity multiplicity)
 {
 	switch (multiplicity) {
@@ -104,7 +84,7 @@ ORMMultiplicityName(ORMMultiplicity multiplicity)
 /* An element as a comparable value: its local name, its attributes and
  * its children, without the namespace declarations and prefixes the two
  * platforms' NSXML give a new element differently. */
-static NSArray *
+NSArray *
 ORMShapeOf(NSXMLElement *element)
 {
 	NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
@@ -121,7 +101,7 @@ ORMShapeOf(NSXMLElement *element)
 }
 
 /* <orm:ExpandedData> as NORMA writes it for the reading. */
-static NSXMLElement *
+NSXMLElement *
 ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 {
 	ORMReadingText *reading = [ORMReadingText readingTextWithString:text arity:arity reason:NULL];
@@ -147,17 +127,17 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 		if ([part.followingText length] > 0) {
 			ORMSetAttribute(roleText, @"FollowingText", part.followingText);
 		}
-		[expanded addChild:roleText];
+		ORMAddChild(expanded, roleText);
 	}
 	return expanded;
 }
 
-- (void)normalize
+- (BOOL)normalize
 {
 	/* The model as the change left it. */
 	ORMModel *model = [ORMModel modelOfDocument:_editor.document reason:NULL];
 	if (model == nil) {
-		return;
+		return NO;
 	}
 
 	for (ORMObjectType *type in model.objectTypes) {
@@ -186,7 +166,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 		/* A preferred identifier that is gone. */
 		NSXMLElement *identifier = ORMChild(type.element, CORE, @"PreferredIdentifier");
 		if (identifier != nil && type.preferredIdentifier == nil) {
-			[identifier detach];
+			ORMDetach(identifier);
 		}
 	}
 
@@ -196,12 +176,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 		 * as it is. */
 		NSString *was = [_unaryReadings objectForKey:fact.identifier ?: @""];
 		if ([fact isUnary] && ![was isEqualToString:[[fact primaryReading] expandedText] ?: @""]) {
-			ORMObjectType *implicit = nil;
-			for (ORMRole *role in fact.roles) {
-				if (role.player.isImplicitBooleanValue) {
-					implicit = role.player;
-				}
-			}
+			ORMObjectType *implicit = [fact implicitRole].player;
 			NSString *name = [[fact primaryReading] expandedText];
 			/* Older NORMA spelled "is high-demand" "is high demand". */
 			NSString *older = [name stringByReplacingOccurrencesOfString:@"-" withString:@" "];
@@ -232,24 +207,25 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 			ORMSyncRefs(_editor.document, container, internal);
 			ORMPruneIfEmpty(container);
 		}
-		for (ORMReadingOrder *order in _writesExpandedData ? fact.readingOrders : @[]) {
+		for (ORMReadingOrder *order in _editor.writesExpandedData ? fact.readingOrders : @[]) {
 			for (ORMReading *reading in order.readings) {
 				NSXMLElement *expanded = ORMExpandedData(_editor.document, reading.text, [order.roles count]);
 				NSXMLElement *existing = ORMChild(reading.element, CORE, @"ExpandedData");
 				if (expanded == nil) {
-					[existing detach];
+					ORMDetach(existing);
 				} else if (existing == nil) {
 					NSUInteger index = [ORMChild(reading.element, CORE, @"Data") index] + 1;
-					[reading.element insertChild:expanded atIndex:MIN(index, [reading.element childCount])];
+					ORMInsertChildAt(reading.element, expanded, MIN(index, [reading.element childCount]));
 				} else if (![ORMShapeOf(existing) isEqual:ORMShapeOf(expanded)]) {
-					[reading.element replaceChildAtIndex:[existing index] withNode:expanded];
+					ORMInsertChildAt(reading.element, expanded, [existing index]);
+					ORMDetach(existing);
 				}
 			}
 		}
 	}
 
 	[self normalizeImpliedMandatories:model];
-	[self normalizeDerivations:model];
+	BOOL rules = [self normalizeDerivations:model];
 
 	/* Each preferred identifier names what it identifies. */
 	NSMutableDictionary *identified = [NSMutableDictionary dictionary];
@@ -265,9 +241,9 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 		NSString *target = [identified objectForKey:constraint.identifier];
 		NSXMLElement *existing = ORMChild(constraint.element, CORE, @"PreferredIdentifierFor");
 		if (target == nil) {
-			[existing detach];
+			ORMDetach(existing);
 		} else if (existing == nil) {
-			[constraint.element addChild:ORMNewRef(_editor.document, CORE, @"PreferredIdentifierFor", target)];
+			ORMAddChild(constraint.element, ORMNewRef(_editor.document, CORE, @"PreferredIdentifierFor", target));
 		} else if (![ORMRef(existing) isEqualToString:target]) {
 			ORMSetAttribute(existing, @"ref", target);
 		}
@@ -277,7 +253,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 	for (ORMDiagram *diagram in model.diagrams) {
 		for (ORMShape *shape in [diagram allShapes]) {
 			if (shape.subject == nil && shape.subjectId != nil && [shape.element rootDocument] == _editor.document) {
-				[shape.element detach];
+				ORMDetach(shape.element);
 				continue;
 			}
 			if (shape.kind == ORMShapeFactType) {
@@ -299,6 +275,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 			}
 		}
 	}
+	return rules;
 }
 
 /* NORMA's implied disjunctive mandatory constraints: every instance of
@@ -312,60 +289,53 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
  * ImpliedByObjectType. */
 /* The roles each object type's implied inclusive-or covers, by the
  * type's id: only the types that need one. */
-static NSDictionary<NSString *, NSArray<NSString *> *> *
+NSDictionary<NSString *, NSArray<NSString *> *> *
 ORMImpliedMandatoryRoles(ORMModel *model)
 {
 	NSMutableDictionary *needed = [NSMutableDictionary dictionary];
 	for (ORMObjectType *type in model.objectTypes) {
-		NSArray *identifierRoles = [type.preferredIdentifier allRoles] ?: @[];
-		NSMutableArray *roles = [NSMutableArray array];
-		BOOL mandatory = NO;
-		for (ORMRole *role in type.playedRoles) {
-			if (role.proxiedRole != nil) {
-				continue;
-			}
-			ORMRole *opposite = [role oppositeRole];
-			ORMRole *identifying = opposite.proxiedRole ?: opposite;
-			ORMDerivationRule *derivation = [role.factType derivationRule];
-			if ((identifying != nil && [identifierRoles containsObject:identifying])
-			    || (derivation != nil && !derivation.isPartial)) {
-				continue;
-			}
-			for (ORMConstraint *constraint in role.constraints) {
-				if (constraint.kind == ORMMandatoryConstraint && !constraint.isImplied
-				    && constraint.modality == ORMAlethic) {
-					mandatory = YES;
-				}
-			}
-			[roles addObject:role.identifier];
-		}
-		if (!type.isIndependent && !mandatory && [roles count] > 0 && type.identifier != nil) {
+		NSArray *roles = ORMImpliedMandatoryRolesOf(type);
+		if (roles != nil) {
 			[needed setObject:roles forKey:type.identifier];
 		}
 	}
 	return needed;
 }
 
-/* Whether the file is of the NORMA versions that keep implied mandatory
- * constraints: one that needs some and has none is older, and stays as it
- * is. */
-static BOOL
-ORMWritesImpliedMandatories(ORMModel *model)
+NSArray<NSString *> *
+ORMImpliedMandatoryRolesOf(ORMObjectType *type)
 {
-	for (ORMConstraint *constraint in model.constraints) {
-		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied
-		    && ORMChild(constraint.element, CORE, @"ImpliedByObjectType") != nil) {
-			return YES;
+	NSArray *identifierRoles = [type.preferredIdentifier allRoles] ?: @[];
+	NSMutableArray *roles = [NSMutableArray array];
+	BOOL mandatory = NO;
+	for (ORMRole *role in type.playedRoles) {
+		if (role.proxiedRole != nil) {
+			continue;
 		}
+		ORMRole *opposite = [role oppositeRole];
+		ORMRole *identifying = opposite.proxiedRole ?: opposite;
+		ORMDerivationRule *derivation = [role.factType derivationRule];
+		if ((identifying != nil && [identifierRoles containsObject:identifying])
+		    || (derivation != nil && !derivation.isPartial)) {
+			continue;
+		}
+		for (ORMConstraint *constraint in role.constraints) {
+			if (constraint.kind == ORMMandatoryConstraint && !constraint.isImplied && constraint.modality == ORMAlethic) {
+				mandatory = YES;
+			}
+		}
+		[roles addObject:role.identifier];
 	}
-	return [ORMImpliedMandatoryRoles(model) count] == 0;
+	return !type.isIndependent && !mandatory && [roles count] > 0 && type.identifier != nil ? roles : nil;
 }
+
 
 /* A derivation query's fact type keeps the query's words as its rule's,
  * which NORMA shows (docs/DERIVATION.md). Only where a query derives one:
  * a file without queries is left as it is. */
-- (void)normalizeDerivations:(ORMModel *)model
+- (BOOL)normalizeDerivations:(ORMModel *)model
 {
+	BOOL changed = NO;
 	ORMVerbalizer *verbalizer = nil;
 	for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
 		ORMFactType *fact = query.kind == ORMQueryDerivation ? query.derivedFactType : nil;
@@ -381,13 +351,15 @@ ORMWritesImpliedMandatories(ORMModel *model)
 			stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 		if ([text length] > 0 && ![ORMChildText(note, CORE, @"Body") isEqualToString:text]) {
 			ORMSetChildText(_editor.document, note, CORE, @"Body", text);
+			changed = YES;
 		}
 	}
+	return changed;
 }
 
 - (void)normalizeImpliedMandatories:(ORMModel *)model
 {
-	if (!_writesImpliedMandatories) {
+	if (!_editor.writesImpliedMandatories) {
 		return;
 	}
 	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
@@ -395,7 +367,7 @@ ORMWritesImpliedMandatories(ORMModel *model)
 		NSString *owner = ORMRef(ORMChild(constraint.element, CORE, @"ImpliedByObjectType"));
 		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied && owner != nil) {
 			if ([existing objectForKey:owner] != nil || [model elementWithId:owner] == nil) {
-				[constraint.element detach];
+				ORMDetach(constraint.element);
 			} else {
 				[existing setObject:constraint forKey:owner];
 			}
@@ -406,7 +378,7 @@ ORMWritesImpliedMandatories(ORMModel *model)
 		NSArray *roles = [needed objectForKey:type.identifier ?: @""];
 		ORMConstraint *current = [existing objectForKey:type.identifier ?: @""];
 		if (roles == nil) {
-			[current.element detach];
+			ORMDetach(current.element);
 			continue;
 		}
 		NSMutableArray *have = [NSMutableArray array];
@@ -419,13 +391,22 @@ ORMWritesImpliedMandatories(ORMModel *model)
 		}
 		NSXMLElement *constraint = current.element;
 		if (constraint == nil) {
-			constraint = [_editor newConstraint:@"MandatoryConstraint" named:@"ImpliedMandatoryConstraint"];
+			NSXMLDocument *document = _editor.document;
+			constraint = ORMNewElementWithId(document, CORE, @"MandatoryConstraint", nil);
+			ORMSetAttribute(constraint, @"Name", [_editor nextName:@"ImpliedMandatoryConstraint"]);
+			ORMAddChild(ORMEnsureChild(document, ORMModelElementOfDocument(document), CORE, @"Constraints"), constraint);
 			ORMSetAttribute(constraint, @"IsImplied", @"true");
 		}
-		[ORMChild(constraint, CORE, @"RoleSequence") detach];
-		[constraint insertChild:[_editor newRoleSequence:roles withId:NO] atIndex:0];
+		ORMDetach(ORMChild(constraint, CORE, @"RoleSequence"));
+		NSXMLElement *sequence = ORMNewElement(_editor.document, CORE, @"RoleSequence");
+		for (NSString *roleId in roles) {
+			NSXMLElement *role = ORMNewElementWithId(_editor.document, CORE, @"Role", nil);
+			ORMSetAttribute(role, @"ref", roleId);
+			ORMAddChild(sequence, role);
+		}
+		ORMInsertChildAt(constraint, sequence, 0);
 		if (ORMChild(constraint, CORE, @"ImpliedByObjectType") == nil) {
-			[constraint addChild:ORMNewRef(_editor.document, CORE, @"ImpliedByObjectType", type.identifier)];
+			ORMAddChild(constraint, ORMNewRef(_editor.document, CORE, @"ImpliedByObjectType", type.identifier));
 		}
 	}
 }

@@ -939,7 +939,7 @@ check(BOOL ok, const char *what)
 	[mappings setHeld:YES role:[self role:@"mailed" at:1] byMember:subscriber inMapping:mapping];
 	[mappings setHeld:YES role:[self role:@"reads" at:1] byMember:subscriber inMapping:mapping];
 	ORMCoreDataMapper *mapper = [[ORMCoreDataMapper alloc]
-		initWithModel:_editor.model mapping:[ORMCoreDataMapping mappingWithId:mapping inDocument:_editor.document]];
+		initWithModel:_editor.model mapping:[_editor.model coreDataMappingWithId:mapping]];
 	[mapper map];
 	for (ORMMappingNote *note in mapper.notes) {
 		check(note.kind != ORMMappingWarning, [note.text UTF8String]);

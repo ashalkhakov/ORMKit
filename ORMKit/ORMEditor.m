@@ -1,6 +1,9 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMEditorPriv.h"
 #import "ORMPath.h"
+#import "ORMNormaWriter.h"
+#import "ORMQuery.h"
+#import "ORMVerbalizer.h"
 
 /* NORMA's role box: 0.16 by 0.11 inches, with 0.032 a side around them
  * inside a fact type shape. */
@@ -23,6 +26,8 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	                  0.24388888899236916 * ORMPointsPerInch);
 }
 
+static BOOL ORMChecksAgreement;
+
 @implementation ORMEditor
 {
 	NSUndoManager *_undoManager;
@@ -30,17 +35,22 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	 * takes the snapshot. */
 	NSUInteger _depth;
 	BOOL _hasChanges;
-	/* NORMA's denormalized data, kept up after each change. */
+	/* In tests, the check that the writer kept up NORMA's data. */
 	ORMNormalizer *_normalizer;
+	BOOL _writesExpandedData;
+	BOOL _writesImpliedMandatories;
 	ORMObjectTypeEditor *_objectTypeEditor;
 	ORMFactTypeEditor *_factTypeEditor;
 	ORMConstraintEditor *_constraintEditor;
 	ORMDiagramEditor *_diagramEditor;
 	ORMElementEditor *_elementEditor;
 	ORMPopulationEditor *_populationEditor;
-	/* A step of a group changed the document: the projection is read again
-	 * when it is next asked for, not after every step. */
+	/* A refused step of a group put back what it did: the model is read
+	 * again when it is next asked for. */
 	BOOL _stale;
+	/* What a model change changed, to be written, and took away. */
+	NSMutableArray<ORMElement *> *_wrote;
+	NSMutableArray<ORMElement *> *_deleted;
 }
 
 #pragma mark Documents
@@ -82,6 +92,8 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 		_document = document;
 		_undoManager = undoManager;
 		_model = [ORMModel modelOfDocument:document reason:NULL];
+		_writesExpandedData = ORMWritesExpandedData(_model);
+		_writesImpliedMandatories = ORMWritesImpliedMandatories(_model);
 		_normalizer = [[ORMNormalizer alloc] initWithEditor:self];
 	}
 	return self;
@@ -139,14 +151,98 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 
 #pragma mark Its file
 
-- (BOOL)writesExpandedData
+@synthesize writesExpandedData = _writesExpandedData;
+@synthesize writesImpliedMandatories = _writesImpliedMandatories;
+
+/* An older NORMA wrote no ExpandedData: a file with readings and none
+ * gets none. */
+static BOOL
+ORMWritesExpandedData(ORMModel *model)
 {
-	return _normalizer.writesExpandedData;
+	if (model.readingsHaveExpandedData) {
+		return YES;
+	}
+	for (ORMFactType *fact in model.factTypes) {
+		for (ORMReadingOrder *order in fact.readingOrders) {
+			if ([order.readings count] > 0) {
+				return NO;
+			}
+		}
+	}
+	return YES;
 }
 
-- (BOOL)writesImpliedMandatories
+/* An older NORMA wrote no implied mandatory constraints: a file that
+ * needs some and has none stays as it is. */
+static BOOL
+ORMWritesImpliedMandatories(ORMModel *model)
 {
-	return _normalizer.writesImpliedMandatories;
+	for (ORMConstraint *constraint in model.constraints) {
+		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied && constraint.impliedByObjectTypeId != nil) {
+			return YES;
+		}
+	}
+	return [ORMImpliedMandatoryRoles(model) count] == 0;
+}
+
++ (BOOL)checksAgreement
+{
+	return ORMChecksAgreement;
+}
+
++ (void)setChecksAgreement:(BOOL)checks
+{
+	ORMChecksAgreement = checks;
+}
+
+- (void)checkAgreement
+{
+	if (!ORMChecksAgreement || _model == nil) {
+		return;
+	}
+	@autoreleasepool {
+		ORMModel *fresh = [ORMModel modelOfDocument:_document reason:NULL];
+		NSString *difference = ORMModelDisagreement(_model, fresh);
+		if (difference != nil) {
+			[NSException raise:NSInternalInconsistencyException
+			            format:@"The model and the document disagree: %@", difference];
+		}
+	}
+}
+
+/* Where two documents' bytes first differ, in words. */
+static NSString *
+ORMFirstDifference(NSData *one, NSData *other)
+{
+	NSArray *a = [[[NSString alloc] initWithData:one encoding:NSUTF8StringEncoding] componentsSeparatedByString:@"\n"];
+	NSArray *b = [[[NSString alloc] initWithData:other encoding:NSUTF8StringEncoding] componentsSeparatedByString:@"\n"];
+	for (NSUInteger i = 0; i < MAX([a count], [b count]); i++) {
+		NSString *l = i < [a count] ? [a objectAtIndex:i] : @"(none)";
+		NSString *r = i < [b count] ? [b objectAtIndex:i] : @"(none)";
+		if (![l isEqualToString:r]) {
+			return [NSString stringWithFormat:@"line %lu:\n  one   %@\n  other %@", (unsigned long)i + 1, l, r];
+		}
+	}
+	return @"the same";
+}
+
+/* In tests: after model changes, NORMA's data as the normalizer would
+ * keep it is what the writer wrote. */
+- (void)checkNormalized
+{
+	if (!ORMChecksAgreement || _model == nil) {
+		return;
+	}
+	@autoreleasepool {
+		NSData *written = ORMDataOfDocument(_document);
+		[_normalizer rememberUnaryReadings];
+		[_normalizer normalize];
+		NSData *normalized = ORMDataOfDocument(_document);
+		if (![written isEqualToData:normalized]) {
+			[NSException raise:NSInternalInconsistencyException
+			            format:@"The writer left NORMA's data for the normalizer: %@", ORMFirstDifference(written, normalized)];
+		}
+	}
 }
 
 - (BOOL)hasChanges
@@ -154,9 +250,15 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	return _hasChanges;
 }
 
+/* The same model, read again from the document: what holds one of its
+ * elements across a change holds it still. */
 - (void)reread
 {
-	_model = [ORMModel modelOfDocument:_document reason:NULL];
+	if (_model != nil && ORMModelElementOfDocument(_document) != nil) {
+		[_model readDocumentAgain:_document];
+	} else {
+		_model = [ORMModel modelOfDocument:_document reason:NULL];
+	}
 	_stale = NO;
 }
 
@@ -177,39 +279,52 @@ ORMDefaultFactTypeSize(NSUInteger roles)
  * step to undo. */
 - (BOOL)apply:(NSString *)name rollback:(BOOL)rollback with:(BOOL (^)(void))change
 {
-	/* The projection the change starts from is held for it: its objects'
-	 * links to one another are weak. */
-	__attribute__((objc_precise_lifetime)) ORMModel *start = _model;
-	(void)start;
-	/* A step of a group is read back for the next, and the group as a
-	 * whole normalized, from the readings it started with. */
 	if (_depth > 0) {
-		NSXMLDocument *before = rollback ? ORMCopyDocument(_document) : nil;
+		/* A step that may be refused keeps its own journal, inside the
+		 * change's: refused, it puts back its part, and the model is read
+		 * again from that when next asked for. */
+		ORMXMLJournal *inner = rollback ? [[ORMXMLJournal alloc] initWithDocument:_document] : nil;
+		if (inner != nil) {
+			ORMOpenJournal(inner);
+		}
 		BOOL done;
-		/* What the step made is read when the next step, or the caller,
-		 * asks; the projection before it is let go of then. */
 		@autoreleasepool {
 			done = change();
 		}
-		if (!done && before != nil) {
-			_document = before;
+		if (inner != nil) {
+			ORMCloseJournal(inner);
 		}
-		_stale = YES;
+		if (!done && inner != nil) {
+			[inner restore];
+			_stale = YES;
+		}
 		return done;
 	}
-	[_normalizer rememberUnaryReadings];
-	NSXMLDocument *before = ORMCopyDocument(_document);
+	if (ORMChecksAgreement) {
+		[_normalizer rememberUnaryReadings];
+	}
+	/* Undo puts back the elements the change touched, each as it was. */
+	ORMXMLJournal *journal = [[ORMXMLJournal alloc] initWithDocument:_document];
+	ORMOpenJournal(journal);
+	NSData *was = ORMChecksAgreement ? ORMDataOfDocument(_document) : nil;
 	BOOL hadChanges = _hasChanges;
 	_depth++;
 	BOOL done = change();
 	if (!done && rollback) {
+		ORMCloseJournal(journal);
 		_depth--;
-		_document = before;
+		[journal restore];
 		_hasChanges = hadChanges;
 		[self reread];
 		return NO;
 	}
-	[_normalizer normalize];
+	if (_stale) {
+		[self reread];
+	}
+	/* A derivation rule's words come from its query. */
+	[self keepDerivationWords];
+	[self checkNormalized];
+	ORMCloseJournal(journal);
 	_depth--;
 	/* A manager that does not group by event (a document's that edits
 	 * text in place, a test's) gets the step as a group of its own. */
@@ -217,31 +332,326 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	if (grouping) {
 		[_undoManager beginUndoGrouping];
 	}
-	[_undoManager registerUndoWithTarget:self selector:@selector(restore:)
-	                              object:@[ before, @(hadChanges) ]];
+	[_undoManager registerUndoWithTarget:self selector:@selector(restoreJournal:)
+	                              object:@[ journal, @(hadChanges), was ?: (id)[NSNull null] ]];
 	[_undoManager setActionName:name];
 	if (grouping) {
 		[_undoManager endUndoGrouping];
 	}
 	_hasChanges = YES;
-	[self reread];
+	[self checkAgreement];
 	if (self.changed != nil) {
 		self.changed();
 	}
 	return done;
 }
 
-- (void)change:(NSString *)name with:(void (^)(void))change
+- (void)modelChange:(NSString *)name with:(void (^)(void))change
 {
 	[self apply:name rollback:NO with:^BOOL {
-		change();
+		[self changeModel:change];
 		return YES;
 	}];
 }
 
+/* A change to the model's elements, and what follows from it: NORMA's
+ * rules kept, the model derived, what changed written. */
+- (void)changeModel:(void (^)(void))change
+{
+	/* The model as the steps before left it. */
+	ORMModel *model = self.model;
+	_wrote = [NSMutableArray array];
+	_deleted = [NSMutableArray array];
+	model.removedNames = [NSMutableSet set];
+	model.removedIds = [NSMutableSet set];
+	model.relinkedTypes = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	change();
+	/* Shapes of what is gone go with it (the normalizer's rule). */
+	NSSet *removed = model.removedIds;
+	for (ORMDiagram *diagram in [removed count] > 0 ? model.diagrams : @[]) {
+		for (ORMShape *shape in [diagram allShapes]) {
+			if (shape.subjectId != nil && [removed containsObject:shape.subjectId]
+			    && [model elementWithId:shape.subjectId] == nil && [model elementWithId:shape.identifier] == shape) {
+				[diagram removeShape:shape];
+				[self deleted:shape];
+			}
+		}
+	}
+	/* An implicit type is named by its unary's reading when that changes. */
+	for (ORMFactType *fact in [self factTypesTouched]) {
+		if (fact.lastUnaryReading != nil) {
+			[self.factTypeEditor renameImplicitBooleanOf:fact was:fact.lastUnaryReading];
+		}
+	}
+	[self.constraintEditor keepImpliedMandatoriesOf:[self objectTypesTouched]];
+	for (ORMFactType *fact in [self factTypesTouched]) {
+		fact.lastUnaryReading = [fact unaryReading];
+	}
+	/* What the sample population comes to: each fact's instances. */
+	BOOL populated = [model hasPopulation];
+	for (ORMElement *element in [_wrote arrayByAddingObjectsFromArray:_deleted]) {
+		populated = populated || [element isKindOfClass:[ORMInstance class]]
+			|| [element isKindOfClass:[ORMRoleInstance class]] || [element isKindOfClass:[ORMFactInstance class]];
+	}
+	if (populated) {
+		[model derivePopulations];
+	}
+	ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
+	writer.gone = [NSSet setWithArray:[_deleted valueForKey:@"identifier"]];
+	writer.writesExpandedData = _writesExpandedData;
+	for (ORMElement *element in _wrote) {
+		if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
+			[writer writeElement:element];
+		}
+	}
+	for (ORMElement *element in [self affectedBy:[_wrote arrayByAddingObjectsFromArray:_deleted]]) {
+		if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
+			[writer writeNormaDataOf:element];
+		}
+	}
+	for (ORMElement *element in _deleted) {
+		/* With the container it leaves empty (a population's Instances,
+		 * RoleInstances; the queries, the Core Data mappings): NORMA writes
+		 * none empty. */
+		NSXMLElement *container = (NSXMLElement *)[element.element parent];
+		ORMDetach(element.element);
+		if ([container isKindOfClass:[NSXMLElement class]]
+		    && [@[ @"Instances", @"RoleInstances", @"Queries", @"CoreDataMappings" ] containsObject:[container localName] ?: @""]) {
+			BOOL empty = YES;
+			for (NSXMLNode *child in [container children]) {
+				empty = empty && [child kind] != NSXMLElementKind;
+			}
+			if (empty) {
+				ORMDetach(container);
+			}
+		}
+	}
+	[writer writeReferenceModes];
+	_wrote = nil;
+	_deleted = nil;
+	model.removedNames = nil;
+	model.removedIds = nil;
+	model.relinkedTypes = nil;
+}
+
+static NSInteger
+ORMByFirst(NSArray *a, NSArray *b, void *context)
+{
+	(void)context;
+	return [[a firstObject] compare:[b firstObject]];
+}
+
+/* Elements in the order of the model's list; those not in it after. */
+static NSArray *
+ORMInListOrder(NSArray *elements, NSArray *list)
+{
+	NSMutableArray *keyed = [NSMutableArray array];
+	for (ORMElement *element in elements) {
+		[keyed addObject:@[ @([list indexOfObjectIdenticalTo:element]), element ]];
+	}
+	[keyed sortUsingFunction:ORMByFirst context:NULL];
+	NSMutableArray *sorted = [NSMutableArray array];
+	for (NSArray *pair in keyed) {
+		[sorted addObject:[pair lastObject]];
+	}
+	return sorted;
+}
+
+/* The fact types the change being made touched: changed, or with a role,
+ * reading or player changed. */
+- (NSArray<ORMFactType *> *)factTypesTouched
+{
+	NSHashTable *facts = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	for (ORMElement *element in [_wrote arrayByAddingObjectsFromArray:_deleted]) {
+		if ([element isKindOfClass:[ORMFactType class]]) {
+			[facts addObject:element];
+		} else if ([element isKindOfClass:[ORMRole class]] && [(ORMRole *)element factType] != nil) {
+			[facts addObject:[(ORMRole *)element factType]];
+		} else if ([element isKindOfClass:[ORMReadingOrder class]] && [(ORMReadingOrder *)element factType] != nil) {
+			[facts addObject:[(ORMReadingOrder *)element factType]];
+		} else if ([element isKindOfClass:[ORMReading class]] && [[(ORMReading *)element readingOrder] factType] != nil) {
+			[facts addObject:[[(ORMReading *)element readingOrder] factType]];
+		} else if ([element isKindOfClass:[ORMObjectType class]]) {
+			for (ORMRole *role in [(ORMObjectType *)element playedRoles]) {
+				[facts addObject:role.factType];
+			}
+		}
+	}
+	NSMutableArray *held = [NSMutableArray array];
+	for (ORMFactType *fact in facts) {
+		if ([_model holds:fact]) {
+			[held addObject:fact];
+		}
+	}
+	return ORMInListOrder(held, _model.factTypes);
+}
+
+/* The object types whose implied mandatory constraint the change may
+ * change: those it changed, those whose links it changed, the players of
+ * the fact types and constraints it changed. */
+- (NSArray<ORMObjectType *> *)objectTypesTouched
+{
+	NSHashTable *types = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	for (ORMObjectType *type in _model.relinkedTypes) {
+		[types addObject:type];
+	}
+	NSMutableArray *roles = [NSMutableArray array];
+	for (ORMElement *element in [_wrote arrayByAddingObjectsFromArray:_deleted]) {
+		if ([element isKindOfClass:[ORMObjectType class]]) {
+			[types addObject:element];
+		} else if ([element isKindOfClass:[ORMFactType class]]) {
+			[roles addObjectsFromArray:[(ORMFactType *)element roles] ?: @[]];
+		} else if ([element isKindOfClass:[ORMRole class]]) {
+			[roles addObject:element];
+		} else if ([element isKindOfClass:[ORMConstraint class]] || [element isKindOfClass:[ORMRoleSequence class]]) {
+			ORMConstraint *constraint = [element isKindOfClass:[ORMConstraint class]] ? (ORMConstraint *)element
+			                                                                         : [(ORMRoleSequence *)element constraint];
+			for (ORMRole *role in [constraint allRoles]) {
+				[roles addObjectsFromArray:role.factType.roles ?: @[]];
+			}
+			if (constraint.preferredIdentifierFor != nil) {
+				[types addObject:constraint.preferredIdentifierFor];
+			}
+			ORMObjectType *owner = [_model elementWithId:constraint.impliedByObjectTypeId ?: @""];
+			if ([owner isKindOfClass:[ORMObjectType class]]) {
+				[types addObject:owner];
+			}
+		}
+	}
+	for (ORMRole *role in roles) {
+		if (role.player != nil) {
+			[types addObject:role.player];
+		}
+	}
+	return ORMInListOrder([types allObjects], _model.objectTypes);
+}
+
+/* A derivation query's fact type keeps the query's words as its rule's
+ * (docs/DERIVATION.md), where the rule has words: what NORMA shows. */
+- (void)keepDerivationWords
+{
+	ORMVerbalizer *verbalizer = nil;
+	NSMutableArray *changes = [NSMutableArray array];
+	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
+		ORMFactType *fact = query.kind == ORMQueryDerivation ? query.derivedFactType : nil;
+		ORMDerivationRule *rule = fact != nil ? [_model.derivationRules objectForKey:fact.identifier] : nil;
+		if (rule.noteId == nil) {
+			continue;
+		}
+		verbalizer = verbalizer ?: [[ORMVerbalizer alloc] initWithModel:_model];
+		NSString *text = [[ORMVerbalizer plainTextOfSentences:[verbalizer sentencesForQuery:query]]
+			stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+		if ([text length] > 0 && ![rule.informalText isEqualToString:text]) {
+			[changes addObject:@[ fact, rule, text ]];
+		}
+	}
+	if ([changes count] == 0) {
+		return;
+	}
+	[self changeModel:^{
+		for (NSArray *change in changes) {
+			[(ORMDerivationRule *)[change objectAtIndex:1] setInformalText:[change lastObject]];
+			[self wrote:[change firstObject]];
+		}
+	}];
+}
+
+- (void)wrote:(ORMElement *)element
+{
+	if (element != nil && [_wrote indexOfObjectIdenticalTo:element] == NSNotFound) {
+		[_wrote addObject:element];
+	}
+}
+
+/* The object types, fact types and constraints whose NORMA data a change
+ * to the elements may change: an object type's fact types and identifier,
+ * a fact type's players and internal constraints, a constraint's fact
+ * types and what it identifies, an element's owner. */
+- (NSArray<ORMElement *> *)affectedBy:(NSArray<ORMElement *> *)touched
+{
+	NSMutableArray *affected = [NSMutableArray array];
+	NSMutableSet *seen = [NSMutableSet set];
+	NSMutableArray *pending = [NSMutableArray array];
+	for (ORMElement *element in touched) {
+		if ([element isKindOfClass:[ORMRole class]]) {
+			[pending addObject:[(ORMRole *)element factType] ?: (id)[NSNull null]];
+			[pending addObject:[(ORMRole *)element player] ?: (id)[NSNull null]];
+		} else if ([element isKindOfClass:[ORMReading class]]) {
+			[pending addObject:[[(ORMReading *)element readingOrder] factType] ?: (id)[NSNull null]];
+		} else if ([element isKindOfClass:[ORMReadingOrder class]]) {
+			[pending addObject:[(ORMReadingOrder *)element factType] ?: (id)[NSNull null]];
+		} else if ([element isKindOfClass:[ORMRoleSequence class]]) {
+			for (ORMRole *role in [(ORMRoleSequence *)element roles]) {
+				[pending addObject:role.factType ?: (id)[NSNull null]];
+			}
+		}
+		[pending addObject:element];
+	}
+	for (id element in pending) {
+		if (element == [NSNull null] || [seen containsObject:[NSValue valueWithNonretainedObject:element]]) {
+			continue;
+		}
+		BOOL own = [element isKindOfClass:[ORMObjectType class]] || [element isKindOfClass:[ORMFactType class]]
+			|| [element isKindOfClass:[ORMConstraint class]];
+		if (!own) {
+			continue;
+		}
+		[seen addObject:[NSValue valueWithNonretainedObject:element]];
+		[affected addObject:element];
+	}
+	/* One step out from each: what it names, and what names it. */
+	NSArray *first = [affected copy];
+	for (ORMElement *element in first) {
+		NSMutableArray *related = [NSMutableArray array];
+		if ([element isKindOfClass:[ORMObjectType class]]) {
+			ORMObjectType *type = (ORMObjectType *)element;
+			for (ORMRole *role in type.playedRoles) {
+				[related addObject:role.factType ?: (id)[NSNull null]];
+			}
+			[related addObject:type.preferredIdentifier ?: (id)[NSNull null]];
+			[related addObject:type.nestedFactType ?: (id)[NSNull null]];
+		} else if ([element isKindOfClass:[ORMFactType class]]) {
+			ORMFactType *fact = (ORMFactType *)element;
+			for (ORMRole *role in fact.roles) {
+				[related addObject:role.player ?: (id)[NSNull null]];
+			}
+			[related addObjectsFromArray:fact.internalConstraints ?: @[]];
+			[related addObject:fact.objectifyingType ?: (id)[NSNull null]];
+			/* A link fact type's role reckons with the role it stands for. */
+			[related addObjectsFromArray:fact.linkFactTypes ?: @[]];
+		} else if ([element isKindOfClass:[ORMConstraint class]]) {
+			ORMConstraint *constraint = (ORMConstraint *)element;
+			for (ORMRole *role in [constraint allRoles]) {
+				[related addObject:role.factType ?: (id)[NSNull null]];
+				for (ORMRole *proxy in role.proxies) {
+					[related addObject:proxy.factType ?: (id)[NSNull null]];
+				}
+			}
+			[related addObject:constraint.preferredIdentifierFor ?: (id)[NSNull null]];
+		}
+		for (id other in related) {
+			if (other != [NSNull null] && ![seen containsObject:[NSValue valueWithNonretainedObject:other]]) {
+				[seen addObject:[NSValue valueWithNonretainedObject:other]];
+				[affected addObject:other];
+			}
+		}
+	}
+	return affected;
+}
+
+- (void)deleted:(ORMElement *)element
+{
+	if (element != nil && [_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
+		[_deleted addObject:element];
+	}
+}
+
 - (void)group:(NSString *)name with:(void (^)(void))operations
 {
-	[self change:name with:operations];
+	[self apply:name rollback:NO with:^BOOL {
+		operations();
+		return YES;
+	}];
 }
 
 - (BOOL)group:(NSString *)name trying:(BOOL (^)(void))operations
@@ -249,15 +659,24 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	return [self apply:name rollback:YES with:operations];
 }
 
-/* Undo and redo alike: the document and whether it had changes, swapped
- * for the ones now. */
-- (void)restore:(NSArray *)state
+/* Undo and redo alike: the elements the change touched put back, and
+ * whether the document had changes; the journal that does it again kept
+ * for the other. In tests, the document is then the bytes it was. */
+- (void)restoreJournal:(NSArray *)state
 {
-	[_undoManager registerUndoWithTarget:self selector:@selector(restore:)
-	                              object:@[ ORMCopyDocument(_document), @(_hasChanges) ]];
-	_document = [state objectAtIndex:0];
+	NSData *now = ORMChecksAgreement ? ORMDataOfDocument(_document) : nil;
+	ORMXMLJournal *again = [[state objectAtIndex:0] restore];
+	[_undoManager registerUndoWithTarget:self selector:@selector(restoreJournal:)
+	                              object:@[ again, @(_hasChanges), now ?: (id)[NSNull null] ]];
 	_hasChanges = [[state objectAtIndex:1] boolValue];
+	id expected = [state objectAtIndex:2];
+	if (ORMChecksAgreement && expected != [NSNull null] && ![ORMDataOfDocument(_document) isEqualToData:expected]) {
+		[NSException raise:NSInternalInconsistencyException
+		            format:@"Undone or done again, the document is not what it was: %@",
+		                   ORMFirstDifference(expected, ORMDataOfDocument(_document))];
+	}
 	[self reread];
+	[self checkAgreement];
 	if (self.changed != nil) {
 		self.changed();
 	}
@@ -275,7 +694,7 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	NSXMLElement *root = [copy rootElement];
 	for (NSXMLNode *child in [[root children] copy]) {
 		if ([child kind] == NSXMLElementKind && [generated containsObject:[child URI]]) {
-			[child detach];
+			ORMDetach(child);
 		}
 	}
 	/* The settings that point at what was dropped. */
@@ -283,7 +702,7 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 		for (NSXMLElement *settings in ORMChildren(state, CORE, @"GenerationSettings")) {
 			for (NSXMLNode *setting in [[settings children] copy]) {
 				if ([generated containsObject:[setting URI]]) {
-					[setting detach];
+					ORMDetach(setting);
 				}
 			}
 			ORMPruneIfEmpty(settings);
@@ -291,7 +710,7 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 		ORMPruneIfEmpty(state);
 	}
 	/* NORMA checks the model as it opens it and lists what it finds. */
-	[ORMChild(ORMModelElementOfDocument(copy), CORE, @"ModelErrors") detach];
+	ORMDetach(ORMChild(ORMModelElementOfDocument(copy), CORE, @"ModelErrors"));
 	return copy;
 }
 
@@ -306,7 +725,7 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	NSXMLElement *root = [copy rootElement];
 	for (NSString *uri in ORMKitNamespaces()) {
 		for (NSXMLElement *element in ORMDescendants(root, uri, nil)) {
-			[element detach];
+			ORMDetach(element);
 		}
 	}
 	for (NSXMLNode *namespace in [[root namespaces] copy]) {
@@ -319,29 +738,18 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 
 #pragma mark Shared
 
-- (NSXMLElement *)xml:(NSString *)elementId
-{
-	if (elementId == nil) {
-		return nil;
-	}
-	ORMElement *projected = [_model elementWithId:elementId];
-	NSXMLElement *element = projected.element;
-	if (element != nil && [element rootDocument] == _document) {
-		return element;
-	}
-	return ORMElementWithId(_document, elementId);
-}
-
-- (NSXMLElement *)section:(NSString *)local
-{
-	return ORMEnsureChild(_document, ORMModelElementOfDocument(_document), CORE, local);
-}
-
 - (NSString *)nextName:(NSString *)prefix
 {
+	/* The model's names, and those of what the change being made took out
+	 * of it: the document's until it is written. */
+	NSMutableArray *names = [NSMutableArray arrayWithArray:[_model.removedNames allObjects] ?: @[]];
+	for (ORMElement *element in [[_model valueForKey:@"elementsById"] allValues]) {
+		if (element.name != nil) {
+			[names addObject:element.name];
+		}
+	}
 	NSUInteger highest = 0;
-	for (NSXMLElement *element in ORMDescendants(ORMModelElementOfDocument(_document), CORE, nil)) {
-		NSString *name = ORMAttribute(element, @"Name");
+	for (NSString *name in names) {
 		if ([name hasPrefix:prefix]) {
 			NSString *rest = [name substringFromIndex:[prefix length]];
 			NSInteger number = [rest integerValue];
@@ -355,35 +763,15 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 
 - (NSString *)uniqueObjectTypeName:(NSString *)name
 {
-	NSMutableSet *taken = [NSMutableSet set];
-	for (NSXMLNode *node in [ORMChild(ORMModelElementOfDocument(_document), CORE, @"Objects") children]) {
-		if ([node kind] == NSXMLElementKind) {
-			NSString *existing = ORMAttribute((NSXMLElement *)node, @"Name");
-			if (existing != nil) {
-				[taken addObject:existing];
-			}
-		}
-	}
-	if (![taken containsObject:name]) {
+	if ([self.model objectTypeNamed:name] == nil) {
 		return name;
 	}
 	for (NSUInteger i = 2;; i++) {
 		NSString *candidate = [NSString stringWithFormat:@"%@%lu", name, (unsigned long)i];
-		if (![taken containsObject:candidate]) {
+		if ([self.model objectTypeNamed:candidate] == nil) {
 			return candidate;
 		}
 	}
-}
-
-- (NSString *)dataTypeIdNamed:(NSString *)typeName
-{
-	NSXMLElement *types = [self section:@"DataTypes"];
-	for (NSXMLElement *type in ORMChildren(types, CORE, typeName)) {
-		return ORMAttribute(type, @"id");
-	}
-	NSXMLElement *type = ORMNewElementWithId(_document, CORE, typeName, nil);
-	[types addChild:type];
-	return ORMAttribute(type, @"id");
 }
 
 - (NSArray<ORMRole *> *)rolesWithIds:(NSArray<NSString *> *)roleIds reason:(NSString **)reason
@@ -412,26 +800,6 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 		return nil;
 	}
 	return roles;
-}
-
-- (NSXMLElement *)newRoleSequence:(NSArray<NSString *> *)roleIds withId:(BOOL)withId
-{
-	NSXMLElement *sequence = withId ? ORMNewElementWithId(_document, CORE, @"RoleSequence", nil)
-	                                : ORMNewElement(_document, CORE, @"RoleSequence");
-	for (NSString *roleId in roleIds) {
-		NSXMLElement *role = ORMNewElementWithId(_document, CORE, @"Role", nil);
-		ORMSetAttribute(role, @"ref", roleId);
-		[sequence addChild:role];
-	}
-	return sequence;
-}
-
-- (NSXMLElement *)newConstraint:(NSString *)local named:(NSString *)prefix
-{
-	NSXMLElement *constraint = ORMNewElementWithId(_document, CORE, local, nil);
-	ORMSetAttribute(constraint, @"Name", [self nextName:prefix]);
-	[[self section:@"Constraints"] addChild:constraint];
-	return constraint;
 }
 
 @end

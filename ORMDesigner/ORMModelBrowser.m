@@ -92,7 +92,7 @@ ORMConstraintTitle(ORMConstraint *constraint)
 	}
 	ORMBrowserItem *facts = ORMItem(@"Fact Types", nil);
 	for (ORMFactType *fact in [model ordinaryFactTypes]) {
-		NSString *title = [[fact primaryReading] expandedText] ?: fact.name;
+		NSString *title = [fact displayText];
 		[facts.children addObject:ORMItem(title, fact.identifier)];
 	}
 	ORMBrowserItem *constraints = ORMItem(@"External Constraints", nil);

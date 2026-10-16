@@ -31,18 +31,71 @@ ORMGeneratedNamespaces(void)
 
 #pragma mark Reading
 
+NSCharacterSet *
+ORMNonAlphanumericCharacters(void)
+{
+	static NSCharacterSet *set;
+	@synchronized([NSCharacterSet class]) {
+		if (set == nil) {
+			set = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+		}
+		return set;
+	}
+}
+
+NSCharacterSet *
+ORMNonWhitespaceCharacters(void)
+{
+	static NSCharacterSet *set;
+	@synchronized([NSCharacterSet class]) {
+		if (set == nil) {
+			set = [[NSCharacterSet whitespaceCharacterSet] invertedSet];
+		}
+		return set;
+	}
+}
+
+NSCharacterSet *
+ORMNonLetterCharacters(void)
+{
+	static NSCharacterSet *set;
+	@synchronized([NSCharacterSet class]) {
+		if (set == nil) {
+			set = [[NSCharacterSet letterCharacterSet] invertedSet];
+		}
+		return set;
+	}
+}
+
+BOOL
+ORMIsWhitespace(unichar c)
+{
+	return (c >= 0x09 && c <= 0x0D) || c == ' ' || c == 0x85 || c == 0xA0 || c == 0x1680 || (c >= 0x2000 && c <= 0x200A)
+	       || c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000;
+}
+
 BOOL
 ORMIs(NSXMLNode *node, NSString *uri, NSString *local)
 {
-	return [node kind] == NSXMLElementKind && [[node URI] isEqualToString:uri]
-		&& (local == nil || [[node localName] isEqualToString:local]);
+	/* The name first: it tells most elements apart, and on GNUstep each
+	 * of -localName and -URI makes a new string of libxml2's. */
+	return [node kind] == NSXMLElementKind && (local == nil || [[node localName] isEqualToString:local])
+		&& [[node URI] isEqualToString:uri];
+}
+
+/* The element's first child, then each one's next: what -children lists,
+ * without the array GNUstep makes for each call. */
+static NSXMLNode *
+ORMFirstChild(NSXMLNode *element)
+{
+	return [element childCount] > 0 ? [element childAtIndex:0] : nil;
 }
 
 NSArray<NSXMLElement *> *
 ORMChildren(NSXMLElement *element, NSString *uri, NSString *local)
 {
 	NSMutableArray *found = [NSMutableArray array];
-	for (NSXMLNode *child in [element children]) {
+	for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 		if (ORMIs(child, uri, local)) {
 			[found addObject:child];
 		}
@@ -53,7 +106,7 @@ ORMChildren(NSXMLElement *element, NSString *uri, NSString *local)
 NSXMLElement *
 ORMChild(NSXMLElement *element, NSString *uri, NSString *local)
 {
-	for (NSXMLNode *child in [element children]) {
+	for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 		if (ORMIs(child, uri, local)) {
 			return (NSXMLElement *)child;
 		}
@@ -74,7 +127,7 @@ ORMGrandchildren(NSXMLElement *element, NSString *uri, NSString *local, NSString
 static void
 ORMCollect(NSXMLElement *element, NSString *uri, NSString *local, NSMutableArray *found)
 {
-	for (NSXMLNode *child in [element children]) {
+	for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 		if ([child kind] != NSXMLElementKind) {
 			continue;
 		}
@@ -102,16 +155,21 @@ ORMAttribute(NSXMLElement *element, NSString *name)
 void
 ORMSetAttribute(NSXMLElement *element, NSString *name, NSString *value)
 {
+	NSXMLNode *attribute = [element attributeForName:name];
 	if (value == nil) {
-		[element removeAttributeForName:name];
+		if (attribute != nil) {
+			ORMWillChange(element);
+			[element removeAttributeForName:name];
+		}
 		return;
 	}
-	NSXMLNode *attribute = [element attributeForName:name];
 	if (attribute != nil) {
 		if (![[attribute stringValue] isEqualToString:value]) {
+			ORMWillChange(element);
 			[attribute setStringValue:value];
 		}
 	} else {
+		ORMWillChange(element);
 		[element addAttribute:[NSXMLNode attributeWithName:name stringValue:value]];
 	}
 }
@@ -165,6 +223,7 @@ ORMPrefix(NSXMLDocument *document, NSString *uri, BOOL declare)
 		return nil;
 	}
 	NSString *prefix = ORMUsualPrefix(uri);
+	ORMWillChange(root);
 	[root addNamespace:[NSXMLNode namespaceWithName:prefix stringValue:uri]];
 	return prefix;
 }
@@ -258,6 +317,7 @@ ORMInsertChild(NSXMLElement *parent, NSXMLElement *child)
 			}
 		}
 	}
+	ORMWillChange(parent);
 	[parent insertChild:child atIndex:index];
 }
 
@@ -284,12 +344,12 @@ NSXMLElement *
 ORMSetChildText(NSXMLDocument *document, NSXMLElement *parent, NSString *uri, NSString *local, NSString *text)
 {
 	if ([text length] == 0) {
-		[ORMChild(parent, uri, local) detach];
+		ORMDetach(ORMChild(parent, uri, local));
 		return nil;
 	}
 	NSXMLElement *child = ORMEnsureChild(document, parent, uri, local);
 	if (![[child stringValue] isEqualToString:text]) {
-		[child setStringValue:text];
+		ORMSetText(child, text);
 	}
 	return child;
 }
@@ -302,7 +362,7 @@ ORMPruneIfEmpty(NSXMLElement *element)
 			return;
 		}
 	}
-	[element detach];
+	ORMDetach(element);
 }
 
 #pragma mark Identifiers
@@ -326,7 +386,7 @@ ORMElementWithId(NSXMLDocument *document, NSString *elementId)
 		if ([ORMAttribute(element, @"id") isEqualToString:elementId]) {
 			return element;
 		}
-		for (NSXMLNode *child in [element children]) {
+		for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 			if ([child kind] == NSXMLElementKind) {
 				[pending addObject:child];
 			}
@@ -347,7 +407,7 @@ ORMIndexIds(NSXMLDocument *document)
 		if (elementId != nil) {
 			[index setObject:element forKey:elementId];
 		}
-		for (NSXMLNode *child in [element children]) {
+		for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 			if ([child kind] == NSXMLElementKind) {
 				[pending addObject:child];
 			}
@@ -479,7 +539,7 @@ ORMEscape(NSMutableString *out, NSString *text, BOOL attribute, NSString *newlin
 static BOOL
 ORMHasElementChildren(NSXMLElement *element)
 {
-	for (NSXMLNode *child in [element children]) {
+	for (NSXMLNode *child = ORMFirstChild(element); child != nil; child = [child nextSibling]) {
 		if ([child kind] == NSXMLElementKind) {
 			return YES;
 		}
@@ -746,3 +806,184 @@ ORMCopyLayout(NSXMLDocument *from, NSXMLDocument *to)
 		}
 	}
 }
+
+#pragma mark The journal
+
+/* An element as it was: its name, its attributes as name and value, the
+ * children it held. */
+@interface ORMXMLJournalEntry : NSObject
+@property (nonatomic, strong) NSXMLElement *element;
+@property (nonatomic, copy) NSString *name;
+@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *attributes;
+@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *namespaces;
+@property (nonatomic, copy) NSArray<NSXMLNode *> *children;
+@end
+
+@implementation ORMXMLJournalEntry
+@end
+
+static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
+
+@implementation ORMXMLJournal
+{
+	NSMutableArray<ORMXMLJournalEntry *> *_entries;
+	NSMutableSet<NSValue *> *_recorded;
+}
+
+- (instancetype)initWithDocument:(NSXMLDocument *)document
+{
+	if ((self = [super init])) {
+		_document = document;
+		_entries = [NSMutableArray array];
+		_recorded = [NSMutableSet set];
+	}
+	return self;
+}
+
+- (BOOL)isEmpty
+{
+	return [_entries count] == 0;
+}
+
+- (void)willChange:(NSXMLElement *)element
+{
+	NSValue *key = [NSValue valueWithNonretainedObject:element];
+	if (element == nil || [_recorded containsObject:key]) {
+		return;
+	}
+	[_recorded addObject:key];
+	ORMXMLJournalEntry *entry = [[ORMXMLJournalEntry alloc] init];
+	entry.element = element;
+	entry.name = [element name];
+	NSMutableArray *attributes = [NSMutableArray array];
+	for (NSXMLNode *attribute in [element attributes]) {
+		[attributes addObject:@[ [attribute name] ?: @"", [attribute stringValue] ?: @"" ]];
+	}
+	entry.attributes = attributes;
+	NSMutableArray *namespaces = [NSMutableArray array];
+	for (NSXMLNode *namespace in [element namespaces]) {
+		[namespaces addObject:@[ [namespace name] ?: @"", [namespace stringValue] ?: @"" ]];
+	}
+	entry.namespaces = namespaces;
+	entry.children = [[element children] copy] ?: @[];
+
+	[_entries addObject:entry];
+}
+
+- (ORMXMLJournal *)restore
+{
+	ORMXMLJournal *redo = [[ORMXMLJournal alloc] initWithDocument:_document];
+	for (ORMXMLJournalEntry *entry in _entries) {
+		[redo willChange:entry.element];
+	}
+	for (ORMXMLJournalEntry *entry in [_entries reverseObjectEnumerator]) {
+		NSXMLElement *element = entry.element;
+		if (![[element name] isEqualToString:entry.name]) {
+			[element setName:entry.name];
+		}
+		for (NSXMLNode *attribute in [[element attributes] copy]) {
+			[element removeAttributeForName:[attribute name]];
+		}
+		for (NSArray *pair in entry.attributes) {
+			[element addAttribute:[NSXMLNode attributeWithName:[pair firstObject] stringValue:[pair lastObject]]];
+		}
+	}
+	/* Every child let go of first: one may go back to another parent. */
+	for (ORMXMLJournalEntry *entry in _entries) {
+		for (NSXMLNode *child in [[entry.element children] copy]) {
+			[child detach];
+		}
+	}
+	for (ORMXMLJournalEntry *entry in _entries) {
+		for (NSXMLNode *child in entry.children) {
+			if ([child parent] != nil) {
+				[child detach];
+			}
+			[entry.element addChild:child];
+		}
+	}
+	/* Namespaces declared since (a namespace first used) go, once what
+	 * used them is gone. */
+	for (ORMXMLJournalEntry *entry in _entries) {
+		NSMutableSet *declared = [NSMutableSet set];
+		for (NSArray *pair in entry.namespaces) {
+			[declared addObject:[pair firstObject]];
+		}
+		for (NSXMLNode *namespace in [[entry.element namespaces] copy]) {
+			if (![declared containsObject:[namespace name] ?: @""]) {
+				[entry.element removeNamespaceForPrefix:[namespace name]];
+			}
+		}
+	}
+	return redo;
+}
+
+@end
+
+void
+ORMOpenJournal(ORMXMLJournal *journal)
+{
+	if (ORMOpenJournals == nil) {
+		ORMOpenJournals = [NSMutableArray array];
+	}
+	[ORMOpenJournals addObject:journal];
+}
+
+void
+ORMCloseJournal(ORMXMLJournal *journal)
+{
+	[ORMOpenJournals removeObjectIdenticalTo:journal];
+}
+
+void
+ORMWillChange(NSXMLNode *node)
+{
+	if ([ORMOpenJournals count] == 0 || [node kind] != NSXMLElementKind) {
+		return;
+	}
+	NSXMLDocument *document = [node rootDocument];
+	for (ORMXMLJournal *journal in ORMOpenJournals) {
+		if (document != nil && journal.document == document) {
+			[journal willChange:(NSXMLElement *)node];
+		}
+	}
+}
+
+void
+ORMAddChild(NSXMLElement *parent, NSXMLNode *child)
+{
+	ORMWillChange(parent);
+	[parent addChild:child];
+}
+
+void
+ORMInsertChildAt(NSXMLElement *parent, NSXMLNode *child, NSUInteger index)
+{
+	ORMWillChange(parent);
+	[parent insertChild:child atIndex:index];
+}
+
+void
+ORMDetach(NSXMLNode *node)
+{
+	if (node == nil) {
+		return;
+	}
+	ORMWillChange([node parent]);
+	[node detach];
+}
+
+void
+ORMSetText(NSXMLElement *element, NSString *text)
+{
+	ORMWillChange(element);
+	[element setStringValue:text];
+}
+
+void
+ORMRename(NSXMLElement *element, NSString *name)
+{
+	ORMWillChange(element);
+	[element setName:name];
+}
+

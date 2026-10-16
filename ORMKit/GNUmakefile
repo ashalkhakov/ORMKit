@@ -25,6 +25,7 @@ ORMKit_HEADER_FILES = \
   ORMReadingText.h \
   ORMValueConstraintParser.h \
   ORMEditor.h \
+  ORMNormaWriter.h \
   ORMObjectTypeEditor.h \
   ORMFactTypeEditor.h \
   ORMConstraintEditor.h \
@@ -68,6 +69,7 @@ ORMKit_OBJC_FILES = \
   ORMValueConstraintParser.m \
   ORMEditor.m \
   ORMNormalizer.m \
+  ORMNormaWriter.m \
   ORMObjectTypeEditor.m \
   ORMFactTypeEditor.m \
   ORMConstraintEditor.m \

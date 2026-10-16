@@ -222,7 +222,7 @@ main(int argc, const char *argv[])
 		if ([command isEqualToString:@"coredata"] && [args count] >= 3) {
 			/* The named mapping the model keeps, or the defaults. */
 			ORMCoreDataMapping *mapping = nil;
-			for (ORMCoreDataMapping *each in [ORMCoreDataMapping mappingsOfDocument:editor.document]) {
+			for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
 				if ([args count] < 4 || [each.name isEqualToString:[args objectAtIndex:3]]) {
 					mapping = each;
 					break;
@@ -256,7 +256,7 @@ main(int argc, const char *argv[])
 		}
 		if ([command isEqualToString:@"validation"] && [args count] >= 3) {
 			ORMCoreDataMapping *mapping = nil;
-			for (ORMCoreDataMapping *each in [ORMCoreDataMapping mappingsOfDocument:editor.document]) {
+			for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
 				if ([args count] < 4 || [each.name isEqualToString:[args objectAtIndex:3]]) {
 					mapping = each;
 					break;
@@ -278,7 +278,7 @@ main(int argc, const char *argv[])
 		}
 		if ([command isEqualToString:@"query"]) {
 			ORMCoreDataMapping *mapping = nil;
-			for (ORMCoreDataMapping *each in [ORMCoreDataMapping mappingsOfDocument:editor.document]) {
+			for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
 				if ([args count] < 4 || [each.name isEqualToString:[args objectAtIndex:3]]) {
 					mapping = each;
 					break;

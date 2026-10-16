@@ -13,6 +13,7 @@ ORMKitTests_OBJC_FILES = \
   ORMModelTests.m \
   ORMTextTests.m \
   ORMEditorTests.m \
+  ORMWriterTests.m \
   ORMLogicTests.m \
   ORMConstraintSentenceTests.m \
   ORMSVGTests.m \

@@ -1,4 +1,5 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
+#import "ORMXML.h"
 #import "ORMFactSentence.h"
 #import "ORMSentenceEditor.h"
 #import "ORMReadingText.h"
@@ -155,7 +156,7 @@ ORMParseReading(NSString *text, NSArray<NSString *> *known)
 		}
 		return nil;
 	}
-	NSString *words = [[first.text componentsSeparatedByCharactersInSet:[[NSCharacterSet letterCharacterSet] invertedSet]]
+	NSString *words = [[first.text componentsSeparatedByCharactersInSet:ORMNonLetterCharacters()]
 		componentsJoinedByString:@""];
 	if ([words length] == 0) {
 		if (reason != NULL) {

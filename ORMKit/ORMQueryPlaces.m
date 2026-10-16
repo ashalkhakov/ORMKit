@@ -152,11 +152,9 @@
 
 - (ORMCDAttribute *)identifierOf:(ORMObjectType *)type on:(ORMCDEntity *)entity
 {
-	for (ORMRole *role in type.referenceModeFactType.roles) {
-		if (role.player == type.referenceModeValueType) {
-			ORMCDProperty *property = [self propertyOf:entity source:role.identifier];
-			return [property isKindOfClass:[ORMCDAttribute class]] ? (ORMCDAttribute *)property : nil;
-		}
+	if (type.referenceModeRole != nil) {
+		ORMCDProperty *property = [self propertyOf:entity source:type.referenceModeRole.identifier];
+		return [property isKindOfClass:[ORMCDAttribute class]] ? (ORMCDAttribute *)property : nil;
 	}
 	/* A subtype is identified as its supertype is. */
 	if (type.preferredIdentifier == nil) {
@@ -175,10 +173,7 @@
 	if (type == nil || entity == nil || [self identifierOf:type on:entity] != nil) {
 		return nil;
 	}
-	ORMObjectType *identified = type;
-	while (identified.preferredIdentifier == nil && [identified.supertypes count] > 0) {
-		identified = [identified identifyingSupertype];
-	}
+	ORMObjectType *identified = [type identifiedType];
 	NSArray *roles = [identified.preferredIdentifier allRoles];
 	if ([roles count] == 0) {
 		return nil;

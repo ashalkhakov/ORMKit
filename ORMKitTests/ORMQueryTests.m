@@ -222,10 +222,33 @@
 	[super tearDown];
 }
 
+/* The company model every test starts from, built once: each test gets
+ * a copy of its document, and the roles of its fact types by name. Built
+ * edit by edit it takes a while, every edit reading the model again. */
+static NSXMLDocument *ORMCompanyDocument;
+static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
+
 - (void)setUp
 {
 	[super setUp];
+	if (ORMCompanyDocument != nil) {
+		_editor = [self newEditorWithDocument:ORMCopyDocument(ORMCompanyDocument)];
+		_diagram = [[_editor.model.diagrams firstObject] identifier];
+		_facts = [ORMCompanyFacts mutableCopy];
+		return;
+	}
 	_editor = [self newEditor];
+	[self buildCompany];
+	ORMCompanyDocument = ORMCopyDocument(_editor.document);
+	ORMCompanyFacts = [_facts copy];
+	/* As every other test starts: from the model as it is, nothing to undo. */
+	_editor = [self newEditorWithDocument:ORMCopyDocument(ORMCompanyDocument)];
+	_diagram = [[_editor.model.diagrams firstObject] identifier];
+}
+
+/* Figure 1 of ConQuer-II's paper, and what the tests add to it. */
+- (void)buildCompany
+{
 	_diagram = [[_editor.model.diagrams firstObject] identifier];
 	_facts = [NSMutableDictionary dictionary];
 	NSString *employee = [self entity:@"Employee" mode:@"nr" numeric:YES];
@@ -374,13 +397,13 @@
  * employees and branches. */
 - (ORMCoreDataMapping *)mapping
 {
-	ORMCoreDataMapping *found = [[ORMCoreDataMapping mappingsOfDocument:_editor.document] firstObject];
+	ORMCoreDataMapping *found = [_editor.model.coreDataMappings firstObject];
 	if (found != nil) {
 		return found;
 	}
 	NSString *mapping = [[[ORMMappingEditor alloc] initWithEditor:_editor] addCoreDataMappingNamed:@"Company" path:@"Company.xcdatamodeld"];
 	[[[ORMMappingEditor alloc] initWithEditor:_editor] setMapping:ORMMapAsEntity ofObjectType:[self typeId:@"City"] inMapping:mapping];
-	return [ORMCoreDataMapping mappingWithId:mapping inDocument:_editor.document];
+	return [_editor.model coreDataMappingWithId:mapping];
 }
 
 /* What the interpreter does to run the query's plan, to read. */

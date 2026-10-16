@@ -38,6 +38,10 @@ mapping's treatment of identity and of many-to-many fact types.
 | Text data type length | `maxValueString` (Core Data's string bounds are lengths) |
 | Ring, exclusion, subset, equality, value comparison, frequency over several roles, deontic rules | not expressible: kept on the entity as `userInfo` entries holding their FORML verbalization, and listed in the mapping's report as unenforced |
 
+Only alethic constraints shape the store. A deontic one is for the app to
+check: a deontically mandatory role maps as optional, a deontically unique
+one as to-many, and the rule is kept and listed with the unenforced ones.
+
 A value type that plays a role of its own (a unary about the value, "Some
 String is long", or a fact type functional on the value with another
 value at the far end) is an entity keyed by the value, a unique `value`

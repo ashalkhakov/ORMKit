@@ -1,25 +1,29 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <Foundation/Foundation.h>
 
-/* An ORM2 model as NORMA saves it, read from the XML into objects.
- *
- * The NSXMLDocument is the model; these objects are a projection of it,
- * rebuilt after every change (ORMEditor does that), and never changed in
- * place. Each holds the element it was read from. Their links to one
- * another are weak and the ORMModel holds them all, so keep the model
- * alive while you use what it gave you. */
+/* An ORM2 model: its object types, fact types, constraints, diagrams,
+ * populations, queries and Core Data mappings, as objects (docs/MODEL.md).
+ * It is read once from NORMA's .orm XML when a file is opened, changed
+ * only through ORMEditor, which records the undo, and written back into
+ * the document by ORMNormaWriter; nothing else reads or writes the XML.
+ * The objects' links to one another are weak and the ORMModel holds them
+ * all, so keep the model alive while you use what it gave you. */
 
+@class ORMReadingText;
 @class ORMModel, ORMObjectType, ORMFactType, ORMRole, ORMReadingOrder, ORMReading, ORMConstraint, ORMRoleSequence,
-	ORMValueConstraint, ORMDataType, ORMModelNote, ORMDiagram;
+	ORMValueConstraint, ORMDataType, ORMModelNote, ORMDiagram, ORMCoreDataMapping;
 
-/* What every projected element has. */
+/* What every element has. */
 @interface ORMElement : NSObject
-@property (nonatomic, readonly, strong) NSXMLElement *element;
 @property (nonatomic, readonly, copy) NSString *identifier;
 @property (nonatomic, readonly, weak) ORMModel *model;
 /* What the element is called in the model; NORMA names constraints
  * (InternalUniquenessConstraint1) and the fact types it derives a name for. */
 @property (nonatomic, readonly, copy) NSString *name;
+/* Free text: NORMA's Definition and Note, of an object type or a fact
+ * type; nil where there is none. */
+@property (nonatomic, readonly, copy) NSString *definitionText;
+@property (nonatomic, readonly, copy) NSString *noteText;
 @end
 
 #pragma mark Object types
@@ -46,6 +50,8 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 
 @interface ORMObjectType : ORMElement
 @property (nonatomic, readonly) ORMObjectTypeKind kind;
+/* A value type's default value, as NORMA keeps it; nil for none. */
+@property (nonatomic, readonly, copy) NSString *defaultValue;
 @property (nonatomic, readonly) BOOL isEntity;
 @property (nonatomic, readonly) BOOL isIndependent;
 @property (nonatomic, readonly) BOOL isExternal;
@@ -74,8 +80,14 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 @property (nonatomic, readonly) ORMReferenceModeKind referenceModeKind;
 /* The value type that holds the reference mode's values. */
 @property (nonatomic, readonly, weak) ORMObjectType *referenceModeValueType;
+/* The value type that holds its values: itself for a value type, its
+ * reference mode's for an entity type that has one; nil otherwise. */
+- (ORMObjectType *)valueType;
 /* The binary fact type the reference mode abbreviates. */
 @property (nonatomic, readonly, weak) ORMFactType *referenceModeFactType;
+/* The role the value type plays in it: what its preferred identifier
+ * spans. */
+@property (nonatomic, readonly, weak) ORMRole *referenceModeRole;
 
 /* For a value type: its conceptual data type, and that type's length and
  * scale where they apply (0: none given). */
@@ -94,10 +106,11 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
  * one its preferred identification path goes to (NORMA's
  * PreferredIdentificationPath), else its first. nil without supertypes. */
 - (ORMObjectType *)identifyingSupertype;
+/* The type whose preferred identifier identifies it: itself, or the
+ * supertype it is identified as, up the identifying supertypes until one
+ * has an identifier. Itself for a value type. */
+- (ORMObjectType *)identifiedType;
 
-/* Free text: NORMA's Definition and Note. */
-@property (nonatomic, readonly, copy) NSString *definitionText;
-@property (nonatomic, readonly, copy) NSString *noteText;
 
 /* "Person(.id)", "Mass(kg:)", "Name": how a diagram labels it. */
 - (NSString *)displayName;
@@ -105,6 +118,15 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 - (BOOL)isSubtypeOf:(ORMObjectType *)supertype;
 /* Its supertypes, at any depth, nearest first. */
 - (NSArray<ORMObjectType *> *)allSupertypes;
+/* Whether it is the other, or one is the other's subtype at any depth:
+ * what set comparison and ring constraints ask of the players they span. */
+- (BOOL)isCompatibleWith:(ORMObjectType *)other;
+/* Its family: it, and the types subtyping relates it to at any depth, up
+ * and down, a sibling subtype too, in the model's order. */
+@property (nonatomic, readonly, copy) NSArray<ORMObjectType *> *family;
+/* Their names, longest first: what a sentence may call one of its roles'
+ * players (ORMConstraintSentence). */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *familyNames;
 @end
 
 #pragma mark Fact types
@@ -129,6 +151,12 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 @property (nonatomic, readonly, weak) ORMObjectType *objectifyingType;
 /* For a link fact type, the objectified fact type it is implied by. */
 @property (nonatomic, readonly, weak) ORMFactType *impliedByFactType;
+/* For an objectified fact type, the link fact types its objectification
+ * implies: those whose impliedByFactType it is. */
+@property (nonatomic, readonly, copy) NSArray<ORMFactType *> *linkFactTypes;
+/* Whether it is a link fact type: one of its roles stands for a role of
+ * the fact type objectified (proxiedRole). */
+- (BOOL)isLinkFactType;
 /* Derived or semiderived: NORMA keeps the rule; ORMKit keeps it as XML. */
 @property (nonatomic, readonly) BOOL isDerived;
 /* For a subtype fact: whether the subtype is identified through the
@@ -141,11 +169,30 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 /* The roles a reader sees: without a unary's implicit boolean role. */
 - (NSArray<ORMRole *> *)visibleRoles;
 - (BOOL)isUnary;
+/* A unary's reading with its player's name: what names its implicit
+ * boolean type. nil for another fact type. */
+- (NSString *)unaryReading;
+/* Two roles a reader sees. */
+- (BOOL)isBinary;
+/* A unary's implicit boolean role, the one NORMA stores beside its own;
+ * nil for any other fact type. */
+- (ORMRole *)implicitRole;
+/* A subtype fact's subtype and supertype (its first and second roles'
+ * players); nil for any other fact type. */
+- (ORMObjectType *)subtype;
+- (ORMObjectType *)supertype;
 /* The first reading of the first reading order: what NORMA shows. */
 - (ORMReading *)primaryReading;
+/* "Person was born in Country": its primary reading with the players'
+ * names, or its name where it has no reading. What lists and messages call
+ * it, as ORMObjectType's displayName. Made once. */
+- (NSString *)displayText;
 /* A reading starting at the role, and the order it reads the roles in;
  * nil when the fact type has none. */
 - (ORMReadingOrder *)readingOrderStartingWithRole:(ORMRole *)role;
+/* The reading to say it from the role: the first of an order starting
+ * with the role, else its primary reading; nil where it has none. */
+- (ORMReading *)readingFromRole:(ORMRole *)role;
 /* A reading order whose roles are exactly these in this order, or nil. */
 - (ORMReadingOrder *)readingOrderForRoles:(NSArray<ORMRole *> *)roles;
 /* The internal uniqueness constraints. */
@@ -179,6 +226,10 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 @property (nonatomic, readonly) BOOL isMandatory;
 /* An internal uniqueness constraint covers exactly this role. */
 @property (nonatomic, readonly) BOOL isUnique;
+/* The same, of alethic constraints only: what must hold of every state, as
+ * stored data does. A deontic one is a rule for the app to check. */
+@property (nonatomic, readonly) BOOL isAlethicMandatory;
+@property (nonatomic, readonly) BOOL isAlethicUnique;
 @property (nonatomic, readonly, strong) ORMValueConstraint *valueConstraint;
 /* For a subtype fact's roles. */
 @property (nonatomic, readonly) BOOL isSubtypeMetaRole;
@@ -186,10 +237,15 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 /* For a link fact type's role: the role of the objectified fact type it
  * stands for (NORMA's RoleProxy). */
 @property (nonatomic, readonly, weak) ORMRole *proxiedRole;
+/* For a role of an objectified fact type: the link fact types' roles
+ * that stand for it, those whose proxiedRole it is. */
+@property (nonatomic, readonly, copy) NSArray<ORMRole *> *proxies;
 /* Every constraint that has the role in one of its sequences. */
 @property (nonatomic, readonly, copy) NSArray<ORMConstraint *> *constraints;
 
-/* The other role of a binary fact type; nil otherwise. */
+/* The other of the fact type's two roles; nil where it has not two. A
+ * unary's role has the implicit boolean role opposite it, which NORMA
+ * stores; -[ORMFactType isBinary] tells a binary fact type apart. */
 - (ORMRole *)oppositeRole;
 /* NORMA's _Multiplicity: what the constraints on the opposite role say
  * about how many of this role's players each opposite player meets. */
@@ -200,6 +256,9 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 @property (nonatomic, readonly, weak) ORMFactType *factType;
 /* The roles in the order its readings place them: {0} is the first. */
 @property (nonatomic, readonly, copy) NSArray<ORMRole *> *roles;
+/* The refs the file names that are no role of the model's ("" for a
+ * Role with none): not in roles, and kept in the file. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *unresolvedRoleIds;
 @property (nonatomic, readonly, copy) NSArray<ORMReading *> *readings;
 @end
 
@@ -207,6 +266,14 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 @property (nonatomic, readonly, weak) ORMReadingOrder *readingOrder;
 /* As NORMA keeps it: "{0} was born in {1}". */
 @property (nonatomic, readonly, copy) NSString *text;
+/* Its own words, its placeholders left out: was, born, in. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *words;
+/* Its text parsed: what comes before each placeholder and binds to it
+ * (ORMReadingText); nil where it does not parse. */
+@property (nonatomic, readonly, strong) ORMReadingText *parsedText;
+/* Whether it reads from its order's first role: "{0} was born in {1}",
+ * nothing before the first placeholder, which is {0}. */
+- (BOOL)readsFromFirstRole;
 /* The reading with each placeholder replaced by its role player's name:
  * "Person was born in Country". */
 - (NSString *)expandedText;
@@ -250,6 +317,11 @@ typedef NS_ENUM(NSInteger, ORMModality) {
  * with the join path NORMA may keep for it left in the XML. */
 @interface ORMRoleSequence : ORMElement
 @property (nonatomic, readonly, copy) NSArray<ORMRole *> *roles;
+/* The ids of the sequence's role uses (<orm:Role id ref/>), one a role:
+ * what a join path's projections name. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *roleUseIds;
+/* As a reading order's. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *unresolvedRoleIds;
 /* NORMA keeps a join path for a sequence whose roles are not in one fact
  * type; ORMKit reads that it has one, not what it says. */
 @property (nonatomic, readonly) BOOL hasJoinPath;
@@ -356,7 +428,7 @@ typedef NS_ENUM(NSInteger, ORMDataTypeFamily) {
 #pragma mark The model
 
 @interface ORMModel : NSObject
-/* The projection of a document; nil with why when it holds no ORM model. */
+/* The model a document holds, read; nil with why when it holds none. */
 + (instancetype)modelOfDocument:(NSXMLDocument *)document reason:(NSString **)reason;
 
 @property (nonatomic, readonly, strong) NSXMLDocument *document;
@@ -373,8 +445,11 @@ typedef NS_ENUM(NSInteger, ORMDataTypeFamily) {
 @property (nonatomic, readonly, copy) NSArray<ORMDataType *> *dataTypes;
 @property (nonatomic, readonly, copy) NSArray<ORMModelNote *> *notes;
 @property (nonatomic, readonly, copy) NSArray<ORMDiagram *> *diagrams;
+/* The Core Data mappings the document keeps (ORMCoreDataMapping.h). */
+@property (nonatomic, readonly, copy) NSArray<ORMCoreDataMapping *> *coreDataMappings;
+- (ORMCoreDataMapping *)coreDataMappingWithId:(NSString *)identifier;
 
-/* Any projected element by id: object types, fact types, roles, readings,
+/* Any element by id: object types, fact types, roles, readings,
  * constraints, shapes. */
 - (id)elementWithId:(NSString *)identifier;
 - (ORMObjectType *)objectTypeNamed:(NSString *)name;

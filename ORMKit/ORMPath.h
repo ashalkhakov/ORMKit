@@ -136,10 +136,23 @@ typedef NS_ENUM(NSInteger, ORMPathSourceKind) {
 - (NSString *)displayText;
 @end
 
+/* A role an instance plays in the sample population: NORMA's element under
+ * the role, with an id of its own, which an entity instance's
+ * identification or a fact names. */
+@interface ORMRoleInstance : ORMElement
+@property (nonatomic, readonly, weak) ORMRole *role;
+/* The instance playing the role; nil where the file names none the model
+ * has. */
+- (ORMInstance *)instance;
+@end
+
 @interface ORMFactInstance : ORMElement
 @property (nonatomic, readonly, weak) ORMFactType *factType;
 /* The instance playing each role, by role id. */
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMInstance *> *instancesByRole;
+/* A unary fact NORMA keeps on its player, as the instance's: no element
+ * of its own, to be removed by itself. */
+@property (nonatomic, readonly) BOOL isKeptOnPlayer;
 @end
 
 /* Cardinality: how many instances there may be. */
@@ -151,9 +164,6 @@ typedef NS_ENUM(NSInteger, ORMPathSourceKind) {
 @interface ORMRoleSequence (ORMPaths)
 /* NORMA's join path for a sequence over several fact types; nil without. */
 - (ORMRolePathOwner *)joinPath;
-/* The ids of the sequence's role uses (<orm:Role id ref/>), one a role:
- * what a join path's projections name. */
-- (NSArray<NSString *> *)roleUseIds;
 @end
 
 @interface ORMFactType (ORMPaths)
@@ -166,7 +176,6 @@ typedef NS_ENUM(NSInteger, ORMPathSourceKind) {
 - (ORMDerivationRule *)derivationRule;
 - (NSArray<ORMInstance *> *)instances;
 - (ORMCardinality *)cardinality;
-- (NSString *)defaultValue;
 @end
 
 @interface ORMRole (ORMPaths)

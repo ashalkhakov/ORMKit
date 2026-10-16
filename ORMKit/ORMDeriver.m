@@ -176,8 +176,7 @@ ORMRowValueIs(id value, ORMInstance *instance)
 
 - (instancetype)initWithModel:(ORMModel *)model
 {
-	NSXMLDocument *document = [model.modelElement rootDocument];
-	ORMCoreDataMapping *mapping = document != nil ? [[ORMCoreDataMapping mappingsOfDocument:document] firstObject] : nil;
+	ORMCoreDataMapping *mapping = [model.coreDataMappings firstObject];
 	return [self initWithModel:model mapping:mapping];
 }
 
@@ -237,7 +236,7 @@ ORMRowValueIs(id value, ORMInstance *instance)
 		if ([plan.columns count] != [roles count] || [at count] != [roles count]) {
 			[self note:query text:[NSString stringWithFormat:@"it lists %lu, and \"%@\" has %lu roles.",
 			                                                 (unsigned long)[plan.columns count],
-			                                                 [[fact primaryReading] expandedText] ?: fact.name,
+			                                                 [fact displayText],
 			                                                 (unsigned long)[roles count]]];
 			continue;
 		}

@@ -1,6 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMModelPriv.h"
 #import "ORMXML.h"
+#import "ORMReadingText.h"
+#import <objc/runtime.h>
 
 #define CORE ORMCoreNamespace
 
@@ -23,6 +25,38 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 	return ORMChildText(first, CORE, @"Text");
 }
 
+/* Whether the list has the object itself; no list has nothing. */
+static BOOL
+ORMContains(NSArray *list, id object)
+{
+	return list != nil && [list indexOfObjectIdenticalTo:object] != NSNotFound;
+}
+
+/* How the elements keep their links both ways, through the model. */
+@interface ORMModel ()
+- (BOOL)holdsRole:(ORMRole *)role;
+- (void)linkRole:(ORMRole *)role;
+- (void)unlinkRole:(ORMRole *)role;
+- (NSArray<ORMRole *> *)rolesPlayedWith:(ORMRole *)role;
+- (void)linkConstraint:(ORMConstraint *)constraint;
+- (void)unlinkConstraint:(ORMConstraint *)constraint;
+- (void)relinkObjectifying:(ORMFactType *)fact;
+- (void)relinkIdentified:(ORMConstraint *)constraint;
+- (NSArray *)list:(NSArray *)list adding:(ORMElement *)element;
+- (NSArray *)referenceModeOf:(ORMObjectType *)type;
+- (ORMObjectType *)impliedOwnerOf:(ORMConstraint *)constraint;
+@end
+
+@interface ORMRole ()
+/* Whether it is played as the role it stands for is: a proxy with no
+ * player of its own. */
+- (BOOL)playsThroughProxy;
+@end
+
+@interface ORMReading ()
+- (void)parse;
+@end
+
 @implementation ORMElement
 
 - (instancetype)initWithElement:(NSXMLElement *)element model:(ORMModel *)model
@@ -36,6 +70,31 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 	return self;
 }
 
+- (instancetype)initWithModel:(ORMModel *)model
+{
+	if ((self = [super init])) {
+		_model = model;
+		_identifier = [ORMNewId() copy];
+		_name = @"";
+	}
+	return self;
+}
+
+- (void)reset
+{
+	_definitionText = nil;
+	_noteText = nil;
+}
+
+- (void)resetWithElement:(NSXMLElement *)element model:(ORMModel *)model
+{
+	[self reset];
+	_element = element;
+	_model = model;
+	_identifier = [ORMAttribute(element, @"id") copy];
+	_name = [(ORMAttribute(element, @"Name") ?: ORMAttribute(element, @"_Name")) copy] ?: @"";
+}
+
 - (NSString *)description
 {
 	return [NSString stringWithFormat:@"<%@ %@ %@>", NSStringFromClass([self class]), self.identifier, self.name];
@@ -45,13 +104,199 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 
 #pragma mark Object types
 
+/* Longer names first: one name that is the start of another (Person,
+ * PersonName) is tried after it. */
+static NSInteger
+ORMLongerFirst(NSString *a, NSString *b, void *context)
+{
+	(void)context;
+	return [a length] > [b length] ? NSOrderedAscending : [a length] < [b length] ? NSOrderedDescending : NSOrderedSame;
+}
+
 @implementation ORMObjectType
+
+- (void)reset
+{
+	[super reset];
+	_kind = ORMEntityType;
+	_defaultValue = nil;
+	_isIndependent = _isExternal = _isPersonal = _isImplied = _isImplicitBooleanValue = NO;
+	_playedRoles = nil;
+	_preferredIdentifier = nil;
+	_nestedFactType = nil;
+	_dataType = nil;
+	_dataTypeLength = _dataTypeScale = 0;
+	_ownValueConstraint = nil;
+	_savedReferenceMode = nil;
+	_objectificationId = nil;
+}
+
+- (void)setNestedFactType:(ORMFactType *)fact
+{
+	ORMFactType *was = _nestedFactType;
+	_nestedFactType = fact;
+	if ([self.model holds:self]) {
+		if (was.objectifyingType == self) {
+			[self.model relinkObjectifying:was];
+		}
+		fact.objectifyingType = self;
+	}
+}
+
+- (void)setPreferredIdentifier:(ORMConstraint *)identifier
+{
+	ORMConstraint *was = _preferredIdentifier;
+	_preferredIdentifier = identifier;
+	if ([self.model holds:self]) {
+		if (was.preferredIdentifierFor == self) {
+			[self.model relinkIdentified:was];
+		}
+		if (identifier.kind == ORMUniquenessConstraint) {
+			identifier.preferredIdentifierFor = self;
+		}
+	}
+}
+
+- (void)setOwnValueConstraint:(ORMValueConstraint *)values
+{
+	_ownValueConstraint = values;
+	values.owner = self;
+}
+
+/* What the subtype fact types it plays say of it: the supertypes, its
+ * subtypes, the fact types to its supertypes; in the model's order. */
+- (NSArray *)subtyping:(BOOL)up facts:(BOOL)facts
+{
+	NSMutableArray *found = [NSMutableArray array];
+	for (ORMRole *role in self.playedRoles) {
+		ORMFactType *fact = role.factType;
+		if (fact.kind != ORMFactTypeSubtype || [fact.roles count] != 2
+		    || !(up ? role.isSubtypeMetaRole : role.isSupertypeMetaRole)) {
+			continue;
+		}
+		ORMObjectType *other = nil;
+		for (ORMRole *each in fact.roles) {
+			if (up ? each.isSupertypeMetaRole : each.isSubtypeMetaRole) {
+				other = each.player;
+			}
+		}
+		if (other != nil) {
+			[found addObject:facts ? (id)fact : other];
+		}
+	}
+	return found;
+}
+
+- (NSArray<ORMObjectType *> *)supertypes
+{
+	return [self subtyping:YES facts:NO];
+}
+
+- (NSArray<ORMObjectType *> *)subtypes
+{
+	return [self subtyping:NO facts:NO];
+}
+
+- (NSArray<ORMFactType *> *)supertypeFacts
+{
+	return [self subtyping:YES facts:YES];
+}
+
+- (NSString *)referenceMode
+{
+	return [[self.model referenceModeOf:self] objectAtIndex:0];
+}
+
+- (ORMReferenceModeKind)referenceModeKind
+{
+	NSArray *mode = [self.model referenceModeOf:self];
+	return mode != nil ? [[mode objectAtIndex:1] integerValue] : ORMReferenceModeNone;
+}
+
+- (ORMObjectType *)referenceModeValueType
+{
+	return [[self.model referenceModeOf:self] objectAtIndex:2];
+}
+
+- (ORMFactType *)referenceModeFactType
+{
+	return [[self.model referenceModeOf:self] objectAtIndex:3];
+}
+
+- (ORMRole *)referenceModeRole
+{
+	return [[self.model referenceModeOf:self] objectAtIndex:4];
+}
+
+- (ORMValueConstraint *)valueConstraint
+{
+	ORMObjectType *value = [[self.model referenceModeOf:self] objectAtIndex:2];
+	return self.ownValueConstraint ?: value.ownValueConstraint;
+}
+
+/* Its family: the types reached up and down from it, in the model's
+ * order. */
+- (NSArray<ORMObjectType *> *)family
+{
+	if ([self.supertypes count] == 0 && [self.subtypes count] == 0) {
+		return @[ self ];
+	}
+	NSHashTable *members = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	NSMutableArray *pending = [NSMutableArray arrayWithObject:self];
+	while ([pending count] > 0) {
+		ORMObjectType *each = [pending lastObject];
+		[pending removeLastObject];
+		if (![members containsObject:each]) {
+			[members addObject:each];
+			[pending addObjectsFromArray:each.subtypes];
+			[pending addObjectsFromArray:each.supertypes];
+		}
+	}
+	NSMutableArray *family = [NSMutableArray array];
+	for (ORMObjectType *type in self.model.objectTypes) {
+		if ([members containsObject:type]) {
+			[family addObject:type];
+		}
+	}
+	return family;
+}
+
+- (NSArray<NSString *> *)familyNames
+{
+	NSMutableOrderedSet *names = [NSMutableOrderedSet orderedSet];
+	for (ORMObjectType *type in [self family]) {
+		if (type.name != nil) {
+			[names addObject:type.name];
+		}
+	}
+	return [[names array] sortedArrayUsingFunction:ORMLongerFirst context:NULL];
+}
+
+- (BOOL)isCompatibleWith:(ORMObjectType *)other
+{
+	return other != nil && (other == self || [self isSubtypeOf:other] || [other isSubtypeOf:self]);
+}
+
+
+- (ORMObjectType *)valueType
+{
+	return self.kind == ORMValueType ? self : self.referenceModeValueType;
+}
+
+- (ORMObjectType *)identifiedType
+{
+	ORMObjectType *type = self;
+	while (type.kind != ORMValueType && type.preferredIdentifier == nil && [type.supertypes count] > 0) {
+		type = [type identifyingSupertype];
+	}
+	return type;
+}
 
 - (ORMObjectType *)identifyingSupertype
 {
 	ORMObjectType *chosen = nil;
 	for (ORMFactType *fact in self.supertypeFacts) {
-		ORMObjectType *supertype = [[fact.roles lastObject] player];
+		ORMObjectType *supertype = [fact supertype];
 		if (supertype != nil && (chosen == nil || fact.providesPreferredIdentifier)) {
 			chosen = supertype;
 		}
@@ -108,7 +353,136 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 
 #pragma mark Fact types
 
+/* By where each is in the list given. */
+static NSInteger
+ORMByPlace(id a, id b, void *list)
+{
+	NSUInteger i = [(__bridge NSArray *)list indexOfObjectIdenticalTo:a];
+	NSUInteger j = [(__bridge NSArray *)list indexOfObjectIdenticalTo:b];
+	return i < j ? NSOrderedAscending : i > j ? NSOrderedDescending : NSOrderedSame;
+}
+
 @implementation ORMFactType
+
+- (void)reset
+{
+	[super reset];
+	_kind = ORMFactTypeOrdinary;
+	_roles = nil;
+	_readingOrders = nil;
+	_objectifyingType = nil;
+	_impliedByFactType = nil;
+	_linkFactTypes = nil;
+	_isDerived = NO;
+	_preferredIdentificationPath = nil;
+	_saysProvidesPreferredIdentifier = NO;
+	_explicitName = nil;
+	_savedDerivedName = nil;
+}
+
+- (void)setRoles:(NSArray<ORMRole *> *)roles
+{
+	BOOL held = [self.model holds:self];
+	for (ORMRole *role in held ? _roles : @[]) {
+		if (!ORMContains(roles, role)) {
+			[self.model unlinkRole:role];
+		}
+	}
+	NSArray *was = _roles;
+	_roles = [roles copy];
+	for (ORMRole *role in held ? _roles : @[]) {
+		if (!ORMContains(was, role)) {
+			[self.model linkRole:role];
+		}
+	}
+}
+
+- (void)setImpliedByFactType:(ORMFactType *)fact
+{
+	BOOL held = [self.model holds:self];
+	if (held && _impliedByFactType != nil) {
+		_impliedByFactType.linkFactTypes = ORMWithout(_impliedByFactType.linkFactTypes, self);
+		if ([_impliedByFactType.linkFactTypes count] == 0) {
+			_impliedByFactType.linkFactTypes = nil;
+		}
+	}
+	_impliedByFactType = fact;
+	if (held && fact != nil) {
+		fact.linkFactTypes = [self.model list:fact.linkFactTypes adding:self];
+	}
+}
+
+/* Its name: the one given it, else the one NORMA keeps derived. */
+- (NSString *)name
+{
+	return self.explicitName ?: self.savedDerivedName ?: @"";
+}
+
+/* The constraints its roles have that are its own: uniqueness over its
+ * roles alone, mandatory on one of them; in the model's order. */
+- (NSArray<ORMConstraint *> *)internalConstraints
+{
+	NSMutableArray *internal = [NSMutableArray array];
+	for (ORMRole *role in self.roles) {
+		for (ORMConstraint *constraint in role.constraints) {
+			if ([internal indexOfObjectIdenticalTo:constraint] != NSNotFound) {
+				continue;
+			}
+			NSArray *facts = [constraint factTypes];
+			BOOL own = [facts count] == 1 && [facts firstObject] == self
+				&& (constraint.kind == ORMUniquenessConstraint ? constraint.isInternal
+			                                                    : (constraint.kind == ORMMandatoryConstraint ? constraint.isSimple : NO));
+			if (own) {
+				[internal addObject:constraint];
+			}
+		}
+	}
+	if ([internal count] > 1) {
+		NSArray *all = self.model.constraints;
+		[internal sortUsingFunction:ORMByPlace context:(__bridge void *)all];
+	}
+	return internal;
+}
+
+- (BOOL)providesPreferredIdentifier
+{
+	if ([self.preferredIdentificationPath boolValue] || self.saysProvidesPreferredIdentifier) {
+		return YES;
+	}
+	/* NORMA leaves the attribute out where it is true by default: a
+	 * subtype with no identifier of its own is identified through its
+	 * (first) supertype. */
+	if (self.kind == ORMFactTypeSubtype && self.preferredIdentificationPath == nil) {
+		ORMObjectType *sub = [self subtype];
+		return sub.preferredIdentifier == nil && [sub.supertypeFacts firstObject] == self;
+	}
+	return NO;
+}
+
+- (BOOL)isLinkFactType
+{
+	for (ORMRole *role in self.roles) {
+		if (role.proxiedRole != nil) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+- (ORMObjectType *)subtype
+{
+	return self.kind == ORMFactTypeSubtype && [self.roles count] == 2 ? [[self.roles firstObject] player] : nil;
+}
+
+- (ORMObjectType *)supertype
+{
+	return self.kind == ORMFactTypeSubtype && [self.roles count] == 2 ? [[self.roles lastObject] player] : nil;
+}
+
+- (NSString *)displayText
+{
+	return [[self primaryReading] expandedText] ?: self.name ?: @"";
+}
 
 - (NSArray<ORMRole *> *)visibleRoles
 {
@@ -126,9 +500,29 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 	return [[self visibleRoles] count];
 }
 
+- (NSString *)unaryReading
+{
+	return [self isUnary] ? [[self primaryReading] expandedText] ?: @"" : nil;
+}
+
 - (BOOL)isUnary
 {
 	return [self arity] == 1 && self.kind == ORMFactTypeOrdinary;
+}
+
+- (BOOL)isBinary
+{
+	return [self arity] == 2;
+}
+
+- (ORMRole *)implicitRole
+{
+	for (ORMRole *role in self.roles) {
+		if (role.player.isImplicitBooleanValue) {
+			return role;
+		}
+	}
+	return nil;
 }
 
 - (ORMReading *)primaryReading
@@ -139,6 +533,12 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 		}
 	}
 	return nil;
+}
+
+- (ORMReading *)readingFromRole:(ORMRole *)role
+{
+	ORMReadingOrder *order = role != nil ? [self readingOrderStartingWithRole:role] : nil;
+	return [order.readings firstObject] ?: [self primaryReading];
 }
 
 - (ORMReadingOrder *)readingOrderStartingWithRole:(ORMRole *)role
@@ -188,7 +588,7 @@ static NSString *
 ORMCapitalizedWords(NSString *text)
 {
 	NSMutableString *out = [NSMutableString string];
-	for (NSString *word in [text componentsSeparatedByCharactersInSet:[[NSCharacterSet alphanumericCharacterSet] invertedSet]]) {
+	for (NSString *word in [text componentsSeparatedByCharactersInSet:ORMNonAlphanumericCharacters()]) {
 		if ([word length] > 0) {
 			[out appendString:[[word substringToIndex:1] uppercaseString]];
 			[out appendString:[word substringFromIndex:1]];
@@ -209,7 +609,7 @@ ORMCapitalizedWords(NSString *text)
 	 * Person_id), and as they are ("JoinTypeHasJoinType_name"); and the
 	 * reading's words with the rest of each lowercased ("IsValuetype" for
 	 * "is ValueType"). The one the file has stands while it still fits. */
-	NSString *saved = ORMAttribute(self.element, @"_Name");
+	NSString *saved = self.savedDerivedName;
 	for (NSNumber *style in @[ @1, @2, @3 ]) {
 		NSString *variant = [self derivedNameWithPlayers:[style integerValue]];
 		if (variant != nil && [saved isEqualToString:variant]) {
@@ -226,11 +626,11 @@ ORMCapitalizedWords(NSString *text)
 		return self.objectifyingType.name;
 	}
 	if (self.kind == ORMFactTypeSubtype) {
-		ORMObjectType *sub = [[self.roles firstObject] player];
-		ORMObjectType *sup = [[self.roles lastObject] player];
+		ORMObjectType *sub = [self subtype];
+		ORMObjectType *sup = [self supertype];
 		/* Older NORMA wrote "GirlIsASubtypeOfPerson". */
 		NSString *older = [NSString stringWithFormat:@"%@IsASubtypeOf%@", sub.name ?: @"", sup.name ?: @""];
-		if ([ORMAttribute(self.element, @"_Name") isEqualToString:older]) {
+		if ([self.savedDerivedName isEqualToString:older]) {
 			return older;
 		}
 		return [NSString stringWithFormat:@"%@IsSubtypeOf%@", sub.name ?: @"", sup.name ?: @""];
@@ -244,7 +644,7 @@ ORMCapitalizedWords(NSString *text)
 		return name;
 	}
 	NSArray *roles = reading.readingOrder.roles;
-	NSCharacterSet *separators = [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+	NSCharacterSet *separators = ORMNonAlphanumericCharacters();
 	NSScanner *scanner = [NSScanner scannerWithString:reading.text];
 	[scanner setCharactersToBeSkipped:nil];
 	while (![scanner isAtEnd]) {
@@ -274,6 +674,99 @@ ORMCapitalizedWords(NSString *text)
 @end
 
 @implementation ORMRole
+
+@synthesize player = _player;
+
+- (void)reset
+{
+	[super reset];
+	_factType = nil;
+	_player = nil;
+	_index = 0;
+	_valueConstraint = nil;
+	_isSubtypeMetaRole = _isSupertypeMetaRole = NO;
+	_proxiedRole = nil;
+	_proxies = nil;
+	_constraints = nil;
+	_roleInstances = nil;
+}
+
+/* A proxy is played by what plays the role it stands for, unless it
+ * says otherwise. */
+- (ORMObjectType *)player
+{
+	return _player ?: _proxiedRole.player;
+}
+
+- (BOOL)playsThroughProxy
+{
+	return _player == nil && _proxiedRole != nil;
+}
+
+- (void)setPlayer:(ORMObjectType *)player
+{
+	ORMModel *model = self.model;
+	NSArray *moved = [model holdsRole:self] ? [model rolesPlayedWith:self] : @[];
+	for (ORMRole *role in moved) {
+		[model unlinkRole:role];
+	}
+	_player = player;
+	for (ORMRole *role in moved) {
+		[model linkRole:role];
+	}
+}
+
+- (void)setProxiedRole:(ORMRole *)role
+{
+	ORMModel *model = self.model;
+	BOOL held = [model holdsRole:self];
+	if (held) {
+		[model unlinkRole:self];
+	}
+	_proxiedRole = role;
+	if (held) {
+		[model linkRole:self];
+	}
+}
+
+- (void)setValueConstraint:(ORMValueConstraint *)values
+{
+	_valueConstraint = values;
+	values.owner = self;
+}
+
+/* What its own constraints say of it: mandatory, unique; alethically. */
+- (BOOL)isSaid:(ORMConstraintKind)kind alethic:(BOOL)alethic
+{
+	for (ORMConstraint *constraint in self.constraints) {
+		BOOL single = constraint.kind == ORMMandatoryConstraint ? constraint.isSimple : constraint.isInternal;
+		if (constraint.kind == kind && single && [[constraint allRoles] count] == 1
+		    && (!alethic || constraint.modality == ORMAlethic)) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+- (BOOL)isMandatory
+{
+	return [self isSaid:ORMMandatoryConstraint alethic:NO];
+}
+
+- (BOOL)isAlethicMandatory
+{
+	return [self isSaid:ORMMandatoryConstraint alethic:YES];
+}
+
+- (BOOL)isUnique
+{
+	return [self isSaid:ORMUniquenessConstraint alethic:NO];
+}
+
+- (BOOL)isAlethicUnique
+{
+	return [self isSaid:ORMUniquenessConstraint alethic:YES];
+}
 
 - (ORMRole *)oppositeRole
 {
@@ -328,9 +821,65 @@ ORMCapitalizedWords(NSString *text)
 @end
 
 @implementation ORMReadingOrder
+
+- (void)reset
+{
+	[super reset];
+	_factType = nil;
+	_roles = nil;
+	_unresolvedRoleIds = nil;
+	_readings = nil;
+}
+
+/* Its readings parsed again for so many roles. */
+- (void)setRoles:(NSArray<ORMRole *> *)roles
+{
+	_roles = [roles copy];
+	for (ORMReading *reading in _readings) {
+		[reading parse];
+	}
+}
+
 @end
 
 @implementation ORMReading
+
+- (void)reset
+{
+	[super reset];
+	_words = nil;
+	_parsedText = nil;
+	_readingOrder = nil;
+	_text = nil;
+}
+
+- (void)setText:(NSString *)text
+{
+	_text = [text copy];
+	[self parse];
+}
+
+- (void)setReadingOrder:(ORMReadingOrder *)order
+{
+	_readingOrder = order;
+	[self parse];
+}
+
+/* Its words and its text parsed, as it reads now. */
+- (void)parse
+{
+	_words = [ORMReadingText wordsOf:_text ?: @""];
+	_parsedText = [ORMReadingText readingTextWithString:_text arity:[_readingOrder.roles count] reason:NULL];
+}
+
+- (BOOL)readsFromFirstRole
+{
+	ORMReadingText *text = [self parsedText];
+	ORMReadingPart *first = [text.parts firstObject];
+	return first != nil && [text.frontText length] == 0 && [first.preBoundText length] == 0 && first.roleIndex == 0;
+}
+
+
 
 - (NSString *)expandedText
 {
@@ -349,9 +898,126 @@ ORMCapitalizedWords(NSString *text)
 #pragma mark Constraints
 
 @implementation ORMRoleSequence
+
+- (void)reset
+{
+	[super reset];
+	_roles = nil;
+	_roleUseIds = nil;
+	_unresolvedRoleIds = nil;
+	_hasJoinPath = NO;
+}
+
+- (void)setRoles:(NSArray<ORMRole *> *)roles
+{
+	NSMutableDictionary *uses = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < MIN([_roles count], [_roleUseIds count]); i++) {
+		[uses setObject:[_roleUseIds objectAtIndex:i] forKey:[[_roles objectAtIndex:i] identifier] ?: @""];
+	}
+	NSMutableArray *ids = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		[ids addObject:[uses objectForKey:role.identifier ?: @""] ?: ORMNewId()];
+	}
+	ORMModel *model = self.model;
+	BOOL held = [model holds:_constraint] && ORMContains(_constraint.roleSequences, self);
+	if (held) {
+		[model unlinkConstraint:_constraint];
+	}
+	_roles = [roles copy];
+	_roleUseIds = ids;
+	if (held) {
+		[model linkConstraint:_constraint];
+	}
+}
+
+- (void)setRoles:(NSArray<ORMRole *> *)roles useIds:(NSArray<NSString *> *)useIds
+{
+	_roles = [roles copy];
+	_roleUseIds = [useIds copy];
+}
+
 @end
 
 @implementation ORMConstraint
+
+- (instancetype)initWithModel:(ORMModel *)model
+{
+	if ((self = [super initWithModel:model])) {
+		/* As one is read where the file says none. */
+		_minFrequency = 1;
+	}
+	return self;
+}
+
+- (void)reset
+{
+	[super reset];
+	_kind = ORMUniquenessConstraint;
+	_modality = ORMAlethic;
+	_roleSequences = nil;
+	_isInternal = _isSimple = _isImplied = NO;
+	_preferredIdentifierFor = nil;
+	_exclusiveOrPartner = nil;
+	_minFrequency = _maxFrequency = 0;
+	_ringType = 0;
+	_comparisonOperator = nil;
+	_impliedByObjectTypeId = nil;
+}
+
+/* What says it is NORMA's implied mandatory constraint of an object type,
+ * kept up in that type's list. */
+- (void)setKind:(ORMConstraintKind)kind
+{
+	ORMObjectType *was = [self impliedOwner];
+	_kind = kind;
+	[self relinkImpliedFrom:was];
+}
+
+- (void)setIsImplied:(BOOL)implied
+{
+	ORMObjectType *was = [self impliedOwner];
+	_isImplied = implied;
+	[self relinkImpliedFrom:was];
+}
+
+- (void)setImpliedByObjectTypeId:(NSString *)identifier
+{
+	ORMObjectType *was = [self impliedOwner];
+	_impliedByObjectTypeId = [identifier copy];
+	[self relinkImpliedFrom:was];
+}
+
+/* The object type it is implied by, while it is in the model. */
+- (ORMObjectType *)impliedOwner
+{
+	return [self.model holds:self] ? [self.model impliedOwnerOf:self] : nil;
+}
+
+/* Out of the list of the type it was implied by, into the one it is. */
+- (void)relinkImpliedFrom:(ORMObjectType *)was
+{
+	ORMObjectType *now = [self impliedOwner];
+	if (was != now) {
+		was.impliedMandatories = ORMWithout(was.impliedMandatories, self);
+		now.impliedMandatories = [self.model list:now.impliedMandatories adding:self];
+	}
+}
+
+- (void)setRoleSequences:(NSArray<ORMRoleSequence *> *)sequences
+{
+	ORMModel *model = self.model;
+	BOOL held = [model holds:self];
+	if (held) {
+		[model unlinkConstraint:self];
+	}
+	_roleSequences = [sequences copy];
+	for (ORMRoleSequence *sequence in _roleSequences) {
+		sequence.constraint = self;
+	}
+	if (held) {
+		[model linkConstraint:self];
+	}
+}
 
 - (NSArray<ORMRole *> *)allRoles
 {
@@ -449,7 +1115,7 @@ ORMRingTypeNames(void)
 
 #pragma mark Values and data types
 
-static ORMRangeInclusion
+ORMRangeInclusion
 ORMInclusionNamed(NSString *name)
 {
 	if ([name isEqualToString:@"Open"]) {
@@ -479,6 +1145,14 @@ ORMQuoteValue(NSString *value, BOOL quotes)
 
 @implementation ORMValueRange
 
+- (void)reset
+{
+	[super reset];
+	_constraint = nil;
+	_minValue = _maxValue = nil;
+	_minInclusion = _maxInclusion = 0;
+}
+
 - (NSString *)displayText
 {
 	BOOL quotes = self.constraint == nil || [self.constraint quotesValues];
@@ -497,6 +1171,24 @@ ORMQuoteValue(NSString *value, BOOL quotes)
 @end
 
 @implementation ORMValueConstraint
+
+- (void)reset
+{
+	[super reset];
+	_ranges = nil;
+	_owner = nil;
+}
+
+/* What it constrains the values of: a value type's own; a role's
+ * player's value type. */
+- (ORMObjectType *)valueType
+{
+	if ([self.owner isKindOfClass:[ORMRole class]]) {
+		return [[(ORMRole *)self.owner player] valueType];
+	}
+	ORMObjectType *type = (ORMObjectType *)self.owner;
+	return type.kind == ORMValueType ? type : nil;
+}
 
 - (BOOL)quotesValues
 {
@@ -522,6 +1214,12 @@ ORMQuoteValue(NSString *value, BOOL quotes)
 @end
 
 @implementation ORMDataType
+
+- (void)reset
+{
+	[super reset];
+	_typeName = nil;
+}
 
 static NSArray *
 ORMDataTypeTable(void)
@@ -611,6 +1309,14 @@ ORMDataTypeTable(void)
 @end
 
 @implementation ORMModelNote
+
+- (void)reset
+{
+	[super reset];
+	_text = nil;
+	_referencedElements = nil;
+}
+
 @end
 
 #pragma mark The model
@@ -624,12 +1330,30 @@ ORMUnitReferenceModes(void)
 	          @"m", @"mile", @"mm", @"mph", @"USD", @"Year", @"day", @"hr", @"min", @"sec", @"in", @"lb" ];
 }
 
+NSArray *
+ORMWithout(NSArray *array, id object)
+{
+	NSUInteger index = [array indexOfObjectIdenticalTo:object];
+	if (index == NSNotFound) {
+		return array;
+	}
+	NSMutableArray *rest = [array mutableCopy];
+	[rest removeObjectAtIndex:index];
+	return rest;
+}
+
 @implementation ORMModel
 {
 	NSMutableDictionary<NSString *, id> *_elements;
-	/* Diagrams are read when first asked for: an editor reads the model
-	 * after every step of a group, and most steps look at no shape. */
-	BOOL _diagramsRead;
+	/* While the model is read again: the elements read before, by id, to
+	 * be read again in place. */
+	NSMutableDictionary<NSString *, ORMElement *> *_reusable;
+	/* While the model is read: no link is kept up until all is read. */
+	BOOL _reading;
+	/* The reference modes it knows of by kind, from its custom ones. */
+	NSSet<NSString *> *_unitModes;
+	NSSet<NSString *> *_generalModes;
+	NSSet<NSString *> *_popularModes;
 }
 
 + (instancetype)modelOfDocument:(NSXMLDocument *)document reason:(NSString **)reason
@@ -646,22 +1370,25 @@ ORMUnitReferenceModes(void)
 	return model;
 }
 
+- (void)dealloc
+{
+	[self cutLinks];
+}
+
 /* The model owns its elements; their links to one another are back
  * links, weak in spirit, but arrays hold strongly: a role holds its
  * constraints, which hold their sequences, which hold the role. Cut when
- * the projection goes, or each projection outlives itself. */
-- (void)dealloc
+ * the model goes, or when it is read again, or what is gone outlives it. */
+- (void)cutLinks
 {
 	for (ORMObjectType *type in self.objectTypes) {
 		type.playedRoles = nil;
-		type.supertypes = nil;
-		type.subtypes = nil;
-		type.supertypeFacts = nil;
 	}
 	for (ORMFactType *fact in self.factTypes) {
-		fact.internalConstraints = nil;
+		fact.linkFactTypes = nil;
 		for (ORMRole *role in fact.roles) {
 			role.constraints = nil;
+			role.proxies = nil;
 		}
 		for (ORMReadingOrder *order in fact.readingOrders) {
 			order.roles = nil;
@@ -677,6 +1404,126 @@ ORMUnitReferenceModes(void)
 	}
 }
 
+- (id)element:(Class)elementClass for:(NSXMLElement *)xml
+{
+	NSString *identifier = ORMAttribute(xml, @"id");
+	ORMElement *old = identifier != nil ? [_reusable objectForKey:identifier] : nil;
+	if (old != nil && [old class] == elementClass) {
+		/* Once: a file that gives two elements one id gets two. */
+		[_reusable removeObjectForKey:identifier];
+		[old resetWithElement:xml model:self];
+		return old;
+	}
+	return [[elementClass alloc] initWithElement:xml model:self];
+}
+
+- (void)readDocumentAgain:(NSXMLDocument *)document
+{
+	NSMutableDictionary *reusable = [NSMutableDictionary dictionaryWithDictionary:_elements];
+	[self cutLinks];
+	_reusable = reusable;
+	_diagrams = nil;
+	[self readDocument:document model:ORMModelElementOfDocument(document)];
+}
+
+- (void)addElement:(ORMElement *)element
+{
+	[self registerElement:element];
+	if ([element isKindOfClass:[ORMDataType class]]) {
+		_dataTypes = [_dataTypes arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMObjectType class]]) {
+		_objectTypes = [_objectTypes arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMFactType class]]) {
+		_factTypes = [_factTypes arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMConstraint class]]) {
+		_constraints = [_constraints arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMModelNote class]]) {
+		_notes = [_notes arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMCoreDataMapping class]]) {
+		self.coreDataMappings = [self.coreDataMappings ?: @[] arrayByAddingObject:element];
+	} else if ([element isKindOfClass:[ORMStoredQuery class]]) {
+		self.storedQueries = [self.storedQueries ?: @[] arrayByAddingObject:element];
+	}
+	if (_reading) {
+		return;
+	}
+	/* Linked to what it names, and what names it. */
+	if ([element isKindOfClass:[ORMFactType class]]) {
+		[self linkFactType:(ORMFactType *)element];
+	} else if ([element isKindOfClass:[ORMConstraint class]]) {
+		[self linkConstraint:(ORMConstraint *)element];
+	} else if ([element isKindOfClass:[ORMObjectType class]]) {
+		ORMObjectType *type = (ORMObjectType *)element;
+		if (type.nestedFactType != nil) {
+			type.nestedFactType.objectifyingType = type;
+		}
+		if (type.preferredIdentifier.kind == ORMUniquenessConstraint) {
+			type.preferredIdentifier.preferredIdentifierFor = type;
+		}
+	}
+}
+
+- (void)removeElement:(ORMElement *)element
+{
+	if (element == nil) {
+		return;
+	}
+	/* Unlinked while it is still in the model. */
+	if ([self holds:element] && [element isKindOfClass:[ORMFactType class]]) {
+		[self unlinkFactType:(ORMFactType *)element];
+	} else if ([self holds:element] && [element isKindOfClass:[ORMConstraint class]]) {
+		[self unlinkConstraint:(ORMConstraint *)element];
+	}
+	if ([element isKindOfClass:[ORMValueConstraint class]]) {
+		for (ORMValueRange *range in [(ORMValueConstraint *)element ranges]) {
+			[self removeElement:range];
+		}
+	} else if ([element isKindOfClass:[ORMObjectType class]]) {
+		[self removeElement:[(ORMObjectType *)element ownValueConstraint]];
+	} else if ([element isKindOfClass:[ORMFactType class]]) {
+		for (ORMRole *role in [(ORMFactType *)element roles]) {
+			[self removeElement:role.valueConstraint];
+			[self removeElement:role];
+		}
+		for (ORMReadingOrder *order in [(ORMFactType *)element readingOrders]) {
+			for (ORMReading *reading in order.readings) {
+				[self removeElement:reading];
+			}
+			[self removeElement:order];
+		}
+	} else if ([element isKindOfClass:[ORMConstraint class]]) {
+		for (ORMRoleSequence *sequence in [(ORMConstraint *)element roleSequences]) {
+			[self removeElement:sequence];
+		}
+	}
+	if (element.identifier != nil && [_elements objectForKey:element.identifier] == element) {
+		[_elements removeObjectForKey:element.identifier];
+	}
+	if (element.name != nil) {
+		[self.removedNames addObject:element.name];
+	}
+	if (element.identifier != nil) {
+		[self.removedIds addObject:element.identifier];
+	}
+	_dataTypes = ORMWithout(_dataTypes, element);
+	_objectTypes = ORMWithout(_objectTypes, element);
+	_factTypes = ORMWithout(_factTypes, element);
+	_constraints = ORMWithout(_constraints, element);
+	_notes = ORMWithout(_notes, element);
+	/* What it objectified and identified are so by another, or none. */
+	if ([element isKindOfClass:[ORMObjectType class]]) {
+		ORMObjectType *type = (ORMObjectType *)element;
+		if (type.nestedFactType.objectifyingType == type) {
+			[self relinkObjectifying:type.nestedFactType];
+		}
+		if (type.preferredIdentifier.preferredIdentifierFor == type) {
+			[self relinkIdentified:type.preferredIdentifier];
+		}
+	}
+	self.coreDataMappings = ORMWithout(self.coreDataMappings, element);
+	self.storedQueries = ORMWithout(self.storedQueries, element);
+}
+
 - (void)registerElement:(ORMElement *)element
 {
 	if (element.identifier != nil) {
@@ -684,33 +1531,40 @@ ORMUnitReferenceModes(void)
 	}
 }
 
+- (NSDictionary *)elementsById
+{
+	return _elements;
+}
+
+- (ORMCoreDataMapping *)coreDataMappingWithId:(NSString *)identifier
+{
+	for (ORMCoreDataMapping *mapping in self.coreDataMappings) {
+		if ([mapping.identifier isEqualToString:identifier]) {
+			return mapping;
+		}
+	}
+	return nil;
+}
+
 - (id)elementWithId:(NSString *)identifier
 {
 	if (identifier == nil) {
 		return nil;
 	}
-	id element = [_elements objectForKey:identifier];
-	if (element == nil && !_diagramsRead) {
-		/* A diagram or a shape, perhaps. */
-		[self readDiagrams];
-		element = [_elements objectForKey:identifier];
-	}
-	return element;
+	return [_elements objectForKey:identifier];
 }
 
 @synthesize diagrams = _diagrams;
 
-- (NSArray<ORMDiagram *> *)diagrams
+- (void)addDiagram:(ORMDiagram *)diagram
 {
-	if (!_diagramsRead) {
-		[self readDiagrams];
-	}
-	return _diagrams;
+	_diagrams = [_diagrams arrayByAddingObject:diagram];
+	[self registerElement:diagram];
 }
 
 - (ORMObjectType *)objectTypeNamed:(NSString *)name
 {
-	for (ORMObjectType *type in self.objectTypes) {
+	for (ORMObjectType *type in name != nil ? self.objectTypes : @[]) {
 		if ([type.name isEqualToString:name]) {
 			return type;
 		}
@@ -756,23 +1610,29 @@ ORMUnitReferenceModes(void)
 - (void)readDocument:(NSXMLDocument *)document model:(NSXMLElement *)modelElement
 {
 	_elements = [NSMutableDictionary dictionary];
+	_reading = YES;
 	_document = document;
 	_modelElement = modelElement;
+	self.readingsHaveExpandedData = NO;
 	_identifier = [ORMAttribute(modelElement, @"id") copy];
 	_name = [ORMAttribute(modelElement, @"Name") copy] ?: @"";
+	self.extras = nil;
 
 	[self readDataTypes];
 	[self readObjectTypes];
 	[self readFactTypes];
 	[self readConstraints];
 	[self readNotes];
-	[self linkObjectTypes];
-	[self linkFactTypes];
-	[self linkRoles];
-	[self deriveReferenceModes];
-	[self linkValueConstraints];
+	[self readReferences];
+	[self readReferenceModeKinds];
 	self.extras = [NSMutableDictionary dictionary];
 	[self readPathsAndPopulations];
+	[self readCoreDataMappings];
+	[self readQueries];
+	[self readDiagrams];
+	_reusable = nil;
+	[self linkAll];
+	_reading = NO;
 }
 
 - (void)readDataTypes
@@ -782,7 +1642,7 @@ ORMUnitReferenceModes(void)
 		if ([node kind] != NSXMLElementKind) {
 			continue;
 		}
-		ORMDataType *type = [[ORMDataType alloc] initWithElement:(NSXMLElement *)node model:self];
+		ORMDataType *type = [self element:[ORMDataType class] for:(NSXMLElement *)node];
 		type.typeName = [node localName];
 		[types addObject:type];
 		[self registerElement:type];
@@ -802,10 +1662,10 @@ ORMUnitReferenceModes(void)
 	if (element == nil) {
 		return nil;
 	}
-	ORMValueConstraint *constraint = [[ORMValueConstraint alloc] initWithElement:element model:self];
+	ORMValueConstraint *constraint = [self element:[ORMValueConstraint class] for:element];
 	NSMutableArray *ranges = [NSMutableArray array];
 	for (NSXMLElement *rangeElement in ORMGrandchildren(element, CORE, @"ValueRanges", CORE, @"ValueRange")) {
-		ORMValueRange *range = [[ORMValueRange alloc] initWithElement:rangeElement model:self];
+		ORMValueRange *range = [self element:[ORMValueRange class] for:rangeElement];
 		range.minValue = ORMAttribute(rangeElement, @"MinValue") ?: @"";
 		range.maxValue = ORMAttribute(rangeElement, @"MaxValue") ?: @"";
 		range.minInclusion = ORMInclusionNamed(ORMAttribute(rangeElement, @"MinInclusion"));
@@ -828,7 +1688,8 @@ ORMUnitReferenceModes(void)
 		}
 		NSXMLElement *element = (NSXMLElement *)node;
 		NSString *local = [element localName];
-		ORMObjectType *type = [[ORMObjectType alloc] initWithElement:element model:self];
+		ORMObjectType *type = [self element:[ORMObjectType class] for:element];
+		type.defaultValue = ORMChildText(element, CORE, @"DefaultValue");
 		if ([local isEqualToString:@"EntityType"]) {
 			type.kind = ORMEntityType;
 		} else if ([local isEqualToString:@"ValueType"]) {
@@ -850,7 +1711,8 @@ ORMUnitReferenceModes(void)
 			type.dataTypeLength = [ORMAttribute(dataType, @"Length") integerValue];
 			type.dataTypeScale = [ORMAttribute(dataType, @"Scale") integerValue];
 		}
-		type.valueConstraint = [self valueConstraintIn:ORMChild(element, CORE, @"ValueRestriction")];
+		type.ownValueConstraint = [self valueConstraintIn:ORMChild(element, CORE, @"ValueRestriction")];
+		type.savedReferenceMode = ORMAttribute(element, @"_ReferenceMode");
 		[types addObject:type];
 		[self registerElement:type];
 	}
@@ -859,7 +1721,7 @@ ORMUnitReferenceModes(void)
 
 - (ORMRole *)readRole:(NSXMLElement *)element of:(ORMFactType *)fact index:(NSUInteger)index
 {
-	ORMRole *role = [[ORMRole alloc] initWithElement:element model:self];
+	ORMRole *role = [self element:[ORMRole class] for:element];
 	role.factType = fact;
 	role.index = index;
 	role.isSubtypeMetaRole = [[element localName] isEqualToString:@"SubtypeMetaRole"];
@@ -878,7 +1740,7 @@ ORMUnitReferenceModes(void)
 		}
 		NSXMLElement *element = (NSXMLElement *)node;
 		NSString *local = [element localName];
-		ORMFactType *fact = [[ORMFactType alloc] initWithElement:element model:self];
+		ORMFactType *fact = [self element:[ORMFactType class] for:element];
 		if ([local isEqualToString:@"Fact"]) {
 			fact.kind = ORMFactTypeOrdinary;
 		} else if ([local isEqualToString:@"SubtypeFact"]) {
@@ -896,12 +1758,18 @@ ORMUnitReferenceModes(void)
 			[roles addObject:[self readRole:(NSXMLElement *)roleNode of:fact index:[roles count]]];
 		}
 		fact.roles = roles;
+		fact.definitionText = ORMNestedText(element, @"Definitions", @"Definition");
+		fact.noteText = ORMNestedText(element, @"Notes", @"Note");
 		/* Derived when the rule says how, formally or in words. */
 		NSXMLElement *rule = ORMChild(element, CORE, @"DerivationRule");
 		fact.isDerived = ORMChild(rule, CORE, @"FactTypeDerivationPath") != nil
 			|| ORMChild(rule, CORE, @"DerivationExpression") != nil;
-		fact.providesPreferredIdentifier = ORMBoolAttribute(element, @"PreferredIdentificationPath", NO)
-			|| ORMBoolAttribute(element, @"ProvidesPreferredIdentifier", NO);
+		if (ORMAttribute(element, @"PreferredIdentificationPath") != nil) {
+			fact.preferredIdentificationPath = @(ORMBoolAttribute(element, @"PreferredIdentificationPath", NO));
+		}
+		fact.saysProvidesPreferredIdentifier = ORMBoolAttribute(element, @"ProvidesPreferredIdentifier", NO);
+		fact.explicitName = ORMAttribute(element, @"Name");
+		fact.savedDerivedName = ORMAttribute(element, @"_Name");
 		[facts addObject:fact];
 		[self registerElement:fact];
 	}
@@ -913,15 +1781,20 @@ ORMUnitReferenceModes(void)
 		NSMutableArray *orders = [NSMutableArray array];
 		for (NSXMLElement *orderElement in ORMGrandchildren(fact.element, CORE, @"ReadingOrders", CORE,
 		                                                    @"ReadingOrder")) {
-			ORMReadingOrder *order = [[ORMReadingOrder alloc] initWithElement:orderElement model:self];
+			ORMReadingOrder *order = [self element:[ORMReadingOrder class] for:orderElement];
 			order.factType = fact;
-			order.roles = [self rolesIn:ORMChild(orderElement, CORE, @"RoleSequence")];
+			NSArray *unresolved = nil;
+			order.roles = [self rolesIn:ORMChild(orderElement, CORE, @"RoleSequence") unresolved:&unresolved];
+			order.unresolvedRoleIds = unresolved;
 			NSMutableArray *readings = [NSMutableArray array];
 			for (NSXMLElement *readingElement in ORMGrandchildren(orderElement, CORE, @"Readings", CORE,
 			                                                      @"Reading")) {
-				ORMReading *reading = [[ORMReading alloc] initWithElement:readingElement model:self];
+				ORMReading *reading = [self element:[ORMReading class] for:readingElement];
 				reading.readingOrder = order;
 				reading.text = ORMChildText(readingElement, CORE, @"Data") ?: @"";
+				if (ORMChild(readingElement, CORE, @"ExpandedData") != nil) {
+					self.readingsHaveExpandedData = YES;
+				}
 				[readings addObject:reading];
 				[self registerElement:reading];
 			}
@@ -935,23 +1808,43 @@ ORMUnitReferenceModes(void)
 
 /* The roles a sequence's children point at: <orm:Role ref=.../>, whose
  * own id, when it has one, names the constraint's use of the role. A
- * role that is not (or no longer) in the model is skipped. */
-- (NSArray<ORMRole *> *)rolesIn:(NSXMLElement *)sequence
+ * role that is not (or no longer) in the model is skipped, its ref put
+ * aside. */
+- (NSArray<ORMRole *> *)rolesIn:(NSXMLElement *)sequence unresolved:(NSArray **)unresolved
+{
+	return [self rolesIn:sequence unresolved:unresolved useIds:NULL];
+}
+
+/* The same, with each role's use's id ("" for none). */
+- (NSArray<ORMRole *> *)rolesIn:(NSXMLElement *)sequence unresolved:(NSArray **)unresolved useIds:(NSArray **)useIds
 {
 	NSMutableArray *roles = [NSMutableArray array];
+	NSMutableArray *refs = [NSMutableArray array];
+	NSMutableArray *ids = [NSMutableArray array];
 	for (NSXMLElement *child in ORMChildren(sequence, CORE, @"Role")) {
 		id role = [self elementWithId:ORMRef(child)];
 		if ([role isKindOfClass:[ORMRole class]]) {
 			[roles addObject:role];
+			[ids addObject:ORMAttribute(child, @"id") ?: @""];
+		} else {
+			[refs addObject:ORMRef(child) ?: @""];
 		}
+	}
+	*unresolved = refs;
+	if (useIds != NULL) {
+		*useIds = ids;
 	}
 	return roles;
 }
 
 - (ORMRoleSequence *)readSequence:(NSXMLElement *)element
 {
-	ORMRoleSequence *sequence = [[ORMRoleSequence alloc] initWithElement:element model:self];
-	sequence.roles = [self rolesIn:element];
+	ORMRoleSequence *sequence = [self element:[ORMRoleSequence class] for:element];
+	NSArray *unresolved = nil;
+	NSArray *useIds = nil;
+	NSArray *roles = [self rolesIn:element unresolved:&unresolved useIds:&useIds];
+	[sequence setRoles:roles useIds:useIds];
+	sequence.unresolvedRoleIds = unresolved;
 	sequence.hasJoinPath = ORMChild(element, CORE, @"JoinRule") != nil || ORMChild(element, CORE, @"JoinPath") != nil;
 	[self registerElement:sequence];
 	return sequence;
@@ -977,7 +1870,7 @@ ORMUnitReferenceModes(void)
 		if (kind == nil) {
 			continue;
 		}
-		ORMConstraint *constraint = [[ORMConstraint alloc] initWithElement:element model:self];
+		ORMConstraint *constraint = [self element:[ORMConstraint class] for:element];
 		constraint.kind = [kind integerValue];
 		constraint.modality = [ORMAttribute(element, @"Modality") isEqualToString:@"Deontic"] ? ORMDeontic
 		                                                                                     : ORMAlethic;
@@ -997,6 +1890,7 @@ ORMUnitReferenceModes(void)
 		constraint.maxFrequency = MAX((NSInteger)0, [ORMAttribute(element, @"MaxFrequency") integerValue]);
 		constraint.ringType = [ORMConstraint ringTypeNamed:ORMAttribute(element, @"Type")];
 		constraint.comparisonOperator = ORMAttribute(element, @"Operator");
+		constraint.impliedByObjectTypeId = ORMRef(ORMChild(element, CORE, @"ImpliedByObjectType"));
 		[constraints addObject:constraint];
 		[self registerElement:constraint];
 	}
@@ -1015,7 +1909,7 @@ ORMUnitReferenceModes(void)
 {
 	NSMutableArray *notes = [NSMutableArray array];
 	for (NSXMLElement *element in ORMGrandchildren(_modelElement, CORE, @"ModelNotes", CORE, @"ModelNote")) {
-		ORMModelNote *note = [[ORMModelNote alloc] initWithElement:element model:self];
+		ORMModelNote *note = [self element:[ORMModelNote class] for:element];
 		note.text = ORMChildText(element, CORE, @"Text") ?: @"";
 		[notes addObject:note];
 		[self registerElement:note];
@@ -1035,7 +1929,9 @@ ORMUnitReferenceModes(void)
 
 #pragma mark Linking
 
-- (void)linkObjectTypes
+/* What each element names of another by id: preferred identifiers,
+ * objectifications, data types, players, the roles proxies stand for. */
+- (void)readReferences
 {
 	NSMutableDictionary *objectifications = [NSMutableDictionary dictionary];
 	for (ORMObjectType *type in self.objectTypes) {
@@ -1045,156 +1941,329 @@ ORMUnitReferenceModes(void)
 		ORMFactType *fact = [self elementWithId:ORMRef(nested)];
 		if ([fact isKindOfClass:[ORMFactType class]]) {
 			type.nestedFactType = fact;
-			fact.objectifyingType = type;
 			NSString *objectificationId = ORMAttribute(nested, @"id");
+			type.objectificationId = objectificationId;
 			if (objectificationId != nil) {
 				[objectifications setObject:fact forKey:objectificationId];
 			}
 		}
-		NSXMLElement *dataType = ORMChild(element, CORE, @"ConceptualDataType");
-		type.dataType = [self elementWithId:ORMRef(dataType)];
+		type.dataType = [self elementWithId:ORMRef(ORMChild(element, CORE, @"ConceptualDataType"))];
 	}
 	for (ORMFactType *fact in self.factTypes) {
 		NSXMLElement *implied = ORMChild(fact.element, CORE, @"ImpliedByObjectification");
 		if (implied != nil) {
 			fact.impliedByFactType = [objectifications objectForKey:ORMRef(implied)];
 		}
-	}
-}
-
-- (void)linkFactTypes
-{
-	/* Players, proxies, and each fact type's internal constraints. */
-	NSMutableDictionary *played = [NSMutableDictionary dictionary];
-	for (ORMFactType *fact in self.factTypes) {
 		for (ORMRole *role in fact.roles) {
-			NSXMLElement *player = ORMChild(role.element, CORE, @"RolePlayer");
-			ORMObjectType *type = [self elementWithId:ORMRef(player)];
-			if ([type isKindOfClass:[ORMObjectType class]]) {
-				role.player = type;
-				NSMutableArray *roles = [played objectForKey:type.identifier];
-				if (roles == nil) {
-					roles = [NSMutableArray array];
-					[played setObject:roles forKey:type.identifier];
-				}
-				[roles addObject:role];
-			}
 			/* A link fact type's proxy: <orm:RoleProxy id><orm:Role ref/></orm:RoleProxy>. */
 			if ([[role.element localName] isEqualToString:@"RoleProxy"]) {
-				role.proxiedRole = [self elementWithId:ORMRef(ORMChild(role.element, CORE, @"Role"))];
-			}
-		}
-	}
-	/* A proxy is played by what plays the role it stands for, known only
-	 * once every fact type's players are. */
-	for (ORMFactType *fact in self.factTypes) {
-		for (ORMRole *role in fact.roles) {
-			if (role.player == nil && role.proxiedRole.player != nil) {
-				role.player = role.proxiedRole.player;
-				[[self list:played for:role.player.identifier] addObject:role];
-			}
-		}
-	}
-	for (ORMObjectType *type in self.objectTypes) {
-		type.playedRoles = [played objectForKey:type.identifier] ?: @[];
-	}
-
-	NSMutableDictionary *internal = [NSMutableDictionary dictionary];
-	for (ORMConstraint *constraint in self.constraints) {
-		NSArray *facts = [constraint factTypes];
-		BOOL isInternal = [facts count] == 1
-			&& (constraint.kind == ORMUniquenessConstraint ? constraint.isInternal
-			                                                : (constraint.kind == ORMMandatoryConstraint
-			                                                       ? constraint.isSimple
-			                                                       : NO));
-		if (isInternal) {
-			ORMFactType *fact = [facts firstObject];
-			NSMutableArray *list = [internal objectForKey:fact.identifier];
-			if (list == nil) {
-				list = [NSMutableArray array];
-				[internal setObject:list forKey:fact.identifier];
-			}
-			[list addObject:constraint];
-		}
-	}
-	for (ORMFactType *fact in self.factTypes) {
-		fact.internalConstraints = [internal objectForKey:fact.identifier] ?: @[];
-	}
-
-	/* Subtyping. */
-	NSMutableDictionary *supers = [NSMutableDictionary dictionary];
-	NSMutableDictionary *subs = [NSMutableDictionary dictionary];
-	NSMutableDictionary *superFacts = [NSMutableDictionary dictionary];
-	for (ORMFactType *fact in self.factTypes) {
-		if (fact.kind != ORMFactTypeSubtype || [fact.roles count] != 2) {
-			continue;
-		}
-		ORMObjectType *sub = nil;
-		ORMObjectType *sup = nil;
-		for (ORMRole *role in fact.roles) {
-			if (role.isSubtypeMetaRole) {
-				sub = role.player;
-			} else if (role.isSupertypeMetaRole) {
-				sup = role.player;
-			}
-		}
-		if (sub == nil || sup == nil) {
-			continue;
-		}
-		[[self list:supers for:sub.identifier] addObject:sup];
-		[[self list:subs for:sup.identifier] addObject:sub];
-		[[self list:superFacts for:sub.identifier] addObject:fact];
-	}
-	for (ORMObjectType *type in self.objectTypes) {
-		type.supertypes = [supers objectForKey:type.identifier] ?: @[];
-		type.subtypes = [subs objectForKey:type.identifier] ?: @[];
-		type.supertypeFacts = [superFacts objectForKey:type.identifier] ?: @[];
-	}
-	for (ORMFactType *fact in self.factTypes) {
-		if (fact.kind == ORMFactTypeSubtype && !fact.providesPreferredIdentifier) {
-			ORMObjectType *sub = [[fact.roles firstObject] player];
-			/* NORMA leaves the attribute out where it is true by default:
-			 * a subtype with no identifier of its own is identified
-			 * through its (first) supertype. */
-			if (ORMAttribute(fact.element, @"PreferredIdentificationPath") == nil && sub.preferredIdentifier == nil
-			    && [sub.supertypeFacts firstObject] == fact) {
-				fact.providesPreferredIdentifier = YES;
+				id proxied = [self elementWithId:ORMRef(ORMChild(role.element, CORE, @"Role"))];
+				role.proxiedRole = [proxied isKindOfClass:[ORMRole class]] ? proxied : nil;
+			} else {
+				id player = [self elementWithId:ORMRef(ORMChild(role.element, CORE, @"RolePlayer"))];
+				role.player = [player isKindOfClass:[ORMObjectType class]] ? player : nil;
 			}
 		}
 	}
 }
 
-- (NSMutableArray *)list:(NSMutableDictionary *)lists for:(NSString *)key
+/* How the model's reference mode kinds name value types, and its custom
+ * reference modes. */
+- (void)readReferenceModeKinds
 {
-	NSMutableArray *list = [lists objectForKey:key];
-	if (list == nil) {
-		list = [NSMutableArray array];
-		[lists setObject:list forKey:key];
+	/* "{0}_{1}" (Person_id) in files NORMA writes now, "{0} {1}" (Person
+	 * Name) in older ones. */
+	NSMutableDictionary *formats = [@{ @"Popular": @"{0}_{1}", @"UnitBased": @"{1}Value", @"General": @"{1}" } mutableCopy];
+	for (NSXMLElement *kind in ORMGrandchildren(_modelElement, CORE, @"ReferenceModeKinds", CORE, @"ReferenceModeKind")) {
+		NSString *type = ORMAttribute(kind, @"ReferenceModeType");
+		NSString *format = ORMAttribute(kind, @"FormatString");
+		if (type != nil && [format rangeOfString:@"{1}"].location != NSNotFound) {
+			[formats setObject:format forKey:type];
+		}
 	}
-	return list;
+	self.referenceModeFormats = formats;
+	NSMutableDictionary *customs = [NSMutableDictionary dictionary];
+	for (NSXMLElement *custom in ORMGrandchildren(_modelElement, CORE, @"CustomReferenceModes", CORE,
+	                                              @"CustomReferenceMode")) {
+		NSString *name = ORMAttribute(custom, @"Name");
+		NSXMLElement *kindRef = ORMChild(custom, CORE, @"Kind") ?: ORMChild(custom, CORE, @"ReferenceModeKind");
+		NSString *type = ORMAttribute(ORMElementWithId(_document, ORMRef(kindRef)), @"ReferenceModeType");
+		if (name != nil && type != nil) {
+			[customs setObject:type forKey:name];
+		}
+	}
+	self.customReferenceModes = customs;
 }
 
-- (void)linkRoles
+#pragma mark Links
+
+/* Each link the model keeps both ways, made once the model is read: the
+ * roles each object type plays (its own, then those it plays through a
+ * link fact type's proxies), each role's proxies and constraints, each
+ * fact type's link fact types and what objectifies it, each uniqueness
+ * constraint's object type it identifies; in the order of the model's
+ * lists, as the setters keep them after. What the file keeps derived and
+ * the model reads as said (_ReferenceMode, _Name) is what the links give. */
+- (void)linkAll
 {
-	NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+	NSMapTable *played = [NSMapTable strongToStrongObjectsMapTable];
+	NSMapTable *proxied = [NSMapTable strongToStrongObjectsMapTable];
+	for (ORMObjectType *type in self.objectTypes) {
+		[played setObject:[NSMutableArray array] forKey:type];
+	}
+	for (NSUInteger pass = 0; pass < 2; pass++) {
+		for (ORMFactType *fact in self.factTypes) {
+			for (ORMRole *role in fact.roles) {
+				if ([role playsThroughProxy] == (pass == 1)) {
+					[(NSMutableArray *)[played objectForKey:role.player] addObject:role];
+				}
+				if (pass == 0 && role.proxiedRole != nil) {
+					NSMutableArray *proxies = [proxied objectForKey:role.proxiedRole];
+					if (proxies == nil) {
+						proxies = [NSMutableArray array];
+						[proxied setObject:proxies forKey:role.proxiedRole];
+					}
+					[proxies addObject:role];
+				}
+			}
+		}
+	}
+	for (ORMObjectType *type in self.objectTypes) {
+		type.playedRoles = [played objectForKey:type];
+	}
+	for (ORMFactType *fact in self.factTypes) {
+		for (ORMRole *role in fact.roles) {
+			role.proxies = [proxied objectForKey:role];
+			role.constraints = @[];
+		}
+		fact.linkFactTypes = nil;
+		fact.objectifyingType = nil;
+	}
+	for (ORMObjectType *type in self.objectTypes) {
+		type.impliedMandatories = nil;
+	}
 	for (ORMConstraint *constraint in self.constraints) {
+		constraint.preferredIdentifierFor = nil;
 		for (ORMRole *role in [constraint allRoles]) {
-			[[self list:byRole for:role.identifier] addObject:constraint];
-			if (constraint.kind == ORMMandatoryConstraint && constraint.isSimple && [[constraint allRoles] count] == 1) {
-				role.isMandatory = YES;
-			}
-			if (constraint.kind == ORMUniquenessConstraint && constraint.isInternal
-			    && [[constraint allRoles] count] == 1) {
-				role.isUnique = YES;
-			}
+			role.constraints = [role.constraints ?: @[] arrayByAddingObject:constraint];
+		}
+		ORMObjectType *owner = [self impliedOwnerOf:constraint];
+		owner.impliedMandatories = [owner.impliedMandatories ?: @[] arrayByAddingObject:constraint];
+	}
+	for (ORMFactType *fact in self.factTypes) {
+		ORMFactType *objectified = fact.impliedByFactType;
+		if (objectified != nil) {
+			objectified.linkFactTypes = [objectified.linkFactTypes ?: @[] arrayByAddingObject:fact];
+		}
+	}
+	for (ORMObjectType *type in self.objectTypes) {
+		type.nestedFactType.objectifyingType = type;
+		if (type.preferredIdentifier.kind == ORMUniquenessConstraint) {
+			type.preferredIdentifier.preferredIdentifierFor = type;
+		}
+	}
+	for (ORMObjectType *type in self.objectTypes) {
+		if (type.kind == ORMEntityType) {
+			type.savedReferenceMode = type.referenceMode ?: @"";
 		}
 	}
 	for (ORMFactType *fact in self.factTypes) {
-		for (ORMRole *role in fact.roles) {
-			role.constraints = [byRole objectForKey:role.identifier] ?: @[];
+		if (fact.savedDerivedName != nil || fact.kind == ORMFactTypeOrdinary) {
+			fact.savedDerivedName = [fact derivedName];
+		}
+		fact.lastUnaryReading = [fact unaryReading];
+	}
+}
+
+- (BOOL)holds:(ORMElement *)element
+{
+	return !_reading && element.identifier != nil && [_elements objectForKey:element.identifier] == element;
+}
+
+/* Whether the role is one of a fact type the model holds. */
+- (BOOL)holdsRole:(ORMRole *)role
+{
+	return [self holds:role.factType] && ORMContains(role.factType.roles, role);
+}
+
+/* Where an element goes in a list the model keeps in its own order: a
+ * role by its fact type and place in it (one played through a proxy after
+ * the rest), a fact type or constraint by its place in the model. */
+- (NSArray<NSNumber *> *)orderOf:(ORMElement *)element
+{
+	if ([element isKindOfClass:[ORMRole class]]) {
+		ORMRole *role = (ORMRole *)element;
+		return @[ @([role playsThroughProxy] ? 1 : 0), @([self.factTypes indexOfObjectIdenticalTo:role.factType]),
+			      @([role.factType.roles indexOfObjectIdenticalTo:role]) ];
+	}
+	NSArray *list = [element isKindOfClass:[ORMFactType class]] ? (NSArray *)self.factTypes : (NSArray *)self.constraints;
+	return @[ @([list indexOfObjectIdenticalTo:element]) ];
+}
+
+static NSComparisonResult
+ORMCompareOrders(NSArray<NSNumber *> *a, NSArray<NSNumber *> *b)
+{
+	for (NSUInteger i = 0; i < [a count] && i < [b count]; i++) {
+		NSComparisonResult result = [[a objectAtIndex:i] compare:[b objectAtIndex:i]];
+		if (result != NSOrderedSame) {
+			return result;
+		}
+	}
+	return NSOrderedSame;
+}
+
+/* The list with the element in its place; the list as it was where it is
+ * in it already. */
+- (NSArray *)list:(NSArray *)list adding:(ORMElement *)element
+{
+	if (element == nil || ORMContains(list, element)) {
+		return list;
+	}
+	NSArray *order = [self orderOf:element];
+	NSUInteger at = [list count];
+	while (at > 0 && ORMCompareOrders([self orderOf:[list objectAtIndex:at - 1]], order) == NSOrderedDescending) {
+		at--;
+	}
+	NSMutableArray *added = [NSMutableArray arrayWithArray:list ?: @[]];
+	[added insertObject:element atIndex:at];
+	return added;
+}
+
+/* A role taken into, or out of, the lists of what it is linked to: its
+ * player's played roles, the proxied role's proxies. */
+- (void)linkRole:(ORMRole *)role
+{
+	ORMObjectType *player = role.player;
+	if (player != nil) {
+		player.playedRoles = [self list:player.playedRoles adding:role];
+		[self.relinkedTypes addObject:player];
+	}
+	if (role.proxiedRole != nil) {
+		role.proxiedRole.proxies = [self list:role.proxiedRole.proxies adding:role];
+	}
+}
+
+- (void)unlinkRole:(ORMRole *)role
+{
+	ORMObjectType *player = role.player;
+	if (player != nil) {
+		player.playedRoles = ORMWithout(player.playedRoles, role);
+		[self.relinkedTypes addObject:player];
+	}
+	if (role.proxiedRole != nil) {
+		role.proxiedRole.proxies = ORMWithout(role.proxiedRole.proxies, role);
+	}
+}
+
+/* The roles whose player is the role's: it, and its proxies that play
+ * through it. */
+- (NSArray<ORMRole *> *)rolesPlayedWith:(ORMRole *)role
+{
+	NSMutableArray *roles = [NSMutableArray arrayWithObject:role];
+	for (ORMRole *proxy in role.proxies) {
+		if ([proxy playsThroughProxy]) {
+			[roles addObject:proxy];
+		}
+	}
+	return roles;
+}
+
+- (void)linkFactType:(ORMFactType *)fact
+{
+	for (ORMRole *role in fact.roles) {
+		[self linkRole:role];
+	}
+	ORMFactType *objectified = fact.impliedByFactType;
+	if (objectified != nil) {
+		objectified.linkFactTypes = [self list:objectified.linkFactTypes adding:fact];
+	}
+}
+
+- (void)unlinkFactType:(ORMFactType *)fact
+{
+	for (ORMRole *role in fact.roles) {
+		[self unlinkRole:role];
+	}
+	ORMFactType *objectified = fact.impliedByFactType;
+	if (objectified != nil) {
+		objectified.linkFactTypes = ORMWithout(objectified.linkFactTypes, fact);
+		if ([objectified.linkFactTypes count] == 0) {
+			objectified.linkFactTypes = nil;
 		}
 	}
 }
+
+- (void)linkConstraint:(ORMConstraint *)constraint
+{
+	for (ORMRole *role in [constraint allRoles]) {
+		role.constraints = [self list:role.constraints adding:constraint];
+	}
+	[self noteRelinked:constraint];
+	ORMObjectType *owner = [self impliedOwnerOf:constraint];
+	if (owner != nil) {
+		owner.impliedMandatories = [self list:owner.impliedMandatories adding:constraint];
+	}
+}
+
+- (void)unlinkConstraint:(ORMConstraint *)constraint
+{
+	for (ORMRole *role in [constraint allRoles]) {
+		role.constraints = ORMWithout(role.constraints, constraint);
+	}
+	[self noteRelinked:constraint];
+	ORMObjectType *owner = [self impliedOwnerOf:constraint];
+	if (owner != nil) {
+		owner.impliedMandatories = ORMWithout(owner.impliedMandatories, constraint);
+	}
+}
+
+/* The object types a constraint's links tell of: the players of its fact
+ * types' roles, the one it identifies. */
+- (void)noteRelinked:(ORMConstraint *)constraint
+{
+	for (ORMRole *role in self.relinkedTypes != nil ? [constraint allRoles] : @[]) {
+		for (ORMRole *each in role.factType.roles) {
+			if (each.player != nil) {
+				[self.relinkedTypes addObject:each.player];
+			}
+		}
+	}
+	if (constraint.preferredIdentifierFor != nil) {
+		[self.relinkedTypes addObject:constraint.preferredIdentifierFor];
+	}
+}
+
+/* The object type an implied mandatory constraint says it is implied by. */
+- (ORMObjectType *)impliedOwnerOf:(ORMConstraint *)constraint
+{
+	if (constraint.kind != ORMMandatoryConstraint || !constraint.isImplied || constraint.impliedByObjectTypeId == nil) {
+		return nil;
+	}
+	ORMObjectType *owner = [self elementWithId:constraint.impliedByObjectTypeId];
+	return [owner isKindOfClass:[ORMObjectType class]] ? owner : nil;
+}
+
+/* What objectifies the fact type, what the constraint is the preferred
+ * identifier of: the last object type in the model that says so. */
+- (void)relinkObjectifying:(ORMFactType *)fact
+{
+	ORMObjectType *found = nil;
+	for (ORMObjectType *type in self.objectTypes) {
+		found = type.nestedFactType == fact ? type : found;
+	}
+	fact.objectifyingType = found;
+}
+
+- (void)relinkIdentified:(ORMConstraint *)constraint
+{
+	ORMObjectType *found = nil;
+	for (ORMObjectType *type in constraint.kind == ORMUniquenessConstraint ? self.objectTypes : @[]) {
+		found = type.preferredIdentifier == constraint ? type : found;
+	}
+	constraint.preferredIdentifierFor = found;
+}
+
+#pragma mark Reference modes
 
 /* The reference mode a value type's name gives under a kind's format,
  * "{0}" the entity type's name and "{1}" the mode; nil when it does not
@@ -1219,118 +2288,87 @@ ORMReferenceModeIn(NSString *valueName, NSString *format, NSString *entityName)
 	                                                 [valueName length] - [prefix length] - [suffix length])];
 }
 
-/* NORMA's reference modes, from the preferred identifiers: an entity
- * type identified by one role of a binary fact type it plays the other
- * role of, where the identifying role's player is a value type named as
- * a reference mode names it. */
-- (void)deriveReferenceModes
+- (void)setCustomReferenceModes:(NSDictionary<NSString *, NSString *> *)modes
 {
-	/* How each kind names its value type: "{0}_{1}" (Person_id) in files
-	 * NORMA writes now, "{0} {1}" (Person Name) in older ones. */
-	NSMutableDictionary *formats = [@{ @"Popular": @"{0}_{1}", @"UnitBased": @"{1}Value", @"General": @"{1}" } mutableCopy];
-	for (NSXMLElement *kind in ORMGrandchildren(_modelElement, CORE, @"ReferenceModeKinds", CORE, @"ReferenceModeKind")) {
-		NSString *type = ORMAttribute(kind, @"ReferenceModeType");
-		NSString *format = ORMAttribute(kind, @"FormatString");
-		if (type != nil && [format rangeOfString:@"{1}"].location != NSNotFound) {
-			[formats setObject:format forKey:type];
-		}
-	}
-	NSMutableSet *customUnits = [NSMutableSet setWithArray:ORMUnitReferenceModes()];
-	NSMutableSet *customGeneral = [NSMutableSet set];
+	_customReferenceModes = [modes copy];
+	NSMutableSet *units = [NSMutableSet setWithArray:ORMUnitReferenceModes()];
+	NSMutableSet *general = [NSMutableSet set];
 	/* NORMA's own popular modes, and the model's: compared ignoring case. */
-	NSMutableSet *popularModes = [NSMutableSet setWithArray:@[ @"id", @"name", @"code", @"title", @"nr", @"#" ]];
-	for (NSXMLElement *custom in ORMGrandchildren(_modelElement, CORE, @"CustomReferenceModes", CORE,
-	                                              @"CustomReferenceMode")) {
-		NSString *name = ORMAttribute(custom, @"Name");
-		NSXMLElement *kindRef = ORMChild(custom, CORE, @"Kind") ?: ORMChild(custom, CORE, @"ReferenceModeKind");
-		NSXMLElement *kind = ORMElementWithId(_document, ORMRef(kindRef));
-		NSString *type = ORMAttribute(kind, @"ReferenceModeType");
+	NSMutableSet *popular = [NSMutableSet setWithArray:@[ @"id", @"name", @"code", @"title", @"nr", @"#" ]];
+	for (NSString *name in modes) {
+		NSString *type = [modes objectForKey:name];
 		if ([type isEqualToString:@"UnitBased"]) {
-			[customUnits addObject:name];
+			[units addObject:name];
 		} else if ([type isEqualToString:@"General"]) {
-			[customGeneral addObject:name];
-		} else if ([type isEqualToString:@"Popular"] && name != nil) {
-			[popularModes addObject:[name lowercaseString]];
+			[general addObject:name];
+		} else if ([type isEqualToString:@"Popular"]) {
+			[popular addObject:[name lowercaseString]];
 		}
 	}
-	for (ORMObjectType *type in self.objectTypes) {
-		ORMConstraint *identifier = type.preferredIdentifier;
-		if (!type.isEntity || identifier == nil || !identifier.isInternal || [[identifier allRoles] count] != 1) {
-			continue;
-		}
-		ORMRole *role = [[identifier allRoles] firstObject];
-		ORMRole *opposite = [role oppositeRole];
-		ORMObjectType *value = role.player;
-		if (opposite.player != type || value == nil || value.kind != ORMValueType) {
-			continue;
-		}
-		NSString *saved = ORMAttribute(type.element, @"_ReferenceMode");
-		/* The name read each way; what NORMA saved settles which, and
-		 * else the modes the model knows of. */
-		NSString *mode = nil;
-		ORMReferenceModeKind kind = ORMReferenceModeNone;
-		NSString *popular = ORMReferenceModeIn(value.name, [formats objectForKey:@"Popular"], type.name);
-		NSString *unit = ORMReferenceModeIn(value.name, [formats objectForKey:@"UnitBased"], type.name);
-		if (popular != nil && [saved isEqualToString:popular]) {
-			mode = popular;
-			kind = ORMReferenceModePopular;
-		} else if (unit != nil && [saved isEqualToString:unit]) {
-			mode = unit;
-			kind = ORMReferenceModeUnitBased;
-		} else if ([saved isEqualToString:value.name]) {
-			mode = value.name;
-			kind = ORMReferenceModeGeneral;
-		} else if ([saved length] > 0 && [value.name isEqualToString:[type.name stringByAppendingString:saved]]) {
-			/* Older NORMA: "OIALModel.id", saved as ".id". */
-			mode = saved;
-			kind = ORMReferenceModeGeneral;
-		} else if (popular != nil && [popularModes containsObject:[popular lowercaseString]]) {
-			mode = popular;
-			kind = ORMReferenceModePopular;
-		} else if (unit != nil && [customUnits containsObject:unit]) {
-			mode = unit;
-			kind = ORMReferenceModeUnitBased;
-		} else if ([customGeneral containsObject:value.name]) {
-			mode = value.name;
-			kind = ORMReferenceModeGeneral;
-		}
-		if (mode == nil) {
-			continue;
-		}
-		type.referenceMode = mode;
-		type.referenceModeKind = kind;
-		type.referenceModeValueType = value;
-		type.referenceModeFactType = role.factType;
-		if (type.valueConstraint == nil) {
-			type.valueConstraint = value.valueConstraint;
-		}
-	}
+	_unitModes = units;
+	_generalModes = general;
+	_popularModes = popular;
 }
 
-/* What each value constraint constrains the values of. */
-- (void)linkValueConstraints
+/* NORMA's reference mode of an entity type identified by one role of a
+ * binary fact type it plays the other role of, where the identifying
+ * role's player is a value type named as a reference mode names it: the
+ * mode, its kind, the value type, the fact type and the role; nil for
+ * none. What NORMA saved settles how a name reads, else the modes the
+ * model knows of. */
+- (NSArray *)referenceModeOf:(ORMObjectType *)type
 {
-	for (ORMObjectType *type in self.objectTypes) {
-		if (type.kind == ORMValueType) {
-			type.valueConstraint.valueType = type;
-		}
+	ORMConstraint *identifier = type.preferredIdentifier;
+	if (!type.isEntity || identifier == nil || !identifier.isInternal) {
+		return nil;
 	}
-	for (ORMFactType *fact in self.factTypes) {
-		for (ORMRole *role in fact.roles) {
-			ORMObjectType *player = role.player;
-			role.valueConstraint.valueType = player.kind == ORMValueType ? player : player.referenceModeValueType;
-		}
+	NSArray *roles = [identifier allRoles];
+	if ([roles count] != 1) {
+		return nil;
 	}
+	ORMRole *role = [roles firstObject];
+	ORMObjectType *value = role.player;
+	if ([role oppositeRole].player != type || value == nil || value.kind != ORMValueType) {
+		return nil;
+	}
+	NSString *saved = type.savedReferenceMode;
+	NSString *popular = ORMReferenceModeIn(value.name, [self.referenceModeFormats objectForKey:@"Popular"], type.name);
+	NSString *unit = ORMReferenceModeIn(value.name, [self.referenceModeFormats objectForKey:@"UnitBased"], type.name);
+	NSString *mode = nil;
+	ORMReferenceModeKind kind = ORMReferenceModeNone;
+	if (popular != nil && [saved isEqualToString:popular]) {
+		mode = popular;
+		kind = ORMReferenceModePopular;
+	} else if (unit != nil && [saved isEqualToString:unit]) {
+		mode = unit;
+		kind = ORMReferenceModeUnitBased;
+	} else if ([saved isEqualToString:value.name]) {
+		mode = value.name;
+		kind = ORMReferenceModeGeneral;
+	} else if ([saved length] > 0 && [value.name isEqualToString:[type.name stringByAppendingString:saved]]) {
+		/* Older NORMA: "OIALModel.id", saved as ".id". */
+		mode = saved;
+		kind = ORMReferenceModeGeneral;
+	} else if (popular != nil && [_popularModes containsObject:[popular lowercaseString]]) {
+		mode = popular;
+		kind = ORMReferenceModePopular;
+	} else if (unit != nil && [_unitModes containsObject:unit]) {
+		mode = unit;
+		kind = ORMReferenceModeUnitBased;
+	} else if ([_generalModes containsObject:value.name]) {
+		mode = value.name;
+		kind = ORMReferenceModeGeneral;
+	}
+	return mode != nil ? @[ mode, @(kind), value, role.factType, role ] : nil;
 }
 
 - (void)readDiagrams
 {
-	_diagramsRead = YES;
 	NSMutableArray *diagrams = [NSMutableArray array];
 	NSXMLElement *root = [_document rootElement];
 	if (root != _modelElement) {
 		for (NSXMLElement *element in ORMChildren(root, ORMDiagramNamespace, @"ORMDiagram")) {
-			ORMDiagram *diagram = [[ORMDiagram alloc] initWithElement:element model:self];
+			ORMDiagram *diagram = [self element:[ORMDiagram class] for:element];
 			[self registerElement:diagram];
 			[diagram readShapes];
 			[diagrams addObject:diagram];
@@ -1340,3 +2378,137 @@ ORMReferenceModeIn(NSString *valueName, NSString *format, NSString *entityName)
 }
 
 @end
+
+#pragma mark Agreement
+
+/* The values an element is read with: the properties its readers set
+ * (readwrite, from ORMModelPriv.h), not what is worked out from them. Its
+ * XML element and its model are where it is, not what it is. A value
+ * object's are all its properties. */
+static NSArray<NSString *> *
+ORMReadValueKeys(Class elementClass, BOOL all)
+{
+	NSMutableArray *keys = [NSMutableArray array];
+	for (Class c = elementClass; c != Nil && c != [NSObject class]; c = class_getSuperclass(c)) {
+		unsigned int count = 0;
+		objc_property_t *properties = class_copyPropertyList(c, &count);
+		for (unsigned int i = 0; i < count; i++) {
+			NSString *name = [NSString stringWithUTF8String:property_getName(properties[i])];
+			NSArray *attributes = [[NSString stringWithUTF8String:property_getAttributes(properties[i])]
+				componentsSeparatedByString:@","];
+			if ((all || ![attributes containsObject:@"R"]) && ![name isEqualToString:@"element"]
+			    && ![name isEqualToString:@"model"] && ![keys containsObject:name]) {
+				[keys addObject:name];
+			}
+		}
+		free(properties);
+	}
+	return keys;
+}
+
+static NSString *ORMElementDisagreement(ORMElement *a, ORMElement *b);
+
+/* Two values the same: elements by id (or, with none, by their values),
+ * arrays and dictionaries item by item, the rest equal. */
+static BOOL
+ORMSameValue(id a, id b)
+{
+	/* No list is an empty one. */
+	if (a == nil && ([b isKindOfClass:[NSArray class]] || [b isKindOfClass:[NSDictionary class]])) {
+		return [b count] == 0;
+	}
+	if (b == nil && ([a isKindOfClass:[NSArray class]] || [a isKindOfClass:[NSDictionary class]])) {
+		return [a count] == 0;
+	}
+	if (a == nil || b == nil) {
+		return a == b;
+	}
+	if ([a isKindOfClass:[ORMElement class]] && [b isKindOfClass:[ORMElement class]]) {
+		NSString *ida = [a identifier], *idb = [b identifier];
+		if (ida != nil || idb != nil) {
+			return [a class] == [b class] && [ida isEqualToString:idb];
+		}
+		return ORMElementDisagreement(a, b) == nil;
+	}
+	if ([a isKindOfClass:[NSArray class]] && [b isKindOfClass:[NSArray class]]) {
+		if ([a count] != [b count]) {
+			return NO;
+		}
+		for (NSUInteger i = 0; i < [a count]; i++) {
+			if (!ORMSameValue([a objectAtIndex:i], [b objectAtIndex:i])) {
+				return NO;
+			}
+		}
+		return YES;
+	}
+	if ([a isKindOfClass:[NSDictionary class]] && [b isKindOfClass:[NSDictionary class]]) {
+		if ([a count] != [b count]) {
+			return NO;
+		}
+		for (id key in a) {
+			if (!ORMSameValue([a objectForKey:key], [b objectForKey:key])) {
+				return NO;
+			}
+		}
+		return YES;
+	}
+	/* A value object of ORMKit's that does not say when it is equal: by
+	 * its values. */
+	if ([a class] == [b class] && [NSStringFromClass([a class]) hasPrefix:@"ORM"]
+	    && class_getMethodImplementation([a class], @selector(isEqual:))
+	           == class_getMethodImplementation([NSObject class], @selector(isEqual:))) {
+		for (NSString *key in ORMReadValueKeys([a class], YES)) {
+			if (!ORMSameValue([a valueForKey:key], [b valueForKey:key])) {
+				return NO;
+			}
+		}
+		return YES;
+	}
+	return [a isEqual:b];
+}
+
+static NSString *
+ORMElementDisagreement(ORMElement *a, ORMElement *b)
+{
+	if ([a class] != [b class]) {
+		return [NSString stringWithFormat:@"%@ is %@ here, %@ there", a.identifier, [a class], [b class]];
+	}
+	for (NSString *key in ORMReadValueKeys([a class], NO)) {
+		id va = [a valueForKey:key], vb = [b valueForKey:key];
+		if (!ORMSameValue(va, vb)) {
+			return [NSString stringWithFormat:@"%@'s %@: %@ here, %@ there", a, key, va, vb];
+		}
+	}
+	return nil;
+}
+
+NSString *
+ORMModelDisagreement(ORMModel *model, ORMModel *other)
+{
+	/* Shapes are read when the diagrams are. */
+	[model diagrams];
+	[other diagrams];
+	NSDictionary *mine = [model valueForKey:@"elementsById"], *theirs = [other valueForKey:@"elementsById"];
+	for (NSString *key in @[ @"identifier", @"name", @"referenceModeFormats", @"customReferenceModes", @"derivationRules", @"coreDataMappings", @"storedQueries", @"objectTypes", @"factTypes", @"constraints", @"dataTypes",
+	                         @"notes", @"diagrams" ]) {
+		if (!ORMSameValue([model valueForKey:key], [other valueForKey:key])) {
+			return [NSString stringWithFormat:@"the model's %@ differ", key];
+		}
+	}
+	for (NSString *identifier in mine) {
+		ORMElement *a = [mine objectForKey:identifier], *b = [theirs objectForKey:identifier];
+		if (b == nil) {
+			return [NSString stringWithFormat:@"%@ is here only", a];
+		}
+		NSString *difference = ORMElementDisagreement(a, b);
+		if (difference != nil) {
+			return difference;
+		}
+	}
+	for (NSString *identifier in theirs) {
+		if ([mine objectForKey:identifier] == nil) {
+			return [NSString stringWithFormat:@"%@ is there only", [theirs objectForKey:identifier]];
+		}
+	}
+	return nil;
+}

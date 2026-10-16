@@ -476,7 +476,7 @@ ORMViolationTexts(ORMModel *model)
 	[queries setProjected:YES ofNode:seat];
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc]
 		initWithModel:editor.model
-		      mapping:[[ORMCoreDataMapping mappingsOfDocument:editor.document] firstObject]];
+		      mapping:[editor.model.coreDataMappings firstObject]];
 	ORMQueryPlan *plan = [planner planForQuery:[ORMQuery queryWithId:q inModel:editor.model]];
 	XCTAssertEqualObjects(plan.notes, @[]);
 	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:editor.model coreData:planner.coreData];
@@ -787,7 +787,7 @@ ORMViolationTexts(ORMModel *model)
 		}
 		XCTAssertEqualObjects(alethic, @[], @"%@", [path lastPathComponent]);
 		/* As the designer runs them: by the document's first mapping. */
-		ORMCoreDataMapping *mapping = [[ORMCoreDataMapping mappingsOfDocument:model.document] firstObject];
+		ORMCoreDataMapping *mapping = [model.coreDataMappings firstObject];
 		ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:mapping];
 		ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
 		NSError *error = nil;
