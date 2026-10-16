@@ -267,7 +267,7 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	_preferredIdentificationPath = nil;
 	_saysProvidesPreferredIdentifier = NO;
 	_explicitName = nil;
-	_keepsDerivedName = NO;
+	_savedDerivedName = nil;
 }
 
 - (void)forgetDerivedValues
@@ -428,7 +428,7 @@ ORMCapitalizedWords(NSString *text)
 	 * Person_id), and as they are ("JoinTypeHasJoinType_name"); and the
 	 * reading's words with the rest of each lowercased ("IsValuetype" for
 	 * "is ValueType"). The one the file has stands while it still fits. */
-	NSString *saved = ORMAttribute(self.element, @"_Name");
+	NSString *saved = self.savedDerivedName;
 	for (NSNumber *style in @[ @1, @2, @3 ]) {
 		NSString *variant = [self derivedNameWithPlayers:[style integerValue]];
 		if (variant != nil && [saved isEqualToString:variant]) {
@@ -1374,7 +1374,7 @@ ORMWithout(NSArray *array, id object)
 		}
 		fact.saysProvidesPreferredIdentifier = ORMBoolAttribute(element, @"ProvidesPreferredIdentifier", NO);
 		fact.explicitName = ORMAttribute(element, @"Name");
-		fact.keepsDerivedName = ORMAttribute(element, @"_Name") != nil;
+		fact.savedDerivedName = ORMAttribute(element, @"_Name");
 		[facts addObject:fact];
 		[self registerElement:fact];
 	}
@@ -1607,13 +1607,10 @@ ORMWithout(NSArray *array, id object)
 		}
 	}
 	for (ORMFactType *fact in self.factTypes) {
-		if (fact.explicitName != nil) {
-			fact.name = fact.explicitName;
-		} else if (fact.keepsDerivedName || fact.kind == ORMFactTypeOrdinary) {
-			fact.name = [fact derivedName];
-		} else {
-			fact.name = @"";
+		if (fact.savedDerivedName != nil || fact.kind == ORMFactTypeOrdinary) {
+			fact.savedDerivedName = [fact derivedName];
 		}
+		fact.name = fact.explicitName ?: fact.savedDerivedName ?: @"";
 	}
 }
 

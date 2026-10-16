@@ -15,6 +15,9 @@
 
 /* Every element of the model written. */
 - (void)writeModel;
+/* The model's custom reference modes the document does not have yet,
+ * with their kinds. */
+- (void)writeReferenceModes;
 /* One element written: its own values, not its children's. */
 - (void)writeElement:(ORMElement *)element;
 @end

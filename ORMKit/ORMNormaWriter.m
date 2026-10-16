@@ -220,6 +220,41 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	}
 }
 
+- (void)writeReferenceModes
+{
+	NSXMLElement *modelElement = self.model.modelElement;
+	NSMutableSet *written = [NSMutableSet set];
+	for (NSXMLElement *custom in ORMGrandchildren(modelElement, CORE, @"CustomReferenceModes", CORE,
+	                                              @"CustomReferenceMode")) {
+		[written addObject:ORMAttribute(custom, @"Name") ?: @""];
+	}
+	NSDictionary *customs = self.model.customReferenceModes;
+	for (NSString *name in [[customs allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		if ([written containsObject:name]) {
+			continue;
+		}
+		NSString *kindName = [customs objectForKey:name];
+		NSXMLElement *kinds = ORMEnsureChild(_document, modelElement, CORE, @"ReferenceModeKinds");
+		NSString *kindId = nil;
+		for (NSXMLElement *kind in ORMChildren(kinds, CORE, @"ReferenceModeKind")) {
+			if ([ORMAttribute(kind, @"ReferenceModeType") isEqualToString:kindName]) {
+				kindId = ORMAttribute(kind, @"id");
+			}
+		}
+		if (kindId == nil) {
+			NSXMLElement *kind = ORMNewElementWithId(_document, CORE, @"ReferenceModeKind", nil);
+			ORMSetAttribute(kind, @"FormatString", [self.model.referenceModeFormats objectForKey:kindName]);
+			ORMSetAttribute(kind, @"ReferenceModeType", kindName);
+			[kinds addChild:kind];
+			kindId = ORMAttribute(kind, @"id");
+		}
+		NSXMLElement *custom = ORMNewElementWithId(_document, CORE, @"CustomReferenceMode", nil);
+		ORMSetAttribute(custom, @"Name", name);
+		[custom addChild:ORMNewRef(_document, CORE, @"Kind", kindId)];
+		[ORMEnsureChild(_document, modelElement, CORE, @"CustomReferenceModes") addChild:custom];
+	}
+}
+
 /* After an element is replaced by a copy: the elements read from its
  * children point at the copies. */
 - (void)rebindChildrenOf:(ORMObjectType *)type
@@ -255,6 +290,11 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		ORMFactTypeKind kind = [(ORMFactType *)element kind];
 		made = ORMNewElementWithId(_document, CORE, kind == ORMFactTypeSubtype ? @"SubtypeFact" : @"Fact",
 		                           element.identifier);
+		/* The name NORMA derives is the normalizer's to keep up; a subtype
+		 * fact starts with one, which tells it to. */
+		if (kind == ORMFactTypeSubtype) {
+			ORMSetAttribute(made, @"_Name", [(ORMFactType *)element savedDerivedName]);
+		}
 		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Facts") addChild:made];
 	} else if ([element isKindOfClass:[ORMConstraint class]]) {
 		made = ORMNewElementWithId(_document, CORE, ORMConstraintElementName([(ORMConstraint *)element kind]),
@@ -381,6 +421,13 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		ORMSetAttribute(element, @"Name", nil);
 	} else {
 		ORMWriteText(element, @"Name", fact.explicitName);
+	}
+	NSNumber *path = fact.preferredIdentificationPath;
+	if (path == nil) {
+		ORMSetAttribute(element, @"PreferredIdentificationPath", nil);
+	} else if (ORMBoolAttribute(element, @"PreferredIdentificationPath", NO) != [path boolValue]
+	           || ORMAttribute(element, @"PreferredIdentificationPath") == nil) {
+		ORMSetAttribute(element, @"PreferredIdentificationPath", [path boolValue] ? @"true" : @"false");
 	}
 	ORMWriteNested(_document, element, @"Definitions", @"Definition", fact.definitionText);
 	ORMWriteNested(_document, element, @"Notes", @"Note", fact.noteText);

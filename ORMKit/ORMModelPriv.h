@@ -67,11 +67,12 @@
  * ProvidesPreferredIdentifier. */
 @property (nonatomic, readwrite, strong) NSNumber *preferredIdentificationPath;
 @property (nonatomic, readwrite) BOOL saysProvidesPreferredIdentifier;
-/* A name given it (Name), nil where it has none; and whether NORMA keeps
- * one derived from its readings (_Name), as it does for every ordinary
- * fact type. Its name is the one given, else the derived one. */
+/* A name given it (Name), nil where it has none; and the one NORMA keeps
+ * derived from its readings (_Name), as it does for every ordinary fact
+ * type, nil where it keeps none. Its name is the one given, else the
+ * derived one. */
 @property (nonatomic, readwrite, copy) NSString *explicitName;
-@property (nonatomic, readwrite) BOOL keepsDerivedName;
+@property (nonatomic, readwrite, copy) NSString *savedDerivedName;
 @end
 
 @interface ORMRole ()

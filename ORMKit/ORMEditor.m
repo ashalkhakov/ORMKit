@@ -309,6 +309,7 @@ static BOOL ORMChecksAgreement;
 		for (ORMElement *element in _deleted) {
 			[element.element detach];
 		}
+		[writer writeReferenceModes];
 		_wrote = nil;
 		_deleted = nil;
 		return YES;
