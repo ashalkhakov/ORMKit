@@ -164,6 +164,11 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 /* The roles a reader sees: without a unary's implicit boolean role. */
 - (NSArray<ORMRole *> *)visibleRoles;
 - (BOOL)isUnary;
+/* Two roles a reader sees. */
+- (BOOL)isBinary;
+/* A unary's implicit boolean role, the one NORMA stores beside its own;
+ * nil for any other fact type. */
+- (ORMRole *)implicitRole;
 /* A subtype fact's subtype and supertype (its first and second roles'
  * players); nil for any other fact type. */
 - (ORMObjectType *)subtype;
@@ -223,7 +228,9 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 /* Every constraint that has the role in one of its sequences. */
 @property (nonatomic, readonly, copy) NSArray<ORMConstraint *> *constraints;
 
-/* The other role of a binary fact type; nil otherwise. */
+/* The other of the fact type's two roles; nil where it has not two. A
+ * unary's role has the implicit boolean role opposite it, which NORMA
+ * stores; -[ORMFactType isBinary] tells a binary fact type apart. */
 - (ORMRole *)oppositeRole;
 /* NORMA's _Multiplicity: what the constraints on the opposite role say
  * about how many of this role's players each opposite player meets. */

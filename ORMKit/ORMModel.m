@@ -225,6 +225,21 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	return [self arity] == 1 && self.kind == ORMFactTypeOrdinary;
 }
 
+- (BOOL)isBinary
+{
+	return [self arity] == 2;
+}
+
+- (ORMRole *)implicitRole
+{
+	for (ORMRole *role in self.roles) {
+		if (role.player.isImplicitBooleanValue) {
+			return role;
+		}
+	}
+	return nil;
+}
+
 - (ORMReading *)primaryReading
 {
 	for (ORMReadingOrder *order in self.readingOrders) {

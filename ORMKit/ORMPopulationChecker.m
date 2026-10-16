@@ -136,7 +136,7 @@ ORMRootInstance(ORMInstance *instance)
 			NSDictionary *identifying = [instance identifyingInstancesByRole];
 			for (NSString *roleId in identifying) {
 				ORMRole *role = [_model elementWithId:roleId];
-				ORMRole *other = [role.factType.roles count] == 2 ? [role oppositeRole] : nil;
+				ORMRole *other = [role oppositeRole];
 				if (other != nil) {
 					add(role.factType, @{ roleId: [self keyOf:[identifying objectForKey:roleId]], other.identifier: key });
 				}
@@ -162,10 +162,8 @@ ORMRootInstance(ORMInstance *instance)
 		NSMutableSet *asserted = [NSMutableSet set];
 		for (NSDictionary *byRole in [self factsOf:fact]) {
 			NSMutableDictionary *visible = [NSMutableDictionary dictionaryWithDictionary:byRole];
-			for (ORMRole *role in fact.roles) {
-				if (role.player.isImplicitBooleanValue) {
-					[visible removeObjectForKey:role.identifier];
-				}
+			if ([fact implicitRole] != nil) {
+				[visible removeObjectForKey:[fact implicitRole].identifier];
 			}
 			[asserted addObject:visible];
 		}
@@ -382,7 +380,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	 * instances each have their own combination. */
 	ORMObjectType *common = nil;
 	for (ORMRole *role in roles) {
-		ORMRole *other = [role.factType.roles count] == 2 ? [role oppositeRole] : nil;
+		ORMRole *other = [role oppositeRole];
 		if (other == nil || (common != nil && other.player != common)) {
 			[_unchecked addObject:[NSString stringWithFormat:@"%@: its roles join through more than one object "
 			                                                 @"type.", constraint.name]];

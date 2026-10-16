@@ -1482,14 +1482,10 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 			}
 		}
 		/* A unary ("...and is board meeting"): its implicit role. */
-		if ([others count] == 0 && [each.factType isUnary]) {
-			for (ORMRole *role in each.factType.roles) {
-				if (role.player.isImplicitBooleanValue) {
-					ORMSentenceRole *implicit = [[ORMSentenceRole alloc] init];
-					implicit.role = role;
-					[roles addObject:implicit];
-				}
-			}
+		if ([others count] == 0 && [each.factType isUnary] && [each.factType implicitRole] != nil) {
+			ORMSentenceRole *implicit = [[ORMSentenceRole alloc] init];
+			implicit.role = [each.factType implicitRole];
+			[roles addObject:implicit];
 		}
 	}
 	if ([roles count] < 2) {

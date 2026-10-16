@@ -192,11 +192,10 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 		NSString *fact = [_editor.factTypeEditor addFactTypeWithPlayers:@[ typeId ] reading:ORMUnaryReadingFor(attribute.name)
 		                                    onDiagram:state.diagram at:ORMAutomaticPlacement reason:NULL];
 		ORMFactType *made = [_editor.model elementWithId:fact];
-		for (ORMRole *role in made.roles) {
-			if (role.player.isImplicitBooleanValue) {
-				[self.mappingEditor setName:attribute.name forSource:role.identifier inMapping:state.mapping];
-				[state.roles setObject:role.identifier forKey:path];
-			}
+		ORMRole *role = [made implicitRole];
+		if (role != nil) {
+			[self.mappingEditor setName:attribute.name forSource:role.identifier inMapping:state.mapping];
+			[state.roles setObject:role.identifier forKey:path];
 		}
 		return;
 	}

@@ -196,12 +196,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 		 * as it is. */
 		NSString *was = [_unaryReadings objectForKey:fact.identifier ?: @""];
 		if ([fact isUnary] && ![was isEqualToString:[[fact primaryReading] expandedText] ?: @""]) {
-			ORMObjectType *implicit = nil;
-			for (ORMRole *role in fact.roles) {
-				if (role.player.isImplicitBooleanValue) {
-					implicit = role.player;
-				}
-			}
+			ORMObjectType *implicit = [fact implicitRole].player;
 			NSString *name = [[fact primaryReading] expandedText];
 			/* Older NORMA spelled "is high-demand" "is high demand". */
 			NSString *older = [name stringByReplacingOccurrencesOfString:@"-" withString:@" "];
