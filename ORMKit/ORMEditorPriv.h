@@ -92,6 +92,11 @@
 /* Builders the editors share; each only makes XML, inside a change. */
 @interface ORMObjectTypeEditor ()
 - (NSXMLElement *)newValueTypeNamed:(NSString *)name dataType:(NSString *)typeName;
+/* In the model, inside a model change: a new object type (a value type
+ * with its data type, an entity type with no reference mode yet); a value
+ * type's or role's value constraint set to parsed ranges, or taken away. */
+- (ORMObjectType *)newObjectTypeNamed:(NSString *)name kind:(ORMObjectTypeKind)kind dataType:(NSString *)typeName;
+- (void)setRanges:(NSArray<NSDictionary *> *)parsed of:(ORMElement *)owner;
 /* The reference mode value type's name for the entity type: "Person_id". */
 - (NSString *)valueTypeNameFor:(NSString *)entity mode:(NSString *)mode kind:(ORMReferenceModeKind)kind;
 /* Refuses a name another object type (but the one named) has, or none. */
@@ -105,10 +110,20 @@
                              reading:(NSString *)reading
                                roles:(NSMutableArray *)roleIds;
 - (NSXMLElement *)appendReading:(NSString *)text to:(NSXMLElement *)fact roles:(NSArray<NSString *> *)roleIds;
+/* The same in the model, inside a model change: a new ordinary fact type
+ * over the players, read as the reading says from its first roles (all,
+ * or a unary's one). */
+- (ORMFactType *)addFactWithPlayers:(NSArray<ORMObjectType *> *)players reading:(NSString *)reading;
+/* A reading for the roles in this order, in the reading order for them,
+ * made when the fact type has none. */
+- (ORMReading *)addReading:(NSString *)text to:(ORMFactType *)fact roles:(NSArray<ORMRole *> *)roles;
 @end
 
 @interface ORMConstraintEditor ()
 - (NSXMLElement *)newInternalUniqueness:(NSArray<NSString *> *)roleIds;
 - (NSXMLElement *)newSimpleMandatory:(NSString *)roleId;
+/* The same in the model, inside a model change. */
+- (ORMConstraint *)addInternalUniqueness:(NSArray<ORMRole *> *)roles;
+- (ORMConstraint *)addSimpleMandatory:(ORMRole *)role;
 @end
 

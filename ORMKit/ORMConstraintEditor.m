@@ -531,6 +531,37 @@ ORMIdentifiedBy(ORMConstraint *constraint)
 }
 
 /* An internal constraint over the roles: uniqueness or simple mandatory. */
+/* A new constraint over one sequence of the roles, without an id, as
+ * NORMA keeps a constraint of one sequence. */
+- (ORMConstraint *)addConstraint:(ORMConstraintKind)kind named:(NSString *)prefix over:(NSArray<ORMRole *> *)roles
+{
+	ORMModel *model = _editor.model;
+	ORMConstraint *constraint = [[ORMConstraint alloc] initWithModel:model];
+	constraint.kind = kind;
+	constraint.name = [_editor nextName:prefix];
+	ORMRoleSequence *sequence = [[ORMRoleSequence alloc] initWithModel:model];
+	sequence.identifier = nil;
+	sequence.roles = roles;
+	constraint.roleSequences = @[ sequence ];
+	[model addElement:constraint];
+	[_editor wrote:constraint];
+	return constraint;
+}
+
+- (ORMConstraint *)addInternalUniqueness:(NSArray<ORMRole *> *)roles
+{
+	ORMConstraint *constraint = [self addConstraint:ORMUniquenessConstraint named:@"InternalUniquenessConstraint" over:roles];
+	constraint.isInternal = YES;
+	return constraint;
+}
+
+- (ORMConstraint *)addSimpleMandatory:(ORMRole *)role
+{
+	ORMConstraint *constraint = [self addConstraint:ORMMandatoryConstraint named:@"SimpleMandatoryConstraint" over:@[ role ]];
+	constraint.isSimple = YES;
+	return constraint;
+}
+
 - (NSXMLElement *)newInternalUniqueness:(NSArray<NSString *> *)roleIds
 {
 	NSXMLElement *constraint = [_editor newConstraint:@"UniquenessConstraint" named:@"InternalUniquenessConstraint"];

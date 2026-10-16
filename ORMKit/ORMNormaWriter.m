@@ -87,7 +87,8 @@ ORMWriteText(NSXMLElement *element, NSString *name, NSString *value)
  * reference to a role the model does not have (a file NORMA left so) is
  * the file's: the model reads past it, and so does the writer. */
 static void
-ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRole *> *roles, ORMModel *model)
+ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRole *> *roles, ORMModel *model,
+                 BOOL withIds)
 {
 	NSMutableArray *children = [NSMutableArray array];
 	NSMutableArray *refs = [NSMutableArray array];
@@ -107,7 +108,12 @@ ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRo
 		[child detach];
 	}
 	for (NSString *identifier in wanted) {
-		NSXMLElement *child = [kept objectForKey:identifier] ?: ORMNewRef(document, CORE, @"Role", identifier);
+		NSXMLElement *child = [kept objectForKey:identifier];
+		if (child == nil) {
+			/* A constraint's use of a role has an id of its own. */
+			child = withIds ? ORMNewElementWithId(document, CORE, @"Role", nil) : ORMNewElement(document, CORE, @"Role");
+			ORMSetAttribute(child, @"ref", identifier);
+		}
 		[container addChild:child];
 	}
 }
@@ -124,6 +130,44 @@ static NSString *
 ORMObjectTypeElementName(ORMObjectTypeKind kind)
 {
 	return kind == ORMValueType ? @"ValueType" : kind == ORMObjectifiedType ? @"ObjectifiedType" : @"EntityType";
+}
+
+/* NORMA's element for each kind of constraint. */
+static NSString *
+ORMConstraintElementName(ORMConstraintKind kind)
+{
+	switch (kind) {
+	case ORMUniquenessConstraint:
+		return @"UniquenessConstraint";
+	case ORMMandatoryConstraint:
+		return @"MandatoryConstraint";
+	case ORMFrequencyConstraint:
+		return @"FrequencyConstraint";
+	case ORMRingConstraint:
+		return @"RingConstraint";
+	case ORMSubsetConstraint:
+		return @"SubsetConstraint";
+	case ORMEqualityConstraint:
+		return @"EqualityConstraint";
+	case ORMExclusionConstraint:
+		return @"ExclusionConstraint";
+	case ORMValueComparisonConstraint:
+		return @"ValueComparisonConstraint";
+	}
+	return nil;
+}
+
+/* The children of a container that are no element of the model's list:
+ * taken away. */
+static void
+ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> *elements)
+{
+	NSArray *kept = [elements valueForKey:@"element"];
+	for (NSXMLElement *child in ORMChildren(container, CORE, local)) {
+		if ([kept indexOfObjectIdenticalTo:child] == NSNotFound) {
+			[child detach];
+		}
+	}
 }
 
 @implementation ORMNormaWriter
@@ -207,6 +251,15 @@ ORMObjectTypeElementName(ORMObjectTypeKind kind)
 		made = ORMNewElementWithId(_document, CORE, ORMObjectTypeElementName([(ORMObjectType *)element kind]),
 		                           element.identifier);
 		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Objects") addChild:made];
+	} else if ([element isKindOfClass:[ORMFactType class]]) {
+		ORMFactTypeKind kind = [(ORMFactType *)element kind];
+		made = ORMNewElementWithId(_document, CORE, kind == ORMFactTypeSubtype ? @"SubtypeFact" : @"Fact",
+		                           element.identifier);
+		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Facts") addChild:made];
+	} else if ([element isKindOfClass:[ORMConstraint class]]) {
+		made = ORMNewElementWithId(_document, CORE, ORMConstraintElementName([(ORMConstraint *)element kind]),
+		                           element.identifier);
+		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Constraints") addChild:made];
 	} else {
 		[NSException raise:NSInternalInconsistencyException format:@"The writer makes no %@ yet.", [element class]];
 	}
@@ -229,13 +282,13 @@ ORMObjectTypeElementName(ORMObjectTypeKind kind)
 		[self writeRole:(ORMRole *)element];
 	} else if ([element isKindOfClass:[ORMReadingOrder class]]) {
 		ORMWriteRoleRefs(_document, ORMChild(element.element, CORE, @"RoleSequence"), [(ORMReadingOrder *)element roles],
-		                 self.model);
+		                 self.model, NO);
 	} else if ([element isKindOfClass:[ORMReading class]]) {
 		[self writeReading:(ORMReading *)element];
 	} else if ([element isKindOfClass:[ORMConstraint class]]) {
 		[self writeConstraint:(ORMConstraint *)element];
 	} else if ([element isKindOfClass:[ORMRoleSequence class]]) {
-		ORMWriteRoleRefs(_document, element.element, [(ORMRoleSequence *)element roles], self.model);
+		ORMWriteRoleRefs(_document, element.element, [(ORMRoleSequence *)element roles], self.model, YES);
 	} else if ([element isKindOfClass:[ORMValueConstraint class]]) {
 		[self writeValueConstraint:(ORMValueConstraint *)element];
 	} else if ([element isKindOfClass:[ORMDiagram class]]) {
@@ -252,9 +305,77 @@ ORMObjectTypeElementName(ORMObjectTypeKind kind)
 
 #pragma mark Fact types
 
+/* A fact type's roles, reading orders and readings: those the model made
+ * made, as NORMA writes them, those it took away gone. */
+- (void)writePartsOf:(ORMFactType *)fact
+{
+	NSXMLElement *element = fact.element;
+	NSXMLElement *roles = ORMChild(element, CORE, @"FactRoles");
+	for (ORMRole *role in fact.roles) {
+		if (role.element == nil) {
+			NSString *local = role.isSubtypeMetaRole ? @"SubtypeMetaRole"
+				: role.isSupertypeMetaRole ? @"SupertypeMetaRole" : @"Role";
+			NSXMLElement *made = ORMNewElementWithId(_document, CORE, local, role.identifier);
+			ORMSetAttribute(made, @"_IsMandatory", @"false");
+			ORMSetAttribute(made, @"_Multiplicity", @"Unspecified");
+			ORMSetAttribute(made, @"Name", role.name ?: @"");
+			roles = roles ?: ORMEnsureChild(_document, element, CORE, @"FactRoles");
+			[roles addChild:made];
+			role.element = made;
+			[self writeRole:role];
+		}
+	}
+	NSXMLElement *orders = ORMChild(element, CORE, @"ReadingOrders");
+	ORMDetachOthers(orders, @"ReadingOrder", fact.readingOrders);
+	for (ORMReadingOrder *order in fact.readingOrders) {
+		if (order.element == nil) {
+			NSXMLElement *made = ORMNewElementWithId(_document, CORE, @"ReadingOrder", order.identifier);
+			[made addChild:ORMNewElement(_document, CORE, @"Readings")];
+			[made addChild:ORMNewElement(_document, CORE, @"RoleSequence")];
+			orders = orders ?: ORMEnsureChild(_document, element, CORE, @"ReadingOrders");
+			[orders addChild:made];
+			order.element = made;
+			ORMWriteRoleRefs(_document, ORMChild(made, CORE, @"RoleSequence"), order.roles, self.model, NO);
+		}
+		NSXMLElement *readings = ORMChild(order.element, CORE, @"Readings");
+		ORMDetachOthers(readings, @"Reading", order.readings);
+		for (ORMReading *reading in order.readings) {
+			if (reading.element == nil) {
+				NSXMLElement *made = ORMNewElementWithId(_document, CORE, @"Reading", reading.identifier);
+				NSXMLElement *data = ORMNewElement(_document, CORE, @"Data");
+				[data setStringValue:reading.text ?: @""];
+				[made addChild:data];
+				[readings addChild:made];
+				reading.element = made;
+			}
+		}
+	}
+}
+
+/* A constraint's role sequences: one of its own where it has one without
+ * an id, else each in RoleSequences with its id; each role used with an id
+ * of its own. */
+- (void)writeSequencesOf:(ORMConstraint *)constraint
+{
+	for (ORMRoleSequence *sequence in constraint.roleSequences) {
+		if (sequence.element == nil) {
+			NSXMLElement *made = sequence.identifier != nil
+				? ORMNewElementWithId(_document, CORE, @"RoleSequence", sequence.identifier)
+				: ORMNewElement(_document, CORE, @"RoleSequence");
+			NSXMLElement *parent = sequence.identifier != nil
+				? ORMEnsureChild(_document, constraint.element, CORE, @"RoleSequences")
+				: constraint.element;
+			[parent addChild:made];
+			sequence.element = made;
+			ORMWriteRoleRefs(_document, made, sequence.roles, self.model, YES);
+		}
+	}
+}
+
 - (void)writeFactType:(ORMFactType *)fact
 {
 	NSXMLElement *element = fact.element;
+	[self writePartsOf:fact];
 	/* A name given it; one NORMA derives (_Name) is the normalizer's. */
 	if (fact.explicitName == nil) {
 		ORMSetAttribute(element, @"Name", nil);
@@ -306,6 +427,7 @@ ORMObjectTypeElementName(ORMObjectTypeKind kind)
 {
 	NSXMLElement *element = constraint.element;
 	ORMWriteText(element, @"Name", constraint.name);
+	[self writeSequencesOf:constraint];
 	NSString *modality = ORMAttribute(element, @"Modality");
 	if ((constraint.modality == ORMDeontic) != [modality isEqualToString:@"Deontic"]) {
 		ORMSetAttribute(element, @"Modality", constraint.modality == ORMDeontic ? @"Deontic" : nil);

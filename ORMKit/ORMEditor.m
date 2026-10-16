@@ -412,9 +412,24 @@ static BOOL ORMChecksAgreement;
 
 - (NSString *)nextName:(NSString *)prefix
 {
-	NSUInteger highest = 0;
+	/* The document's names, and those of what a model change has made
+	 * and not yet written. */
+	NSMutableArray *names = [NSMutableArray array];
 	for (NSXMLElement *element in ORMDescendants(ORMModelElementOfDocument(_document), CORE, nil)) {
 		NSString *name = ORMAttribute(element, @"Name");
+		if (name != nil) {
+			[names addObject:name];
+		}
+	}
+	if (_wrote != nil) {
+		for (ORMElement *element in [[_model valueForKey:@"elementsById"] allValues]) {
+			if (element.element == nil && element.name != nil) {
+				[names addObject:element.name];
+			}
+		}
+	}
+	NSUInteger highest = 0;
+	for (NSString *name in names) {
 		if ([name hasPrefix:prefix]) {
 			NSString *rest = [name substringFromIndex:[prefix length]];
 			NSInteger number = [rest integerValue];
@@ -428,21 +443,12 @@ static BOOL ORMChecksAgreement;
 
 - (NSString *)uniqueObjectTypeName:(NSString *)name
 {
-	NSMutableSet *taken = [NSMutableSet set];
-	for (NSXMLNode *node in [ORMChild(ORMModelElementOfDocument(_document), CORE, @"Objects") children]) {
-		if ([node kind] == NSXMLElementKind) {
-			NSString *existing = ORMAttribute((NSXMLElement *)node, @"Name");
-			if (existing != nil) {
-				[taken addObject:existing];
-			}
-		}
-	}
-	if (![taken containsObject:name]) {
+	if ([self.model objectTypeNamed:name] == nil) {
 		return name;
 	}
 	for (NSUInteger i = 2;; i++) {
 		NSString *candidate = [NSString stringWithFormat:@"%@%lu", name, (unsigned long)i];
-		if (![taken containsObject:candidate]) {
+		if ([self.model objectTypeNamed:candidate] == nil) {
 			return candidate;
 		}
 	}

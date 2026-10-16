@@ -1093,6 +1093,7 @@ ORMWithout(NSArray *array, id object)
 - (void)addElement:(ORMElement *)element
 {
 	[self registerElement:element];
+	_typesByName = nil;
 	if ([element isKindOfClass:[ORMDataType class]]) {
 		_dataTypes = [_dataTypes arrayByAddingObject:(id)element];
 	} else if ([element isKindOfClass:[ORMObjectType class]]) {
@@ -1119,6 +1120,7 @@ ORMWithout(NSArray *array, id object)
 	if (element.identifier != nil && [_elements objectForKey:element.identifier] == element) {
 		[_elements removeObjectForKey:element.identifier];
 	}
+	_typesByName = nil;
 	_dataTypes = ORMWithout(_dataTypes, element);
 	_objectTypes = ORMWithout(_objectTypes, element);
 	_factTypes = ORMWithout(_factTypes, element);

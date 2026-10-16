@@ -53,40 +53,18 @@
 	}
 	__block NSString *created = nil;
 	[_editor group:@"Add Fact Type" with:^{
-		[_editor change:@"Add Fact Type" with:^{
-			NSMutableArray *ids = [objectTypeIds mutableCopy];
+		[_editor modelChange:@"Add Fact Type" with:^{
+			NSMutableArray *rolePlayers = [players mutableCopy];
 			if ([players count] == 1) {
 				/* NORMA's unary: a binary whose other role an implicit
 				 * boolean value type plays, constrained to true. */
-				ORMObjectType *subject = [players firstObject];
-				ORMReadingText *parsed = [ORMReadingText readingTextWithString:text arity:1 reason:NULL];
-				NSString *name = [_editor uniqueObjectTypeName:[parsed expandWithNames:^NSString *(NSUInteger index,
-				                                                                               NSString *pre,
-				                                                                               NSString *post) {
-					return [NSString stringWithFormat:@"%@%@%@", pre ?: @"", subject.name, post ?: @""];
-				}]];
-				NSXMLElement *value = [_editor.objectTypeEditor newValueTypeNamed:name dataType:@"TrueOrFalseLogicalDataType"];
-				ORMSetAttribute(value, @"IsImplicitBooleanValue", @"true");
-				NSXMLElement *restriction = ORMEnsureChild(_editor.document, value, CORE, @"ValueRestriction");
-				NSXMLElement *constraint = ORMNewElementWithId(_editor.document, CORE, @"ValueConstraint", nil);
-				ORMSetAttribute(constraint, @"Name", [_editor nextName:@"ValueTypeValueConstraint"]);
-				NSXMLElement *ranges = ORMNewElement(_editor.document, CORE, @"ValueRanges");
-				NSXMLElement *range = ORMNewElementWithId(_editor.document, CORE, @"ValueRange", nil);
-				ORMSetAttribute(range, @"MinValue", @"True");
-				ORMSetAttribute(range, @"MaxValue", @"True");
-				ORMSetAttribute(range, @"MinInclusion", @"NotSet");
-				ORMSetAttribute(range, @"MaxInclusion", @"NotSet");
-				[ranges addChild:range];
-				[constraint addChild:ranges];
-				[restriction addChild:constraint];
-				[ids addObject:ORMAttribute(value, @"id")];
+				[rolePlayers addObject:[self implicitBooleanFor:[players firstObject] reading:text]];
 			}
-			NSMutableArray *roles = [NSMutableArray array];
-			NSXMLElement *fact = [self newFactWithPlayers:ids reading:text roles:roles];
-			created = ORMAttribute(fact, @"id");
+			ORMFactType *fact = [self addFactWithPlayers:rolePlayers reading:text];
+			created = fact.identifier;
 			if ([players count] == 1) {
 				/* Each instance is or is not: the subject's role unique. */
-				[_editor.constraintEditor newInternalUniqueness:@[ [roles firstObject] ]];
+				[_editor.constraintEditor addInternalUniqueness:@[ [fact.roles firstObject] ]];
 			}
 		}];
 		if (diagramId != nil) {
@@ -94,6 +72,24 @@
 		}
 	}];
 	return created;
+}
+
+/* A unary's implicit value type, named as its reading reads of the
+ * subject: true only. */
+- (ORMObjectType *)implicitBooleanFor:(ORMObjectType *)subject reading:(NSString *)text
+{
+	ORMReadingText *parsed = [ORMReadingText readingTextWithString:text arity:1 reason:NULL];
+	NSString *name = [_editor uniqueObjectTypeName:[parsed expandWithNames:^NSString *(NSUInteger index, NSString *pre,
+	                                                                                   NSString *post) {
+		return [NSString stringWithFormat:@"%@%@%@", pre ?: @"", subject.name, post ?: @""];
+	}]];
+	ORMObjectType *value = [_editor.objectTypeEditor newObjectTypeNamed:name kind:ORMValueType
+	                                                          dataType:@"TrueOrFalseLogicalDataType"];
+	value.isImplicitBooleanValue = YES;
+	[_editor.objectTypeEditor setRanges:@[ @{ @"min": @"True", @"max": @"True", @"minInclusion": @"NotSet",
+	                                          @"maxInclusion": @"NotSet" } ]
+	                                 of:value];
+	return value;
 }
 
 - (NSString *)addReading:(NSString *)text forRoles:(NSArray<NSString *> *)roleIds reason:(NSString **)reason
@@ -121,8 +117,8 @@
 		return nil;
 	}
 	__block NSString *created = nil;
-	[_editor change:@"Add Reading" with:^{
-		created = ORMAttribute([self appendReading:text to:fact.element roles:roleIds], @"id");
+	[_editor modelChange:@"Add Reading" with:^{
+		created = [self addReading:text to:fact roles:roles].identifier;
 	}];
 	return created;
 }
@@ -405,6 +401,62 @@
 		[self appendReading:reading to:fact roles:[roleIds subarrayWithRange:NSMakeRange(0, readable)]];
 	}
 	return fact;
+}
+
+- (ORMFactType *)addFactWithPlayers:(NSArray<ORMObjectType *> *)players reading:(NSString *)reading
+{
+	ORMModel *model = _editor.model;
+	ORMFactType *fact = [[ORMFactType alloc] initWithModel:model];
+	fact.kind = ORMFactTypeOrdinary;
+	NSMutableArray *roles = [NSMutableArray array];
+	for (ORMObjectType *player in players) {
+		ORMRole *role = [[ORMRole alloc] initWithModel:model];
+		role.factType = fact;
+		role.index = [roles count];
+		role.player = player;
+		[model registerElement:role];
+		[roles addObject:role];
+	}
+	fact.roles = roles;
+	fact.readingOrders = @[];
+	[model addElement:fact];
+	[_editor wrote:fact];
+	if (reading != nil) {
+		NSUInteger readable = [players count];
+		/* A unary's reading names its one role, not the implicit one. */
+		if (readable == 2 && [reading rangeOfString:@"{1}"].location == NSNotFound) {
+			readable = 1;
+		}
+		[self addReading:reading to:fact roles:[roles subarrayWithRange:NSMakeRange(0, readable)]];
+	}
+	return fact;
+}
+
+- (ORMReading *)addReading:(NSString *)text to:(ORMFactType *)fact roles:(NSArray<ORMRole *> *)roles
+{
+	ORMModel *model = _editor.model;
+	ORMReadingOrder *order = nil;
+	for (ORMReadingOrder *existing in fact.readingOrders) {
+		if ([existing.roles isEqualToArray:roles]) {
+			order = existing;
+			break;
+		}
+	}
+	if (order == nil) {
+		order = [[ORMReadingOrder alloc] initWithModel:model];
+		order.factType = fact;
+		order.roles = roles;
+		order.readings = @[];
+		[model registerElement:order];
+		fact.readingOrders = [fact.readingOrders arrayByAddingObject:order];
+	}
+	ORMReading *reading = [[ORMReading alloc] initWithModel:model];
+	reading.readingOrder = order;
+	reading.text = text;
+	[model registerElement:reading];
+	order.readings = [order.readings arrayByAddingObject:reading];
+	[_editor wrote:fact];
+	return reading;
 }
 
 /* A reading in the reading order for the roles, making the order. */
