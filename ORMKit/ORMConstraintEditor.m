@@ -90,15 +90,10 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	}
 	__block NSString *created = nil;
 	[_editor group:internal ? @"Add Uniqueness Constraint" : @"Add External Uniqueness Constraint" with:^{
-		[_editor change:internal ? @"Add Uniqueness Constraint" : @"Add External Uniqueness Constraint" with:^{
-			NSXMLElement *constraint = nil;
-			if (internal) {
-				constraint = [self newInternalUniqueness:roleIds];
-			} else {
-				constraint = [_editor newConstraint:@"UniquenessConstraint" named:@"ExternalUniquenessConstraint"];
-				[constraint addChild:[_editor newRoleSequence:roleIds withId:NO]];
-			}
-			created = ORMAttribute(constraint, @"id");
+		[_editor modelChange:internal ? @"Add Uniqueness Constraint" : @"Add External Uniqueness Constraint" with:^{
+			created = (internal ? [self addInternalUniqueness:roles]
+			                    : [self addConstraint:ORMUniquenessConstraint named:@"ExternalUniquenessConstraint"
+			                                     over:roles]).identifier;
 		}];
 		[self showOnDiagrams:created];
 	}];
@@ -120,8 +115,8 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 		}
 		__block NSString *created = nil;
 		[_editor group:@"Add Mandatory Constraint" with:^{
-			[_editor change:@"Add Mandatory Constraint" with:^{
-				created = ORMAttribute([self newSimpleMandatory:[roleIds firstObject]], @"id");
+			[_editor modelChange:@"Add Mandatory Constraint" with:^{
+				created = [self addSimpleMandatory:[roles firstObject]].identifier;
 			}];
 			[self showOnDiagrams:created];
 		}];
@@ -140,10 +135,8 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	}
 	__block NSString *created = nil;
 	[_editor group:@"Add Inclusive-Or Constraint" with:^{
-		[_editor change:@"Add Inclusive-Or Constraint" with:^{
-			NSXMLElement *constraint = [_editor newConstraint:@"MandatoryConstraint" named:@"InclusiveOrConstraint"];
-			[constraint addChild:[_editor newRoleSequence:roleIds withId:NO]];
-			created = ORMAttribute(constraint, @"id");
+		[_editor modelChange:@"Add Inclusive-Or Constraint" with:^{
+			created = [self addConstraint:ORMMandatoryConstraint named:@"InclusiveOrConstraint" over:roles].identifier;
 		}];
 		[self showOnDiagrams:created];
 	}];
@@ -225,12 +218,11 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	}
 	__block NSString *created = nil;
 	[_editor group:@"Add Frequency Constraint" with:^{
-		[_editor change:@"Add Frequency Constraint" with:^{
-			NSXMLElement *constraint = [_editor newConstraint:@"FrequencyConstraint" named:@"FrequencyConstraint"];
-			ORMSetAttribute(constraint, @"MinFrequency", [NSString stringWithFormat:@"%lu", (unsigned long)min]);
-			ORMSetAttribute(constraint, @"MaxFrequency", [NSString stringWithFormat:@"%lu", (unsigned long)max]);
-			[constraint addChild:[_editor newRoleSequence:roleIds withId:NO]];
-			created = ORMAttribute(constraint, @"id");
+		[_editor modelChange:@"Add Frequency Constraint" with:^{
+			ORMConstraint *constraint = [self addConstraint:ORMFrequencyConstraint named:@"FrequencyConstraint" over:roles];
+			constraint.minFrequency = min;
+			constraint.maxFrequency = max;
+			created = constraint.identifier;
 		}];
 		[self showOnDiagrams:created];
 	}];
@@ -257,11 +249,10 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	}
 	__block NSString *created = nil;
 	[_editor group:@"Add Ring Constraint" with:^{
-		[_editor change:@"Add Ring Constraint" with:^{
-			NSXMLElement *constraint = [_editor newConstraint:@"RingConstraint" named:@"RingConstraint"];
-			ORMSetAttribute(constraint, @"Type", [ORMConstraint nameOfRingType:type]);
-			[constraint addChild:[_editor newRoleSequence:roleIds withId:NO]];
-			created = ORMAttribute(constraint, @"id");
+		[_editor modelChange:@"Add Ring Constraint" with:^{
+			ORMConstraint *constraint = [self addConstraint:ORMRingConstraint named:@"RingConstraint" over:roles];
+			constraint.ringType = type;
+			created = constraint.identifier;
 		}];
 		[self showOnDiagrams:created];
 	}];
@@ -305,17 +296,6 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	return YES;
 }
 
-- (NSXMLElement *)newSetComparison:(NSString *)local named:(NSString *)prefix sequences:(NSArray *)roleIds
-{
-	NSXMLElement *constraint = [_editor newConstraint:local named:prefix];
-	NSXMLElement *sequences = ORMNewElement(_editor.document, CORE, @"RoleSequences");
-	for (NSArray *sequence in roleIds) {
-		[sequences addChild:[_editor newRoleSequence:sequence withId:YES]];
-	}
-	[constraint addChild:sequences];
-	return constraint;
-}
-
 - (NSString *)addSetComparisonConstraint:(ORMConstraintKind)kind
                                sequences:(NSArray<NSArray<NSString *> *> *)roleIds
                                   reason:(NSString **)reason
@@ -341,8 +321,8 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	}
 	__block NSString *created = nil;
 	[_editor group:[NSString stringWithFormat:@"Add %@", local] with:^{
-		[_editor change:[NSString stringWithFormat:@"Add %@", local] with:^{
-			created = ORMAttribute([self newSetComparison:local named:local sequences:roleIds], @"id");
+		[_editor modelChange:[NSString stringWithFormat:@"Add %@", local] with:^{
+			created = [self addSetComparison:kind named:local sequences:roleIds].identifier;
 		}];
 		[self showOnDiagrams:created];
 	}];
@@ -360,16 +340,14 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	}
 	__block NSString *created = nil;
 	[_editor group:@"Add Exclusive-Or Constraint" with:^{
-		[_editor change:@"Add Exclusive-Or Constraint" with:^{
-			NSXMLElement *exclusion = [self newSetComparison:@"ExclusionConstraint" named:@"ExclusionConstraint"
+		[_editor modelChange:@"Add Exclusive-Or Constraint" with:^{
+			ORMConstraint *exclusion = [self addSetComparison:ORMExclusionConstraint named:@"ExclusionConstraint"
 			                                        sequences:sequences];
-			NSXMLElement *mandatory = [_editor newConstraint:@"MandatoryConstraint" named:@"ExclusiveOrConstraint"];
-			[mandatory addChild:[_editor newRoleSequence:roleIds withId:NO]];
-			[exclusion addChild:ORMNewRef(_editor.document, CORE, @"ExclusiveOrMandatoryConstraint",
-			                              ORMAttribute(mandatory, @"id"))];
-			[mandatory addChild:ORMNewRef(_editor.document, CORE, @"ExclusiveOrExclusionConstraint",
-			                              ORMAttribute(exclusion, @"id"))];
-			created = ORMAttribute(exclusion, @"id");
+			ORMConstraint *mandatory = [self addConstraint:ORMMandatoryConstraint named:@"ExclusiveOrConstraint"
+			                                          over:[_editor rolesWithIds:roleIds reason:NULL]];
+			exclusion.exclusiveOrPartner = mandatory;
+			mandatory.exclusiveOrPartner = exclusion;
+			created = exclusion.identifier;
 		}];
 		[self showOnDiagrams:created];
 	}];
@@ -400,11 +378,11 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	}
 	__block NSString *created = nil;
 	[_editor group:@"Add Value Comparison Constraint" with:^{
-		[_editor change:@"Add Value Comparison Constraint" with:^{
-			NSXMLElement *constraint = [_editor newConstraint:@"ValueComparisonConstraint" named:@"ValueComparisonConstraint"];
-			ORMSetAttribute(constraint, @"Operator", comparisonOperator);
-			[constraint addChild:[_editor newRoleSequence:roleIds withId:NO]];
-			created = ORMAttribute(constraint, @"id");
+		[_editor modelChange:@"Add Value Comparison Constraint" with:^{
+			ORMConstraint *constraint = [self addConstraint:ORMValueComparisonConstraint named:@"ValueComparisonConstraint"
+			                                           over:roles];
+			constraint.comparisonOperator = comparisonOperator;
+			created = constraint.identifier;
 		}];
 		[self showOnDiagrams:created];
 	}];
@@ -435,9 +413,10 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Frequency" with:^{
-		ORMSetAttribute(constraint.element, @"MinFrequency", [NSString stringWithFormat:@"%lu", (unsigned long)min]);
-		ORMSetAttribute(constraint.element, @"MaxFrequency", [NSString stringWithFormat:@"%lu", (unsigned long)max]);
+	[_editor modelChange:@"Set Frequency" with:^{
+		constraint.minFrequency = min;
+		constraint.maxFrequency = max;
+		[_editor wrote:constraint];
 	}];
 	return YES;
 }
@@ -455,8 +434,9 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Ring Type" with:^{
-		ORMSetAttribute(constraint.element, @"Type", name);
+	[_editor modelChange:@"Set Ring Type" with:^{
+		constraint.ringType = type;
+		[_editor wrote:constraint];
 	}];
 	return YES;
 }
@@ -470,8 +450,9 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	if (constraint.modality == modality) {
 		return YES;
 	}
-	[_editor change:@"Set Modality" with:^{
-		ORMSetAttribute(constraint.element, @"Modality", modality == ORMDeontic ? @"Deontic" : nil);
+	[_editor modelChange:@"Set Modality" with:^{
+		constraint.modality = modality;
+		[_editor wrote:constraint];
 	}];
 	return YES;
 }
@@ -519,13 +500,9 @@ ORMIdentifiedBy(ORMConstraint *constraint)
 	if (identified.preferredIdentifier == constraint) {
 		return YES;
 	}
-	[_editor change:@"Set Preferred Identifier" with:^{
-		NSXMLElement *preferred = ORMChild(identified.element, CORE, @"PreferredIdentifier");
-		if (preferred == nil) {
-			ORMInsertChild(identified.element, ORMNewRef(_editor.document, CORE, @"PreferredIdentifier", constraintId));
-		} else {
-			ORMSetAttribute(preferred, @"ref", constraintId);
-		}
+	[_editor modelChange:@"Set Preferred Identifier" with:^{
+		identified.preferredIdentifier = constraint;
+		[_editor wrote:identified];
 	}];
 	return YES;
 }
@@ -607,6 +584,29 @@ ORMIdentifiedBy(ORMConstraint *constraint)
 {
 	[_editor.model removeElement:constraint];
 	[_editor deleted:constraint];
+}
+
+/* A set comparison over the role sequences (by ids), each with an id of
+ * its own, as NORMA keeps a constraint of several. */
+- (ORMConstraint *)addSetComparison:(ORMConstraintKind)kind
+                              named:(NSString *)prefix
+                          sequences:(NSArray<NSArray<NSString *> *> *)roleIds
+{
+	ORMModel *model = _editor.model;
+	ORMConstraint *constraint = [[ORMConstraint alloc] initWithModel:model];
+	constraint.kind = kind;
+	constraint.name = [_editor nextName:prefix];
+	NSMutableArray *sequences = [NSMutableArray array];
+	for (NSArray *ids in roleIds) {
+		ORMRoleSequence *sequence = [[ORMRoleSequence alloc] initWithModel:model];
+		sequence.roles = [_editor rolesWithIds:ids reason:NULL];
+		[model registerElement:sequence];
+		[sequences addObject:sequence];
+	}
+	constraint.roleSequences = sequences;
+	[model addElement:constraint];
+	[_editor wrote:constraint];
+	return constraint;
 }
 
 - (ORMConstraint *)addInternalUniqueness:(NSArray<ORMRole *> *)roles

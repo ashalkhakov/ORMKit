@@ -173,6 +173,9 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 @implementation ORMNormaWriter
 {
 	NSXMLDocument *_document;
+	/* The XML elements this writer made: written whole, as the editors
+	 * made them, defaults spelled out where they did. */
+	NSMutableSet<NSXMLElement *> *_made;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model
@@ -304,6 +307,8 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		[NSException raise:NSInternalInconsistencyException format:@"The writer makes no %@ yet.", [element class]];
 	}
 	element.element = made;
+	_made = _made ?: [NSMutableSet set];
+	[_made addObject:made];
 }
 
 - (void)writeElement:(ORMElement *)element
@@ -483,7 +488,16 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	ORMWriteBool(element, @"IsSimple", constraint.isSimple, NO);
 	ORMWriteBool(element, @"IsImplied", constraint.isImplied, NO);
 	ORMWriteRef(_document, element, @"ImpliedByObjectType", constraint.impliedByObjectTypeId);
-	if (constraint.kind == ORMFrequencyConstraint) {
+	/* An exclusive-or: the exclusion and the mandatory name each other. */
+	if (constraint.kind == ORMExclusionConstraint) {
+		ORMWriteRef(_document, element, @"ExclusiveOrMandatoryConstraint", constraint.exclusiveOrPartner.identifier);
+	} else if (constraint.kind == ORMMandatoryConstraint) {
+		ORMWriteRef(_document, element, @"ExclusiveOrExclusionConstraint", constraint.exclusiveOrPartner.identifier);
+	}
+	if (constraint.kind == ORMFrequencyConstraint && [_made containsObject:element]) {
+		ORMSetAttribute(element, @"MinFrequency", [NSString stringWithFormat:@"%lu", (unsigned long)constraint.minFrequency]);
+		ORMSetAttribute(element, @"MaxFrequency", [NSString stringWithFormat:@"%lu", (unsigned long)constraint.maxFrequency]);
+	} else if (constraint.kind == ORMFrequencyConstraint) {
 		ORMWriteInteger(element, @"MinFrequency", constraint.minFrequency, 1);
 		ORMWriteInteger(element, @"MaxFrequency", constraint.maxFrequency, 0);
 	}

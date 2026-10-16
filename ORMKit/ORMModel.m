@@ -1600,7 +1600,18 @@ ORMWithout(NSArray *array, id object)
 	[self linkRoles];
 	[self deriveReferenceModes];
 	[self linkValueConstraints];
-	/* What NORMA keeps derived beside the model, as it keeps it. */
+	/* What NORMA keeps derived beside the model, as it keeps it. Each
+	 * preferred identifier names what it identifies. */
+	for (ORMConstraint *constraint in self.constraints) {
+		if (constraint.kind == ORMUniquenessConstraint) {
+			constraint.preferredIdentifierFor = nil;
+		}
+	}
+	for (ORMObjectType *type in self.objectTypes) {
+		if (type.preferredIdentifier.kind == ORMUniquenessConstraint) {
+			type.preferredIdentifier.preferredIdentifierFor = type;
+		}
+	}
 	for (ORMObjectType *type in self.objectTypes) {
 		if (type.kind == ORMEntityType) {
 			type.savedReferenceMode = type.referenceMode ?: @"";
