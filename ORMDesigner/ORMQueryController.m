@@ -558,7 +558,7 @@ ORMCellText(id value)
 	/* What a derivation can derive: the fact types its columns are the
 	 * roles of, in order, and the one it derives. */
 	for (ORMFactType *fact in kind == ORMQueryDerivation ? [self derivableBy:_query] : @[]) {
-		[_ofPopUp addItemWithTitle:[[fact primaryReading] expandedText] ?: fact.name];
+		[_ofPopUp addItemWithTitle:[fact displayText]];
 		[[_ofPopUp lastItem] setRepresentedObject:fact.identifier];
 		if (fact == _query.derivedFactType) {
 			[_ofPopUp selectItem:[_ofPopUp lastItem]];
@@ -778,7 +778,7 @@ ORMCellText(id value)
 	if (entry == nil) {
 		NSBeep();
 		[self say:[NSString stringWithFormat:@"%@ plays no role of \"%@\".", node.objectType.name,
-		                                     [[role.factType primaryReading] expandedText] ?: role.factType.name]];
+		                                     [role.factType displayText]]];
 		return nil;
 	}
 	NSString *step = [self addStepThrough:entry];
@@ -1106,7 +1106,7 @@ ORMCellText(id value)
 			return [reading stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
 		}
 	}
-	return [[role.factType primaryReading] expandedText] ?: role.factType.name;
+	return [role.factType displayText];
 }
 
 @end

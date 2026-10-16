@@ -151,9 +151,9 @@
 	[_table reloadData];
 	[_title setStringValue:objectifying != nil
 	                           ? [NSString stringWithFormat:@"Instances of %@, each a fact of %@", objectifying.name,
-	                                                        [[_fact primaryReading] expandedText] ?: _fact.name]
+	                                                        [_fact displayText]]
 	                       : _fact != nil ? [NSString stringWithFormat:@"Population of %@",
-	                                                                  [[_fact primaryReading] expandedText] ?: _fact.name]
+	                                                                  [_fact displayText]]
 	                                    : (_type != nil && [_nested count] > 0
 	                                           ? [NSString stringWithFormat:@"Instances of %@, each where %@", _type.name,
 	                                                                        [[_type.nestedFactType primaryReading] expandedText]
@@ -413,7 +413,7 @@
 	}
 	if ([self isFullyDerived]) {
 		[self refuse:[NSString stringWithFormat:@"\"%@\" is derived: its facts follow from its rule.",
-		                                        [[_fact primaryReading] expandedText] ?: _fact.name]];
+		                                        [_fact displayText]]];
 		return;
 	}
 	_refusal = nil;

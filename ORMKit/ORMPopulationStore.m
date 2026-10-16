@@ -113,12 +113,6 @@ static char ORMTemporaryDirectoryKey;
 	}
 }
 
-static NSString *
-ORMFactName(ORMFactType *fact)
-{
-	return [[fact primaryReading] expandedText] ?: fact.name;
-}
-
 - (ORMCDEntity *)cdEntityNamed:(NSString *)name
 {
 	for (ORMCDEntity *entity in _coreData.entities) {
@@ -674,7 +668,7 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 			continue;
 		}
 		if ([fact.byRole count] < [[fact.factType visibleRoles] count]) {
-			[self note:@"A fact of \"%@\" lacks a role's player: it is left out.", ORMFactName(fact.factType)];
+			[self note:@"A fact of \"%@\" lacks a role's player: it is left out.", [fact.factType displayText]];
 			continue;
 		}
 		if (![self placeOnPlayers:fact] && ![self placeAsObject:fact]) {
@@ -690,7 +684,7 @@ ORMStoreTypeOf(NSAttributeDescription *attribute, NSString *mapped)
 			objects = objects || [_objects objectForKey:player.identifier] != nil;
 		}
 		if (objects && ![_reached containsObject:fact]) {
-			[self note:@"\"%@\" is kept nowhere in the store.", ORMFactName(fact.factType)];
+			[self note:@"\"%@\" is kept nowhere in the store.", [fact.factType displayText]];
 		}
 	}
 	/* Each member's row with the values it is joined by, from the row it

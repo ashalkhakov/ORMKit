@@ -148,6 +148,10 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 - (BOOL)isUnary;
 /* The first reading of the first reading order: what NORMA shows. */
 - (ORMReading *)primaryReading;
+/* "Person was born in Country": its primary reading with the players'
+ * names, or its name where it has no reading. What lists and messages call
+ * it, as ORMObjectType's displayName. Made once. */
+- (NSString *)displayText;
 /* A reading starting at the role, and the order it reads the roles in;
  * nil when the fact type has none. */
 - (ORMReadingOrder *)readingOrderStartingWithRole:(ORMRole *)role;

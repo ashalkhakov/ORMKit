@@ -786,7 +786,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 			}
 		}
 		[self note:[NSString stringWithFormat:@"\"%@\" maps to no attribute of %@.",
-		                                      [[step.factType primaryReading] expandedText] ?: step.factType.name,
+		                                      [step.factType displayText],
 		                                      entity.name]];
 		return nil;
 	}
@@ -912,11 +912,11 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		if (node != nil && node.objectType.kind == ORMEntityType && [_places entityOf:node.objectType] == nil) {
 			[self note:[NSString stringWithFormat:@"%@ is absorbed into what uses it, and \"%@\" joins on nothing %@ has. "
 			                                      @"Map %@ as an entity to query through it.",
-			                                      node.objectType.name, [[fact primaryReading] expandedText] ?: fact.name,
+			                                      node.objectType.name, [fact displayText],
 			                                      entity.name, node.objectType.name]];
 		} else {
 			[self note:[NSString stringWithFormat:@"\"%@\" maps to nothing %@ reaches.",
-			                                      [[fact primaryReading] expandedText] ?: fact.name, entity.name]];
+			                                      [fact displayText], entity.name]];
 		}
 		return nil;
 	}
@@ -933,7 +933,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		ORMCDProperty *rolePlace = [_places propertyOf:factEntity source:[ORMQueryPlaces sourceOfRole:node.role]];
 		if (rolePlace == nil) {
 			[self note:[NSString stringWithFormat:@"%@'s role in \"%@\" maps to nothing.", node.objectType.name,
-			                                      [[fact primaryReading] expandedText] ?: fact.name]];
+			                                      [fact displayText]]];
 			continue;
 		}
 		ORMPlanCondition *part = [self binaryStep:nil node:node property:rolePlace at:inner columns:columns];
@@ -1178,7 +1178,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 			}
 		}
 	}
-	NSString *what = [[step.factType primaryReading] expandedText] ?: step.factType.name;
+	NSString *what = [step.factType displayText];
 	if (joined == nil || [pairs count] == 0 || [pairs count] != [ours count]) {
 		[self note:[NSString stringWithFormat:@"\"%@\" joins on parts %@ does not have as %@ does.", what,
 		                                      joined.name ?: node.objectType.name, entity.name]];

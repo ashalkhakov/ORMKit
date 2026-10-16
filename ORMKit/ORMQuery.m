@@ -596,7 +596,7 @@ static NSString *
 ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXMLElement *rule, NSUInteger round,
               ORMModel *model)
 {
-	NSString *what = [[fact primaryReading] expandedText] ?: fact.name;
+	NSString *what = [fact displayText];
 	NSXMLElement *from = (NSXMLElement *)[step parent];
 	NSXMLElement *tree = [ORMChild(rule, Q, @"Node") copy];
 	NSMutableArray *all = [NSMutableArray array];
@@ -776,7 +776,7 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		if (step == nil) {
 			break;
 		}
-		NSString *what = [[fact primaryReading] expandedText] ?: fact.name;
+		NSString *what = [fact displayText];
 		NSString *unplain = nil;
 		NSXMLElement *rule = ORMDerivationElement(fact, model, &unplain);
 		ORMQuery *derivation = rule != nil ? [ORMQuery queryOf:rule model:model] : nil;
@@ -1148,7 +1148,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		                  [self.calculatedNode designation] ?: @"?"];
 	} else if (self.kind == ORMQueryDerivation && self.derivedFactType != nil) {
 		[out appendFormat:@"Derivation of \"%@\":\n",
-		                  [[self.derivedFactType primaryReading] expandedText] ?: self.derivedFactType.name];
+		                  [self.derivedFactType displayText]];
 	} else if (self.kind == ORMQueryDerivation) {
 		[out appendString:@"Derivation:\n"];
 	}

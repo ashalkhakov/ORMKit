@@ -147,6 +147,17 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 #pragma mark Fact types
 
 @implementation ORMFactType
+{
+	NSString *_displayText;
+}
+
+- (NSString *)displayText
+{
+	if (_displayText == nil) {
+		_displayText = [[self primaryReading] expandedText] ?: self.name ?: @"";
+	}
+	return _displayText;
+}
 
 - (NSArray<ORMRole *> *)visibleRoles
 {

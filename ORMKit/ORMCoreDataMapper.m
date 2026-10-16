@@ -1337,7 +1337,7 @@ ORMDeletionRule(ORMRole *far)
 	} else if (a == ORMResolvedValue && b == ORMResolvedValue) {
 		[self note:ORMMappingWarning
 		      text:[NSString stringWithFormat:@"%@ relates two values and is not mapped.",
-		                                      [[fact primaryReading] expandedText] ?: fact.name]
+		                                      [fact displayText]]
 		   element:fact.identifier];
 	}
 }
@@ -1581,7 +1581,7 @@ ORMDeletionRule(ORMRole *far)
 			[self note:ORMMappingDerived
 			      text:[NSString stringWithFormat:@"\"%@\" is derived and not stored: nothing keeps it, and queries work "
 			                                      @"it out.",
-			                                      [[fact primaryReading] expandedText] ?: fact.name]
+			                                      [fact displayText]]
 			   element:fact.identifier];
 			continue;
 		}
@@ -1801,7 +1801,7 @@ ORMDeletionRule(ORMRole *far)
 		if (!rule.isStored || ![self isMappable:fact]) {
 			continue;
 		}
-		NSString *what = [[fact primaryReading] expandedText] ?: fact.name;
+		NSString *what = [fact displayText];
 		NSArray *roles = [fact visibleRoles];
 		NSArray *columns = [query derivedColumns];
 		/* A plain chain from the first role's player to the second's. */

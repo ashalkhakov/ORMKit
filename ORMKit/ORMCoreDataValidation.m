@@ -880,7 +880,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 		if (!rule.isStored) {
 			continue;
 		}
-		NSString *what = [[fact primaryReading] expandedText] ?: fact.name;
+		NSString *what = [fact displayText];
 		NSString *why = nil;
 		NSArray *roles = [fact visibleRoles];
 		NSArray *columns = [query derivedColumns];

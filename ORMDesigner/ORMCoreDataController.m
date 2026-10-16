@@ -534,14 +534,14 @@ ORMActionTitles(void)
 	id element = [self.editor.model elementWithId:source];
 	if ([element isKindOfClass:[ORMRole class]]) {
 		ORMFactType *fact = [(ORMRole *)element factType];
-		return [[fact primaryReading] expandedText] ?: fact.name;
+		return [fact displayText];
 	}
 	if ([element isKindOfClass:[ORMObjectType class]]) {
 		return [NSString stringWithFormat:@"%@ (%@)", [(ORMObjectType *)element displayName],
 		        [(ORMObjectType *)element kind] == ORMValueType ? @"value type" : @"entity type"];
 	}
 	if ([element isKindOfClass:[ORMFactType class]]) {
-		return [[(ORMFactType *)element primaryReading] expandedText] ?: [element name];
+		return [(ORMFactType *)element displayText];
 	}
 	return @"";
 }

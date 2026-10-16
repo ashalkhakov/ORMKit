@@ -101,7 +101,7 @@
 {
 	NSMutableDictionary<NSString *, ORMFactType *> *signatures = [NSMutableDictionary dictionary];
 	for (ORMFactType *fact in [_model ordinaryFactTypes]) {
-		NSString *name = [[fact primaryReading] expandedText] ?: fact.name;
+		NSString *name = [fact displayText];
 		NSSet *roles = [NSSet setWithArray:fact.roles];
 		for (ORMReadingOrder *order in fact.readingOrders) {
 			/* A role the file names that is not there is dropped from order.roles. */
@@ -136,7 +136,7 @@
 				} else if (other != fact) {
 					[self add:ORMIssueError area:@"Model"
 					     text:[NSString stringWithFormat:@"\"%@\" reads the same as \"%@\", another fact type.",
-					                                     [reading expandedText], [[other primaryReading] expandedText] ?: other.name]
+					                                     [reading expandedText], [other displayText]]
 					    about:fact.identifier];
 				}
 			}

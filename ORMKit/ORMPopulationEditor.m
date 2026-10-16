@@ -1029,7 +1029,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
 	if ([type isKindOfClass:[ORMObjectType class]] && type.nestedFactType != nil && ![self isTheFactItObjectifies:type]) {
 		[self refuse:[NSString stringWithFormat:@"Each %@ is a fact of \"%@\" too: name its players as well.", type.name,
-		                                        [[type.nestedFactType primaryReading] expandedText] ?: type.nestedFactType.name]
+		                                        [type.nestedFactType displayText]]
 		      reason:reason];
 		return nil;
 	}

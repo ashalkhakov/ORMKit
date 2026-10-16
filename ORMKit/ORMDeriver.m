@@ -237,7 +237,7 @@ ORMRowValueIs(id value, ORMInstance *instance)
 		if ([plan.columns count] != [roles count] || [at count] != [roles count]) {
 			[self note:query text:[NSString stringWithFormat:@"it lists %lu, and \"%@\" has %lu roles.",
 			                                                 (unsigned long)[plan.columns count],
-			                                                 [[fact primaryReading] expandedText] ?: fact.name,
+			                                                 [fact displayText],
 			                                                 (unsigned long)[roles count]]];
 			continue;
 		}

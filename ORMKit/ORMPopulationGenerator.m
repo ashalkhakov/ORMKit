@@ -53,12 +53,6 @@
 	}
 }
 
-static NSString *
-ORMReadingOf(ORMFactType *fact)
-{
-	return [[fact primaryReading] expandedText] ?: fact.name;
-}
-
 #pragma mark Values
 
 /* The values a constraint lists, or its ranges' first ones, numbers
@@ -760,7 +754,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			 * only by there being none, where none need be. */
 			if (![self mandatory:[ring firstObject]] && ![self mandatory:[ring lastObject]]) {
 				[self note:@"%@ is kept by \"%@\" having no facts: one the other way round would not be of its roles' "
-				           @"types.", constraint.name, ORMReadingOf(fact)];
+				           @"types.", constraint.name, [fact displayText]];
 				return NO;
 			}
 			[self note:@"%@ is not kept: a fact the other way round would not be of its roles' types.", constraint.name];
@@ -914,7 +908,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	NSArray<ORMRole *> *roles = [fact visibleRoles];
 	for (ORMRole *role in roles) {
 		if ([role.player isEntity] && [[_pools objectForKey:role.player.identifier] count] == 0) {
-			[self note:@"\"%@\" has no facts: %@ has no instances.", ORMReadingOf(fact), role.player.name];
+			[self note:@"\"%@\" has no facts: %@ has no instances.", [fact displayText], role.player.name];
 			return;
 		}
 	}
@@ -929,7 +923,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 		for (NSString *instance in [_pools objectForKey:role.player.identifier]) {
 			if (![[self playersOf:role] containsObject:[self rootOf:instance]] && ![self cover:instance role:role]) {
 				[self note:@"%@ cannot play its role in \"%@\" as the constraints have it.", role.player.name,
-				           ORMReadingOf(fact)];
+				           [fact displayText]];
 				break;
 			}
 		}
@@ -1168,7 +1162,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			}
 			if ([self mandatory:[last oppositeRole]] || last.factType.objectifyingType != nil) {
 				[self note:@"%@ is not kept: %@ must play its role in \"%@\".", constraint.name,
-				           [last oppositeRole].player.name, ORMReadingOf(last.factType)];
+				           [last oppositeRole].player.name, [last.factType displayText]];
 				break;
 			}
 			NSMutableArray *facts = [_facts objectForKey:last.factType.identifier];
