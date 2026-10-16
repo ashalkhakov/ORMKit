@@ -137,7 +137,7 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 {
 	for (ORMObjectType *type in self.model.objectTypes) {
 		[self writeElement:type];
-		[self writeElement:type.valueConstraint];
+		[self writeElement:type.ownValueConstraint];
 	}
 	for (ORMFactType *fact in self.model.factTypes) {
 		[self writeElement:fact];

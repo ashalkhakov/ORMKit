@@ -15,6 +15,9 @@
 - (void)resetWithElement:(NSXMLElement *)element model:(ORMModel *)model;
 /* Each class's values back to a new element's; a subclass calls super. */
 - (void)reset;
+/* Each class's derived values (worked out from what was read, by
+ * -[ORMModel derive]) forgotten, caches too; a subclass calls super. */
+- (void)forgetDerivedValues;
 @end
 
 @interface ORMObjectType ()
@@ -39,6 +42,11 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *supertypes;
 @property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *subtypes;
 @property (nonatomic, readwrite, copy) NSArray<ORMFactType *> *supertypeFacts;
+/* What the file says, as against what is derived: its own value
+ * constraint (valueConstraint is an entity type's reference mode's too),
+ * and NORMA's _ReferenceMode, which settles how a value type's name reads. */
+@property (nonatomic, readwrite, strong) ORMValueConstraint *ownValueConstraint;
+@property (nonatomic, readwrite, copy) NSString *savedReferenceMode;
 @end
 
 @interface ORMFactType ()
@@ -51,6 +59,11 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMFactType *> *linkFactTypes;
 @property (nonatomic, readwrite) BOOL isDerived;
 @property (nonatomic, readwrite) BOOL providesPreferredIdentifier;
+/* What the file says of it: PreferredIdentificationPath (nil where it
+ * leaves it out, true by default for a subtype's first supertype), and
+ * ProvidesPreferredIdentifier. */
+@property (nonatomic, readwrite, strong) NSNumber *preferredIdentificationPath;
+@property (nonatomic, readwrite) BOOL saysProvidesPreferredIdentifier;
 @end
 
 @interface ORMRole ()
@@ -156,6 +169,14 @@
 /* The document read again into the same model: an element whose id is
  * still there is the same object, with its values read anew. */
 - (void)readDocumentAgain:(NSXMLDocument *)document;
+/* Every derived value worked out again from what each element holds:
+ * played roles, subtyping, internal constraints, a role's constraints and
+ * flags, reference modes, link fact types, proxies' players. No XML. */
+- (void)derive;
+/* How each kind of reference mode names its value type ("{0}_{1}"), by
+ * kind ("Popular"); the model's custom reference modes, name to kind. */
+@property (nonatomic, copy) NSDictionary<NSString *, NSString *> *referenceModeFormats;
+@property (nonatomic, copy) NSDictionary<NSString *, NSString *> *customReferenceModes;
 /* What ORMPath reads beside the model: join paths, derivation rules,
  * populations, cardinalities, each a dictionary by owner id. */
 @property (nonatomic, strong) NSMutableDictionary *extras;
