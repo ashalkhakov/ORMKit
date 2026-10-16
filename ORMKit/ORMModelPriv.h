@@ -189,7 +189,8 @@
  * kind is (data types, object types, fact types, constraints, notes). */
 - (void)addElement:(ORMElement *)element;
 /* An element gone from the model: unlisted and unregistered, with what it
- * holds (a value constraint's ranges). */
+ * holds (a value constraint's ranges, a fact type's roles and readings, a
+ * constraint's sequences, a value type's value constraint). */
 - (void)removeElement:(ORMElement *)element;
 /* How each kind of reference mode names its value type ("{0}_{1}"), by
  * kind ("Popular"); the model's custom reference modes, name to kind. */

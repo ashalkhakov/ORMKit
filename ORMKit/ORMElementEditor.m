@@ -35,11 +35,13 @@
 		 * mode's value type stays. */
 		ORMObjectType *value = type.referenceModeKind == ORMReferenceModePopular ? type.referenceModeValueType : nil;
 		NSString *valueName = value != nil ? [_editor.objectTypeEditor valueTypeNameFor:trimmed mode:type.referenceMode kind:ORMReferenceModePopular] : nil;
-		[_editor change:@"Rename" with:^{
-			ORMSetAttribute(type.element, @"Name", trimmed);
+		[_editor modelChange:@"Rename" with:^{
 			if (value != nil && [_editor.model objectTypeNamed:valueName] == nil) {
-				ORMSetAttribute(value.element, @"Name", valueName);
+				value.name = valueName;
+				[_editor wrote:value];
 			}
+			type.name = trimmed;
+			[_editor wrote:type];
 		}];
 		return YES;
 	}
@@ -51,10 +53,14 @@
 			}
 			return NO;
 		}
-		NSXMLElement *xml = [(ORMElement *)element element];
-		[_editor change:@"Rename" with:^{
-			/* A fact type's own name; NORMA otherwise derives one. */
-			ORMSetAttribute(xml, @"Name", trimmed);
+		[_editor modelChange:@"Rename" with:^{
+			if ([element isKindOfClass:[ORMFactType class]]) {
+				/* A fact type's own name; NORMA otherwise derives one. */
+				[(ORMFactType *)element setExplicitName:trimmed];
+			} else {
+				[(ORMElement *)element setName:trimmed];
+			}
+			[_editor wrote:element];
 		}];
 		return YES;
 	}
@@ -83,21 +89,21 @@
 {
 	__block NSString *created = nil;
 	[_editor group:@"Add Note" with:^{
-		[_editor change:@"Add Note" with:^{
-			NSXMLElement *note = ORMNewElementWithId(_editor.document, CORE, @"ModelNote", nil);
-			ORMSetChildText(_editor.document, note, CORE, @"Text", [text length] > 0 ? text : @"Note");
-			if ([elementIds count] > 0) {
-				NSXMLElement *references = ORMNewElement(_editor.document, CORE, @"ReferencedBy");
-				for (NSString *elementId in elementIds) {
-					id element = [_editor.model elementWithId:elementId];
-					NSString *local = [element isKindOfClass:[ORMObjectType class]] ? @"ObjectType"
-						: [element isKindOfClass:[ORMFactType class]] ? @"FactType" : @"Constraint";
-					[references addChild:ORMNewRef(_editor.document, CORE, local, elementId)];
+		[_editor modelChange:@"Add Note" with:^{
+			ORMModel *model = _editor.model;
+			ORMModelNote *note = [[ORMModelNote alloc] initWithModel:model];
+			note.text = [text length] > 0 ? text : @"Note";
+			NSMutableArray *referenced = [NSMutableArray array];
+			for (NSString *elementId in elementIds) {
+				id element = [model elementWithId:elementId];
+				if (element != nil) {
+					[referenced addObject:element];
 				}
-				[note addChild:references];
 			}
-			[[_editor section:@"ModelNotes"] addChild:note];
-			created = ORMAttribute(note, @"id");
+			note.referencedElements = referenced;
+			[model addElement:note];
+			[_editor wrote:note];
+			created = note.identifier;
 		}];
 		if (diagramId != nil) {
 			[_editor.diagramEditor placeElement:created onDiagram:diagramId at:point];
@@ -115,8 +121,9 @@
 		}
 		return NO;
 	}
-	[_editor change:@"Edit Note" with:^{
-		ORMSetChildText(_editor.document, note.element, CORE, @"Text", text);
+	[_editor modelChange:@"Edit Note" with:^{
+		note.text = text;
+		[_editor wrote:note];
 	}];
 	return YES;
 }
@@ -193,61 +200,112 @@
 		return;
 	}
 	NSMutableSet *doomed = [self closureOf:rest];
-	ORMModel *model = _editor.model;
-	[_editor change:@"Delete" with:^{
-		for (ORMShape *shape in shapes) {
-			[shape.element detach];
+	[_editor group:@"Delete" with:^{
+		if ([doomed count] > 0) {
+			[_editor modelChange:@"Delete" with:^{
+				[self deleteFromModel:doomed];
+			}];
 		}
-		/* Constraint arguments over doomed roles go; a constraint left
-		 * without what it needs goes with them. */
-		for (ORMConstraint *constraint in model.constraints) {
-			if ([doomed containsObject:constraint.identifier]) {
-				continue;
+		/* Shapes are still taken away in the XML. */
+		[_editor change:@"Delete" with:^{
+			for (ORMShape *shape in shapes) {
+				[shape.element detach];
 			}
-			BOOL touched = NO;
-			for (ORMRoleSequence *sequence in constraint.roleSequences) {
-				for (NSXMLElement *ref in ORMChildren(sequence.element, CORE, @"Role")) {
-					if ([doomed containsObject:ORMRef(ref) ?: @""]) {
-						[ref detach];
-						touched = YES;
-					}
+			[_editor.diagramEditor removeShapesOfSubjects:doomed];
+		}];
+	}];
+}
+
+/* The elements by id out of the model, and what they leave broken: a
+ * constraint's arguments over doomed roles go, and a constraint left
+ * without what it needs goes with them. */
+- (void)deleteFromModel:(NSMutableSet<NSString *> *)doomed
+{
+	ORMModel *model = _editor.model;
+	for (ORMConstraint *constraint in model.constraints) {
+		if ([doomed containsObject:constraint.identifier]) {
+			continue;
+		}
+		BOOL touched = NO;
+		for (ORMRoleSequence *sequence in constraint.roleSequences) {
+			NSMutableArray *kept = [NSMutableArray array];
+			for (ORMRole *role in sequence.roles) {
+				if (![doomed containsObject:role.identifier]) {
+					[kept addObject:role];
 				}
 			}
-			if (!touched) {
-				continue;
-			}
-			NSMutableArray *lengths = [NSMutableArray array];
-			for (ORMRoleSequence *sequence in constraint.roleSequences) {
-				[lengths addObject:@([ORMChildren(sequence.element, CORE, @"Role") count])];
-			}
-			BOOL setComparison = constraint.kind == ORMSubsetConstraint || constraint.kind == ORMEqualityConstraint
-				|| constraint.kind == ORMExclusionConstraint;
-			BOOL broken = [lengths containsObject:@0] || [[NSSet setWithArray:lengths] count] > 1;
-			if (!setComparison) {
-				broken = [lengths containsObject:@0];
-			}
-			if (constraint.kind == ORMRingConstraint && [[lengths firstObject] integerValue] < 2) {
-				broken = YES;
-			}
-			if (broken) {
-				[doomed addObject:constraint.identifier];
+			if ([kept count] != [sequence.roles count]) {
+				sequence.roles = kept;
+				[_editor wrote:sequence];
+				touched = YES;
 			}
 		}
-		for (NSString *elementId in doomed) {
-			ORMElement *element = [model elementWithId:elementId];
-			if ([element isKindOfClass:[ORMRole class]]) {
-				continue;
-			}
+		if (!touched) {
+			continue;
+		}
+		NSMutableArray *lengths = [NSMutableArray array];
+		for (ORMRoleSequence *sequence in constraint.roleSequences) {
+			[lengths addObject:@([sequence.roles count])];
+		}
+		BOOL setComparison = constraint.kind == ORMSubsetConstraint || constraint.kind == ORMEqualityConstraint
+			|| constraint.kind == ORMExclusionConstraint;
+		BOOL broken = [lengths containsObject:@0] || (setComparison && [[NSSet setWithArray:lengths] count] > 1);
+		if (constraint.kind == ORMRingConstraint && [[lengths firstObject] integerValue] < 2) {
+			broken = YES;
+		}
+		if (broken) {
+			[doomed addObject:constraint.identifier];
+		}
+	}
+	NSMutableArray *gone = [NSMutableArray array];
+	for (NSString *elementId in doomed) {
+		ORMElement *element = [model elementWithId:elementId];
+		if ([element isKindOfClass:[ORMRole class]]) {
+			/* Gone with its fact type; what uses it is written without it. */
+			[_editor deleted:element];
+		} else if (element != nil) {
+			[gone addObject:element];
+		}
+	}
+	for (ORMElement *element in gone) {
+		if ([element isKindOfClass:[ORMReading class]]) {
+			ORMReading *reading = (ORMReading *)element;
+			ORMReadingOrder *order = reading.readingOrder;
+			order.readings = ORMWithout(order.readings, reading);
+			[_editor wrote:order.factType];
+		} else if ([element isKindOfClass:[ORMReadingOrder class]]) {
+			ORMReadingOrder *order = (ORMReadingOrder *)element;
+			order.factType.readingOrders = ORMWithout(order.factType.readingOrders, order);
+			[_editor wrote:order.factType];
+		} else {
 			/* Partners of an exclusive-or lose the link. */
 			if ([element isKindOfClass:[ORMConstraint class]]) {
 				ORMConstraint *partner = [(ORMConstraint *)element exclusiveOrPartner];
-				[ORMChild(partner.element, CORE, @"ExclusiveOrExclusionConstraint") detach];
-				[ORMChild(partner.element, CORE, @"ExclusiveOrMandatoryConstraint") detach];
+				if (partner != nil && ![doomed containsObject:partner.identifier]) {
+					partner.exclusiveOrPartner = nil;
+					[_editor wrote:partner];
+				}
 			}
-			[element.element detach];
+			[_editor deleted:element];
 		}
-		[_editor.diagramEditor removeShapesOfSubjects:doomed];
-	}];
+		[model removeElement:element];
+	}
+	/* What named what is gone: an identifier, a note's references. */
+	for (ORMObjectType *type in model.objectTypes) {
+		if (type.preferredIdentifier != nil && [doomed containsObject:type.preferredIdentifier.identifier]) {
+			type.preferredIdentifier = nil;
+			[_editor wrote:type];
+		}
+	}
+	for (ORMModelNote *note in model.notes) {
+		NSMutableArray *kept = [NSMutableArray array];
+		for (ORMElement *referenced in note.referencedElements) {
+			if (![doomed containsObject:referenced.identifier]) {
+				[kept addObject:referenced];
+			}
+		}
+		note.referencedElements = kept;
+	}
 }
 
 /* Definitions/Definition/Text or Notes/Note/Text. */
@@ -261,20 +319,14 @@
 		}
 		return NO;
 	}
-	NSXMLElement *owner = [(ORMElement *)target element];
-	[_editor change:action with:^{
-		NSXMLElement *outer = ORMChild(owner, CORE, container);
-		if ([text length] == 0) {
-			[outer detach];
-			return;
+	BOOL definition = [container isEqualToString:@"Definitions"];
+	[_editor modelChange:action with:^{
+		if (definition) {
+			[(ORMElement *)target setDefinitionText:[text length] > 0 ? text : nil];
+		} else {
+			[(ORMElement *)target setNoteText:[text length] > 0 ? text : nil];
 		}
-		outer = outer ?: ORMEnsureChild(_editor.document, owner, CORE, container);
-		NSXMLElement *inner = ORMChild(outer, CORE, item);
-		if (inner == nil) {
-			inner = ORMNewElementWithId(_editor.document, CORE, item, nil);
-			[outer addChild:inner];
-		}
-		ORMSetChildText(_editor.document, inner, CORE, @"Text", text);
+		[_editor wrote:target];
 	}];
 	return YES;
 }

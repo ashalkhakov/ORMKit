@@ -1125,6 +1125,23 @@ ORMWithout(NSArray *array, id object)
 		for (ORMValueRange *range in [(ORMValueConstraint *)element ranges]) {
 			[self removeElement:range];
 		}
+	} else if ([element isKindOfClass:[ORMObjectType class]]) {
+		[self removeElement:[(ORMObjectType *)element ownValueConstraint]];
+	} else if ([element isKindOfClass:[ORMFactType class]]) {
+		for (ORMRole *role in [(ORMFactType *)element roles]) {
+			[self removeElement:role.valueConstraint];
+			[self removeElement:role];
+		}
+		for (ORMReadingOrder *order in [(ORMFactType *)element readingOrders]) {
+			for (ORMReading *reading in order.readings) {
+				[self removeElement:reading];
+			}
+			[self removeElement:order];
+		}
+	} else if ([element isKindOfClass:[ORMConstraint class]]) {
+		for (ORMRoleSequence *sequence in [(ORMConstraint *)element roleSequences]) {
+			[self removeElement:sequence];
+		}
 	}
 	if (element.identifier != nil && [_elements objectForKey:element.identifier] == element) {
 		[_elements removeObjectForKey:element.identifier];

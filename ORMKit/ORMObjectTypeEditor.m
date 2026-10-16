@@ -96,54 +96,8 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	return type;
 }
 
-/* A new <orm:ValueType>, its data type set. */
-- (NSXMLElement *)newValueTypeNamed:(NSString *)name dataType:(NSString *)typeName
-{
-	NSXMLElement *type = ORMNewElementWithId(_editor.document, CORE, @"ValueType", nil);
-	ORMSetAttribute(type, @"Name", name);
-	NSXMLElement *dataType = ORMNewElementWithId(_editor.document, CORE, @"ConceptualDataType", nil);
-	ORMSetAttribute(dataType, @"ref", [_editor dataTypeIdNamed:typeName ?: @"UnspecifiedDataType"]);
-	ORMSetAttribute(dataType, @"Scale", @"0");
-	ORMSetAttribute(dataType, @"Length", @"0");
-	ORMInsertChild(type, dataType);
-	[[_editor section:@"Objects"] addChild:type];
-	return type;
-}
-
-/* Gives the entity type its reference mode, as NORMA builds one: the
- * value type, "{0} has {1}" read back as "{0} is of {1}", the entity's
- * role unique and mandatory, the value's role unique and the preferred
- * identifier. */
-- (void)buildReferenceMode:(NSString *)mode kind:(ORMReferenceModeKind)kind forEntity:(NSXMLElement *)entity
-{
-	NSString *entityName = ORMAttribute(entity, @"Name");
-	NSString *valueName = [self valueTypeNameFor:entityName mode:mode kind:kind];
-	/* A unit or general mode's value type is shared: kgValue identifies
-	 * every entity type measured in kg. */
-	NSXMLElement *value = nil;
-	ORMObjectType *existing = [_editor.model objectTypeNamed:valueName];
-	if (existing != nil && existing.kind == ORMValueType) {
-		value = existing.element;
-	} else {
-		value = [self newValueTypeNamed:[_editor uniqueObjectTypeName:valueName]
-		                       dataType:ORMDefaultDataTypeForMode(mode, kind)];
-	}
-	NSMutableArray *roles = [NSMutableArray array];
-	NSXMLElement *fact = [_editor.factTypeEditor newFactWithPlayers:@[ ORMAttribute(entity, @"id"), ORMAttribute(value, @"id") ]
-	                                      reading:@"{0} has {1}"
-	                                        roles:roles];
-	[_editor.factTypeEditor appendReading:@"{0} is of {1}" to:fact roles:@[ [roles objectAtIndex:1], [roles objectAtIndex:0] ]];
-	[_editor.constraintEditor newInternalUniqueness:@[ [roles objectAtIndex:0] ]];
-	[_editor.constraintEditor newSimpleMandatory:[roles objectAtIndex:0]];
-	NSXMLElement *identifier = [_editor.constraintEditor newInternalUniqueness:@[ [roles objectAtIndex:1] ]];
-	[ORMChild(entity, CORE, @"PreferredIdentifier") detach];
-	ORMInsertChild(entity, ORMNewRef(_editor.document, CORE, @"PreferredIdentifier", ORMAttribute(identifier, @"id")));
-	ORMSetAttribute(entity, @"_ReferenceMode", mode);
-	[self registerCustomReferenceMode:mode kind:kind];
-}
-
-/* The same in the model, inside a model change: the value type (shared
- * for a unit or general mode), "{0} has {1}" read back as "{0} is of {1}",
+/* Gives the entity type its reference mode, as NORMA builds one, inside
+ * a model change: the value type (shared for a unit or general mode), "{0} has {1}" read back as "{0} is of {1}",
  * the entity's role unique and mandatory, the value's role unique and the
  * preferred identifier. */
 - (void)addReferenceMode:(NSString *)mode kind:(ORMReferenceModeKind)kind to:(ORMObjectType *)entity
@@ -170,39 +124,6 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		[customs setObject:kind == ORMReferenceModeUnitBased ? @"UnitBased" : @"General" forKey:mode];
 		model.customReferenceModes = customs;
 	}
-}
-
-/* A mode NORMA does not know gets a custom reference mode of its kind,
- * so NORMA reads the value type's name back as this mode. */
-- (void)registerCustomReferenceMode:(NSString *)mode kind:(ORMReferenceModeKind)kind
-{
-	if (kind == ORMReferenceModePopular) {
-		return;
-	}
-	NSString *kindName = kind == ORMReferenceModeUnitBased ? @"UnitBased" : @"General";
-	NSXMLElement *modes = ORMChild(ORMModelElementOfDocument(_editor.document), CORE, @"CustomReferenceModes");
-	for (NSXMLElement *custom in ORMChildren(modes, CORE, @"CustomReferenceMode")) {
-		if ([ORMAttribute(custom, @"Name") isEqualToString:mode]) {
-			return;
-		}
-	}
-	NSString *kindId = nil;
-	for (NSXMLElement *element in ORMChildren([_editor section:@"ReferenceModeKinds"], CORE, @"ReferenceModeKind")) {
-		if ([ORMAttribute(element, @"ReferenceModeType") isEqualToString:kindName]) {
-			kindId = ORMAttribute(element, @"id");
-		}
-	}
-	if (kindId == nil) {
-		NSXMLElement *element = ORMNewElementWithId(_editor.document, CORE, @"ReferenceModeKind", nil);
-		ORMSetAttribute(element, @"FormatString", kind == ORMReferenceModeUnitBased ? @"{1}Value" : @"{1}");
-		ORMSetAttribute(element, @"ReferenceModeType", kindName);
-		[[_editor section:@"ReferenceModeKinds"] addChild:element];
-		kindId = ORMAttribute(element, @"id");
-	}
-	NSXMLElement *custom = ORMNewElementWithId(_editor.document, CORE, @"CustomReferenceMode", nil);
-	ORMSetAttribute(custom, @"Name", mode);
-	[custom addChild:ORMNewRef(_editor.document, CORE, @"Kind", kindId)];
-	[[_editor section:@"CustomReferenceModes"] addChild:custom];
 }
 
 - (NSString *)addEntityTypeNamed:(NSString *)name
@@ -308,15 +229,17 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		}];
 		return YES;
 	}
-	/* The old identification is deleted in the XML still. */
-	[_editor change:@"Set Reference Mode" with:^{
+	/* The old identification goes: its fact type, and its value type when
+	 * nothing else uses it. */
+	BOOL valueGoes = oldValue != nil && [oldValue.playedRoles count] <= 1;
+	[_editor group:@"Set Reference Mode" with:^{
 		if (oldFact != nil) {
-			[_editor.elementEditor deleteElements:@[ oldFact.identifier ]];
-			if (oldValue != nil && [oldValue.playedRoles count] <= 1) {
-				[_editor.elementEditor deleteElements:@[ oldValue.identifier ]];
-			}
+			[_editor.elementEditor deleteElements:valueGoes ? @[ oldFact.identifier, oldValue.identifier ]
+			                                                : @[ oldFact.identifier ]];
 		}
-		[self buildReferenceMode:trimmed kind:kind forEntity:[_editor xml:entityId]];
+		[_editor modelChange:@"Set Reference Mode" with:^{
+			[self addReferenceMode:trimmed kind:kind to:entity];
+		}];
 	}];
 	return YES;
 }

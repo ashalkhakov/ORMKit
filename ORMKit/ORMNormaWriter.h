@@ -13,6 +13,11 @@
 - (instancetype)initWithModel:(ORMModel *)model;
 @property (nonatomic, readonly, strong) ORMModel *model;
 
+/* The ids of elements the model has just taken away: references to them
+ * go, where a reference the model cannot resolve otherwise stays (a file
+ * NORMA left so). */
+@property (nonatomic, copy) NSSet<NSString *> *gone;
+
 /* Every element of the model written. */
 - (void)writeModel;
 /* The model's custom reference modes the document does not have yet,

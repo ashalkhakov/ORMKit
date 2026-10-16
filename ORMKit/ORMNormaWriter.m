@@ -88,12 +88,15 @@ ORMWriteText(NSXMLElement *element, NSString *name, NSString *value)
  * the file's: the model reads past it, and so does the writer. */
 static void
 ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRole *> *roles, ORMModel *model,
-                 BOOL withIds)
+                 BOOL withIds, NSSet<NSString *> *gone)
 {
 	NSMutableArray *children = [NSMutableArray array];
 	NSMutableArray *refs = [NSMutableArray array];
 	for (NSXMLElement *child in ORMChildren(container, CORE, @"Role")) {
-		if ([[model elementWithId:ORMRef(child)] isKindOfClass:[ORMRole class]]) {
+		if ([gone containsObject:ORMRef(child) ?: @""]) {
+			/* A role the model has just taken away. */
+			[child detach];
+		} else if ([[model elementWithId:ORMRef(child)] isKindOfClass:[ORMRole class]]) {
 			[children addObject:child];
 			[refs addObject:ORMRef(child)];
 		}
@@ -303,6 +306,20 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		made = ORMNewElementWithId(_document, CORE, ORMConstraintElementName([(ORMConstraint *)element kind]),
 		                           element.identifier);
 		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Constraints") addChild:made];
+	} else if ([element isKindOfClass:[ORMModelNote class]]) {
+		ORMModelNote *note = (ORMModelNote *)element;
+		made = ORMNewElementWithId(_document, CORE, @"ModelNote", element.identifier);
+		ORMSetChildText(_document, made, CORE, @"Text", note.text ?: @"");
+		if ([note.referencedElements count] > 0) {
+			NSXMLElement *references = ORMNewElement(_document, CORE, @"ReferencedBy");
+			for (ORMElement *referenced in note.referencedElements) {
+				NSString *local = [referenced isKindOfClass:[ORMObjectType class]] ? @"ObjectType"
+					: [referenced isKindOfClass:[ORMFactType class]] ? @"FactType" : @"Constraint";
+				[references addChild:ORMNewRef(_document, CORE, local, referenced.identifier)];
+			}
+			[made addChild:references];
+		}
+		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"ModelNotes") addChild:made];
 	} else {
 		[NSException raise:NSInternalInconsistencyException format:@"The writer makes no %@ yet.", [element class]];
 	}
@@ -327,13 +344,13 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		[self writeRole:(ORMRole *)element];
 	} else if ([element isKindOfClass:[ORMReadingOrder class]]) {
 		ORMWriteRoleRefs(_document, ORMChild(element.element, CORE, @"RoleSequence"), [(ORMReadingOrder *)element roles],
-		                 self.model, NO);
+		                 self.model, NO, self.gone);
 	} else if ([element isKindOfClass:[ORMReading class]]) {
 		[self writeReading:(ORMReading *)element];
 	} else if ([element isKindOfClass:[ORMConstraint class]]) {
 		[self writeConstraint:(ORMConstraint *)element];
 	} else if ([element isKindOfClass:[ORMRoleSequence class]]) {
-		ORMWriteRoleRefs(_document, element.element, [(ORMRoleSequence *)element roles], self.model, YES);
+		ORMWriteRoleRefs(_document, element.element, [(ORMRoleSequence *)element roles], self.model, YES, self.gone);
 	} else if ([element isKindOfClass:[ORMValueConstraint class]]) {
 		[self writeValueConstraint:(ORMValueConstraint *)element];
 	} else if ([element isKindOfClass:[ORMDiagram class]]) {
@@ -380,7 +397,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			orders = orders ?: ORMEnsureChild(_document, element, CORE, @"ReadingOrders");
 			[orders addChild:made];
 			order.element = made;
-			ORMWriteRoleRefs(_document, ORMChild(made, CORE, @"RoleSequence"), order.roles, self.model, NO);
+			ORMWriteRoleRefs(_document, ORMChild(made, CORE, @"RoleSequence"), order.roles, self.model, NO, self.gone);
 		}
 		NSXMLElement *readings = ORMChild(order.element, CORE, @"Readings");
 		ORMDetachOthers(readings, @"Reading", order.readings);
@@ -412,7 +429,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 				: constraint.element;
 			[parent addChild:made];
 			sequence.element = made;
-			ORMWriteRoleRefs(_document, made, sequence.roles, self.model, YES);
+			ORMWriteRoleRefs(_document, made, sequence.roles, self.model, YES, self.gone);
 		}
 	}
 }
@@ -422,10 +439,9 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	NSXMLElement *element = fact.element;
 	[self writePartsOf:fact];
 	/* A name given it; one NORMA derives (_Name) is the normalizer's. */
-	if (fact.explicitName == nil) {
-		ORMSetAttribute(element, @"Name", nil);
-	} else {
-		ORMWriteText(element, @"Name", fact.explicitName);
+	if (![ORMAttribute(element, @"Name") ?: @"" isEqualToString:fact.explicitName ?: @""]
+	    || (ORMAttribute(element, @"Name") == nil) != (fact.explicitName == nil)) {
+		ORMSetAttribute(element, @"Name", fact.explicitName);
 	}
 	NSNumber *path = fact.preferredIdentificationPath;
 	if (path == nil) {

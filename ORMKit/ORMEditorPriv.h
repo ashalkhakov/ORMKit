@@ -43,9 +43,6 @@
 /* An object type name no object type has: the name, or the name and a
  * number. */
 - (NSString *)uniqueObjectTypeName:(NSString *)name;
-/* The data type element of the model for the type name, made when the
- * model has none. Its id. */
-- (NSString *)dataTypeIdNamed:(NSString *)typeName;
 
 /* The ids' roles, refused with why when one is not a role. */
 - (NSArray<ORMRole *> *)rolesWithIds:(NSArray<NSString *> *)roleIds reason:(NSString **)reason;
@@ -97,7 +94,6 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 
 /* Builders the editors share; each only makes XML, inside a change. */
 @interface ORMObjectTypeEditor ()
-- (NSXMLElement *)newValueTypeNamed:(NSString *)name dataType:(NSString *)typeName;
 /* In the model, inside a model change: a new object type (a value type
  * with its data type, an entity type with no reference mode yet); a value
  * type's or role's value constraint set to parsed ranges, or taken away. */
@@ -123,6 +119,11 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 /* A reading for the roles in this order, in the reading order for them,
  * made when the fact type has none. */
 - (ORMReading *)addReading:(NSString *)text to:(ORMFactType *)fact roles:(NSArray<ORMRole *> *)roles;
+/* A unary's reading read with its players' names, nil for another fact
+ * type; and its implicit type renamed after it, as NORMA renames it, when
+ * it is no longer what it was. */
+- (NSString *)unaryReadingOf:(ORMFactType *)fact;
+- (void)renameImplicitBooleanOf:(ORMFactType *)fact was:(NSString *)was;
 @end
 
 @interface ORMConstraintEditor ()

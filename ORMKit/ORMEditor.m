@@ -295,12 +295,28 @@ static BOOL ORMChecksAgreement;
 		ORMModel *model = self.model;
 		_wrote = [NSMutableArray array];
 		_deleted = [NSMutableArray array];
+		/* Each unary's reading as the change finds it: an implicit type is
+		 * named by its reading when that changes, its player renamed too. */
+		NSMutableDictionary *unaries = [NSMutableDictionary dictionary];
+		for (ORMFactType *fact in model.factTypes) {
+			NSString *reading = [self.factTypeEditor unaryReadingOf:fact];
+			if (reading != nil) {
+				[unaries setObject:reading forKey:fact.identifier];
+			}
+		}
 		change();
+		for (ORMFactType *fact in model.factTypes) {
+			NSString *was = [unaries objectForKey:fact.identifier];
+			if (was != nil) {
+				[self.factTypeEditor renameImplicitBooleanOf:fact was:was];
+			}
+		}
 		[model derive];
 		if ([self.constraintEditor keepImpliedMandatories]) {
 			[model derive];
 		}
 		ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
+		writer.gone = [NSSet setWithArray:[_deleted valueForKey:@"identifier"]];
 		for (ORMElement *element in _wrote) {
 			if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
 				[writer writeElement:element];
@@ -471,17 +487,6 @@ static BOOL ORMChecksAgreement;
 			return candidate;
 		}
 	}
-}
-
-- (NSString *)dataTypeIdNamed:(NSString *)typeName
-{
-	NSXMLElement *types = [self section:@"DataTypes"];
-	for (NSXMLElement *type in ORMChildren(types, CORE, typeName)) {
-		return ORMAttribute(type, @"id");
-	}
-	NSXMLElement *type = ORMNewElementWithId(_document, CORE, typeName, nil);
-	[types addChild:type];
-	return ORMAttribute(type, @"id");
 }
 
 - (NSArray<ORMRole *> *)rolesWithIds:(NSArray<NSString *> *)roleIds reason:(NSString **)reason

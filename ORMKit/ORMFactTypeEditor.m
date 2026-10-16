@@ -172,7 +172,6 @@
 			return NO;
 		}
 		[_editor modelChange:@"Delete Reading" with:^{
-			NSString *was = [self unaryReadingOf:fact];
 			ORMModel *model = _editor.model;
 			order.readings = ORMWithout(order.readings, reading);
 			[model removeElement:reading];
@@ -181,7 +180,6 @@
 				[model removeElement:order];
 			}
 			[_editor wrote:fact];
-			[self renameImplicitBooleanOf:fact was:was];
 		}];
 		return YES;
 	}
@@ -192,11 +190,8 @@
 		return YES;
 	}
 	[_editor modelChange:@"Edit Reading" with:^{
-		ORMFactType *fact = reading.readingOrder.factType;
-		NSString *was = [self unaryReadingOf:fact];
 		reading.text = text;
 		[_editor wrote:reading];
-		[self renameImplicitBooleanOf:fact was:was];
 	}];
 	return YES;
 }
