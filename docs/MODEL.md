@@ -124,11 +124,9 @@ Each step keeps every test passing.
    model and records its undo. Saving writes through the writer.
 
    Done. Every operation changes the model and records nothing in the
-   XML but through the writer. The model tells what is read from what is
-   derived
-   (`-[ORMModel derive]`); an operation runs in `-[ORMEditor
+   XML but through the writer. An operation runs in `-[ORMEditor
    modelChange:with:]`, says which elements it changed (`-wrote:`,
-   `-deleted:`), and the model keeps NORMA's rules (implied mandatories,
+   `-deleted:`), and the editor keeps NORMA's rules (implied mandatories,
    unaries' implicit names, shapes of what is gone, a derivation rule's
    words from its query), is derived and written. Groups edit the XML only
    where a step does. Moved: object types, fact types and readings,
@@ -164,12 +162,25 @@ Each step keeps every test passing.
    that compare every operation's bytes with the XML editors' still give
    the same.
 6. **Measure** (macOS, done). An edit of OrmMetaModel (163 object types)
-   takes 0.64 ms, from 30 before step 3. The Core Data import round trip
-   takes 3.8 s without the test-time checks (16.3 s before). After a
-   change the model is derived again only for what the change touched and
-   what depends on it (`-[ORMModel deriveAfterChanging:]`), from the links
-   the last derive made; the agreement check compares it with a full read
-   after every change in the tests.
+   takes 0.18 ms, from 30 before step 3. The Core Data import round trip
+   takes 3.2 s without the test-time checks (16.3 s before).
+7. **Links both ways, nothing derived after a change** (done). The model
+   keeps each link both ways as it changes: setting a role's player puts
+   the role among the object type's played roles and takes it out of the
+   last one's; a role's proxies, a role's constraints, a fact type's link
+   fact types and what objectifies it, the object type a uniqueness
+   constraint identifies are kept up the same way, by the setters and by
+   adding and removing elements, each list in the model's order. The
+   rest is worked out from the links when asked: supertypes and subtypes,
+   internal constraints, a role's being mandatory or unique, reference
+   modes, a value constraint's value type, families. A reading's words
+   and parsed text are set with its text. What NORMA keeps derived and
+   ORMKit reads to keep its style (`_ReferenceMode`, `_Name`) is what the
+   writer last wrote. Nothing is cached and nothing is read lazily: the
+   diagrams are read with the model. Turned off one at a time, the caches
+   and indexes this replaced saved nothing measurable; deriving after a
+   change was the cost, and the links remove it. The agreement check
+   compares the links with a model read afresh after every change.
 
 ## Not here
 

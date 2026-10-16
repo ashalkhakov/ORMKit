@@ -24,15 +24,10 @@
 - (void)resetWithElement:(NSXMLElement *)element model:(ORMModel *)model;
 /* Each class's values back to a new element's; a subclass calls super. */
 - (void)reset;
-/* Each class's derived values (worked out from what was read, by
- * -[ORMModel derive]) forgotten, caches too; a subclass calls super. */
-- (void)forgetDerivedValues;
 @end
 
 @interface ORMObjectType ()
 @property (nonatomic, readwrite) ORMObjectTypeKind kind;
-@property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *family;
-@property (nonatomic, readwrite, copy) NSArray<NSString *> *familyNames;
 @property (nonatomic, readwrite, copy) NSString *defaultValue;
 @property (nonatomic, readwrite) BOOL isIndependent;
 @property (nonatomic, readwrite) BOOL isExternal;
@@ -42,18 +37,9 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMRole *> *playedRoles;
 @property (nonatomic, readwrite, weak) ORMConstraint *preferredIdentifier;
 @property (nonatomic, readwrite, weak) ORMFactType *nestedFactType;
-@property (nonatomic, readwrite, copy) NSString *referenceMode;
-@property (nonatomic, readwrite) ORMReferenceModeKind referenceModeKind;
-@property (nonatomic, readwrite, weak) ORMObjectType *referenceModeValueType;
-@property (nonatomic, readwrite, weak) ORMFactType *referenceModeFactType;
-@property (nonatomic, readwrite, weak) ORMRole *referenceModeRole;
 @property (nonatomic, readwrite, weak) ORMDataType *dataType;
 @property (nonatomic, readwrite) NSInteger dataTypeLength;
 @property (nonatomic, readwrite) NSInteger dataTypeScale;
-@property (nonatomic, readwrite, strong) ORMValueConstraint *valueConstraint;
-@property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *supertypes;
-@property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *subtypes;
-@property (nonatomic, readwrite, copy) NSArray<ORMFactType *> *supertypeFacts;
 /* What the file says, as against what is derived: its own value
  * constraint (valueConstraint is an entity type's reference mode's too),
  * and NORMA's _ReferenceMode, which settles how a value type's name reads. */
@@ -68,12 +54,10 @@
 @property (nonatomic, readwrite) ORMFactTypeKind kind;
 @property (nonatomic, readwrite, copy) NSArray<ORMRole *> *roles;
 @property (nonatomic, readwrite, copy) NSArray<ORMReadingOrder *> *readingOrders;
-@property (nonatomic, readwrite, copy) NSArray<ORMConstraint *> *internalConstraints;
 @property (nonatomic, readwrite, weak) ORMObjectType *objectifyingType;
 @property (nonatomic, readwrite, weak) ORMFactType *impliedByFactType;
 @property (nonatomic, readwrite, copy) NSArray<ORMFactType *> *linkFactTypes;
 @property (nonatomic, readwrite) BOOL isDerived;
-@property (nonatomic, readwrite) BOOL providesPreferredIdentifier;
 /* What the file says of it: PreferredIdentificationPath (nil where it
  * leaves it out, true by default for a subtype's first supertype), and
  * ProvidesPreferredIdentifier. */
@@ -91,10 +75,6 @@
 @property (nonatomic, readwrite, weak) ORMFactType *factType;
 @property (nonatomic, readwrite, weak) ORMObjectType *player;
 @property (nonatomic, readwrite) NSUInteger index;
-@property (nonatomic, readwrite) BOOL isMandatory;
-@property (nonatomic, readwrite) BOOL isUnique;
-@property (nonatomic, readwrite) BOOL isAlethicMandatory;
-@property (nonatomic, readwrite) BOOL isAlethicUnique;
 @property (nonatomic, readwrite, strong) ORMValueConstraint *valueConstraint;
 @property (nonatomic, readwrite) BOOL isSubtypeMetaRole;
 @property (nonatomic, readwrite) BOOL isSupertypeMetaRole;
@@ -120,6 +100,8 @@
 @end
 
 @interface ORMRoleSequence ()
+/* The constraint it is a sequence of. */
+@property (nonatomic, readwrite, weak) ORMConstraint *constraint;
 /* Set, a role kept keeps its use's id, one added is given one. */
 @property (nonatomic, readwrite, copy) NSArray<ORMRole *> *roles;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *roleUseIds;
@@ -157,7 +139,8 @@
 
 @interface ORMValueConstraint ()
 @property (nonatomic, readwrite, copy) NSArray<ORMValueRange *> *ranges;
-@property (nonatomic, readwrite, weak) ORMObjectType *valueType;
+/* The object type or role it is the value constraint of. */
+@property (nonatomic, readwrite, weak) ORMElement *owner;
 @end
 
 @interface ORMDataType ()
@@ -210,16 +193,8 @@
 /* The document read again into the same model: an element whose id is
  * still there is the same object, with its values read anew. */
 - (void)readDocumentAgain:(NSXMLDocument *)document;
-/* Every derived value worked out again from what each element holds:
- * played roles, subtyping, internal constraints, a role's constraints and
- * flags, reference modes, link fact types, proxies' players. No XML. */
-- (void)derive;
-/* The same for what a change touched (made, changed or taken away), and
- * what that changes: the rest kept as the last derive left it. A full
- * derive where it cannot tell. */
-- (void)deriveAfterChanging:(NSArray<ORMElement *> *)touched;
-/* Whether the diagrams have been read: they are read when first asked for. */
-@property (nonatomic, readonly) BOOL diagramsRead;
+/* Whether the element is in the model: the links to it are kept up. */
+- (BOOL)holds:(ORMElement *)element;
 /* A new diagram in the model, after the others. */
 - (void)addDiagram:(ORMDiagram *)diagram;
 /* A new element taken into the model: registered, and listed where its
@@ -432,8 +407,10 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 @interface ORMModel (ORMPopulations)
 /* What the population's elements come to: each role instance's player,
  * each fact's instances by role, the unary facts NORMA keeps on their
- * players. Part of -derive. */
+ * players. Worked out when read, and after a change to a population. */
 - (void)derivePopulations;
+/* Whether it has a sample population: instances, role or fact instances. */
+- (BOOL)hasPopulation;
 /* An element of the sample population taken into the model, or out of it,
  * inside a model change: listed with its type, its fact type or its role,
  * and registered. */

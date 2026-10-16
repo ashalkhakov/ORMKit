@@ -629,6 +629,13 @@
 
 @implementation ORMModel (ORMPopulations)
 
+- (BOOL)hasPopulation
+{
+	return [[self.extras objectForKey:@"roleInstances"] count] > 0
+		|| [[self.extras objectForKey:@"factInstanceElements"] count] > 0
+		|| [[self.extras objectForKey:@"instances"] count] > 0;
+}
+
 - (void)derivePopulations
 {
 	/* Each role instance's role and player, by its id. */

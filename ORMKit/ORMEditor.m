@@ -374,14 +374,12 @@ ORMFirstDifference(NSData *one, NSData *other)
 	}
 	change();
 	/* Shapes whose subject is gone go with it (the normalizer's rule). */
-	if (model.diagramsRead) {
-		for (ORMDiagram *diagram in model.diagrams) {
-			for (ORMShape *shape in [diagram allShapes]) {
-				if (shape.subjectId != nil && [model elementWithId:shape.subjectId] == nil
-				    && [model elementWithId:shape.identifier] == shape) {
-					[diagram removeShape:shape];
-					[self deleted:shape];
-				}
+	for (ORMDiagram *diagram in model.diagrams) {
+		for (ORMShape *shape in [diagram allShapes]) {
+			if (shape.subjectId != nil && [model elementWithId:shape.subjectId] == nil
+			    && [model elementWithId:shape.identifier] == shape) {
+				[diagram removeShape:shape];
+				[self deleted:shape];
 			}
 		}
 	}
@@ -391,9 +389,15 @@ ORMFirstDifference(NSData *one, NSData *other)
 			[self.factTypeEditor renameImplicitBooleanOf:fact was:was];
 		}
 	}
-	[model deriveAfterChanging:[_wrote arrayByAddingObjectsFromArray:_deleted]];
-	if ([self.constraintEditor keepImpliedMandatories]) {
-		[model deriveAfterChanging:[_wrote arrayByAddingObjectsFromArray:_deleted]];
+	[self.constraintEditor keepImpliedMandatories];
+	/* What the sample population comes to: each fact's instances. */
+	BOOL populated = [model hasPopulation];
+	for (ORMElement *element in [_wrote arrayByAddingObjectsFromArray:_deleted]) {
+		populated = populated || [element isKindOfClass:[ORMInstance class]]
+			|| [element isKindOfClass:[ORMRoleInstance class]] || [element isKindOfClass:[ORMFactInstance class]];
+	}
+	if (populated) {
+		[model derivePopulations];
 	}
 	ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
 	writer.gone = [NSSet setWithArray:[_deleted valueForKey:@"identifier"]];

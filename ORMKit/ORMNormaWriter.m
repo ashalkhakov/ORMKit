@@ -337,9 +337,13 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			ORMSyncRefs(_document, container, played);
 			ORMPruneIfEmpty(container);
 		}
-		if (type.kind == ORMEntityType
-		    && ![ORMAttribute(type.element, @"_ReferenceMode") ?: @"" isEqualToString:type.referenceMode ?: @""]) {
-			ORMSetAttribute(type.element, @"_ReferenceMode", type.referenceMode ?: @"");
+		/* Written, it is what the file says: what the next name reads by. */
+		if (type.kind == ORMEntityType) {
+			NSString *mode = type.referenceMode ?: @"";
+			if (![ORMAttribute(type.element, @"_ReferenceMode") ?: @"" isEqualToString:mode]) {
+				ORMSetAttribute(type.element, @"_ReferenceMode", mode);
+			}
+			type.savedReferenceMode = mode;
 		}
 	} else if ([element isKindOfClass:[ORMFactType class]]) {
 		ORMFactType *fact = (ORMFactType *)element;
@@ -349,6 +353,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			if (![ORMAttribute(factElement, @"_Name") isEqualToString:name]) {
 				ORMSetAttribute(factElement, @"_Name", name);
 			}
+			fact.savedDerivedName = name;
 		}
 		for (ORMRole *role in fact.roles) {
 			NSString *local = [role.element localName];
