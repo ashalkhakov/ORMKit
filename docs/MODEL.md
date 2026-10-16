@@ -121,10 +121,22 @@ Each step keeps every test passing.
 3. **The editors, one domain at a time**: object types, fact types and
    readings, constraints, element names and deletion, diagrams and shapes,
    populations, Core Data mappings, queries. Each operation changes the
-   model and records its undo. Saving writes through the writer. The
-   change tracking and undo records come with the first domain, which
-   gives them a use and tests them through its operations' undo and
-   redo.
+   model and records its undo. Saving writes through the writer.
+
+   Begun. The model now tells what is read from what is derived from it:
+   `-[ORMModel derive]` works out played roles, subtyping, internal
+   constraints, roles' flags and reference modes from the elements alone.
+   An operation moved over runs in `-[ORMEditor modelChange:with:]`: it
+   changes elements and says which (`-wrote:`), the model is derived and
+   those elements written; the model is not read again, so the agreement
+   check tests the operation. Moved: an object type's flags, data type
+   and kind. Next: value constraints, then what makes elements (object
+   types, reference modes, subtypes), which needs the writer to make
+   fact types, roles, readings and constraints.
+
+   Undo still restores the document as it was, and the model is read
+   again: the normalizer still edits the XML after each operation. Undo
+   records replace that when the normalizer goes (step 4).
 4. **The normalizer goes**, its rules now the writer's.
 5. **The XML leaves the rest of ORMKit.** `ORMElement.element` becomes the
    writer's private business. Code that reads XML outside the reader and the
