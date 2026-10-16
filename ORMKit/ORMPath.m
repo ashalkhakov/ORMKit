@@ -465,6 +465,7 @@
 	NSString *text = ORMChildText(note, CORE, @"Body") ?: ORMChildText(expression, CORE, @"Body");
 	rule.informalText = [text length] > 0 ? text : nil;
 	rule.pathId = ORMAttribute(path, @"id");
+	rule.pathName = [ORMAttribute(path, @"Name") length] > 0 ? ORMAttribute(path, @"Name") : nil;
 	rule.noteId = ORMAttribute(note, @"id");
 	rule.hasRolePath = ORMChild(path, CORE, @"PathComponents") != nil || ORMChild(path, CORE, @"PathComponent") != nil;
 	rule.hasExpression = expression != nil;

@@ -4,6 +4,8 @@
 #import "ORMCoreDataMapping.h"
 #import "ORMNormaWriter.h"
 
+@class ORMStoredQuery, ORMQueryPart;
+
 /* What the projection's builders set: the public classes are read-only. */
 
 @interface ORMElement ()
@@ -219,6 +221,8 @@
  * populations, cardinalities, each a dictionary by owner id. */
 @property (nonatomic, strong) NSMutableDictionary *extras;
 @property (nonatomic, readwrite, copy) NSArray<ORMCoreDataMapping *> *coreDataMappings;
+/* The queries the document keeps, in order. */
+@property (nonatomic, copy) NSArray<ORMStoredQuery *> *storedQueries;
 @end
 
 @interface ORMModel (ORMPathReading)
@@ -282,6 +286,64 @@
 - (void)readElement:(NSXMLElement *)element;
 - (ORMMappingOption *)optionFor:(NSString *)objectTypeId;
 - (ORMMappingMember *)memberWithId:(NSString *)memberId;
+@end
+
+/* A node or a step of a query as the document keeps it (ORMQuery.m), each
+ * value as written, nil where it is not: a node's object type (ref, the
+ * root's) or role, a step's fact type (ref) and entry role. ORMQuery is
+ * what it says, read from these. */
+@interface ORMQueryPart : NSObject <NSCopying>
+@property (nonatomic, copy) NSString *identifier;
+@property (nonatomic) BOOL isStep;
+@property (nonatomic, copy) NSString *ref;
+@property (nonatomic, copy) NSString *roleId;
+@property (nonatomic, copy) NSString *projected;
+@property (nonatomic, copy) NSString *forRole;
+@property (nonatomic, copy) NSString *comparison;
+@property (nonatomic, copy) NSString *value;
+@property (nonatomic, copy) NSString *compareTo;
+@property (nonatomic, copy) NSString *label;
+@property (nonatomic, copy) NSString *combine;
+@property (nonatomic, copy) NSString *sort;
+@property (nonatomic, copy) NSString *operatorName;
+@property (nonatomic, copy) NSString *countComparison;
+@property (nonatomic, copy) NSString *countValueText;
+@property (nonatomic, copy) NSString *aggregateName;
+@property (nonatomic, copy) NSString *aggregateNodeId;
+@property (nonatomic, copy) NSString *groupNodeId;
+@property (nonatomic, copy) NSString *compareAggregate;
+@property (nonatomic, copy) NSString *compareGroupNode;
+/* A node's steps, a step's nodes, in order. */
+@property (nonatomic, copy) NSArray<ORMQueryPart *> *parts;
+/* The part it is in; nil for a root, and for one taken out. */
+- (ORMQueryPart *)parent;
+- (NSUInteger)index;
+- (NSArray<ORMQueryPart *> *)steps;
+- (NSArray<ORMQueryPart *> *)nodes;
+- (void)addPart:(ORMQueryPart *)part;
+- (void)insertPart:(ORMQueryPart *)part atIndex:(NSUInteger)index;
+- (void)detach;
+/* The part and those below it, depth first. */
+- (NSArray<ORMQueryPart *> *)tree;
+@end
+
+/* A query as the document keeps it: its name (nil where it has none),
+ * kind, modality, function and what it is of, as written; its root node. */
+@interface ORMStoredQuery : ORMElement <NSCopying>
+@property (nonatomic, copy) NSString *kind;
+@property (nonatomic, copy) NSString *modality;
+@property (nonatomic, copy) NSString *function;
+@property (nonatomic, copy) NSString *of;
+@property (nonatomic, strong) ORMQueryPart *root;
+@end
+
+@interface ORMModel (ORMQueryReading)
+- (void)readQueries;
+@end
+
+@interface ORMNormaWriter (ORMQueries)
+/* A query's element, made where it has none, its values as the model's. */
+- (void)writeStoredQuery:(ORMStoredQuery *)query;
 @end
 
 @interface ORMNormaWriter (ORMCoreDataMappings)
@@ -424,6 +486,9 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 @property (nonatomic, readwrite, copy) NSString *informalText;
 @property (nonatomic, readwrite) BOOL isSubtypeRule;
 @property (nonatomic, readwrite, copy) NSString *pathId;
+/* The path's own name, where it has one: a query read from the rule is
+ * called by it. */
+@property (nonatomic, readwrite, copy) NSString *pathName;
 @property (nonatomic, readwrite, copy) NSString *noteId;
 @property (nonatomic, readwrite) BOOL hasRolePath;
 @property (nonatomic, readwrite) BOOL hasExpression;

@@ -2,6 +2,7 @@
 #import "ORMQuery.h"
 #import "ORMEditorPriv.h"
 #import "ORMXML.h"
+#import "ORMModelPriv.h"
 #import <objc/runtime.h>
 
 #define Q ORMQueryNamespace
@@ -98,6 +99,11 @@ ORMQueryAggregateNames(void)
 @property (nonatomic, readwrite) ORMQueryCalculationFunction calculationFunction;
 @property (nonatomic, readwrite, weak) ORMQueryNode *calculatedNode;
 @property (nonatomic, readwrite, weak) ORMFactType *derivedFactType;
+/* What the stored query says, its object types, fact types and roles
+ * looked up in the model. */
++ (ORMQuery *)queryOf:(ORMStoredQuery *)stored model:(ORMModel *)model;
+- (ORMQueryNode *)nodeOf:(ORMQueryPart *)part type:(ORMObjectType *)type role:(ORMRole *)role model:(ORMModel *)model;
+- (ORMQueryStep *)stepOf:(ORMQueryPart *)part parent:(ORMQueryNode *)parent model:(ORMModel *)model;
 @end
 
 /* The kinds and functions as the file names them. */
@@ -112,6 +118,318 @@ ORMCalculationFunctionNames(void)
 {
 	return @[ @"Value", @"Count", @"Total", @"Average", @"Maximum", @"Minimum" ];
 }
+
+#pragma mark As the document keeps it
+
+@interface ORMQueryPart ()
++ (instancetype)partOf:(NSXMLElement *)element;
+@end
+
+@interface ORMStoredQuery ()
+- (void)readElement:(NSXMLElement *)element;
+- (ORMQueryPart *)partWithId:(NSString *)identifier step:(BOOL)isStep;
+@end
+
+/* A node's or a step's attributes, as the file names them, with the
+ * values they hold: in the order a change writes them. */
+static NSArray<NSArray<NSString *> *> *
+ORMQueryPartAttributes(void)
+{
+	return @[
+		@[ @"ref", @"ref" ], @[ @"Role", @"roleId" ], @[ @"Projected", @"projected" ], @[ @"For", @"forRole" ],
+		@[ @"Comparison", @"comparison" ], @[ @"Value", @"value" ], @[ @"CompareTo", @"compareTo" ],
+		@[ @"Label", @"label" ], @[ @"Combine", @"combine" ], @[ @"Sort", @"sort" ], @[ @"Operator", @"operatorName" ],
+		@[ @"Count", @"countComparison" ], @[ @"CountValue", @"countValueText" ], @[ @"Aggregate", @"aggregateName" ],
+		@[ @"AggregateNode", @"aggregateNodeId" ], @[ @"GroupNode", @"groupNodeId" ],
+		@[ @"CompareAggregate", @"compareAggregate" ], @[ @"CompareGroupNode", @"compareGroupNode" ]
+	];
+}
+
+static NSArray<NSArray<NSString *> *> *
+ORMStoredQueryAttributes(void)
+{
+	return @[ @[ @"Name", @"name" ], @[ @"Kind", @"kind" ], @[ @"Modality", @"modality" ], @[ @"Function", @"function" ],
+		      @[ @"Of", @"of" ] ];
+}
+
+/* A value as ORMBoolAttribute reads it. */
+static BOOL
+ORMBoolValue(NSString *value, BOOL fallback)
+{
+	return value == nil ? fallback : ([value caseInsensitiveCompare:@"true"] == NSOrderedSame || [value isEqualToString:@"1"]);
+}
+
+@implementation ORMQueryPart
+{
+	__weak ORMQueryPart *_parent;
+}
+
+- (instancetype)init
+{
+	if ((self = [super init])) {
+		_parts = @[];
+	}
+	return self;
+}
+
+- (void)setParts:(NSArray<ORMQueryPart *> *)parts
+{
+	for (ORMQueryPart *part in _parts) {
+		part->_parent = nil;
+	}
+	_parts = [parts copy] ?: @[];
+	for (ORMQueryPart *part in _parts) {
+		part->_parent = self;
+	}
+}
+
+- (ORMQueryPart *)parent
+{
+	return _parent;
+}
+
+- (NSUInteger)index
+{
+	return [_parent.parts indexOfObjectIdenticalTo:self];
+}
+
+- (NSArray<ORMQueryPart *> *)steps
+{
+	NSMutableArray *steps = [NSMutableArray array];
+	for (ORMQueryPart *part in _parts) {
+		if (part.isStep) {
+			[steps addObject:part];
+		}
+	}
+	return steps;
+}
+
+- (NSArray<ORMQueryPart *> *)nodes
+{
+	NSMutableArray *nodes = [NSMutableArray array];
+	for (ORMQueryPart *part in _parts) {
+		if (!part.isStep) {
+			[nodes addObject:part];
+		}
+	}
+	return nodes;
+}
+
+- (void)addPart:(ORMQueryPart *)part
+{
+	[self insertPart:part atIndex:[_parts count]];
+}
+
+- (void)insertPart:(ORMQueryPart *)part atIndex:(NSUInteger)index
+{
+	[part detach];
+	NSMutableArray *parts = [_parts mutableCopy];
+	[parts insertObject:part atIndex:MIN(index, [parts count])];
+	self.parts = parts;
+}
+
+- (void)detach
+{
+	if (_parent != nil) {
+		_parent.parts = ORMWithout(_parent.parts, self);
+	}
+}
+
+- (void)collect:(NSMutableArray *)into
+{
+	[into addObject:self];
+	for (ORMQueryPart *part in _parts) {
+		[part collect:into];
+	}
+}
+
+- (NSArray<ORMQueryPart *> *)tree
+{
+	NSMutableArray *tree = [NSMutableArray array];
+	[self collect:tree];
+	return tree;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	ORMQueryPart *copy = [[ORMQueryPart allocWithZone:zone] init];
+	copy.identifier = self.identifier;
+	copy.isStep = self.isStep;
+	for (NSArray *attribute in ORMQueryPartAttributes()) {
+		[copy setValue:[self valueForKey:[attribute lastObject]] forKey:[attribute lastObject]];
+	}
+	NSMutableArray *parts = [NSMutableArray array];
+	for (ORMQueryPart *part in _parts) {
+		[parts addObject:[part copy]];
+	}
+	copy.parts = parts;
+	return copy;
+}
+
++ (instancetype)partOf:(NSXMLElement *)element
+{
+	ORMQueryPart *part = [[ORMQueryPart alloc] init];
+	part.identifier = ORMAttribute(element, @"id");
+	part.isStep = [[element localName] isEqualToString:@"Step"];
+	for (NSArray *attribute in ORMQueryPartAttributes()) {
+		[part setValue:ORMAttribute(element, [attribute firstObject]) forKey:[attribute lastObject]];
+	}
+	NSMutableArray *parts = [NSMutableArray array];
+	for (NSXMLElement *child in ORMChildren(element, Q, part.isStep ? @"Node" : @"Step")) {
+		[parts addObject:[self partOf:child]];
+	}
+	part.parts = parts;
+	return part;
+}
+
+@end
+
+@implementation ORMStoredQuery
+
+- (void)reset
+{
+	[super reset];
+	_kind = nil;
+	_modality = nil;
+	_function = nil;
+	_of = nil;
+	_root = nil;
+}
+
+- (void)readElement:(NSXMLElement *)element
+{
+	self.name = ORMAttribute(element, @"Name");
+	self.kind = ORMAttribute(element, @"Kind");
+	self.modality = ORMAttribute(element, @"Modality");
+	self.function = ORMAttribute(element, @"Function");
+	self.of = ORMAttribute(element, @"Of");
+	NSXMLElement *root = ORMChild(element, Q, @"Node");
+	self.root = root != nil ? [ORMQueryPart partOf:root] : nil;
+}
+
+- (id)copyWithZone:(NSZone *)zone
+{
+	ORMStoredQuery *copy = [[ORMStoredQuery allocWithZone:zone] init];
+	copy.identifier = self.identifier;
+	copy.name = self.name;
+	copy.kind = self.kind;
+	copy.modality = self.modality;
+	copy.function = self.function;
+	copy.of = self.of;
+	copy.root = [self.root copy];
+	return copy;
+}
+
+/* The query's part of the id, and what kind it is. */
+- (ORMQueryPart *)partWithId:(NSString *)identifier step:(BOOL)isStep
+{
+	for (ORMQueryPart *part in identifier != nil ? [self.root tree] : @[]) {
+		if (part.isStep == isStep && [part.identifier isEqualToString:identifier]) {
+			return part;
+		}
+	}
+	return nil;
+}
+
+@end
+
+@implementation ORMModel (ORMQueryReading)
+
+- (void)readQueries
+{
+	NSMutableArray *queries = [NSMutableArray array];
+	for (NSXMLElement *element in ORMChildren(ORMChild([self.document rootElement], Q, @"Queries"), Q, @"Query")) {
+		ORMStoredQuery *query = [self element:[ORMStoredQuery class] for:element];
+		[query readElement:element];
+		[queries addObject:query];
+		[self registerElement:query];
+	}
+	self.storedQueries = queries;
+}
+
+@end
+
+/* The element's attributes as the object's values, where they differ. */
+static void
+ORMWriteValues(NSXMLElement *element, id object, NSArray<NSArray<NSString *> *> *attributes)
+{
+	for (NSArray *attribute in attributes) {
+		NSString *value = [object valueForKey:[attribute lastObject]];
+		NSString *was = ORMAttribute(element, [attribute firstObject]);
+		if (value != was && ![value isEqualToString:was]) {
+			ORMSetAttribute(element, [attribute firstObject], value);
+		}
+	}
+}
+
+/* The parent's children of the kind as the parts: one the parts do not
+ * have goes, one they have stays where it is, a new one after them. */
+static void
+ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPart *> *parts, NSString *local)
+{
+	NSMutableDictionary *byId = [NSMutableDictionary dictionary];
+	NSMutableArray *unnamed = [NSMutableArray array];
+	for (ORMQueryPart *part in parts) {
+		if (part.identifier != nil) {
+			[byId setObject:part forKey:part.identifier];
+		} else {
+			[unnamed addObject:part];
+		}
+	}
+	NSMutableDictionary *elements = [NSMutableDictionary dictionary];
+	NSMutableArray *unnamedElements = [NSMutableArray array];
+	for (NSXMLElement *child in ORMChildren(parent, Q, local)) {
+		NSString *identifier = ORMAttribute(child, @"id");
+		if (identifier != nil && [byId objectForKey:identifier] != nil && [elements objectForKey:identifier] == nil) {
+			[elements setObject:child forKey:identifier];
+		} else if (identifier == nil && [unnamedElements count] < [unnamed count]) {
+			[unnamedElements addObject:child];
+		} else {
+			ORMDetach(child);
+		}
+	}
+	for (ORMQueryPart *part in parts) {
+		NSXMLElement *child = nil;
+		if (part.identifier != nil) {
+			child = [elements objectForKey:part.identifier];
+		} else {
+			NSUInteger index = [unnamed indexOfObjectIdenticalTo:part];
+			child = index < [unnamedElements count] ? [unnamedElements objectAtIndex:index] : nil;
+		}
+		if (child == nil) {
+			child = ORMNewElement(document, Q, local);
+			if (part.identifier != nil) {
+				ORMSetAttribute(child, @"id", part.identifier);
+			}
+			ORMAddChild(parent, child);
+		}
+		ORMWriteValues(child, part, ORMQueryPartAttributes());
+		ORMWriteParts(document, child, part.parts, part.isStep ? @"Node" : @"Step");
+	}
+}
+
+@implementation ORMNormaWriter (ORMQueries)
+
+- (void)writeStoredQuery:(ORMStoredQuery *)query
+{
+	NSXMLDocument *document = [self.model.modelElement rootDocument];
+	NSXMLElement *element = query.element;
+	if (element == nil) {
+		NSXMLElement *root = [document rootElement];
+		NSXMLElement *container = ORMChild(root, Q, @"Queries");
+		if (container == nil) {
+			container = ORMNewElement(document, Q, @"Queries");
+			ORMAddChild(root, container);
+		}
+		element = ORMNewElementWithId(document, Q, @"Query", query.identifier);
+		ORMAddChild(container, element);
+		query.element = element;
+	}
+	ORMWriteValues(element, query, ORMStoredQueryAttributes());
+	ORMWriteParts(document, element, query.root != nil ? @[ query.root ] : @[], @"Node");
+}
+
+@end
 
 @implementation ORMQueryNode
 
@@ -139,17 +457,11 @@ ORMCalculationFunctionNames(void)
 
 @implementation ORMQuery
 
-+ (NSXMLElement *)containerIn:(NSXMLDocument *)document
-{
-	return ORMChild([document rootElement], Q, @"Queries");
-}
-
 + (NSArray<ORMQuery *> *)queriesInModel:(ORMModel *)model
 {
 	NSMutableArray *queries = [NSMutableArray array];
-	NSXMLDocument *document = [model.modelElement rootDocument];
-	for (NSXMLElement *element in ORMChildren([self containerIn:document], Q, @"Query")) {
-		ORMQuery *query = [self queryOf:element model:model];
+	for (ORMStoredQuery *stored in model.storedQueries) {
+		ORMQuery *query = [self queryOf:stored model:model];
 		if (query != nil) {
 			[queries addObject:query];
 		}
@@ -177,50 +489,51 @@ ORMCalculationFunctionNames(void)
 	return nil;
 }
 
-/* An element of a query read from a rule, kept out of the document. */
-static NSXMLElement *
-ORMRuleQueryElement(NSString *local, NSString *identifier)
+/* A part of a query read from a rule, kept out of the model. */
+static ORMQueryPart *
+ORMRulePart(BOOL isStep, NSString *identifier)
 {
-	NSXMLElement *element = [[NSXMLElement alloc] initWithName:[@"q:" stringByAppendingString:local] URI:Q];
-	ORMSetAttribute(element, @"id", identifier);
-	return element;
+	ORMQueryPart *part = [[ORMQueryPart alloc] init];
+	part.isStep = isStep;
+	part.identifier = identifier;
+	return part;
 }
 
 /* The object type at a node of a query read from a rule. */
 static ORMObjectType *
-ORMRuleNodeType(NSXMLElement *node, ORMModel *model)
+ORMRuleNodeType(ORMQueryPart *node, ORMModel *model)
 {
-	id element = [model elementWithId:ORMAttribute(node, @"Role") ?: ORMRef(node)];
+	id element = [model elementWithId:node.roleId ?: node.ref];
 	return [element isKindOfClass:[ORMRole class]] ? [(ORMRole *)element player] : element;
 }
 
 /* A step of a query read from a rule, entered by the role: a node for
  * each other role. */
-static NSXMLElement *
+static ORMQueryPart *
 ORMRuleStep(ORMRole *entry, NSString *identifier)
 {
-	NSXMLElement *step = ORMRuleQueryElement(@"Step", identifier);
-	ORMSetAttribute(step, @"ref", entry.factType.identifier);
-	ORMSetAttribute(step, @"Role", entry.identifier);
+	ORMQueryPart *step = ORMRulePart(YES, identifier);
+	step.ref = entry.factType.identifier;
+	step.roleId = entry.identifier;
 	for (ORMRole *other in entry.factType.roles) {
 		if (other == entry || other.player.isImplicitBooleanValue) {
 			continue;
 		}
-		NSXMLElement *node = ORMRuleQueryElement(@"Node", [NSString stringWithFormat:@"%@.%@", identifier, other.identifier]);
-		ORMSetAttribute(node, @"Role", other.identifier);
-		ORMAddChild(step, node);
+		ORMQueryPart *node = ORMRulePart(NO, [NSString stringWithFormat:@"%@.%@", identifier, other.identifier]);
+		node.roleId = other.identifier;
+		[step addPart:node];
 	}
 	return step;
 }
 
-/* NORMA's rule for the fact type, as a derivation query's element: the
- * path's root its root node; each role it joins by a step from the node the
- * path is at, a node for each of the fact type's other roles, the one it
- * goes on by where the path then is; each projected node ticked, For the
- * role it is projected as. nil, and why, where the path is not plain. Ids
- * are the path's, so it reads the same each time. */
-static NSXMLElement *
-ORMRuleElement(ORMFactType *fact, NSString **why)
+/* NORMA's rule for the fact type, as a derivation query: the path's root
+ * its root node; each role it joins by a step from the node the path is
+ * at, a node for each of the fact type's other roles, the one it goes on
+ * by where the path then is; each projected node ticked, For the role it
+ * is projected as. nil, and why, where the path is not plain. Ids are the
+ * path's, so it reads the same each time. */
+static ORMStoredQuery *
+ORMRuleQuery(ORMFactType *fact, NSString **why)
 {
 	ORMDerivationRule *rule = [fact derivationRule];
 	ORMRolePath *path = [rule.paths firstObject];
@@ -240,19 +553,18 @@ ORMRuleElement(ORMFactType *fact, NSString **why)
 		*why = @"its path's root is not an object type as such";
 		return nil;
 	}
-	NSString *pathId = ORMAttribute([path element], @"id") ?: fact.identifier;
-	NSXMLElement *query = ORMRuleQueryElement(@"Query", pathId);
-	/* RolePath in PathComponents in FactTypeDerivationPath, which names it. */
-	NSXMLElement *owner = (NSXMLElement *)[[[path element] parent] parent];
-	ORMSetAttribute(query, @"Name", [ORMAttribute(owner, @"Name") length] > 0 ? ORMAttribute(owner, @"Name") : fact.name);
-	ORMSetAttribute(query, @"Kind", @"Derivation");
-	ORMSetAttribute(query, @"Of", fact.identifier);
-	NSXMLElement *root = ORMRuleQueryElement(@"Node", path.rootId ?: [pathId stringByAppendingString:@".root"]);
-	ORMSetAttribute(root, @"ref", path.rootObjectType.identifier);
-	ORMAddChild(query, root);
-	NSMutableDictionary<NSString *, NSXMLElement *> *at = [NSMutableDictionary dictionary];
-	NSXMLElement *current = root;
-	NSXMLElement *step = nil;
+	NSString *pathId = path.identifier ?: fact.identifier;
+	ORMStoredQuery *query = [[ORMStoredQuery alloc] init];
+	query.identifier = pathId;
+	query.name = rule.pathName ?: fact.name;
+	query.kind = @"Derivation";
+	query.of = fact.identifier;
+	ORMQueryPart *root = ORMRulePart(NO, path.rootId ?: [pathId stringByAppendingString:@".root"]);
+	root.ref = path.rootObjectType.identifier;
+	query.root = root;
+	NSMutableDictionary<NSString *, ORMQueryPart *> *at = [NSMutableDictionary dictionary];
+	ORMQueryPart *current = root;
+	ORMQueryPart *step = nil;
 	for (ORMPathedRole *pathed in path.pathedRoles) {
 		ORMRole *role = pathed.role;
 		if (role == nil || pathed.isNegated || pathed.valueConstraint != nil || pathed.correlatedWith != nil) {
@@ -268,19 +580,19 @@ ORMRuleElement(ORMFactType *fact, NSString **why)
 			 * for (CinemaTickets), or joins by the objectified role and
 			 * goes on by the link fact type's (WaiterTips): the step
 			 * through the link fact type either way. */
-			NSXMLElement *node = nil;
-			for (NSXMLElement *each in ORMChildren(step, Q, @"Node")) {
-				ORMRole *at = [fact.model elementWithId:ORMAttribute(each, @"Role")];
+			ORMQueryPart *node = nil;
+			for (ORMQueryPart *each in [step nodes]) {
+				ORMRole *at = [fact.model elementWithId:each.roleId];
 				node = at == role || at.proxiedRole == role ? each : node;
 			}
-			ORMRole *entry = [fact.model elementWithId:ORMAttribute(step, @"Role") ?: @""];
+			ORMRole *entry = [fact.model elementWithId:step.roleId ?: @""];
 			for (ORMRole *proxy in node == nil && current == [step parent] ? role.factType.roles : @[]) {
 				if (proxy.proxiedRole != nil && proxy.proxiedRole == entry) {
-					NSXMLElement *from = (NSXMLElement *)[step parent];
-					ORMDetach(step);
-					step = ORMRuleStep(proxy, ORMAttribute(step, @"id"));
-					ORMAddChild(from, step);
-					node = ORMChildren(step, Q, @"Node").firstObject;
+					ORMQueryPart *from = [step parent];
+					[step detach];
+					step = ORMRuleStep(proxy, step.identifier);
+					[from addPart:step];
+					node = [[step nodes] firstObject];
 				}
 			}
 			if (node == nil) {
@@ -293,41 +605,39 @@ ORMRuleElement(ORMFactType *fact, NSString **why)
 				*why = @"its path joins by a role the object type there does not play";
 				return nil;
 			}
-			step = ORMRuleStep(role, [ORMAttribute([pathed element], @"id") stringByAppendingString:@".step"]);
-			ORMAddChild(current, step);
+			step = ORMRuleStep(role, [pathed.identifier stringByAppendingString:@".step"]);
+			[current addPart:step];
 		}
-		NSString *pathedId = ORMAttribute([pathed element], @"id");
-		if (pathedId != nil) {
-			[at setObject:current forKey:pathedId];
+		if (pathed.identifier != nil) {
+			[at setObject:current forKey:pathed.identifier];
 		}
 	}
 	for (ORMRole *role in [fact visibleRoles]) {
 		ORMPathSource *source = [rule.projections objectForKey:role.identifier];
-		NSXMLElement *node = source.kind == ORMPathSourceRoot && source.root == path ? root
-			: source.kind == ORMPathSourcePathedRole ? [at objectForKey:ORMAttribute([source.pathedRole element], @"id") ?: @""]
+		ORMQueryPart *node = source.kind == ORMPathSourceRoot && source.root == path ? root
+			: source.kind == ORMPathSourcePathedRole ? [at objectForKey:source.pathedRole.identifier ?: @""]
 			: nil;
-		if (node == nil || ORMAttribute(node, @"For") != nil) {
+		if (node == nil || node.forRole != nil) {
 			*why = @"it does not project one point of its path for each role";
 			return nil;
 		}
-		ORMSetAttribute(node, @"Projected", @"true");
-		ORMSetAttribute(node, @"For", role.identifier);
+		node.projected = @"true";
+		node.forRole = role.identifier;
 	}
 	return query;
 }
 
-/* The element a derivation is read from: the document's query, or its
- * fact type's NORMA rule. */
-static NSXMLElement *
-ORMDerivationElement(ORMFactType *fact, ORMModel *model, NSString **why)
+/* What a derivation is read from: the model's query, or its fact type's
+ * NORMA rule. */
+static ORMStoredQuery *
+ORMDerivationQuery(ORMFactType *fact, ORMModel *model, NSString **why)
 {
-	for (NSXMLElement *each in ORMChildren([ORMQuery containerIn:[model.modelElement rootDocument]], Q, @"Query")) {
-		if ([ORMAttribute(each, @"Kind") isEqualToString:@"Derivation"]
-		    && [ORMAttribute(each, @"Of") isEqualToString:fact.identifier]) {
+	for (ORMStoredQuery *each in model.storedQueries) {
+		if ([each.kind isEqualToString:@"Derivation"] && [each.of isEqualToString:fact.identifier]) {
 			return each;
 		}
 	}
-	return ORMRuleElement(fact, why);
+	return ORMRuleQuery(fact, why);
 }
 
 + (NSArray<ORMQuery *> *)derivationsInModel:(ORMModel *)model
@@ -342,10 +652,10 @@ ORMDerivationElement(ORMFactType *fact, ORMModel *model, NSString **why)
 	}
 	for (ORMFactType *fact in model.factTypes) {
 		NSString *why = nil;
-		NSXMLElement *element = fact.isDerived && ![derived containsObject:fact.identifier]
-			&& [[fact derivationRule].paths count] > 0 ? ORMRuleElement(fact, &why) : nil;
-		if (element != nil) {
-			[derivations addObject:[self queryOf:element model:model]];
+		ORMStoredQuery *stored = fact.isDerived && ![derived containsObject:fact.identifier]
+			&& [[fact derivationRule].paths count] > 0 ? ORMRuleQuery(fact, &why) : nil;
+		if (stored != nil) {
+			[derivations addObject:[self queryOf:stored model:model]];
 		}
 	}
 	return derivations;
@@ -379,40 +689,25 @@ ORMDerivationElement(ORMFactType *fact, ORMModel *model, NSString **why)
 static NSArray<NSString *> *
 ORMStepQualifiers(void)
 {
-	return @[ @"Operator", @"Count", @"CountValue", @"Aggregate", @"AggregateNode", @"GroupNode", @"CompareGroupNode",
-	          @"CompareAggregate" ];
+	return @[ @"operatorName", @"countComparison", @"countValueText", @"aggregateName", @"aggregateNodeId", @"groupNodeId", @"compareGroupNode",
+	          @"compareAggregate" ];
 }
 
-/* The nodes and steps of a tree, depth first. */
-static void
-ORMQueryTree(NSXMLElement *element, NSMutableArray<NSXMLElement *> *into)
-{
-	[into addObject:element];
-	for (NSXMLNode *child in [element children]) {
-		if ([child kind] == NSXMLElementKind
-		    && ([[child localName] isEqualToString:@"Node"] || [[child localName] isEqualToString:@"Step"])) {
-			ORMQueryTree((NSXMLElement *)child, into);
-		}
-	}
-}
-
-/* The attributes that name another node of the query. */
+/* The values that name another node of the query. */
 static NSArray<NSString *> *
 ORMNodeReferences(void)
 {
-	return @[ @"CompareTo", @"CompareGroupNode", @"GroupNode", @"AggregateNode" ];
+	return @[ @"compareTo", @"compareGroupNode", @"groupNodeId", @"aggregateNodeId" ];
 }
 
 /* Every reference to a node of the tree, from one id to another. */
 static void
-ORMRenameNode(NSXMLElement *tree, NSString *from, NSString *to)
+ORMRenameNode(ORMQueryPart *tree, NSString *from, NSString *to)
 {
-	NSMutableArray *all = [NSMutableArray array];
-	ORMQueryTree(tree, all);
-	for (NSXMLElement *element in all) {
-		for (NSString *name in ORMNodeReferences()) {
-			if ([ORMAttribute(element, name) isEqualToString:from]) {
-				ORMSetAttribute(element, name, to);
+	for (ORMQueryPart *part in [tree tree]) {
+		for (NSString *key in ORMNodeReferences()) {
+			if ([[part valueForKey:key] isEqualToString:from]) {
+				[part setValue:to forKey:key];
 			}
 		}
 	}
@@ -421,51 +716,50 @@ ORMRenameNode(NSXMLElement *tree, NSString *from, NSString *to)
 /* The derivation's tree re-rooted at the node: each step on the way up
  * reversed, the node above going under it. Only a plain binary step
  * reverses: nil and why otherwise. */
-static NSXMLElement *
-ORMReroot(NSXMLElement *target, ORMModel *model, NSString **why)
+static ORMQueryPart *
+ORMReroot(ORMQueryPart *target, ORMModel *model, NSString **why)
 {
 	NSMutableArray *path = [NSMutableArray array];
-	for (NSXMLElement *node = target; [[[node parent] localName] isEqualToString:@"Step"];) {
-		NSXMLElement *step = (NSXMLElement *)[node parent];
-		NSXMLElement *above = (NSXMLElement *)[step parent];
-		NSUInteger nodes = [ORMChildren(step, Q, @"Node") count];
-		BOOL plain = nodes == 1;
-		for (NSString *name in ORMStepQualifiers()) {
-			plain = plain && ORMAttribute(step, name) == nil;
+	for (ORMQueryPart *node = target; [node parent].isStep;) {
+		ORMQueryPart *step = [node parent];
+		ORMQueryPart *above = [step parent];
+		BOOL plain = [[step nodes] count] == 1;
+		for (NSString *key in ORMStepQualifiers()) {
+			plain = plain && [step valueForKey:key] == nil;
 		}
-		if (!plain || [ORMAttribute(above, @"Combine") isEqualToString:@"Or"]) {
+		if (!plain || [above.combine isEqualToString:@"Or"]) {
 			*why = @"its rule goes there through a step that is not one plain binary step";
 			return nil;
 		}
 		/* The roles as the rule has them, before any is turned around. */
-		[path addObject:@[ node, step, above, ORMAttribute(node, @"Role") ?: @"", ORMAttribute(step, @"Role") ?: @"" ]];
+		[path addObject:@[ node, step, above, node.roleId ?: @"", step.roleId ?: @"" ]];
 		node = above;
 	}
 	for (NSArray *edge in path) {
-		NSXMLElement *node = [edge objectAtIndex:0];
-		NSXMLElement *step = [edge objectAtIndex:1];
-		NSXMLElement *above = [edge objectAtIndex:2];
+		ORMQueryPart *node = [edge objectAtIndex:0];
+		ORMQueryPart *step = [edge objectAtIndex:1];
+		ORMQueryPart *above = [edge objectAtIndex:2];
 		NSString *nodeRole = [edge objectAtIndex:3];
 		NSString *aboveRole = [edge objectAtIndex:4];
-		ORMDetach(above);
-		ORMDetach(step);
+		[above detach];
+		[step detach];
 		/* Taken from its step; one turned around already stays where the
 		 * last turn put it. */
 		if ([node parent] == step) {
-			ORMDetach(node);
+			[node detach];
 		}
 		/* The same step the other way: entered by the node's role, the
 		 * node above reached by the step's. */
-		ORMSetAttribute(step, @"Role", nodeRole);
-		ORMSetAttribute(above, @"ref", nil);
-		ORMSetAttribute(above, @"Role", aboveRole);
-		ORMAddChild(step, above);
-		ORMAddChild(node, step);
+		step.roleId = nodeRole;
+		above.ref = nil;
+		above.roleId = aboveRole;
+		[step addPart:above];
+		[node addPart:step];
 	}
 	if ([path count] > 0) {
 		ORMRole *role = [model elementWithId:[[path firstObject] objectAtIndex:3]];
-		ORMSetAttribute(target, @"Role", nil);
-		ORMSetAttribute(target, @"ref", role.player.identifier);
+		target.roleId = nil;
+		target.ref = role.player.identifier;
 	}
 	return target;
 }
@@ -482,28 +776,24 @@ ORMIndexOfRole(NSArray<ORMRole *> *roles, NSString *identifier)
 	return NSNotFound;
 }
 
-/* How many of the tree's elements have the label. */
+/* How many of the tree's parts have the label. */
 static NSUInteger
-ORMLabelUses(NSXMLElement *tree, NSString *label)
+ORMLabelUses(ORMQueryPart *tree, NSString *label)
 {
-	NSMutableArray *all = [NSMutableArray array];
-	ORMQueryTree(tree, all);
 	NSUInteger uses = 0;
-	for (NSXMLElement *element in all) {
-		uses += [ORMAttribute(element, @"Label") isEqualToString:label] ? 1 : 0;
+	for (ORMQueryPart *part in [tree tree]) {
+		uses += [part.label isEqualToString:label] ? 1 : 0;
 	}
 	return uses;
 }
 
 /* The tree's label, wherever it is, another: the same object for both. */
 static void
-ORMRelabel(NSXMLElement *tree, NSString *from, NSString *to)
+ORMRelabel(ORMQueryPart *tree, NSString *from, NSString *to)
 {
-	NSMutableArray *all = [NSMutableArray array];
-	ORMQueryTree(tree, all);
-	for (NSXMLElement *element in all) {
-		if ([ORMAttribute(element, @"Label") isEqualToString:from]) {
-			ORMSetAttribute(element, @"Label", to);
+	for (ORMQueryPart *part in [tree tree]) {
+		if ([part.label isEqualToString:from]) {
+			part.label = to;
 		}
 	}
 }
@@ -512,45 +802,44 @@ ORMRelabel(NSXMLElement *tree, NSString *from, NSString *to)
  * nodes of the same label with it; the rule's own label kept only where
  * another of its nodes is the same object by it. */
 static void
-ORMMergeLabel(NSXMLElement *tree, NSXMLElement *theirs, NSString *ours, NSXMLElement *into)
+ORMMergeLabel(ORMQueryPart *tree, ORMQueryPart *theirs, NSString *ours, ORMQueryPart *into)
 {
-	NSString *label = ORMAttribute(theirs, @"Label");
+	NSString *label = theirs.label;
 	if ([ours length] > 0) {
 		if (label != nil) {
 			ORMRelabel(tree, label, ours);
 		}
-		ORMSetAttribute(into, @"Label", ours);
+		into.label = ours;
 	} else if (label != nil && ORMLabelUses(tree, label) < 2) {
-		ORMSetAttribute(into, @"Label", nil);
+		into.label = nil;
 	} else {
-		ORMSetAttribute(into, @"Label", label);
+		into.label = label;
 	}
 }
 
 /* Whether the node's steps are alternatives. */
 static BOOL
-ORMCombinesWithOr(NSXMLElement *node)
+ORMCombinesWithOr(ORMQueryPart *node)
 {
-	return [ORMAttribute(node, @"Combine") isEqualToString:@"Or"];
+	return [node.combine isEqualToString:@"Or"];
 }
 
 /* The step through a derived fact type put as its derivation's path,
  * under the node it is from. nil when done; why otherwise. */
 static NSString *
-ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXMLElement *rule, NSUInteger round,
+ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMStoredQuery *rule, NSUInteger round,
               ORMModel *model)
 {
 	NSString *what = [fact displayText];
-	NSXMLElement *from = (NSXMLElement *)[step parent];
-	NSXMLElement *tree = [ORMChild(rule, Q, @"Node") copy];
-	NSMutableArray *all = [NSMutableArray array];
-	ORMQueryTree(tree, all);
+	ORMQueryPart *from = [step parent];
+	ORMQueryPart *tree = [rule.root copy];
+	NSArray *all = [tree tree];
 	/* Its columns, in the order the planner lists them: the fact type's
 	 * roles. */
 	NSMutableArray *columns = [NSMutableArray array];
-	for (NSXMLElement *element in all) {
-		if ([[element localName] isEqualToString:@"Node"] && [ORMAttribute(element, @"Projected") isEqualToString:@"true"]) {
-			[columns addObject:element];
+	for (ORMQueryPart *part in all) {
+		if (!part.isStep && [part.projected isEqualToString:@"true"]) {
+			[columns addObject:part];
 		}
 	}
 	NSArray *roles = [fact visibleRoles];
@@ -562,8 +851,8 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	/* In the order of the roles, as the query says. */
 	NSMutableArray *byRole = [NSMutableArray array];
 	for (ORMQueryNode *node in ordered) {
-		for (NSXMLElement *column in columns) {
-			if ([ORMAttribute(column, @"id") isEqualToString:node.identifier]) {
+		for (ORMQueryPart *column in columns) {
+			if ([column.identifier isEqualToString:node.identifier]) {
 				[byRole addObject:column];
 			}
 		}
@@ -575,102 +864,100 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	columns = byRole;
 	/* Its own: fresh ids, its labels apart from the query's, nothing it
 	 * lists or sorts by but what the step's nodes say. */
-	for (NSXMLElement *element in all) {
-		NSString *was = ORMAttribute(element, @"id");
+	for (ORMQueryPart *part in all) {
+		NSString *was = part.identifier;
 		NSString *now = ORMNewId();
-		ORMSetAttribute(element, @"id", now);
+		part.identifier = now;
 		if (was != nil) {
 			ORMRenameNode(tree, was, now);
 		}
-		NSString *label = ORMAttribute(element, @"Label");
-		if ([label length] > 0) {
-			ORMSetAttribute(element, @"Label", [NSString stringWithFormat:@"%@ (%@ %lu)", label, derivation.name,
-			                                                              (unsigned long)round]);
+		if ([part.label length] > 0) {
+			part.label = [NSString stringWithFormat:@"%@ (%@ %lu)", part.label, derivation.name, (unsigned long)round];
 		}
-		ORMSetAttribute(element, @"Projected", nil);
-		ORMSetAttribute(element, @"For", nil);
-		ORMSetAttribute(element, @"Sort", nil);
+		part.projected = nil;
+		part.forRole = nil;
+		part.sort = nil;
 	}
-	NSUInteger entry = ORMIndexOfRole(roles, ORMAttribute(step, @"Role"));
+	NSUInteger entry = ORMIndexOfRole(roles, step.roleId);
 	if (entry == NSNotFound) {
 		return [NSString stringWithFormat:@"\"%@\" is gone through by a role it does not show.", what];
 	}
 	NSString *why = nil;
-	NSXMLElement *root = ORMReroot([columns objectAtIndex:entry], model, &why);
+	ORMQueryPart *root = ORMReroot([columns objectAtIndex:entry], model, &why);
 	if (root == nil) {
 		return [NSString stringWithFormat:@"\"%@\" cannot be gone through from there: %@.", what, why];
 	}
 	/* The node the step is from is the column it enters by. Steps meet
 	 * there: the rule's with the query's others, which an or keeps apart
 	 * only where one side has but one. */
-	NSArray *moved = ORMChildren(root, Q, @"Step");
-	NSUInteger beside = [ORMChildren(from, Q, @"Step") count] - 1;
+	NSArray *moved = [root steps];
+	NSUInteger beside = [[from steps] count] - 1;
 	if ([moved count] > 1 && ORMCombinesWithOr(from) != ORMCombinesWithOr(root)) {
 		if (beside > 0) {
 			return [NSString stringWithFormat:@"\"%@\" is gone through where steps are combined with or, and its rule "
 			                                  @"has several steps there, combined otherwise.",
 			                                  what];
 		}
-		ORMSetAttribute(from, @"Combine", ORMAttribute(root, @"Combine"));
+		from.combine = root.combine;
 	}
-	ORMMergeLabel(tree, root, ORMAttribute(from, @"Label"), from);
-	for (NSString *name in @[ @"Comparison", @"Value", @"CompareTo" ]) {
-		NSString *value = ORMAttribute(root, name);
+	ORMMergeLabel(tree, root, from.label, from);
+	for (NSString *key in @[ @"comparison", @"value", @"compareTo" ]) {
+		NSString *value = [root valueForKey:key];
 		if (value == nil) {
 			continue;
 		}
-		if (ORMAttribute(from, name) != nil && ![ORMAttribute(from, name) isEqualToString:value]) {
+		if ([from valueForKey:key] != nil && ![[from valueForKey:key] isEqualToString:value]) {
 			return [NSString stringWithFormat:@"\"%@\" says more of %@ than the query can take with it.", what,
 			                                  [roles[entry] player].name];
 		}
-		ORMSetAttribute(from, name, value);
+		[from setValue:value forKey:key];
 	}
-	ORMRenameNode(tree, ORMAttribute(root, @"id"), ORMAttribute(from, @"id"));
+	ORMRenameNode(tree, root.identifier, from.identifier);
 	/* The step's other nodes are the other columns: what the query says
 	 * of each, with what the rule says. */
-	for (NSXMLElement *node in ORMChildren(step, Q, @"Node")) {
-		NSUInteger index = ORMIndexOfRole(roles, ORMAttribute(node, @"Role"));
+	for (ORMQueryPart *node in [step nodes]) {
+		NSUInteger index = ORMIndexOfRole(roles, node.roleId);
 		if (index == NSNotFound || index == entry) {
 			continue;
 		}
-		NSXMLElement *column = [columns objectAtIndex:index];
-		NSArray *more = ORMChildren(node, Q, @"Step");
-		NSArray *its = ORMChildren(column, Q, @"Step");
+		ORMQueryPart *column = [columns objectAtIndex:index];
+		NSArray *more = [node steps];
+		NSArray *its = [column steps];
 		if ([more count] > 0 && [its count] > 0 && (ORMCombinesWithOr(node) || ORMCombinesWithOr(column))
 		    && !([more count] == 1 && [its count] == 1)) {
 			return [NSString stringWithFormat:@"\"%@\" is gone through to %@, whose steps there are combined with or.",
 			                                  what, [roles[index] player].name];
 		}
-		ORMMergeLabel(tree, column, ORMAttribute(node, @"Label"), column);
-		for (NSXMLNode *attribute in [node attributes]) {
-			NSString *name = [attribute name];
-			if ([name isEqualToString:@"id"] || [name isEqualToString:@"Role"] || [name isEqualToString:@"Label"]
-			    || [name isEqualToString:@"Combine"]) {
+		ORMMergeLabel(tree, column, node.label, column);
+		for (NSArray *attribute in ORMQueryPartAttributes()) {
+			NSString *key = [attribute lastObject];
+			NSString *value = [node valueForKey:key];
+			if (value == nil || [key isEqualToString:@"roleId"] || [key isEqualToString:@"label"]
+			    || [key isEqualToString:@"combine"]) {
 				continue;
 			}
-			NSString *theirs = ORMAttribute(column, name);
-			if (theirs != nil && ![theirs isEqualToString:[attribute stringValue]]) {
+			NSString *theirs = [column valueForKey:key];
+			if (theirs != nil && ![theirs isEqualToString:value]) {
 				return [NSString stringWithFormat:@"\"%@\" says more of %@ than the query can take with it.", what,
 				                                  [roles[index] player].name];
 			}
-			ORMSetAttribute(column, name, [attribute stringValue]);
+			[column setValue:value forKey:key];
 		}
-		ORMRenameNode(tree, ORMAttribute(column, @"id"), ORMAttribute(node, @"id"));
-		ORMSetAttribute(column, @"id", ORMAttribute(node, @"id"));
+		ORMRenameNode(tree, column.identifier, node.identifier);
+		column.identifier = node.identifier;
 		if ([its count] == 0) {
-			ORMSetAttribute(column, @"Combine", ORMAttribute(node, @"Combine"));
+			column.combine = node.combine;
 		}
-		for (NSXMLElement *each in more) {
-			ORMDetach(each);
-			ORMAddChild(column, each);
+		for (ORMQueryPart *each in more) {
+			[column addPart:each];
 		}
 	}
 	/* The rule's steps from the entry column go under the node, where the
 	 * step was; the step's not, maybe or count with them, where there is
 	 * one to carry it. */
 	BOOL qualified = NO;
-	for (NSString *name in ORMStepQualifiers()) {
-		qualified = qualified || ORMAttribute(step, name) != nil;
+	for (NSString *key in ORMStepQualifiers()) {
+		qualified = qualified || [step valueForKey:key] != nil;
 	}
 	if (qualified && [moved count] != 1) {
 		return [NSString stringWithFormat:@"\"%@\" is gone through with not, maybe or a count, and its rule branches "
@@ -678,39 +965,37 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		                                  what];
 	}
 	NSUInteger at = [step index];
-	for (NSXMLElement *each in moved) {
-		ORMDetach(each);
-		for (NSString *name in qualified ? ORMStepQualifiers() : @[]) {
-			ORMSetAttribute(each, name, ORMAttribute(step, name));
+	for (ORMQueryPart *each in moved) {
+		[each detach];
+		for (NSString *key in qualified ? ORMStepQualifiers() : @[]) {
+			[each setValue:[step valueForKey:key] forKey:key];
 		}
-		ORMInsertChildAt(from, each, at++);
+		[from insertPart:each atIndex:at++];
 	}
-	ORMDetach(step);
+	[step detach];
 	return nil;
 }
 
 - (ORMQuery *)expandedInModel:(ORMModel *)model notes:(NSMutableArray<NSString *> *)notes
 {
-	NSXMLElement *element = nil;
-	for (NSXMLElement *each in ORMChildren([ORMQuery containerIn:[model.modelElement rootDocument]], Q, @"Query")) {
-		element = [ORMAttribute(each, @"id") isEqualToString:self.identifier] ? each : element;
+	ORMStoredQuery *stored = nil;
+	for (ORMStoredQuery *each in model.storedQueries) {
+		stored = [each.identifier isEqualToString:self.identifier] ? each : stored;
 	}
-	/* A query read from NORMA's rule is not in the document: read again. */
-	if (element == nil && self.kind == ORMQueryDerivation && self.derivedFactType != nil) {
+	/* A query read from NORMA's rule is not in the model: read again. */
+	if (stored == nil && self.kind == ORMQueryDerivation && self.derivedFactType != nil) {
 		NSString *unread = nil;
-		element = ORMDerivationElement(self.derivedFactType, model, &unread);
+		stored = ORMDerivationQuery(self.derivedFactType, model, &unread);
 	}
-	if (element == nil) {
+	if (stored == nil) {
 		return self;
 	}
-	NSXMLElement *copy = nil;
+	ORMStoredQuery *copy = nil;
 	for (NSUInteger round = 1;; round++) {
-		NSMutableArray *all = [NSMutableArray array];
-		ORMQueryTree(ORMChild(copy ?: element, Q, @"Node") ?: element, all);
-		NSXMLElement *step = nil;
+		ORMQueryPart *step = nil;
 		ORMFactType *fact = nil;
-		for (NSXMLElement *each in all) {
-			ORMFactType *through = [[each localName] isEqualToString:@"Step"] ? [model elementWithId:ORMRef(each)] : nil;
+		for (ORMQueryPart *each in [(copy ?: stored).root tree]) {
+			ORMFactType *through = each.isStep ? [model elementWithId:each.ref] : nil;
 			if ([through isKindOfClass:[ORMFactType class]] && through.isDerived && ![through derivationRule].isStored) {
 				step = each;
 				fact = through;
@@ -722,7 +1007,7 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		}
 		NSString *what = [fact displayText];
 		NSString *unplain = nil;
-		NSXMLElement *rule = ORMDerivationElement(fact, model, &unplain);
+		ORMStoredQuery *rule = ORMDerivationQuery(fact, model, &unplain);
 		ORMQuery *derivation = rule != nil ? [ORMQuery queryOf:rule model:model] : nil;
 		NSString *why = nil;
 		if ([fact derivationRule].isPartial) {
@@ -738,12 +1023,10 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		}
 		if (why == nil) {
 			if (copy == nil) {
-				copy = [element copy];
+				copy = [stored copy];
 				/* The step found again in the copy. */
-				NSMutableArray *copied = [NSMutableArray array];
-				ORMQueryTree(ORMChild(copy, Q, @"Node"), copied);
-				for (NSXMLElement *each in copied) {
-					step = [ORMAttribute(each, @"id") isEqualToString:ORMAttribute(step, @"id")] ? each : step;
+				for (ORMQueryPart *each in [copy.root tree]) {
+					step = [each.identifier isEqualToString:step.identifier] ? each : step;
 				}
 			}
 			why = ORMExpandStep(step, fact, derivation, rule, round, model);
@@ -756,31 +1039,31 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	return copy != nil ? [ORMQuery queryOf:copy model:model] : self;
 }
 
-+ (ORMQuery *)queryOf:(NSXMLElement *)element model:(ORMModel *)model
++ (ORMQuery *)queryOf:(ORMStoredQuery *)stored model:(ORMModel *)model
 {
 	ORMQuery *query = [[ORMQuery alloc] init];
-	query.identifier = ORMAttribute(element, @"id");
-	query.name = ORMAttribute(element, @"Name") ?: @"Query";
+	query.identifier = stored.identifier;
+	query.name = stored.name ?: @"Query";
 	query.isComplete = YES;
-	NSUInteger kind = [ORMQueryKindNames() indexOfObject:ORMAttribute(element, @"Kind") ?: @"List"];
+	NSUInteger kind = [ORMQueryKindNames() indexOfObject:stored.kind ?: @"List"];
 	query.kind = kind != NSNotFound ? (ORMQueryKind)kind : ORMQueryList;
-	query.isDeontic = query.kind == ORMQueryConstraint && [ORMAttribute(element, @"Modality") isEqualToString:@"Deontic"];
-	NSUInteger function = [ORMCalculationFunctionNames() indexOfObject:ORMAttribute(element, @"Function") ?: @"Value"];
+	query.isDeontic = query.kind == ORMQueryConstraint && [stored.modality isEqualToString:@"Deontic"];
+	NSUInteger function = [ORMCalculationFunctionNames() indexOfObject:stored.function ?: @"Value"];
 	query.calculationFunction = function != NSNotFound ? (ORMQueryCalculationFunction)function : ORMCalculationValue;
 	if (query.kind == ORMQueryDerivation) {
-		ORMFactType *derived = [model elementWithId:ORMAttribute(element, @"Of")];
+		ORMFactType *derived = [model elementWithId:stored.of];
 		query.derivedFactType = [derived isKindOfClass:[ORMFactType class]] ? derived : nil;
 	}
-	NSXMLElement *rootElement = ORMChild(element, Q, @"Node");
-	ORMObjectType *type = [model elementWithId:ORMRef(rootElement)];
+	ORMQueryPart *rootPart = stored.root;
+	ORMObjectType *type = [model elementWithId:rootPart.ref];
 	if (![type isKindOfClass:[ORMObjectType class]]) {
 		query.isComplete = NO;
 		return query;
 	}
-	query.root = [query nodeOf:rootElement type:type role:nil model:model];
+	query.root = [query nodeOf:rootPart type:type role:nil model:model];
 	/* What a condition compares with, now every node is read. */
 	NSArray *nodes = [query nodes];
-	NSString *of = query.kind == ORMQueryCalculation ? ORMAttribute(element, @"Of") : nil;
+	NSString *of = query.kind == ORMQueryCalculation ? stored.of : nil;
 	for (ORMQueryNode *node in of != nil ? nodes : @[]) {
 		if ([node.identifier isEqualToString:of]) {
 			query.calculatedNode = node;
@@ -819,26 +1102,25 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	return query;
 }
 
-- (ORMQueryNode *)nodeOf:(NSXMLElement *)element type:(ORMObjectType *)type role:(ORMRole *)role model:(ORMModel *)model
+- (ORMQueryNode *)nodeOf:(ORMQueryPart *)part type:(ORMObjectType *)type role:(ORMRole *)role model:(ORMModel *)model
 {
 	ORMQueryNode *node = [[ORMQueryNode alloc] init];
-	node.identifier = ORMAttribute(element, @"id");
+	node.identifier = part.identifier;
 	node.objectType = type;
 	node.role = role;
-	node.isProjected = ORMBoolAttribute(element, @"Projected", NO);
-	ORMRole *derived = [model elementWithId:ORMAttribute(element, @"For") ?: @""];
+	node.isProjected = ORMBoolValue(part.projected, NO);
+	ORMRole *derived = [model elementWithId:part.forRole ?: @""];
 	node.derivedRole = [derived isKindOfClass:[ORMRole class]] ? derived : nil;
-	node.comparison = ORMAttribute(element, @"Comparison");
-	node.value = ORMAttribute(element, @"Value");
-	node.comparedNodeId = ORMAttribute(element, @"CompareTo");
-	node.label = [ORMAttribute(element, @"Label") length] > 0 ? ORMAttribute(element, @"Label") : nil;
-	node.combinesWithOr = [ORMAttribute(element, @"Combine") isEqualToString:@"Or"];
-	NSString *sort = ORMAttribute(element, @"Sort");
-	node.sortOrder = [sort isEqualToString:@"Ascending"] ? ORMQueryAscending
-		: [sort isEqualToString:@"Descending"] ? ORMQueryDescending : ORMQueryUnsorted;
+	node.comparison = part.comparison;
+	node.value = part.value;
+	node.comparedNodeId = part.compareTo;
+	node.label = [part.label length] > 0 ? part.label : nil;
+	node.combinesWithOr = [part.combine isEqualToString:@"Or"];
+	node.sortOrder = [part.sort isEqualToString:@"Ascending"] ? ORMQueryAscending
+		: [part.sort isEqualToString:@"Descending"] ? ORMQueryDescending : ORMQueryUnsorted;
 	NSMutableArray *steps = [NSMutableArray array];
-	for (NSXMLElement *stepElement in ORMChildren(element, Q, @"Step")) {
-		ORMQueryStep *step = [self stepOf:stepElement parent:node model:model];
+	for (ORMQueryPart *stepPart in [part steps]) {
+		ORMQueryStep *step = [self stepOf:stepPart parent:node model:model];
 		if (step != nil) {
 			[steps addObject:step];
 		} else {
@@ -849,41 +1131,40 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	return node;
 }
 
-- (ORMQueryStep *)stepOf:(NSXMLElement *)element parent:(ORMQueryNode *)parent model:(ORMModel *)model
+- (ORMQueryStep *)stepOf:(ORMQueryPart *)part parent:(ORMQueryNode *)parent model:(ORMModel *)model
 {
-	ORMFactType *fact = [model elementWithId:ORMRef(element)];
-	ORMRole *entry = [model elementWithId:ORMAttribute(element, @"Role")];
+	ORMFactType *fact = [model elementWithId:part.ref];
+	ORMRole *entry = [model elementWithId:part.roleId];
 	if (![fact isKindOfClass:[ORMFactType class]] || ![entry isKindOfClass:[ORMRole class]] || entry.factType != fact) {
 		return nil;
 	}
 	ORMQueryStep *step = [[ORMQueryStep alloc] init];
-	step.identifier = ORMAttribute(element, @"id");
+	step.identifier = part.identifier;
 	step.factType = fact;
 	step.entryRole = entry;
 	step.parent = parent;
-	NSString *operator = ORMAttribute(element, @"Operator");
-	step.operatorKind = [operator isEqualToString:@"Not"] ? ORMQueryNot
-		: [operator isEqualToString:@"Maybe"] ? ORMQueryMaybe : ORMQueryAnd;
-	step.countComparison = ORMAttribute(element, @"Count");
-	step.aggregateValue = ORMAttribute(element, @"CountValue");
+	step.operatorKind = [part.operatorName isEqualToString:@"Not"] ? ORMQueryNot
+		: [part.operatorName isEqualToString:@"Maybe"] ? ORMQueryMaybe : ORMQueryAnd;
+	step.countComparison = part.countComparison;
+	step.aggregateValue = part.countValueText;
 	step.countValue = (NSUInteger)[step.aggregateValue integerValue];
-	NSUInteger aggregate = [ORMQueryAggregateNames() indexOfObject:ORMAttribute(element, @"Aggregate") ?: @"Count"];
+	NSUInteger aggregate = [ORMQueryAggregateNames() indexOfObject:part.aggregateName ?: @"Count"];
 	step.aggregate = aggregate != NSNotFound ? (ORMQueryAggregate)aggregate : ORMQueryCount;
-	step.aggregateNodeId = ORMAttribute(element, @"AggregateNode");
-	step.groupNodeId = ORMAttribute(element, @"GroupNode");
-	NSString *compared = ORMAttribute(element, @"CompareAggregate");
-	NSUInteger comparedIndex = compared != nil ? [ORMQueryAggregateNames() indexOfObject:compared] : NSNotFound;
+	step.aggregateNodeId = part.aggregateNodeId;
+	step.groupNodeId = part.groupNodeId;
+	NSUInteger comparedIndex = part.compareAggregate != nil
+		? [ORMQueryAggregateNames() indexOfObject:part.compareAggregate] : NSNotFound;
 	step.comparesAggregates = comparedIndex != NSNotFound;
 	step.comparedAggregate = comparedIndex != NSNotFound ? (ORMQueryAggregate)comparedIndex : ORMQueryCount;
-	step.comparedGroupNodeId = ORMAttribute(element, @"CompareGroupNode");
+	step.comparedGroupNodeId = part.compareGroupNode;
 	NSMutableArray *nodes = [NSMutableArray array];
-	for (NSXMLElement *nodeElement in ORMChildren(element, Q, @"Node")) {
-		ORMRole *role = [model elementWithId:ORMAttribute(nodeElement, @"Role")];
+	for (ORMQueryPart *nodePart in [part nodes]) {
+		ORMRole *role = [model elementWithId:nodePart.roleId];
 		if (![role isKindOfClass:[ORMRole class]] || role.factType != fact || role == entry || role.player == nil) {
 			self.isComplete = NO;
 			continue;
 		}
-		ORMQueryNode *node = [self nodeOf:nodeElement type:role.player role:role model:model];
+		ORMQueryNode *node = [self nodeOf:nodePart type:role.player role:role model:model];
 		node.step = step;
 		[nodes addObject:node];
 	}
@@ -1254,27 +1535,38 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	return self;
 }
 
-
-- (NSXMLElement *)queriesContainer
+- (ORMStoredQuery *)query:(NSString *)identifier
 {
-	NSXMLElement *root = [_editor.document rootElement];
-	NSXMLElement *container = ORMChild(root, Q, @"Queries");
-	if (container == nil) {
-		container = ORMNewElement(_editor.document, Q, @"Queries");
-		ORMAddChild(root, container);
+	for (ORMStoredQuery *query in identifier != nil ? _editor.model.storedQueries : @[]) {
+		if ([query.identifier isEqualToString:identifier]) {
+			return query;
+		}
 	}
-	return container;
+	return nil;
 }
 
-/* The query's element of that name and id. */
-- (NSXMLElement *)queryElement:(NSString *)identifier named:(NSString *)local
+/* The node or the step of the id, in whichever query has it. */
+- (ORMQueryPart *)part:(NSString *)identifier step:(BOOL)isStep
 {
-	if (identifier == nil) {
-		return nil;
+	for (ORMStoredQuery *query in identifier != nil ? _editor.model.storedQueries : @[]) {
+		ORMQueryPart *part = [query partWithId:identifier step:isStep];
+		if (part != nil) {
+			return part;
+		}
 	}
-	for (NSXMLElement *element in ORMDescendants(ORMChild([_editor.document rootElement], Q, @"Queries"), Q, local)) {
-		if ([ORMAttribute(element, @"id") isEqualToString:identifier]) {
-			return element;
+	return nil;
+}
+
+/* The query a part is in. */
+- (ORMStoredQuery *)queryOfPart:(ORMQueryPart *)part
+{
+	ORMQueryPart *top = part;
+	while ([top parent] != nil) {
+		top = [top parent];
+	}
+	for (ORMStoredQuery *query in part != nil ? _editor.model.storedQueries : @[]) {
+		if (query.root == top) {
+			return query;
 		}
 	}
 	return nil;
@@ -1289,49 +1581,55 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return nil;
 	}
-	__block NSString *created = nil;
-	[_editor documentChange:@"Add Query" with:^{
-		NSXMLElement *query = ORMNewElementWithId(_editor.document, Q, @"Query", nil);
-		ORMSetAttribute(query, @"Name", [name length] > 0 ? name : [NSString stringWithFormat:@"%@ Query", type.name]);
-		NSXMLElement *root = ORMNewElementWithId(_editor.document, Q, @"Node", nil);
-		ORMSetAttribute(root, @"ref", type.identifier);
-		ORMSetBoolAttribute(root, @"Projected", YES, NO);
-		ORMAddChild(query, root);
-		ORMAddChild([self queriesContainer], query);
-		created = ORMAttribute(query, @"id");
+	ORMStoredQuery *query = [[ORMStoredQuery alloc] initWithModel:_editor.model];
+	query.name = [name length] > 0 ? name : [NSString stringWithFormat:@"%@ Query", type.name];
+	ORMQueryPart *root = [[ORMQueryPart alloc] init];
+	root.identifier = ORMNewId();
+	root.ref = type.identifier;
+	root.projected = @"true";
+	query.root = root;
+	[_editor modelChange:@"Add Query" with:^{
+		[self->_editor.model addElement:query];
+		[self->_editor wrote:query];
 	}];
-	return created;
+	return query.identifier;
+}
+
+/* The fact type a derivation is of. */
+- (ORMFactType *)derivedFactTypeOf:(ORMStoredQuery *)query
+{
+	ORMFactType *derived = [query.kind isEqualToString:@"Derivation"] ? [_editor.model elementWithId:query.of] : nil;
+	return [derived isKindOfClass:[ORMFactType class]] ? derived : nil;
 }
 
 - (void)removeQuery:(NSString *)queryId
 {
-	NSXMLElement *query = [self queryElement:queryId named:@"Query"];
+	ORMStoredQuery *query = [self query:queryId];
 	if (query == nil) {
 		return;
 	}
-	ORMFactType *derived = [ORMAttribute(query, @"Kind") isEqualToString:@"Derivation"]
-		? [_editor.model elementWithId:ORMAttribute(query, @"Of")] : nil;
+	ORMFactType *derived = [self derivedFactTypeOf:query];
 	[_editor modelChange:@"Remove Query" with:^{
-		NSXMLElement *container = (NSXMLElement *)[query parent];
-		ORMDetach(query);
-		ORMPruneIfEmpty(container);
+		[self->_editor.model removeElement:query];
+		[self->_editor deleted:query];
 		/* What it derived is asserted again. */
-		[self->_editor.factTypeEditor removeQueryRuleOf:[derived isKindOfClass:[ORMFactType class]] ? derived : nil];
+		[self->_editor.factTypeEditor removeQueryRuleOf:derived];
 	}];
 }
 
 - (BOOL)renameQuery:(NSString *)queryId to:(NSString *)name reason:(NSString **)reason
 {
-	NSXMLElement *query = [self queryElement:queryId named:@"Query"];
+	ORMStoredQuery *query = [self query:queryId];
 	if (query == nil || [name length] == 0) {
 		if (reason != NULL) {
 			*reason = query == nil ? @"There is no such query." : @"A query needs a name.";
 		}
 		return NO;
 	}
-	if (![ORMAttribute(query, @"Name") isEqualToString:name]) {
-		[_editor documentChange:@"Rename Query" with:^{
-			ORMSetAttribute(query, @"Name", name);
+	if (![query.name isEqualToString:name]) {
+		[_editor modelChange:@"Rename Query" with:^{
+			query.name = name;
+			[self->_editor wrote:query];
 		}];
 	}
 	return YES;
@@ -1339,7 +1637,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 
 - (BOOL)setKind:(ORMQueryKind)kind ofQuery:(NSString *)queryId reason:(NSString **)reason
 {
-	NSXMLElement *query = [self queryElement:queryId named:@"Query"];
+	ORMStoredQuery *query = [self query:queryId];
 	if (query == nil || (NSUInteger)kind >= [ORMQueryKindNames() count]) {
 		if (reason != NULL) {
 			*reason = query == nil ? @"There is no such query." : @"A query lists, is a constraint, or is a calculation.";
@@ -1347,37 +1645,37 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		return NO;
 	}
 	NSString *name = kind == ORMQueryList ? nil : [ORMQueryKindNames() objectAtIndex:(NSUInteger)kind];
-	if ([ORMAttribute(query, @"Kind") ?: @"List" isEqualToString:name ?: @"List"]) {
+	if ([query.kind ?: @"List" isEqualToString:name ?: @"List"]) {
 		return YES;
 	}
 	NSArray *titles = @[ @"Make Query a List", @"Make Query a Constraint", @"Make Query a Calculation",
 		              @"Make Query a Derivation" ];
-	ORMFactType *derived = [ORMAttribute(query, @"Kind") isEqualToString:@"Derivation"]
-		? [_editor.model elementWithId:ORMAttribute(query, @"Of")] : nil;
+	ORMFactType *derived = [self derivedFactTypeOf:query];
 	[_editor modelChange:[titles objectAtIndex:(NSUInteger)kind] with:^{
-		ORMSetAttribute(query, @"Kind", name);
+		query.kind = name;
 		/* What only the kind it was had: a calculation's node and a
 		 * derivation's fact type are both Of. */
 		if (kind != ORMQueryConstraint) {
-			ORMSetAttribute(query, @"Modality", nil);
+			query.modality = nil;
 		}
-		ORMSetAttribute(query, @"Function", nil);
-		ORMSetAttribute(query, @"Of", nil);
+		query.function = nil;
+		query.of = nil;
+		[self->_editor wrote:query];
 		/* No longer a derivation: the fact type is asserted again. */
-		[self->_editor.factTypeEditor removeQueryRuleOf:[derived isKindOfClass:[ORMFactType class]] ? derived : nil];
+		[self->_editor.factTypeEditor removeQueryRuleOf:derived];
 	}];
 	return YES;
 }
 
 - (BOOL)setDerivedFactType:(NSString *)factTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason
 {
-	NSXMLElement *query = [self queryElement:queryId named:@"Query"];
+	ORMStoredQuery *query = [self query:queryId];
 	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
 	ORMQuery *other = [fact isKindOfClass:[ORMFactType class]] ? [ORMQuery derivationOf:fact inModel:_editor.model] : nil;
 	NSString *why = nil;
 	if (query == nil) {
 		why = @"There is no such query.";
-	} else if (![ORMAttribute(query, @"Kind") isEqualToString:@"Derivation"]) {
+	} else if (![query.kind isEqualToString:@"Derivation"]) {
 		why = @"Only a derivation derives a fact type.";
 	} else if (![fact isKindOfClass:[ORMFactType class]] || fact.kind != ORMFactTypeOrdinary) {
 		why = @"A derivation derives a fact type.";
@@ -1396,14 +1694,15 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	if ([ORMAttribute(query, @"Of") isEqualToString:factTypeId]) {
+	if ([query.of isEqualToString:factTypeId]) {
 		return YES;
 	}
-	ORMFactType *was = [_editor.model elementWithId:ORMAttribute(query, @"Of")];
-	NSString *name = ORMAttribute(query, @"Name") ?: @"";
+	ORMFactType *was = [self derivedFactTypeOf:query];
+	NSString *name = query.name ?: @"";
 	[_editor modelChange:@"Set Derived Fact Type" with:^{
-		[self->_editor.factTypeEditor removeQueryRuleOf:[was isKindOfClass:[ORMFactType class]] ? was : nil];
-		ORMSetAttribute(query, @"Of", factTypeId);
+		[self->_editor.factTypeEditor removeQueryRuleOf:was];
+		query.of = factTypeId;
+		[self->_editor wrote:query];
 		[self->_editor.factTypeEditor setQueryRuleOf:fact words:name];
 	}];
 	return YES;
@@ -1411,16 +1710,17 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 
 - (BOOL)setDeontic:(BOOL)deontic ofQuery:(NSString *)queryId reason:(NSString **)reason
 {
-	NSXMLElement *query = [self queryElement:queryId named:@"Query"];
-	if (query == nil || ![ORMAttribute(query, @"Kind") isEqualToString:@"Constraint"]) {
+	ORMStoredQuery *query = [self query:queryId];
+	if (query == nil || ![query.kind isEqualToString:@"Constraint"]) {
 		if (reason != NULL) {
 			*reason = query == nil ? @"There is no such query." : @"Only a constraint is alethic or deontic.";
 		}
 		return NO;
 	}
-	if ([ORMAttribute(query, @"Modality") isEqualToString:@"Deontic"] != deontic) {
-		[_editor documentChange:deontic ? @"Make Constraint Deontic" : @"Make Constraint Alethic" with:^{
-			ORMSetAttribute(query, @"Modality", deontic ? @"Deontic" : nil);
+	if ([query.modality isEqualToString:@"Deontic"] != deontic) {
+		[_editor modelChange:deontic ? @"Make Constraint Deontic" : @"Make Constraint Alethic" with:^{
+			query.modality = deontic ? @"Deontic" : nil;
+			[self->_editor wrote:query];
 		}];
 	}
 	return YES;
@@ -1431,48 +1731,45 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
                inQuery:(NSString *)queryId
                 reason:(NSString **)reason
 {
-	NSXMLElement *query = [self queryElement:queryId named:@"Query"];
-	NSXMLElement *root = ORMChild(query, Q, @"Node");
-	BOOL below = NO;
-	for (NSXMLElement *node in ORMDescendants(root, Q, @"Node")) {
-		below = below || (node != root && [ORMAttribute(node, @"id") isEqualToString:nodeId]);
-	}
-	if (query == nil || ![ORMAttribute(query, @"Kind") isEqualToString:@"Calculation"] || !below
+	ORMStoredQuery *query = [self query:queryId];
+	ORMQueryPart *node = [query partWithId:nodeId step:NO];
+	BOOL below = node != nil && node != query.root;
+	if (query == nil || ![query.kind isEqualToString:@"Calculation"] || !below
 	    || (NSUInteger)function >= [ORMCalculationFunctionNames() count]) {
 		if (reason != NULL) {
 			*reason = query == nil ? @"There is no such query."
-				: (![ORMAttribute(query, @"Kind") isEqualToString:@"Calculation"]
+				: (![query.kind isEqualToString:@"Calculation"]
 				       ? @"Only a calculation computes a value."
 				       : (!below ? @"A calculation is of a node below its object type." : @"There is no such function."));
 		}
 		return NO;
 	}
 	NSString *name = [ORMCalculationFunctionNames() objectAtIndex:(NSUInteger)function];
-	if ([ORMAttribute(query, @"Function") isEqualToString:name] && [ORMAttribute(query, @"Of") isEqualToString:nodeId]) {
+	if ([query.function isEqualToString:name] && [query.of isEqualToString:nodeId]) {
 		return YES;
 	}
-	[_editor documentChange:@"Set Calculation" with:^{
-		ORMSetAttribute(query, @"Function", name);
-		ORMSetAttribute(query, @"Of", nodeId);
+	[_editor modelChange:@"Set Calculation" with:^{
+		query.function = name;
+		query.of = nodeId;
+		[self->_editor wrote:query];
 	}];
 	return YES;
 }
 
 /* The object type of a node: its own, or its role's player. */
-- (ORMObjectType *)typeOfQueryNode:(NSXMLElement *)node
+- (ORMObjectType *)typeOfQueryNode:(ORMQueryPart *)node
 {
-	NSString *roleId = ORMAttribute(node, @"Role");
-	if (roleId != nil) {
-		ORMRole *role = [_editor.model elementWithId:roleId];
+	if (node.roleId != nil) {
+		ORMRole *role = [_editor.model elementWithId:node.roleId];
 		return [role isKindOfClass:[ORMRole class]] ? role.player : nil;
 	}
-	ORMObjectType *type = [_editor.model elementWithId:ORMRef(node)];
+	ORMObjectType *type = [_editor.model elementWithId:node.ref];
 	return [type isKindOfClass:[ORMObjectType class]] ? type : nil;
 }
 
 - (NSString *)addStepTo:(NSString *)nodeId through:(NSString *)roleId reason:(NSString **)reason
 {
-	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
+	ORMQueryPart *node = [self part:nodeId step:NO];
 	ORMObjectType *type = [self typeOfQueryNode:node];
 	ORMRole *entry = [_editor.model elementWithId:roleId];
 	if (node == nil || type == nil || ![entry isKindOfClass:[ORMRole class]]) {
@@ -1487,65 +1784,72 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return nil;
 	}
-	NSArray *others = [entry.factType.roles filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(
-		ORMRole *role, NSDictionary *bindings) {
-		(void)bindings;
-		return role != entry && !role.player.isImplicitBooleanValue;
-	}]];
-	__block NSString *created = nil;
-	[_editor documentChange:@"Add Query Step" with:^{
-		NSXMLElement *step = ORMNewElementWithId(_editor.document, Q, @"Step", nil);
-		ORMSetAttribute(step, @"ref", entry.factType.identifier);
-		ORMSetAttribute(step, @"Role", entry.identifier);
-		for (ORMRole *role in others) {
-			NSXMLElement *child = ORMNewElementWithId(_editor.document, Q, @"Node", nil);
-			ORMSetAttribute(child, @"Role", role.identifier);
-			ORMAddChild(step, child);
+	ORMQueryPart *step = [[ORMQueryPart alloc] init];
+	step.isStep = YES;
+	step.identifier = ORMNewId();
+	step.ref = entry.factType.identifier;
+	step.roleId = entry.identifier;
+	for (ORMRole *role in entry.factType.roles) {
+		if (role != entry && !role.player.isImplicitBooleanValue) {
+			ORMQueryPart *child = [[ORMQueryPart alloc] init];
+			child.identifier = ORMNewId();
+			child.roleId = role.identifier;
+			[step addPart:child];
 		}
-		ORMAddChild(node, step);
-		created = ORMAttribute(step, @"id");
+	}
+	ORMStoredQuery *query = [self queryOfPart:node];
+	[_editor modelChange:@"Add Query Step" with:^{
+		[node addPart:step];
+		[self->_editor wrote:query];
 	}];
-	return created;
+	return step.identifier;
 }
 
 - (void)removeStep:(NSString *)stepId
 {
-	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
+	ORMQueryPart *step = [self part:stepId step:YES];
 	if (step == nil) {
 		return;
 	}
 	/* A calculation of a node the step takes away is of none. */
-	NSXMLElement *query = (NSXMLElement *)[step parent];
-	while (query != nil && ![[query localName] isEqualToString:@"Query"]) {
-		query = (NSXMLElement *)[query parent];
-	}
-	NSString *of = ORMAttribute(query, @"Of");
+	ORMStoredQuery *query = [self queryOfPart:step];
 	BOOL takesOf = NO;
-	for (NSXMLElement *node in of != nil ? ORMDescendants(step, Q, @"Node") : @[]) {
-		takesOf = takesOf || [ORMAttribute(node, @"id") isEqualToString:of];
+	for (ORMQueryPart *node in query.of != nil ? [step tree] : @[]) {
+		takesOf = takesOf || (!node.isStep && [node.identifier isEqualToString:query.of]);
 	}
-	[_editor documentChange:@"Remove Query Step" with:^{
-		ORMDetach(step);
+	[_editor modelChange:@"Remove Query Step" with:^{
+		[step detach];
 		if (takesOf) {
-			ORMSetAttribute(query, @"Of", nil);
+			query.of = nil;
 		}
+		[self->_editor wrote:query];
+	}];
+}
+
+/* A change to a part of a query. */
+- (void)change:(NSString *)name part:(ORMQueryPart *)part with:(void (^)(void))change
+{
+	ORMStoredQuery *query = [self queryOfPart:part];
+	[_editor modelChange:name with:^{
+		change();
+		[self->_editor wrote:query];
 	}];
 }
 
 - (void)setProjected:(BOOL)projected ofNode:(NSString *)nodeId
 {
-	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
-	if (node == nil || ORMBoolAttribute(node, @"Projected", NO) == projected) {
+	ORMQueryPart *node = [self part:nodeId step:NO];
+	if (node == nil || ORMBoolValue(node.projected, NO) == projected) {
 		return;
 	}
-	[_editor documentChange:projected ? @"List in Query" : @"Do Not List in Query" with:^{
-		ORMSetBoolAttribute(node, @"Projected", projected, NO);
+	[self change:projected ? @"List in Query" : @"Do Not List in Query" part:node with:^{
+		node.projected = projected ? @"true" : nil;
 	}];
 }
 
 - (BOOL)setCondition:(NSString *)comparison value:(NSString *)value ofNode:(NSString *)nodeId reason:(NSString **)reason
 {
-	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
+	ORMQueryPart *node = [self part:nodeId step:NO];
 	if (node == nil) {
 		if (reason != NULL) {
 			*reason = @"There is no such node.";
@@ -1559,22 +1863,12 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	[_editor documentChange:@"Set Query Condition" with:^{
-		ORMSetAttribute(node, @"Comparison", comparison);
-		ORMSetAttribute(node, @"Value", comparison != nil ? (value ?: @"") : nil);
-		ORMSetAttribute(node, @"CompareTo", nil);
+	[self change:@"Set Query Condition" part:node with:^{
+		node.comparison = comparison;
+		node.value = comparison != nil ? (value ?: @"") : nil;
+		node.compareTo = nil;
 	}];
 	return YES;
-}
-
-/* The query element a node element is in. */
-- (NSXMLElement *)queryOfNode:(NSXMLElement *)node
-{
-	NSXMLNode *at = node;
-	while (at != nil && !(ORMIs(at, Q, @"Query"))) {
-		at = [at parent];
-	}
-	return (NSXMLElement *)at;
 }
 
 - (BOOL)setCondition:(NSString *)comparison
@@ -1582,9 +1876,9 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
               ofNode:(NSString *)nodeId
               reason:(NSString **)reason
 {
-	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
-	NSXMLElement *other = [self queryElement:otherNodeId named:@"Node"];
-	if (node == nil || other == nil || node == other || [self queryOfNode:node] != [self queryOfNode:other]) {
+	ORMQueryPart *node = [self part:nodeId step:NO];
+	ORMQueryPart *other = [self part:otherNodeId step:NO];
+	if (node == nil || other == nil || node == other || [self queryOfPart:node] != [self queryOfPart:other]) {
 		if (reason != NULL) {
 			*reason = @"A condition compares a node with another of the same query.";
 		}
@@ -1605,46 +1899,46 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	[_editor documentChange:@"Set Query Condition" with:^{
-		ORMSetAttribute(node, @"Comparison", comparison);
-		ORMSetAttribute(node, @"Value", nil);
-		ORMSetAttribute(node, @"CompareTo", otherNodeId);
+	[self change:@"Set Query Condition" part:node with:^{
+		node.comparison = comparison;
+		node.value = nil;
+		node.compareTo = otherNodeId;
 	}];
 	return YES;
 }
 
 - (void)setLabel:(NSString *)label ofNode:(NSString *)nodeId
 {
-	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
+	ORMQueryPart *node = [self part:nodeId step:NO];
 	NSString *value = [label length] > 0 ? label : nil;
-	if (node == nil || [ORMAttribute(node, @"Label") ?: @"" isEqualToString:value ?: @""]) {
+	if (node == nil || [node.label ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[_editor documentChange:@"Set Query Label" with:^{
-		ORMSetAttribute(node, @"Label", value);
+	[self change:@"Set Query Label" part:node with:^{
+		node.label = value;
 	}];
 }
 
 - (void)setCombinesWithOr:(BOOL)flag ofNode:(NSString *)nodeId
 {
-	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
-	if (node == nil || [ORMAttribute(node, @"Combine") isEqualToString:@"Or"] == flag) {
+	ORMQueryPart *node = [self part:nodeId step:NO];
+	if (node == nil || [node.combine isEqualToString:@"Or"] == flag) {
 		return;
 	}
-	[_editor documentChange:@"Set Query Alternatives" with:^{
-		ORMSetAttribute(node, @"Combine", flag ? @"Or" : nil);
+	[self change:@"Set Query Alternatives" part:node with:^{
+		node.combine = flag ? @"Or" : nil;
 	}];
 }
 
 - (void)setOperator:(ORMQueryOperator)operatorKind ofStep:(NSString *)stepId
 {
-	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
+	ORMQueryPart *step = [self part:stepId step:YES];
 	NSString *value = operatorKind == ORMQueryNot ? @"Not" : operatorKind == ORMQueryMaybe ? @"Maybe" : nil;
-	if (step == nil || [ORMAttribute(step, @"Operator") ?: @"" isEqualToString:value ?: @""]) {
+	if (step == nil || [step.operatorName ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[_editor documentChange:@"Set Query Operator" with:^{
-		ORMSetAttribute(step, @"Operator", value);
+	[self change:@"Set Query Operator" part:step with:^{
+		step.operatorName = value;
 	}];
 }
 
@@ -1653,7 +1947,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
           ofStep:(NSString *)stepId
           reason:(NSString **)reason
 {
-	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
+	ORMQueryPart *step = [self part:stepId step:YES];
 	if (step == nil || (comparison != nil && ![ORMQueryComparisons() containsObject:comparison])) {
 		if (reason != NULL) {
 			*reason = step == nil ? @"There is no such step."
@@ -1662,16 +1956,15 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	[_editor documentChange:@"Set Query Count" with:^{
-		ORMSetAttribute(step, @"Count", comparison);
-		ORMSetAttribute(step, @"CountValue",
-		                comparison != nil ? [NSString stringWithFormat:@"%lu", (unsigned long)value] : nil);
-		ORMSetAttribute(step, @"Aggregate", nil);
-		ORMSetAttribute(step, @"AggregateNode", nil);
+	[self change:@"Set Query Count" part:step with:^{
+		step.countComparison = comparison;
+		step.countValueText = comparison != nil ? [NSString stringWithFormat:@"%lu", (unsigned long)value] : nil;
+		step.aggregateName = nil;
+		step.aggregateNodeId = nil;
 		if (comparison == nil) {
-			ORMSetAttribute(step, @"GroupNode", nil);
-			ORMSetAttribute(step, @"CompareAggregate", nil);
-			ORMSetAttribute(step, @"CompareGroupNode", nil);
+			step.groupNodeId = nil;
+			step.compareAggregate = nil;
+			step.compareGroupNode = nil;
 		}
 	}];
 	return YES;
@@ -1684,11 +1977,11 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
               ofStep:(NSString *)stepId
               reason:(NSString **)reason
 {
-	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
-	NSXMLElement *node = nodeId != nil ? [self queryElement:nodeId named:@"Node"] : nil;
+	ORMQueryPart *step = [self part:stepId step:YES];
+	ORMQueryPart *node = nodeId != nil ? [self part:nodeId step:NO] : nil;
 	/* The node is one of the step's or below them. */
 	BOOL below = node == nil;
-	for (NSXMLNode *at = [node parent]; at != nil && !below; at = [at parent]) {
+	for (ORMQueryPart *at = [node parent]; at != nil && !below; at = [at parent]) {
 		below = at == step;
 	}
 	if (step == nil || !below || (comparison != nil && ![ORMQueryComparisons() containsObject:comparison])) {
@@ -1709,21 +2002,21 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	[_editor documentChange:@"Set Query Aggregate" with:^{
-		ORMSetAttribute(step, @"Count", comparison);
-		ORMSetAttribute(step, @"CountValue", comparison != nil ? (value ?: @"") : nil);
-		ORMSetAttribute(step, @"Aggregate", comparison != nil && aggregate != ORMQueryCount
-		                                        ? [ORMQueryAggregateNames() objectAtIndex:(NSUInteger)aggregate] : nil);
-		ORMSetAttribute(step, @"AggregateNode", comparison != nil ? nodeId : nil);
+	[self change:@"Set Query Aggregate" part:step with:^{
+		step.countComparison = comparison;
+		step.countValueText = comparison != nil ? (value ?: @"") : nil;
+		step.aggregateName = comparison != nil && aggregate != ORMQueryCount
+			? [ORMQueryAggregateNames() objectAtIndex:(NSUInteger)aggregate] : nil;
+		step.aggregateNodeId = comparison != nil ? nodeId : nil;
 	}];
 	return YES;
 }
 
-/* Whether the node element is the step's parent or above it. */
+/* Whether the node is the step's parent or above it. */
 static BOOL
-ORMIsAbove(NSXMLElement *node, NSXMLElement *step)
+ORMIsAbove(ORMQueryPart *node, ORMQueryPart *step)
 {
-	for (NSXMLNode *at = [step parent]; at != nil; at = [at parent]) {
+	for (ORMQueryPart *at = [step parent]; at != nil; at = [at parent]) {
 		if (at == node) {
 			return YES;
 		}
@@ -1733,8 +2026,8 @@ ORMIsAbove(NSXMLElement *node, NSXMLElement *step)
 
 - (BOOL)setGroupNode:(NSString *)nodeId ofStep:(NSString *)stepId reason:(NSString **)reason
 {
-	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
-	NSXMLElement *node = nodeId != nil ? [self queryElement:nodeId named:@"Node"] : nil;
+	ORMQueryPart *step = [self part:stepId step:YES];
+	ORMQueryPart *node = nodeId != nil ? [self part:nodeId step:NO] : nil;
 	if (step == nil || (nodeId != nil && (node == nil || !ORMIsAbove(node, step)))) {
 		if (reason != NULL) {
 			*reason = step == nil ? @"There is no such step." : @"An aggregate is for a node above its step.";
@@ -1742,12 +2035,12 @@ ORMIsAbove(NSXMLElement *node, NSXMLElement *step)
 		return NO;
 	}
 	/* The parent is the default: said by nothing. */
-	NSString *value = node != nil && node != (NSXMLElement *)[step parent] ? nodeId : nil;
-	if ([ORMAttribute(step, @"GroupNode") ?: @"" isEqualToString:value ?: @""]) {
+	NSString *value = node != nil && node != [step parent] ? nodeId : nil;
+	if ([step.groupNodeId ?: @"" isEqualToString:value ?: @""]) {
 		return YES;
 	}
-	[_editor documentChange:@"Set Query Aggregate Group" with:^{
-		ORMSetAttribute(step, @"GroupNode", value);
+	[self change:@"Set Query Aggregate Group" part:step with:^{
+		step.groupNodeId = value;
 	}];
 	return YES;
 }
@@ -1757,33 +2050,32 @@ ORMIsAbove(NSXMLElement *node, NSXMLElement *step)
                       ofStep:(NSString *)stepId
                       reason:(NSString **)reason
 {
-	NSXMLElement *step = [self queryElement:stepId named:@"Step"];
-	NSXMLElement *node = nodeId != nil ? [self queryElement:nodeId named:@"Node"] : nil;
-	if (step == nil || ORMAttribute(step, @"Count") == nil || (nodeId != nil && (node == nil || !ORMIsAbove(node, step)))) {
+	ORMQueryPart *step = [self part:stepId step:YES];
+	ORMQueryPart *node = nodeId != nil ? [self part:nodeId step:NO] : nil;
+	if (step == nil || step.countComparison == nil || (nodeId != nil && (node == nil || !ORMIsAbove(node, step)))) {
 		if (reason != NULL) {
 			*reason = step == nil ? @"There is no such step."
-				: ORMAttribute(step, @"Count") == nil ? @"The step has no aggregate to compare."
-				                                      : @"The aggregate compared with is for a node above the step.";
+				: step.countComparison == nil ? @"The step has no aggregate to compare."
+				                    : @"The aggregate compared with is for a node above the step.";
 		}
 		return NO;
 	}
-	[_editor documentChange:@"Set Query Compared Aggregate" with:^{
-		ORMSetAttribute(step, @"CompareAggregate",
-		                nodeId != nil ? [ORMQueryAggregateNames() objectAtIndex:(NSUInteger)aggregate] : nil);
-		ORMSetAttribute(step, @"CompareGroupNode", nodeId);
+	[self change:@"Set Query Compared Aggregate" part:step with:^{
+		step.compareAggregate = nodeId != nil ? [ORMQueryAggregateNames() objectAtIndex:(NSUInteger)aggregate] : nil;
+		step.compareGroupNode = nodeId;
 	}];
 	return YES;
 }
 
 - (void)setSortOrder:(ORMQuerySort)order ofNode:(NSString *)nodeId
 {
-	NSXMLElement *node = [self queryElement:nodeId named:@"Node"];
+	ORMQueryPart *node = [self part:nodeId step:NO];
 	NSString *value = order == ORMQueryAscending ? @"Ascending" : order == ORMQueryDescending ? @"Descending" : nil;
-	if (node == nil || [ORMAttribute(node, @"Sort") ?: @"" isEqualToString:value ?: @""]) {
+	if (node == nil || [node.sort ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[_editor documentChange:@"Set Query Sort" with:^{
-		ORMSetAttribute(node, @"Sort", value);
+	[self change:@"Set Query Sort" part:node with:^{
+		node.sort = value;
 	}];
 }
 

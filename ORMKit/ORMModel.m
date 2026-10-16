@@ -1117,6 +1117,8 @@ ORMWithout(NSArray *array, id object)
 		_notes = [_notes arrayByAddingObject:(id)element];
 	} else if ([element isKindOfClass:[ORMCoreDataMapping class]]) {
 		self.coreDataMappings = [self.coreDataMappings ?: @[] arrayByAddingObject:element];
+	} else if ([element isKindOfClass:[ORMStoredQuery class]]) {
+		self.storedQueries = [self.storedQueries ?: @[] arrayByAddingObject:element];
 	}
 }
 
@@ -1157,6 +1159,7 @@ ORMWithout(NSArray *array, id object)
 	_constraints = ORMWithout(_constraints, element);
 	_notes = ORMWithout(_notes, element);
 	self.coreDataMappings = ORMWithout(self.coreDataMappings, element);
+	self.storedQueries = ORMWithout(self.storedQueries, element);
 }
 
 - (void)registerElement:(ORMElement *)element
@@ -1285,6 +1288,7 @@ ORMWithout(NSArray *array, id object)
 	self.extras = [NSMutableDictionary dictionary];
 	[self readPathsAndPopulations];
 	[self readCoreDataMappings];
+	[self readQueries];
 }
 
 - (void)readDataTypes
@@ -2059,7 +2063,7 @@ ORMModelDisagreement(ORMModel *model, ORMModel *other)
 	[model diagrams];
 	[other diagrams];
 	NSDictionary *mine = [model valueForKey:@"elementsById"], *theirs = [other valueForKey:@"elementsById"];
-	for (NSString *key in @[ @"identifier", @"name", @"referenceModeFormats", @"customReferenceModes", @"derivationRules", @"coreDataMappings", @"objectTypes", @"factTypes", @"constraints", @"dataTypes",
+	for (NSString *key in @[ @"identifier", @"name", @"referenceModeFormats", @"customReferenceModes", @"derivationRules", @"coreDataMappings", @"storedQueries", @"objectTypes", @"factTypes", @"constraints", @"dataTypes",
 	                         @"notes", @"diagrams" ]) {
 		if (!ORMSameValue([model valueForKey:key], [other valueForKey:key])) {
 			return [NSString stringWithFormat:@"the model's %@ differ", key];

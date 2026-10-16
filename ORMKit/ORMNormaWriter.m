@@ -257,6 +257,9 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			[self writeElement:shape];
 		}
 	}
+	for (ORMStoredQuery *query in self.model.storedQueries) {
+		[self writeElement:query];
+	}
 	for (ORMCoreDataMapping *mapping in self.model.coreDataMappings) {
 		[self writeElement:mapping];
 	}
@@ -530,6 +533,10 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	}
 	if ([element isKindOfClass:[ORMCoreDataMapping class]]) {
 		[self writeCoreDataMapping:(ORMCoreDataMapping *)element];
+		return;
+	}
+	if ([element isKindOfClass:[ORMStoredQuery class]]) {
+		[self writeStoredQuery:(ORMStoredQuery *)element];
 		return;
 	}
 	if (element.element == nil) {
