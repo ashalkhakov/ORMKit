@@ -351,7 +351,7 @@ ORMReservedNames(void)
 			return YES;
 		}
 		ORMRole *other = [role oppositeRole];
-		if ([roles count] == 2 && role.isUnique && other.player.kind == ORMValueType && fact != other.player.referenceModeFactType) {
+		if ([roles count] == 2 && role.isAlethicUnique && other.player.kind == ORMValueType && fact != other.player.referenceModeFactType) {
 			return YES;
 		}
 	}
@@ -379,7 +379,7 @@ ORMReservedNames(void)
 		if (fact == type.referenceModeFactType || fact.kind == ORMFactTypeImplied || role.proxiedRole != nil) {
 			continue;
 		}
-		if (role.isUnique || [[fact visibleRoles] count] == 1) {
+		if (role.isAlethicUnique || [[fact visibleRoles] count] == 1) {
 			return NO;
 		}
 	}
@@ -441,13 +441,13 @@ ORMReservedNames(void)
 			continue;
 		}
 		NSArray *roles = [fact visibleRoles];
-		if (fact.kind != ORMFactTypeOrdinary || [roles count] == 1 || role.isUnique) {
+		if (fact.kind != ORMFactTypeOrdinary || [roles count] == 1 || role.isAlethicUnique) {
 			return NO;
 		}
 		/* The value of one instance at a time: the referring role is
 		 * functional (or the fact type is an entity of its own, of which
 		 * it is a column). */
-		if ([roles count] == 2 && fact.objectifyingType == nil && ![[role oppositeRole] isUnique]) {
+		if ([roles count] == 2 && fact.objectifyingType == nil && ![[role oppositeRole] isAlethicUnique]) {
 			return NO;
 		}
 		uses++;
@@ -475,7 +475,7 @@ ORMReservedNames(void)
 	}
 	ORMRole *unique = nil;
 	for (ORMRole *role in roles) {
-		if (role.isUnique) {
+		if (role.isAlethicUnique) {
 			if (unique != nil) {
 				return nil;
 			}
@@ -517,8 +517,8 @@ ORMReservedNames(void)
 			continue;
 		}
 		ORMRole *other = [role oppositeRole];
-		if (fact.kind != ORMFactTypeOrdinary || [fact arity] != 2 || other == nil || !other.isUnique
-		    || role.isUnique || fact.objectifyingType != nil) {
+		if (fact.kind != ORMFactTypeOrdinary || [fact arity] != 2 || other == nil || !other.isAlethicUnique
+		    || role.isAlethicUnique || fact.objectifyingType != nil) {
 			return ORMMapAsEntity;
 		}
 		uses++;
@@ -677,7 +677,8 @@ ORMReservedNames(void)
 	 * fact says each instance is one of them. */
 	if (!self.mapping.flattensSubtypes) {
 		for (ORMConstraint *constraint in self.model.constraints) {
-			if (constraint.kind != ORMMandatoryConstraint || constraint.isSimple || constraint.isImplied) {
+			if (constraint.kind != ORMMandatoryConstraint || constraint.isSimple || constraint.isImplied
+			    || constraint.modality != ORMAlethic) {
 				continue;
 			}
 			NSArray *roles = [constraint allRoles];
@@ -743,7 +744,7 @@ ORMReservedNames(void)
 	NSArray *roles = [constraint allRoles];
 	for (ORMRole *role in roles) {
 		ORMRole *own = [role oppositeRole];
-		if (own.player != type || !own.isUnique || [self resolved:role.player] != ORMResolvedValue) {
+		if (own.player != type || !own.isAlethicUnique || [self resolved:role.player] != ORMResolvedValue) {
 			return nil;
 		}
 	}
@@ -851,7 +852,7 @@ ORMReservedNames(void)
 			for (NSString *held in outer ? member.heldRoleIds : @[]) {
 				ORMRole *far = [self.model elementWithId:held];
 				ORMRole *near = [far isKindOfClass:[ORMRole class]] ? [far oppositeRole] : nil;
-				if (near.player == type && near.isMandatory && outer) {
+				if (near.player == type && near.isAlethicMandatory && outer) {
 					outer = NO;
 					[self note:ORMMappingWarning
 					      text:[NSString stringWithFormat:@"%@ has a row for each %@: it holds a mandatory role of it, "
@@ -1092,7 +1093,7 @@ ORMRegexEscape(NSString *value)
 		                                    [ORMCoreDataMapper propertyNameFor:type.referenceModeValueType.name] ]
 		                          source:valueRole.identifier on:entity];
 		ORMCDAttribute *attribute = [self attributeFor:type.referenceModeValueType name:name source:valueRole.identifier
-		                                      optional:!ownRole.isMandatory roleConstraint:valueRole.valueConstraint];
+		                                      optional:!ownRole.isAlethicMandatory roleConstraint:valueRole.valueConstraint];
 		[entity.attributes addObject:attribute];
 		[entity.uniquenessConstraints addObject:@[ name ]];
 	}
@@ -1130,11 +1131,11 @@ ORMRegexEscape(NSString *value)
  * always plays the role it is one to one with. */
 - (BOOL)mandatoryHere:(ORMRole *)role
 {
-	if (!role.isMandatory) {
+	if (!role.isAlethicMandatory) {
 		return NO;
 	}
 	ORMRole *fold = [_folds objectForKey:role.player.identifier ?: @""];
-	return fold == nil || fold.isMandatory;
+	return fold == nil || fold.isAlethicMandatory;
 }
 
 static NSString *
@@ -1282,7 +1283,7 @@ ORMCapitalized(NSString *name)
 static NSString *
 ORMDeletionRule(ORMRole *far)
 {
-	return far.isMandatory && far.isUnique ? @"Cascade" : @"Nullify";
+	return far.isAlethicMandatory && far.isAlethicUnique ? @"Cascade" : @"Nullify";
 }
 
 - (void)mapBinary:(ORMFactType *)fact
@@ -1309,7 +1310,7 @@ ORMDeletionRule(ORMRole *far)
 			?: [ORMCoreDataMapper propertyNameFor:far.player.name ?: @"value"];
 		NSArray *names = [self absorb:far.player into:entity prefix:prefix source:far.identifier
 		                     optional:![self mandatoryHere:near]];
-		if (far.isUnique && [names count] > 0) {
+		if (far.isAlethicUnique && [names count] > 0) {
 			[entity.uniquenessConstraints addObject:names];
 		}
 		return;
@@ -1332,9 +1333,9 @@ ORMDeletionRule(ORMRole *far)
 {
 	ORMCDEntity *from = [self entityOf:first.player forSource:second.identifier];
 	ORMCDEntity *to = [self entityOf:second.player forSource:first.identifier];
-	BOOL forwardMany = !first.isUnique;
-	BOOL backwardMany = !second.isUnique;
-	if (!first.isUnique && !second.isUnique && ![first.factType hasUniquenessOverRoles:@[ first, second ]]) {
+	BOOL forwardMany = !first.isAlethicUnique;
+	BOOL backwardMany = !second.isAlethicUnique;
+	if (!first.isAlethicUnique && !second.isAlethicUnique && ![first.factType hasUniquenessOverRoles:@[ first, second ]]) {
 		[self note:ORMMappingWarning
 		      text:[NSString stringWithFormat:@"%@ has no uniqueness constraint; it is mapped as many to many.",
 		                                      [[first.factType primaryReading] expandedText]]
@@ -1361,16 +1362,16 @@ ORMDeletionRule(ORMRole *far)
 	ORMCDEntity *entity = [self entityOf:near.player forSource:far.identifier];
 	ORMObjectType *valueType = [far.player valueType];
 	ORMFactType *fact = near.factType;
-	if (near.isUnique) {
+	if (near.isAlethicUnique) {
 		NSString *name = [self claimName:[self candidatesFor:far near:near toMany:NO] source:far.identifier on:entity];
 		ORMCDAttribute *attribute = [self attributeFor:valueType name:name source:far.identifier
 		                                      optional:![self mandatoryHere:near] roleConstraint:far.valueConstraint];
 		[entity.attributes addObject:attribute];
-		if (far.isUnique && ![self mandatoryHere:near]) {
+		if (far.isAlethicUnique && ![self mandatoryHere:near]) {
 			/* One to one with an optional value: unique where present,
 			 * which a uniqueness constraint checks when it is set. */
 			[entity.uniquenessConstraints addObject:@[ name ]];
-		} else if (far.isUnique) {
+		} else if (far.isAlethicUnique) {
 			[entity.uniquenessConstraints addObject:@[ name ]];
 		}
 		return;
@@ -1394,7 +1395,7 @@ ORMDeletionRule(ORMRole *far)
 	ORMCDEntity *values = [self valueEntityFor:far.player];
 	NSString *forwardName = [self claimName:[self candidatesFor:far near:near toMany:YES] source:far.identifier
 	                                     on:entity];
-	BOOL backwardMany = !far.isUnique;
+	BOOL backwardMany = !far.isAlethicUnique;
 	NSString *backwardName = [self claimName:[self candidatesFor:near near:far toMany:backwardMany]
 	                                  source:near.identifier on:values];
 	ORMCDRelationship *forward = [self relationshipNamed:forwardName source:far.identifier to:values toMany:YES
@@ -1476,7 +1477,7 @@ ORMDeletionRule(ORMRole *far)
 			forward.optional = NO;
 			/* Unique by itself, the role is one to one: Core Data's inverse
 			 * says so. */
-			BOOL toMany = !role.isUnique;
+			BOOL toMany = !role.isAlethicUnique;
 			NSString *backwardStem = [ORMCoreDataMapper propertyNameFor:entity.name];
 			NSString *backwardName = [self claimName:@[ toMany ? [ORMCoreDataMapper pluralOf:backwardStem] : backwardStem ]
 			                                  source:[fact.identifier stringByAppendingFormat:@".%@", role.identifier]
@@ -1685,6 +1686,12 @@ ORMDeletionRule(ORMRole *far)
 		if (constraint.isImplied || ![self isConstraintInScope:constraint]) {
 			continue;
 		}
+		/* A deontic rule is for the app to check, never the store: a
+		 * mandatory role stays optional, a unique one to-many. */
+		if (constraint.modality == ORMDeontic) {
+			[self unenforced:constraint];
+			continue;
+		}
 		BOOL subtyping = NO;
 		for (ORMRole *role in [constraint allRoles]) {
 			subtyping = subtyping || role.isSupertypeMetaRole || role.isSubtypeMetaRole;
@@ -1716,13 +1723,6 @@ ORMDeletionRule(ORMRole *far)
 		case ORMValueComparisonConstraint:
 			[self unenforced:constraint];
 			break;
-		}
-		if (constraint.modality == ORMDeontic && constraint.kind != ORMExclusionConstraint
-		    && constraint.kind != ORMRingConstraint) {
-			[self note:ORMMappingWarning
-			      text:[NSString stringWithFormat:@"%@ is deontic, a rule to be told of rather than enforced; Core "
-			                                      @"Data enforces it.", constraint.name]
-			   element:constraint.identifier];
 		}
 	}
 }

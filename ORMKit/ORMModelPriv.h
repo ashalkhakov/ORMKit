@@ -55,6 +55,8 @@
 @property (nonatomic, readwrite) NSUInteger index;
 @property (nonatomic, readwrite) BOOL isMandatory;
 @property (nonatomic, readwrite) BOOL isUnique;
+@property (nonatomic, readwrite) BOOL isAlethicMandatory;
+@property (nonatomic, readwrite) BOOL isAlethicUnique;
 @property (nonatomic, readwrite, strong) ORMValueConstraint *valueConstraint;
 @property (nonatomic, readwrite) BOOL isSubtypeMetaRole;
 @property (nonatomic, readwrite) BOOL isSupertypeMetaRole;

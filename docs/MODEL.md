@@ -97,10 +97,9 @@ Each step keeps every test passing.
    - every element: `definitionText`, `noteText`;
    - the model: `objectTypeNamed:` from a table.
 
-   Open: `isMandatory` and `isUnique` count deontic constraints, as NORMA's
-   `_IsMandatory` does, and the Core Data mapper maps by them, so a deontic
-   mandatory role is a required attribute. Alethic-only flags for the
-   mapper would change how such models map: a decision to make.
+   `isMandatory` and `isUnique` count deontic constraints, as NORMA's
+   `_IsMandatory` does; the Core Data mapper maps by `isAlethicMandatory`
+   and `isAlethicUnique`, a deontic rule being the app's to check.
 1. **The writer, and the full-rewrite check** (done). `ORMNormaWriter`
    writes each kind of element from the model: object types, fact types,
    roles, readings, constraints, value ranges, notes, diagrams and shapes.

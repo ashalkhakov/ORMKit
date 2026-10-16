@@ -1344,10 +1344,12 @@ ORMUnitReferenceModes(void)
 			[[self list:byRole for:role.identifier] addObject:constraint];
 			if (constraint.kind == ORMMandatoryConstraint && constraint.isSimple && [[constraint allRoles] count] == 1) {
 				role.isMandatory = YES;
+				role.isAlethicMandatory |= constraint.modality == ORMAlethic;
 			}
 			if (constraint.kind == ORMUniquenessConstraint && constraint.isInternal
 			    && [[constraint allRoles] count] == 1) {
 				role.isUnique = YES;
+				role.isAlethicUnique |= constraint.modality == ORMAlethic;
 			}
 		}
 	}

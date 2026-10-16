@@ -222,6 +222,10 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 @property (nonatomic, readonly) BOOL isMandatory;
 /* An internal uniqueness constraint covers exactly this role. */
 @property (nonatomic, readonly) BOOL isUnique;
+/* The same, of alethic constraints only: what must hold of every state, as
+ * stored data does. A deontic one is a rule for the app to check. */
+@property (nonatomic, readonly) BOOL isAlethicMandatory;
+@property (nonatomic, readonly) BOOL isAlethicUnique;
 @property (nonatomic, readonly, strong) ORMValueConstraint *valueConstraint;
 /* For a subtype fact's roles. */
 @property (nonatomic, readonly) BOOL isSubtypeMetaRole;
