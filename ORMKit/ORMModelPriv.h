@@ -25,6 +25,7 @@
 @property (nonatomic, readwrite) ORMReferenceModeKind referenceModeKind;
 @property (nonatomic, readwrite, weak) ORMObjectType *referenceModeValueType;
 @property (nonatomic, readwrite, weak) ORMFactType *referenceModeFactType;
+@property (nonatomic, readwrite, weak) ORMRole *referenceModeRole;
 @property (nonatomic, readwrite, weak) ORMDataType *dataType;
 @property (nonatomic, readwrite) NSInteger dataTypeLength;
 @property (nonatomic, readwrite) NSInteger dataTypeScale;

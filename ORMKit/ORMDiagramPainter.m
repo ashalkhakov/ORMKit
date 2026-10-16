@@ -897,7 +897,7 @@ ORMDrawSubtypeLinks(ORMPainting *p, ORMDiagram *diagram)
 			continue;
 		}
 		for (ORMFactType *fact in sub.supertypeFacts) {
-			ORMObjectType *sup = [[fact.roles lastObject] player];
+			ORMObjectType *sup = [fact supertype];
 			ORMShape *target = ORMShapeOfObjectType(diagram, sup, [shape center]);
 			if (target == nil) {
 				continue;

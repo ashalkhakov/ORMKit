@@ -606,7 +606,7 @@ ORMReservedNames(void)
 {
 	ORMObjectType *chosen = nil;
 	for (ORMFactType *fact in type.supertypeFacts) {
-		ORMObjectType *supertype = [[fact.roles lastObject] player];
+		ORMObjectType *supertype = [fact supertype];
 		if ([self resolved:supertype] != ORMResolvedEntity) {
 			continue;
 		}
@@ -1090,15 +1090,8 @@ ORMRegexEscape(NSString *value)
 			continue;
 		}
 		ORMFactType *fact = type.referenceModeFactType;
-		ORMRole *valueRole = nil;
-		ORMRole *ownRole = nil;
-		for (ORMRole *role in fact.roles) {
-			if (role.player == type) {
-				ownRole = role;
-			} else {
-				valueRole = role;
-			}
-		}
+		ORMRole *valueRole = type.referenceModeRole;
+		ORMRole *ownRole = [valueRole oppositeRole];
 		NSString *base = type.referenceModeKind == ORMReferenceModePopular
 			? [ORMCoreDataMapper propertyNameFor:type.referenceMode]
 			: [ORMCoreDataMapper propertyNameFor:type.referenceModeValueType.name];

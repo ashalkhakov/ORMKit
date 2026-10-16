@@ -77,6 +77,9 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 @property (nonatomic, readonly, weak) ORMObjectType *referenceModeValueType;
 /* The binary fact type the reference mode abbreviates. */
 @property (nonatomic, readonly, weak) ORMFactType *referenceModeFactType;
+/* The role the value type plays in it: what its preferred identifier
+ * spans. */
+@property (nonatomic, readonly, weak) ORMRole *referenceModeRole;
 
 /* For a value type: its conceptual data type, and that type's length and
  * scale where they apply (0: none given). */
@@ -155,6 +158,10 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 /* The roles a reader sees: without a unary's implicit boolean role. */
 - (NSArray<ORMRole *> *)visibleRoles;
 - (BOOL)isUnary;
+/* A subtype fact's subtype and supertype (its first and second roles'
+ * players); nil for any other fact type. */
+- (ORMObjectType *)subtype;
+- (ORMObjectType *)supertype;
 /* The first reading of the first reading order: what NORMA shows. */
 - (ORMReading *)primaryReading;
 /* "Person was born in Country": its primary reading with the players'

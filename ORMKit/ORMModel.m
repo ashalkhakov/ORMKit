@@ -114,7 +114,7 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 {
 	ORMObjectType *chosen = nil;
 	for (ORMFactType *fact in self.supertypeFacts) {
-		ORMObjectType *supertype = [[fact.roles lastObject] player];
+		ORMObjectType *supertype = [fact supertype];
 		if (supertype != nil && (chosen == nil || fact.providesPreferredIdentifier)) {
 			chosen = supertype;
 		}
@@ -174,6 +174,16 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 @implementation ORMFactType
 {
 	NSString *_displayText;
+}
+
+- (ORMObjectType *)subtype
+{
+	return self.kind == ORMFactTypeSubtype && [self.roles count] == 2 ? [[self.roles firstObject] player] : nil;
+}
+
+- (ORMObjectType *)supertype
+{
+	return self.kind == ORMFactTypeSubtype && [self.roles count] == 2 ? [[self.roles lastObject] player] : nil;
 }
 
 - (NSString *)displayText
@@ -300,8 +310,8 @@ ORMCapitalizedWords(NSString *text)
 		return self.objectifyingType.name;
 	}
 	if (self.kind == ORMFactTypeSubtype) {
-		ORMObjectType *sub = [[self.roles firstObject] player];
-		ORMObjectType *sup = [[self.roles lastObject] player];
+		ORMObjectType *sub = [self subtype];
+		ORMObjectType *sup = [self supertype];
 		/* Older NORMA wrote "GirlIsASubtypeOfPerson". */
 		NSString *older = [NSString stringWithFormat:@"%@IsASubtypeOf%@", sub.name ?: @"", sup.name ?: @""];
 		if ([ORMAttribute(self.element, @"_Name") isEqualToString:older]) {
@@ -1253,7 +1263,7 @@ ORMUnitReferenceModes(void)
 	}
 	for (ORMFactType *fact in self.factTypes) {
 		if (fact.kind == ORMFactTypeSubtype && !fact.providesPreferredIdentifier) {
-			ORMObjectType *sub = [[fact.roles firstObject] player];
+			ORMObjectType *sub = [fact subtype];
 			/* NORMA leaves the attribute out where it is true by default:
 			 * a subtype with no identifier of its own is identified
 			 * through its (first) supertype. */
@@ -1402,6 +1412,7 @@ ORMReferenceModeIn(NSString *valueName, NSString *format, NSString *entityName)
 		type.referenceModeKind = kind;
 		type.referenceModeValueType = value;
 		type.referenceModeFactType = role.factType;
+		type.referenceModeRole = role;
 		if (type.valueConstraint == nil) {
 			type.valueConstraint = value.valueConstraint;
 		}

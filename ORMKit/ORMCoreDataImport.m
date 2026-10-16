@@ -495,13 +495,11 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 			           reason:NULL];
 			/* The model is rebuilt: what it held is gone. */
 			entityType = [_editor.model elementWithId:type];
-			value = entityType.referenceModeValueType;
-			for (ORMRole *role in entityType.referenceModeFactType.roles) {
-				if (role.player == value) {
-					[self.mappingEditor setName:identifier.name forSource:role.identifier inMapping:state.mapping];
-					[state.roles setObject:role.identifier forKey:[NSString stringWithFormat:@"%@.%@", entity.name,
-					                                                                       identifier.name]];
-				}
+			ORMRole *role = entityType.referenceModeRole;
+			if (role != nil) {
+				[self.mappingEditor setName:identifier.name forSource:role.identifier inMapping:state.mapping];
+				[state.roles setObject:role.identifier forKey:[NSString stringWithFormat:@"%@.%@", entity.name,
+				                                                                       identifier.name]];
 			}
 			[identifiers setObject:identifier.name forKey:entity.name];
 		}

@@ -660,8 +660,8 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	}
 	self.source = fact.identifier;
 	if (fact.kind == ORMFactTypeSubtype) {
-		ORMObjectType *sub = [[fact.roles firstObject] player];
-		ORMObjectType *sup = [[fact.roles lastObject] player];
+		ORMObjectType *sub = [fact subtype];
+		ORMObjectType *sup = [fact supertype];
 		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"Each "];
 		[b objectType:sub.name id:sub.identifier];
