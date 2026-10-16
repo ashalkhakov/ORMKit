@@ -123,16 +123,28 @@ Each step keeps every test passing.
    populations, Core Data mappings, queries. Each operation changes the
    model and records its undo. Saving writes through the writer.
 
-   Begun. The model now tells what is read from what is derived from it:
-   `-[ORMModel derive]` works out played roles, subtyping, internal
-   constraints, roles' flags and reference modes from the elements alone.
-   An operation moved over runs in `-[ORMEditor modelChange:with:]`: it
-   changes elements and says which (`-wrote:`), the model is derived and
-   those elements written; the model is not read again, so the agreement
-   check tests the operation. Moved: an object type's flags, data type
-   and kind. Next: value constraints, then what makes elements (object
-   types, reference modes, subtypes), which needs the writer to make
-   fact types, roles, readings and constraints.
+   NORMA's model is done. The model tells what is read from what is
+   derived (`-[ORMModel derive]`: played roles, subtyping, internal
+   constraints, roles' flags, reference modes, fact type names, preferred
+   identifiers' owners). An operation runs in `-[ORMEditor
+   modelChange:with:]`: it changes elements and says which (`-wrote:`,
+   `-deleted:`); the model keeps NORMA's implied mandatories, unaries'
+   implicit names and shapes of what is gone as the normalizer does, is
+   derived, and the elements are written. Groups edit the XML only where
+   a step does. Moved: object types, fact types and readings,
+   objectification, constraints, names, definitions and notes, deletion,
+   diagrams and shapes. A document built by all of them is the same
+   bytes as the XML editors wrote; the agreement check runs on each.
+
+   Core Data mappings are edited in the document still, but the model
+   does not read them, so they leave it as it is
+   (`-documentChange:with:`). Still edited in the XML, and read again
+   after: sample populations, queries, derivation rules and join paths,
+   all ORMKit's own data or ORMPath's, which need model classes first
+   (role instances, for populations; a query model, for queries).
+
+   The Core Data import round trip takes 6.6 s on macOS, from 16.3: it
+   reads the model once.
 
    Undo still restores the document as it was, and the model is read
    again: the normalizer still edits the XML after each operation. Undo
