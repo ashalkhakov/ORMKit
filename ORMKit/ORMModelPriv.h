@@ -230,6 +230,16 @@ NSString *ORMModelDisagreement(ORMModel *model, ORMModel *other);
  * the array itself where it is not there. */
 NSArray *ORMWithout(NSArray *array, id object);
 
+/* What NORMA keeps beside the model, as it writes it (ORMNormalizer.m):
+ * a list of <prefix:local ref/> children made to name exactly the
+ * targets, [local name, id] pairs, those listed keeping their place; a
+ * multiplicity's name; an element as a comparable value; a reading's
+ * <orm:ExpandedData>. */
+void ORMSyncRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<NSArray *> *targets);
+NSString *ORMMultiplicityName(ORMMultiplicity multiplicity);
+NSArray *ORMShapeOf(NSXMLElement *element);
+NSXMLElement *ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity);
+
 /* NORMA's range inclusion of the name: Open, Closed, else NotSet. */
 ORMRangeInclusion ORMInclusionNamed(NSString *name);
 

@@ -500,9 +500,12 @@ ORMIdentifiedBy(ORMConstraint *constraint)
 	if (identified.preferredIdentifier == constraint) {
 		return YES;
 	}
+	ORMConstraint *was = identified.preferredIdentifier;
 	[_editor modelChange:@"Set Preferred Identifier" with:^{
 		identified.preferredIdentifier = constraint;
 		[_editor wrote:identified];
+		/* No longer the identifier, it names nothing. */
+		[_editor wrote:was];
 	}];
 	return YES;
 }

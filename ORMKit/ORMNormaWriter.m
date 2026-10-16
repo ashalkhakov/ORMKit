@@ -294,6 +294,106 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	}
 }
 
+#pragma mark What NORMA keeps beside the model
+
+- (void)writeNormaDataOf:(ORMElement *)element
+{
+	if (element.element == nil) {
+		return;
+	}
+	if ([element isKindOfClass:[ORMObjectType class]]) {
+		ORMObjectType *type = (ORMObjectType *)element;
+		NSMutableArray *played = [NSMutableArray array];
+		for (ORMRole *role in type.playedRoles) {
+			/* A link fact type's proxy is played through the role it
+			 * stands for, and NORMA does not list it. */
+			if (role.proxiedRole != nil) {
+				continue;
+			}
+			/* Older NORMA refers to a subtype fact's roles by their own
+			 * element names, SubtypeMetaRole and SupertypeMetaRole. */
+			NSString *local = [role.element localName];
+			BOOL meta = [local isEqualToString:@"SubtypeMetaRole"] || [local isEqualToString:@"SupertypeMetaRole"];
+			[played addObject:@[ meta ? local : @"Role", role.identifier ]];
+		}
+		NSXMLElement *container = ORMChild(type.element, CORE, @"PlayedRoles");
+		if ([played count] > 0 || container != nil) {
+			container = container ?: ORMEnsureChild(_document, type.element, CORE, @"PlayedRoles");
+			ORMSyncRefs(_document, container, played);
+			ORMPruneIfEmpty(container);
+		}
+		if (type.kind == ORMEntityType
+		    && ![ORMAttribute(type.element, @"_ReferenceMode") ?: @"" isEqualToString:type.referenceMode ?: @""]) {
+			ORMSetAttribute(type.element, @"_ReferenceMode", type.referenceMode ?: @"");
+		}
+	} else if ([element isKindOfClass:[ORMFactType class]]) {
+		ORMFactType *fact = (ORMFactType *)element;
+		NSXMLElement *factElement = fact.element;
+		if (ORMAttribute(factElement, @"_Name") != nil || fact.kind == ORMFactTypeOrdinary) {
+			NSString *name = [fact derivedName];
+			if (![ORMAttribute(factElement, @"_Name") isEqualToString:name]) {
+				ORMSetAttribute(factElement, @"_Name", name);
+			}
+		}
+		for (ORMRole *role in fact.roles) {
+			NSString *local = [role.element localName];
+			if ([local isEqualToString:@"Role"] || [local isEqualToString:@"SubtypeMetaRole"]
+			    || [local isEqualToString:@"SupertypeMetaRole"]) {
+				NSString *mandatory = role.isMandatory ? @"true" : @"false";
+				NSString *multiplicity = ORMMultiplicityName([role multiplicity]);
+				if (![ORMAttribute(role.element, @"_IsMandatory") isEqualToString:mandatory]) {
+					ORMSetAttribute(role.element, @"_IsMandatory", mandatory);
+				}
+				if (![ORMAttribute(role.element, @"_Multiplicity") isEqualToString:multiplicity]) {
+					ORMSetAttribute(role.element, @"_Multiplicity", multiplicity);
+				}
+			}
+		}
+		NSMutableArray *internal = [NSMutableArray array];
+		for (ORMConstraint *constraint in fact.internalConstraints) {
+			[internal addObject:@[ [constraint.element localName] ?: ORMConstraintElementName(constraint.kind),
+			                       constraint.identifier ]];
+		}
+		NSXMLElement *container = ORMChild(factElement, CORE, @"InternalConstraints");
+		if ([internal count] > 0 || container != nil) {
+			container = container ?: ORMEnsureChild(_document, factElement, CORE, @"InternalConstraints");
+			ORMSyncRefs(_document, container, internal);
+			ORMPruneIfEmpty(container);
+		}
+		for (ORMReadingOrder *order in self.writesExpandedData ? fact.readingOrders : @[]) {
+			for (ORMReading *reading in order.readings) {
+				NSXMLElement *expanded = ORMExpandedData(_document, reading.text, [order.roles count]);
+				NSXMLElement *existing = ORMChild(reading.element, CORE, @"ExpandedData");
+				if (expanded == nil) {
+					[existing detach];
+				} else if (existing == nil) {
+					NSUInteger index = [ORMChild(reading.element, CORE, @"Data") index] + 1;
+					[reading.element insertChild:expanded atIndex:MIN(index, [reading.element childCount])];
+				} else if (![ORMShapeOf(existing) isEqual:ORMShapeOf(expanded)]) {
+					/* Beside the old one, which goes: gnustep-base's
+					 * -replaceChildAtIndex:withNode: frees what libxml2 keeps
+					 * in a parsed document's dictionary. */
+					[reading.element insertChild:expanded atIndex:[existing index]];
+					[existing detach];
+				}
+			}
+		}
+	} else if ([element isKindOfClass:[ORMConstraint class]]) {
+		ORMConstraint *constraint = (ORMConstraint *)element;
+		if (constraint.kind == ORMUniquenessConstraint) {
+			NSString *target = constraint.preferredIdentifierFor.identifier;
+			NSXMLElement *existing = ORMChild(constraint.element, CORE, @"PreferredIdentifierFor");
+			if (target == nil) {
+				[existing detach];
+			} else if (existing == nil) {
+				[constraint.element addChild:ORMNewRef(_document, CORE, @"PreferredIdentifierFor", target)];
+			} else if (![ORMRef(existing) isEqualToString:target]) {
+				ORMSetAttribute(existing, @"ref", target);
+			}
+		}
+	}
+}
+
 /* The XML element of an element an editor made, where NORMA keeps its
  * kind, with its id. */
 - (void)makeElementOf:(ORMElement *)element

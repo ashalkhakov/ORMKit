@@ -65,7 +65,7 @@ ORMWritesExpandedData(ORMModel *model)
 /* Rewrites a list of <prefix:local ref/> children to name exactly the
  * targets: those already listed keep their place, missing ones go at the
  * end, so a model NORMA wrote comes back unchanged. */
-static void
+void
 ORMSyncRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<NSArray *> *targets)
 {
 	/* targets: [local name, id] pairs. */
@@ -87,7 +87,7 @@ ORMSyncRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<NSArray *>
 	}
 }
 
-static NSString *
+NSString *
 ORMMultiplicityName(ORMMultiplicity multiplicity)
 {
 	switch (multiplicity) {
@@ -104,7 +104,7 @@ ORMMultiplicityName(ORMMultiplicity multiplicity)
 /* An element as a comparable value: its local name, its attributes and
  * its children, without the namespace declarations and prefixes the two
  * platforms' NSXML give a new element differently. */
-static NSArray *
+NSArray *
 ORMShapeOf(NSXMLElement *element)
 {
 	NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
@@ -121,7 +121,7 @@ ORMShapeOf(NSXMLElement *element)
 }
 
 /* <orm:ExpandedData> as NORMA writes it for the reading. */
-static NSXMLElement *
+NSXMLElement *
 ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 {
 	ORMReadingText *reading = [ORMReadingText readingTextWithString:text arity:arity reason:NULL];

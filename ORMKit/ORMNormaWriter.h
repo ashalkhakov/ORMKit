@@ -23,6 +23,15 @@
 /* The model's custom reference modes the document does not have yet,
  * with their kinds. */
 - (void)writeReferenceModes;
+/* Whether readings get NORMA's <orm:ExpandedData>: a file of an older
+ * NORMA that has none keeps none. */
+@property (nonatomic) BOOL writesExpandedData;
+/* What NORMA keeps beside the model for the element, derived: an object
+ * type's PlayedRoles and _ReferenceMode; a fact type's _Name, its roles'
+ * _IsMandatory and _Multiplicity, its InternalConstraints and its
+ * readings' ExpandedData; a uniqueness constraint's
+ * PreferredIdentifierFor. */
+- (void)writeNormaDataOf:(ORMElement *)element;
 /* One element written: its own values, not its children's. */
 - (void)writeElement:(ORMElement *)element;
 @end

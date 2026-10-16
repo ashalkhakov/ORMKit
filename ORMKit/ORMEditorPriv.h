@@ -81,6 +81,9 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 /* The unary readings as a change starts: an implicit boolean value type is
  * renamed only when its reading was changed. */
 - (void)rememberUnaryReadings;
+/* A derivation query's fact type keeps the query's words as its rule's;
+ * YES when they changed. */
+- (BOOL)normalizeDerivations:(ORMModel *)model;
 /* NORMA's data kept up in the XML; YES when it changed what the model
  * reads and does not keep up itself (a derivation rule's words, from its
  * query), so that the model is read again. */

@@ -215,9 +215,12 @@
 	if (role.player == player) {
 		return YES;
 	}
+	ORMObjectType *was = role.player;
 	[_editor modelChange:@"Connect Role" with:^{
 		role.player = player;
 		[_editor wrote:role];
+		/* It no longer plays the role. */
+		[_editor wrote:was];
 	}];
 	return YES;
 }

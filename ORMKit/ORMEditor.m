@@ -183,6 +183,35 @@ static BOOL ORMChecksAgreement;
 	}
 }
 
+/* In tests: after model changes, NORMA's data as the normalizer would
+ * keep it is what the writer wrote. */
+- (void)checkNormalized
+{
+	if (!ORMChecksAgreement || _model == nil) {
+		return;
+	}
+	@autoreleasepool {
+		NSData *written = ORMDataOfDocument(_document);
+		[_normalizer rememberUnaryReadings];
+		[_normalizer normalize];
+		NSData *normalized = ORMDataOfDocument(_document);
+		if (![written isEqualToData:normalized]) {
+			NSArray *a = [[[NSString alloc] initWithData:written encoding:NSUTF8StringEncoding] componentsSeparatedByString:@"\n"];
+			NSArray *b = [[[NSString alloc] initWithData:normalized encoding:NSUTF8StringEncoding] componentsSeparatedByString:@"\n"];
+			NSString *difference = @"";
+			for (NSUInteger i = 0; i < MIN([a count], [b count]); i++) {
+				if (![[a objectAtIndex:i] isEqualToString:[b objectAtIndex:i]]) {
+					difference = [NSString stringWithFormat:@"line %lu:\n  written    %@\n  normalized %@", (unsigned long)i + 1,
+					              [a objectAtIndex:i], [b objectAtIndex:i]];
+					break;
+				}
+			}
+			[NSException raise:NSInternalInconsistencyException
+			            format:@"The writer left NORMA's data for the normalizer: %@", difference];
+		}
+	}
+}
+
 - (BOOL)hasChanges
 {
 	return _hasChanges;
@@ -255,8 +284,18 @@ static BOOL ORMChecksAgreement;
 		[self reread];
 		return NO;
 	}
-	if ([_normalizer normalize]) {
-		_editedXML = YES;
+	if (_editedXML || _stale) {
+		/* What NORMA keeps beside the model, kept up from the XML. */
+		if ([_normalizer normalize]) {
+			_editedXML = YES;
+		}
+	} else {
+		/* Model changes wrote it as they went; a derivation rule's words
+		 * still come from its query. */
+		if ([_normalizer normalizeDerivations:_model]) {
+			_editedXML = YES;
+		}
+		[self checkNormalized];
 	}
 	_depth--;
 	/* A manager that does not group by event (a document's that edits
@@ -331,9 +370,15 @@ static BOOL ORMChecksAgreement;
 		}
 		ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
 		writer.gone = [NSSet setWithArray:[_deleted valueForKey:@"identifier"]];
+		writer.writesExpandedData = _normalizer.writesExpandedData;
 		for (ORMElement *element in _wrote) {
 			if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
 				[writer writeElement:element];
+			}
+		}
+		for (ORMElement *element in [self affectedBy:[_wrote arrayByAddingObjectsFromArray:_deleted]]) {
+			if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
+				[writer writeNormaDataOf:element];
 			}
 		}
 		for (ORMElement *element in _deleted) {
@@ -372,6 +417,82 @@ static BOOL ORMChecksAgreement;
 	if (element != nil && [_wrote indexOfObjectIdenticalTo:element] == NSNotFound) {
 		[_wrote addObject:element];
 	}
+}
+
+/* The object types, fact types and constraints whose NORMA data a change
+ * to the elements may change: an object type's fact types and identifier,
+ * a fact type's players and internal constraints, a constraint's fact
+ * types and what it identifies, an element's owner. */
+- (NSArray<ORMElement *> *)affectedBy:(NSArray<ORMElement *> *)touched
+{
+	NSMutableArray *affected = [NSMutableArray array];
+	NSMutableSet *seen = [NSMutableSet set];
+	NSMutableArray *pending = [NSMutableArray array];
+	for (ORMElement *element in touched) {
+		if ([element isKindOfClass:[ORMRole class]]) {
+			[pending addObject:[(ORMRole *)element factType] ?: (id)[NSNull null]];
+			[pending addObject:[(ORMRole *)element player] ?: (id)[NSNull null]];
+		} else if ([element isKindOfClass:[ORMReading class]]) {
+			[pending addObject:[[(ORMReading *)element readingOrder] factType] ?: (id)[NSNull null]];
+		} else if ([element isKindOfClass:[ORMReadingOrder class]]) {
+			[pending addObject:[(ORMReadingOrder *)element factType] ?: (id)[NSNull null]];
+		} else if ([element isKindOfClass:[ORMRoleSequence class]]) {
+			for (ORMRole *role in [(ORMRoleSequence *)element roles]) {
+				[pending addObject:role.factType ?: (id)[NSNull null]];
+			}
+		}
+		[pending addObject:element];
+	}
+	for (id element in pending) {
+		if (element == [NSNull null] || [seen containsObject:[NSValue valueWithNonretainedObject:element]]) {
+			continue;
+		}
+		BOOL own = [element isKindOfClass:[ORMObjectType class]] || [element isKindOfClass:[ORMFactType class]]
+			|| [element isKindOfClass:[ORMConstraint class]];
+		if (!own) {
+			continue;
+		}
+		[seen addObject:[NSValue valueWithNonretainedObject:element]];
+		[affected addObject:element];
+	}
+	/* One step out from each: what it names, and what names it. */
+	NSArray *first = [affected copy];
+	for (ORMElement *element in first) {
+		NSMutableArray *related = [NSMutableArray array];
+		if ([element isKindOfClass:[ORMObjectType class]]) {
+			ORMObjectType *type = (ORMObjectType *)element;
+			for (ORMRole *role in type.playedRoles) {
+				[related addObject:role.factType ?: (id)[NSNull null]];
+			}
+			[related addObject:type.preferredIdentifier ?: (id)[NSNull null]];
+			[related addObject:type.nestedFactType ?: (id)[NSNull null]];
+		} else if ([element isKindOfClass:[ORMFactType class]]) {
+			ORMFactType *fact = (ORMFactType *)element;
+			for (ORMRole *role in fact.roles) {
+				[related addObject:role.player ?: (id)[NSNull null]];
+			}
+			[related addObjectsFromArray:fact.internalConstraints ?: @[]];
+			[related addObject:fact.objectifyingType ?: (id)[NSNull null]];
+			/* A link fact type's role reckons with the role it stands for. */
+			[related addObjectsFromArray:fact.linkFactTypes ?: @[]];
+		} else if ([element isKindOfClass:[ORMConstraint class]]) {
+			ORMConstraint *constraint = (ORMConstraint *)element;
+			for (ORMRole *role in [constraint allRoles]) {
+				[related addObject:role.factType ?: (id)[NSNull null]];
+				for (ORMRole *proxy in role.proxies) {
+					[related addObject:proxy.factType ?: (id)[NSNull null]];
+				}
+			}
+			[related addObject:constraint.preferredIdentifierFor ?: (id)[NSNull null]];
+		}
+		for (id other in related) {
+			if (other != [NSNull null] && ![seen containsObject:[NSValue valueWithNonretainedObject:other]]) {
+				[seen addObject:[NSValue valueWithNonretainedObject:other]];
+				[affected addObject:other];
+			}
+		}
+	}
+	return affected;
 }
 
 - (void)deleted:(ORMElement *)element
