@@ -86,6 +86,21 @@ see either ([RUNTIME.md](RUNTIME.md)).
 
 Each step keeps every test passing.
 
+0. **The model's API made whole** (done). What other code worked out for
+   the model is the model's own, made once where it is asked often:
+   - fact types: `displayText`, `readingFromRole:`, `subtype`, `supertype`,
+     `implicitRole`, `isBinary`, `linkFactTypes`, `isLinkFactType`;
+   - readings: `parsedText`, `words`, `readsFromFirstRole`;
+   - object types: `family`, `familyNames`, `isCompatibleWith:`,
+     `identifiedType`, `valueType`, `referenceModeRole`;
+   - roles: `proxies`;
+   - every element: `definitionText`, `noteText`;
+   - the model: `objectTypeNamed:` from a table.
+
+   Open: `isMandatory` and `isUnique` count deontic constraints, as NORMA's
+   `_IsMandatory` does, and the Core Data mapper maps by them, so a deontic
+   mandatory role is a required attribute. Alethic-only flags for the
+   mapper would change how such models map: a decision to make.
 1. **The writer, and the full-rewrite check.** `ORMNormaWriter` writes each
    kind of element from the model. Every fixture rewrites to the same
    bytes. Nothing uses it yet.
