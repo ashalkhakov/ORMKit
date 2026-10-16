@@ -294,25 +294,6 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	}
 }
 
-/* After an element is replaced by a copy: the elements read from its
- * children point at the copies. */
-- (void)rebindChildrenOf:(ORMObjectType *)type
-{
-	ORMValueConstraint *constraint = type.ownValueConstraint;
-	if (constraint != nil) {
-		NSXMLElement *restriction = ORMChild(type.element, CORE, @"ValueRestriction");
-		for (NSXMLNode *node in [restriction children]) {
-			if ([node kind] == NSXMLElementKind && [[node URI] isEqualToString:CORE]) {
-				constraint.element = (NSXMLElement *)node;
-			}
-		}
-		NSArray *ranges = ORMGrandchildren(constraint.element, CORE, @"ValueRanges", CORE, @"ValueRange");
-		for (NSUInteger i = 0; i < MIN([ranges count], [constraint.ranges count]); i++) {
-			[[constraint.ranges objectAtIndex:i] setElement:[ranges objectAtIndex:i]];
-		}
-	}
-}
-
 /* The XML element of an element an editor made, where NORMA keeps its
  * kind, with its id. */
 - (void)makeElementOf:(ORMElement *)element
@@ -741,22 +722,12 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	NSXMLElement *element = type.element;
 	NSString *local = ORMObjectTypeElementName(type.kind);
 	if (![[element localName] isEqualToString:local]) {
-		/* Another kind: the same attributes and children under its name. */
-		NSXMLElement *replacement = ORMNewElement(_document, CORE, local);
-		for (NSXMLNode *attribute in [element attributes]) {
-			[replacement addAttribute:[attribute copy]];
-		}
-		for (NSXMLNode *child in [element children]) {
-			[replacement addChild:[child copy]];
-		}
-		/* Inserted beside it and the old one detached: gnustep-base's
-		 * -replaceChildAtIndex:withNode: frees what libxml2 keeps in the
-		 * document's dictionary. */
-		[(NSXMLElement *)[element parent] insertChild:replacement atIndex:[element index]];
-		[element detach];
-		element = replacement;
-		type.element = element;
-		[self rebindChildrenOf:type];
+		/* Another kind: renamed in place, its attributes and children kept.
+		 * Copied into a new element instead, its children's names (in
+		 * libxml2's dictionary for a parsed document) are freed when moved,
+		 * on GNUstep. */
+		NSString *prefix = [element prefix];
+		[element setName:[prefix length] > 0 ? [NSString stringWithFormat:@"%@:%@", prefix, local] : local];
 	}
 	ORMSetAttribute(element, @"Name", type.name);
 	[self writeValueConstraint:type.ownValueConstraint of:element as:@"ValueConstraint"];
