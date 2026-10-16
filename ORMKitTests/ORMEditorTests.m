@@ -218,6 +218,44 @@
 	XCTAssertEqualObjects([role.valueConstraint displayText], @"{0..150}");
 }
 
+/* Readings edited and deleted, a unary's implicit type renamed with its
+ * reading, a role given another player; undone. */
+- (void)testReadingsAndPlayers
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:nil in:editor];
+	NSString *country = [self entity:@"Country" mode:nil in:editor];
+	NSString *city = [self entity:@"City" mode:nil in:editor];
+	ORMFactType *smokes = [editor.model elementWithId:[self fact:@[ person ] reading:@"{0} smokes" in:editor]];
+	ORMObjectType *implicit = [smokes implicitRole].player;
+	XCTAssertEqualObjects(implicit.name, @"Person smokes");
+	ORMReading *reading = [[[smokes.readingOrders firstObject] readings] firstObject];
+	XCTAssertTrue([editor.factTypeEditor setReadingText:@"{0} is a smoker" of:reading.identifier reason:NULL]);
+	XCTAssertEqualObjects(reading.text, @"{0} is a smoker");
+	XCTAssertEqualObjects(implicit.name, @"Person is a smoker");
+	XCTAssertEqualObjects(ORMAttribute(implicit.element, @"Name"), @"Person is a smoker");
+
+	ORMFactType *born = [editor.model elementWithId:[self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor]];
+	NSArray *roles = born.roles;
+	NSString *second = [editor.factTypeEditor addReading:@"{0} is birthplace of {1}"
+	                                            forRoles:@[ [roles[1] identifier], [roles[0] identifier] ] reason:NULL];
+	XCTAssertEqual([born.readingOrders count], 2u);
+	XCTAssertTrue([editor.factTypeEditor setReadingText:@"" of:second reason:NULL]);
+	XCTAssertEqual([born.readingOrders count], 1u);
+	XCTAssertNil([editor.model elementWithId:second]);
+	XCTAssertEqual([ORMGrandchildren(born.element, ORMCoreNamespace, @"ReadingOrders", ORMCoreNamespace, @"ReadingOrder") count], 1u);
+
+	XCTAssertTrue([editor.factTypeEditor setPlayer:city ofRole:[roles[1] identifier] reason:NULL]);
+	XCTAssertEqualObjects([roles[1] player].name, @"City");
+	XCTAssertEqualObjects(ORMRef(ORMChild([roles[1] element], ORMCoreNamespace, @"RolePlayer")), city);
+	XCTAssertEqual([[[editor.model elementWithId:country] playedRoles] count], 0u);
+
+	[self.undoManager undo];
+	XCTAssertEqualObjects([roles[1] player].name, @"Country");
+	[self.undoManager undo];
+	XCTAssertEqual([born.readingOrders count], 2u);
+}
+
 - (void)testNamesAreUnique
 {
 	ORMEditor *editor = [self newEditor];

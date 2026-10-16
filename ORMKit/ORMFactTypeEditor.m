@@ -74,6 +74,32 @@
 	return created;
 }
 
+/* A unary's reading as it reads with its players' names; nil for a fact
+ * type that is not unary. */
+- (NSString *)unaryReadingOf:(ORMFactType *)fact
+{
+	return [fact isUnary] ? [[fact primaryReading] expandedText] ?: @"" : nil;
+}
+
+/* A unary's implicit value type is named by its reading, when the reading
+ * changed, as NORMA names it (the normalizer's rule): an older name
+ * ("Person isDead"), or one another type has, is left as it is. */
+- (void)renameImplicitBooleanOf:(ORMFactType *)fact was:(NSString *)was
+{
+	if (was == nil) {
+		return;
+	}
+	NSString *name = [[fact primaryReading] expandedText];
+	ORMObjectType *implicit = [fact implicitRole].player;
+	NSString *older = [name stringByReplacingOccurrencesOfString:@"-" withString:@" "];
+	if ([was isEqualToString:name ?: @""] || implicit == nil || [name length] == 0 || [implicit.name isEqualToString:name]
+	    || [implicit.name isEqualToString:older] || [_editor.model objectTypeNamed:name] != nil) {
+		return;
+	}
+	implicit.name = name;
+	[_editor wrote:implicit];
+}
+
 /* A unary's implicit value type, named as its reading reads of the
  * subject: true only. */
 - (ORMObjectType *)implicitBooleanFor:(ORMObjectType *)subject reading:(NSString *)text
@@ -145,11 +171,17 @@
 			}
 			return NO;
 		}
-		[_editor change:@"Delete Reading" with:^{
-			[reading.element detach];
-			if ([order.readings count] <= 1) {
-				[order.element detach];
+		[_editor modelChange:@"Delete Reading" with:^{
+			NSString *was = [self unaryReadingOf:fact];
+			ORMModel *model = _editor.model;
+			order.readings = ORMWithout(order.readings, reading);
+			[model removeElement:reading];
+			if ([order.readings count] == 0) {
+				fact.readingOrders = ORMWithout(fact.readingOrders, order);
+				[model removeElement:order];
 			}
+			[_editor wrote:fact];
+			[self renameImplicitBooleanOf:fact was:was];
 		}];
 		return YES;
 	}
@@ -159,8 +191,12 @@
 	if ([text isEqualToString:reading.text]) {
 		return YES;
 	}
-	[_editor change:@"Edit Reading" with:^{
-		ORMSetChildText(_editor.document, reading.element, CORE, @"Data", text);
+	[_editor modelChange:@"Edit Reading" with:^{
+		ORMFactType *fact = reading.readingOrder.factType;
+		NSString *was = [self unaryReadingOf:fact];
+		reading.text = text;
+		[_editor wrote:reading];
+		[self renameImplicitBooleanOf:fact was:was];
 	}];
 	return YES;
 }
@@ -184,13 +220,9 @@
 	if (role.player == player) {
 		return YES;
 	}
-	[_editor change:@"Connect Role" with:^{
-		NSXMLElement *rolePlayer = ORMChild(role.element, CORE, @"RolePlayer");
-		if (rolePlayer == nil) {
-			[role.element insertChild:ORMNewRef(_editor.document, CORE, @"RolePlayer", objectTypeId) atIndex:0];
-		} else {
-			ORMSetAttribute(rolePlayer, @"ref", objectTypeId);
-		}
+	[_editor modelChange:@"Connect Role" with:^{
+		role.player = player;
+		[_editor wrote:role];
 	}];
 	return YES;
 }

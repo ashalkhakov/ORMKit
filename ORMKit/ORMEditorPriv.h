@@ -29,6 +29,8 @@
 - (void)modelChange:(NSString *)name with:(void (^)(void))change;
 /* An element a model change changed, to be written. */
 - (void)wrote:(ORMElement *)element;
+/* An element a model change took out of the model: its XML element goes. */
+- (void)deleted:(ORMElement *)element;
 
 /* The element with the id, made since the projection was built or not. */
 - (NSXMLElement *)xml:(NSString *)elementId;
@@ -66,6 +68,10 @@
  * _ReferenceMode, readings' ExpandedData, implied mandatories), kept up
  * from the model after each change, as the version of NORMA that wrote the
  * file keeps it. */
+/* The roles each object type's implied inclusive-or covers, by the
+ * type's id: only the types that need one (ORMNormalizer.m). */
+NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMModel *model);
+
 @interface ORMNormalizer : NSObject
 - (instancetype)initWithEditor:(ORMEditor *)editor;
 @property (nonatomic, readonly) BOOL writesExpandedData;
@@ -125,5 +131,8 @@
 /* The same in the model, inside a model change. */
 - (ORMConstraint *)addInternalUniqueness:(NSArray<ORMRole *> *)roles;
 - (ORMConstraint *)addSimpleMandatory:(ORMRole *)role;
+/* NORMA's implied inclusive-or constraints kept up in the model, as the
+ * normalizer keeps them in the XML; whether any changed. */
+- (BOOL)keepImpliedMandatories;
 @end
 

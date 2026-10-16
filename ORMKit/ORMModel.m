@@ -662,6 +662,15 @@ ORMCapitalizedWords(NSString *text)
 
 @implementation ORMConstraint
 
+- (instancetype)initWithModel:(ORMModel *)model
+{
+	if ((self = [super initWithModel:model])) {
+		/* As one is read where the file says none. */
+		_minFrequency = 1;
+	}
+	return self;
+}
+
 - (void)reset
 {
 	[super reset];
@@ -674,6 +683,7 @@ ORMCapitalizedWords(NSString *text)
 	_minFrequency = _maxFrequency = 0;
 	_ringType = 0;
 	_comparisonOperator = nil;
+	_impliedByObjectTypeId = nil;
 }
 
 - (NSArray<ORMRole *> *)allRoles
@@ -982,8 +992,7 @@ ORMUnitReferenceModes(void)
 	          @"m", @"mile", @"mm", @"mph", @"USD", @"Year", @"day", @"hr", @"min", @"sec", @"in", @"lb" ];
 }
 
-/* The array without the object, itself where it is not there. */
-static NSArray *
+NSArray *
 ORMWithout(NSArray *array, id object)
 {
 	NSUInteger index = [array indexOfObjectIdenticalTo:object];
@@ -1461,6 +1470,7 @@ ORMWithout(NSArray *array, id object)
 		constraint.maxFrequency = MAX((NSInteger)0, [ORMAttribute(element, @"MaxFrequency") integerValue]);
 		constraint.ringType = [ORMConstraint ringTypeNamed:ORMAttribute(element, @"Type")];
 		constraint.comparisonOperator = ORMAttribute(element, @"Operator");
+		constraint.impliedByObjectTypeId = ORMRef(ORMChild(element, CORE, @"ImpliedByObjectType"));
 		[constraints addObject:constraint];
 		[self registerElement:constraint];
 	}

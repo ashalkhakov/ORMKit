@@ -119,6 +119,9 @@
 @property (nonatomic, readwrite) NSUInteger maxFrequency;
 @property (nonatomic, readwrite) ORMRingType ringType;
 @property (nonatomic, readwrite, copy) NSString *comparisonOperator;
+/* For NORMA's implied inclusive-or: the object type it is implied by
+ * (ImpliedByObjectType), by id as the file names it. */
+@property (nonatomic, readwrite, copy) NSString *impliedByObjectTypeId;
 @end
 
 @interface ORMValueRange ()
@@ -203,6 +206,10 @@
 /* Where two models read differ, the first place found, in words; nil when
  * they agree element for element (docs/MODEL.md, the agreement check). */
 NSString *ORMModelDisagreement(ORMModel *model, ORMModel *other);
+
+/* The array without the object (the same object, not an equal one);
+ * the array itself where it is not there. */
+NSArray *ORMWithout(NSArray *array, id object);
 
 /* NORMA's range inclusion of the name: Open, Closed, else NotSet. */
 ORMRangeInclusion ORMInclusionNamed(NSString *name);

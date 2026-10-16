@@ -548,6 +548,67 @@ ORMIdentifiedBy(ORMConstraint *constraint)
 	return constraint;
 }
 
+- (BOOL)keepImpliedMandatories
+{
+	if (!_editor.writesImpliedMandatories) {
+		return NO;
+	}
+	ORMModel *model = _editor.model;
+	BOOL changed = NO;
+	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
+	for (ORMConstraint *constraint in model.constraints) {
+		NSString *owner = constraint.impliedByObjectTypeId;
+		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied && owner != nil) {
+			if ([existing objectForKey:owner] != nil || [model elementWithId:owner] == nil) {
+				[self removeConstraint:constraint];
+				changed = YES;
+			} else {
+				[existing setObject:constraint forKey:owner];
+			}
+		}
+	}
+	NSDictionary *needed = ORMImpliedMandatoryRoles(model);
+	for (ORMObjectType *type in model.objectTypes) {
+		NSArray *roleIds = [needed objectForKey:type.identifier ?: @""];
+		ORMConstraint *current = [existing objectForKey:type.identifier ?: @""];
+		if (roleIds == nil) {
+			if (current != nil) {
+				[self removeConstraint:current];
+				changed = YES;
+			}
+			continue;
+		}
+		NSArray *have = [[current allRoles] valueForKey:@"identifier"];
+		NSXMLElement *written = ORMChild(current.element, CORE, @"RoleSequence");
+		if (current != nil && [[NSSet setWithArray:have] isEqualToSet:[NSSet setWithArray:roleIds]]
+		    && (written == nil || [have count] == [ORMChildren(written, CORE, @"Role") count])) {
+			continue;
+		}
+		NSMutableArray *roles = [NSMutableArray array];
+		for (NSString *roleId in roleIds) {
+			[roles addObject:[model elementWithId:roleId]];
+		}
+		if (current == nil) {
+			current = [self addConstraint:ORMMandatoryConstraint named:@"ImpliedMandatoryConstraint" over:roles];
+			current.isImplied = YES;
+			current.impliedByObjectTypeId = type.identifier;
+		} else {
+			ORMRoleSequence *sequence = [current.roleSequences firstObject];
+			sequence.roles = roles;
+			[_editor wrote:sequence];
+		}
+		changed = YES;
+	}
+	return changed;
+}
+
+/* A constraint out of the model, and its XML element with it. */
+- (void)removeConstraint:(ORMConstraint *)constraint
+{
+	[_editor.model removeElement:constraint];
+	[_editor deleted:constraint];
+}
+
 - (ORMConstraint *)addInternalUniqueness:(NSArray<ORMRole *> *)roles
 {
 	ORMConstraint *constraint = [self addConstraint:ORMUniquenessConstraint named:@"InternalUniquenessConstraint" over:roles];

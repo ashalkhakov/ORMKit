@@ -47,8 +47,9 @@ static BOOL ORMChecksAgreement;
 	/* A step of the change being made edited the XML: the model is read
 	 * again after it. */
 	BOOL _editedXML;
-	/* What a model change changed, to be written. */
+	/* What a model change changed, to be written, and took away. */
 	NSMutableArray<ORMElement *> *_wrote;
+	NSMutableArray<ORMElement *> *_deleted;
 }
 
 #pragma mark Documents
@@ -293,13 +294,23 @@ static BOOL ORMChecksAgreement;
 		/* The model as the steps before left it. */
 		ORMModel *model = self.model;
 		_wrote = [NSMutableArray array];
+		_deleted = [NSMutableArray array];
 		change();
 		[model derive];
+		if ([self.constraintEditor keepImpliedMandatories]) {
+			[model derive];
+		}
 		ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
 		for (ORMElement *element in _wrote) {
-			[writer writeElement:element];
+			if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
+				[writer writeElement:element];
+			}
+		}
+		for (ORMElement *element in _deleted) {
+			[element.element detach];
 		}
 		_wrote = nil;
+		_deleted = nil;
 		return YES;
 	}];
 }
@@ -308,6 +319,13 @@ static BOOL ORMChecksAgreement;
 {
 	if (element != nil && [_wrote indexOfObjectIdenticalTo:element] == NSNotFound) {
 		[_wrote addObject:element];
+	}
+}
+
+- (void)deleted:(ORMElement *)element
+{
+	if (element != nil && [_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
+		[_deleted addObject:element];
 	}
 }
 

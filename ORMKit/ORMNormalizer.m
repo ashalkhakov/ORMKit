@@ -307,7 +307,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
  * ImpliedByObjectType. */
 /* The roles each object type's implied inclusive-or covers, by the
  * type's id: only the types that need one. */
-static NSDictionary<NSString *, NSArray<NSString *> *> *
+NSDictionary<NSString *, NSArray<NSString *> *> *
 ORMImpliedMandatoryRoles(ORMModel *model)
 {
 	NSMutableDictionary *needed = [NSMutableDictionary dictionary];

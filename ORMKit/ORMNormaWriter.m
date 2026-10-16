@@ -435,6 +435,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	ORMWriteBool(element, @"IsInternal", constraint.isInternal, NO);
 	ORMWriteBool(element, @"IsSimple", constraint.isSimple, NO);
 	ORMWriteBool(element, @"IsImplied", constraint.isImplied, NO);
+	ORMWriteRef(_document, element, @"ImpliedByObjectType", constraint.impliedByObjectTypeId);
 	if (constraint.kind == ORMFrequencyConstraint) {
 		ORMWriteInteger(element, @"MinFrequency", constraint.minFrequency, 1);
 		ORMWriteInteger(element, @"MaxFrequency", constraint.maxFrequency, 0);
