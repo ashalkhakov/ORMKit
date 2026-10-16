@@ -45,6 +45,7 @@ ORMContains(NSArray *list, id object)
 - (NSArray *)list:(NSArray *)list adding:(ORMElement *)element;
 - (NSArray *)referenceModeOf:(ORMObjectType *)type;
 - (ORMObjectType *)impliedOwnerOf:(ORMConstraint *)constraint;
+- (void)noteName:(NSString *)name;
 @end
 
 @interface ORMRole ()
@@ -78,6 +79,12 @@ ORMContains(NSArray *list, id object)
 		_name = @"";
 	}
 	return self;
+}
+
+- (void)setName:(NSString *)name
+{
+	_name = [name copy];
+	[_model noteName:_name];
 }
 
 - (void)reset
@@ -1350,6 +1357,9 @@ ORMWithout(NSArray *array, id object)
 	NSMutableDictionary<NSString *, ORMElement *> *_reusable;
 	/* While the model is read: no link is kept up until all is read. */
 	BOOL _reading;
+	/* The highest number each name stem has gone with
+	 * ("InternalUniquenessConstraint" 7): what the next name takes. */
+	NSMutableDictionary<NSString *, NSNumber *> *_highestNumbers;
 	/* The reference modes it knows of by kind, from its custom ones. */
 	NSSet<NSString *> *_unitModes;
 	NSSet<NSString *> *_generalModes;
@@ -1499,9 +1509,6 @@ ORMWithout(NSArray *array, id object)
 	if (element.identifier != nil && [_elements objectForKey:element.identifier] == element) {
 		[_elements removeObjectForKey:element.identifier];
 	}
-	if (element.name != nil) {
-		[self.removedNames addObject:element.name];
-	}
 	if (element.identifier != nil) {
 		[self.removedIds addObject:element.identifier];
 	}
@@ -1610,6 +1617,7 @@ ORMWithout(NSArray *array, id object)
 - (void)readDocument:(NSXMLDocument *)document model:(NSXMLElement *)modelElement
 {
 	_elements = [NSMutableDictionary dictionary];
+	_highestNumbers = [NSMutableDictionary dictionary];
 	_reading = YES;
 	_document = document;
 	_modelElement = modelElement;
@@ -1632,7 +1640,35 @@ ORMWithout(NSArray *array, id object)
 	[self readDiagrams];
 	_reusable = nil;
 	[self linkAll];
+	for (ORMElement *element in [_elements allValues]) {
+		[self noteName:element.name];
+	}
 	_reading = NO;
+}
+
+/* A name that ends in a number (no leading zero) noted for its stem. */
+- (void)noteName:(NSString *)name
+{
+	NSUInteger end = [name length];
+	NSUInteger start = end;
+	while (start > 0 && [name characterAtIndex:start - 1] >= '0' && [name characterAtIndex:start - 1] <= '9') {
+		start--;
+	}
+	if (start == 0 || start == end || [name characterAtIndex:start] == '0') {
+		return;
+	}
+	NSString *stem = [name substringToIndex:start];
+	NSInteger number = [[name substringFromIndex:start] integerValue];
+	if (number > [[_highestNumbers objectForKey:stem] integerValue]) {
+		[_highestNumbers setObject:@(number) forKey:stem];
+	}
+}
+
+- (NSString *)nextNameWithPrefix:(NSString *)prefix
+{
+	NSInteger number = [[_highestNumbers objectForKey:prefix] integerValue] + 1;
+	[_highestNumbers setObject:@(number) forKey:prefix];
+	return [NSString stringWithFormat:@"%@%ld", prefix, (long)number];
 }
 
 - (void)readDataTypes

@@ -26,8 +26,8 @@
 /* An element a model change took out of the model: its XML element goes. */
 - (void)deleted:(ORMElement *)element;
 
-/* "InternalUniquenessConstraint7": the prefix and the next number no
- * constraint of the model has. */
+/* "InternalUniquenessConstraint7": the prefix and the next number
+ * (-[ORMModel nextNameWithPrefix:]). */
 - (NSString *)nextName:(NSString *)prefix;
 /* An object type name no object type has: the name, or the name and a
  * number. */
