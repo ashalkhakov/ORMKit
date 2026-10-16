@@ -827,7 +827,7 @@ static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
 @implementation ORMXMLJournal
 {
 	NSMutableArray<ORMXMLJournalEntry *> *_entries;
-	NSMutableSet<NSValue *> *_recorded;
+	NSMutableSet<NSNumber *> *_recorded;
 }
 
 - (instancetype)initWithDocument:(NSXMLDocument *)document
@@ -847,7 +847,10 @@ static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
 
 - (void)willChange:(NSXMLElement *)element
 {
-	NSValue *key = [NSValue valueWithNonretainedObject:element];
+	/* By address: gnustep-base's NSValue compares the objects it holds,
+	 * and an NSXMLNode is equal to another of the same content. The
+	 * journal keeps the element, so the address stays its. */
+	NSNumber *key = @((uintptr_t)(__bridge void *)element);
 	if (element == nil || [_recorded containsObject:key]) {
 		return;
 	}
@@ -865,7 +868,10 @@ static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
 		[namespaces addObject:@[ [namespace name] ?: @"", [namespace stringValue] ?: @"" ]];
 	}
 	entry.namespaces = namespaces;
-	entry.children = [element children] ?: @[];
+	/* A list of its own: gnustep-base's -children, copied, follows the
+	 * element's. */
+	entry.children = [NSArray arrayWithArray:[element children] ?: @[]];
+
 	[_entries addObject:entry];
 }
 
@@ -880,7 +886,7 @@ static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
 		if (![[element name] isEqualToString:entry.name]) {
 			[element setName:entry.name];
 		}
-		for (NSXMLNode *attribute in [[element attributes] copy]) {
+		for (NSXMLNode *attribute in [NSArray arrayWithArray:[element attributes] ?: @[]]) {
 			[element removeAttributeForName:[attribute name]];
 		}
 		for (NSArray *pair in entry.attributes) {
@@ -891,7 +897,7 @@ static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
 		for (NSArray *pair in entry.namespaces) {
 			[declared addObject:[pair firstObject]];
 		}
-		for (NSXMLNode *namespace in [[element namespaces] copy]) {
+		for (NSXMLNode *namespace in [NSArray arrayWithArray:[element namespaces] ?: @[]]) {
 			if (![declared containsObject:[namespace name] ?: @""]) {
 				[element removeNamespaceForPrefix:[namespace name]];
 			}
@@ -899,16 +905,33 @@ static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
 	}
 	/* Every child let go of first: one may go back to another parent. */
 	for (ORMXMLJournalEntry *entry in _entries) {
-		for (NSXMLNode *child in [[entry.element children] copy]) {
+		for (NSXMLNode *child in [NSArray arrayWithArray:[entry.element children] ?: @[]]) {
 			[child detach];
 		}
 	}
-	for (ORMXMLJournalEntry *entry in _entries) {
-		for (NSXMLNode *child in entry.children) {
-			if ([child parent] != nil) {
-				[child detach];
+	/* Children go back into elements already in the tree, from the top
+	 * down: one put into an element still out of it moves its namespaces
+	 * to the wrong place on gnustep-base, which declares them again. What
+	 * stays out of the tree gets its children last. */
+	NSMutableArray *pending = [_entries mutableCopy];
+	while ([pending count] > 0) {
+		NSMutableArray *ready = [NSMutableArray array];
+		for (ORMXMLJournalEntry *entry in pending) {
+			if ([entry.element rootDocument] == _document) {
+				[ready addObject:entry];
 			}
-			[entry.element addChild:child];
+		}
+		if ([ready count] == 0) {
+			[ready addObjectsFromArray:pending];
+		}
+		for (ORMXMLJournalEntry *entry in ready) {
+			for (NSXMLNode *child in entry.children) {
+				if ([child parent] != nil) {
+					[child detach];
+				}
+				[entry.element addChild:child];
+			}
+			[pending removeObjectIdenticalTo:entry];
 		}
 	}
 	return redo;
