@@ -5,6 +5,7 @@
 #import "ORMJoinPathBuilder.h"
 #import "ORMReadingText.h"
 #import "ORMXML.h"
+#import <objc/runtime.h>
 
 /* The quantifiers the verbalizer puts before a name, tried in this order:
  * '#' is a number, a space one space; letters in any case. */
@@ -334,6 +335,70 @@ ORMSingleSpaced(NSString *text)
 	return out;
 }
 
+#pragma mark What matching asks of a model, kept with it
+
+/* Each player's names and each reading's words, found once for a model:
+ * it does not change (an edit makes a new one), and every sentence read
+ * against it asks them for every reading it tries. Kept with the model. */
+@interface ORMMatchingCache : NSObject
++ (instancetype)cacheOf:(ORMModel *)model;
+- (NSArray<NSString *> *)namesOf:(ORMObjectType *)player;
+- (NSArray<NSString *> *)wordsOf:(NSString *)reading;
+@end
+
+static NSArray<NSString *> *ORMReadingWords(NSString *reading);
+
+@implementation ORMMatchingCache
+{
+	NSMapTable<ORMObjectType *, NSArray<NSString *> *> *_names;
+	NSMutableDictionary<NSString *, NSArray<NSString *> *> *_words;
+}
+
+static char ORMMatchingCacheKey;
+
++ (instancetype)cacheOf:(ORMModel *)model
+{
+	@synchronized(model) {
+		ORMMatchingCache *cache = objc_getAssociatedObject(model, &ORMMatchingCacheKey);
+		if (cache == nil) {
+			cache = [[self alloc] init];
+			cache->_names = [NSMapTable strongToStrongObjectsMapTable];
+			cache->_words = [NSMutableDictionary dictionary];
+			objc_setAssociatedObject(model, &ORMMatchingCacheKey, cache, OBJC_ASSOCIATION_RETAIN);
+		}
+		return cache;
+	}
+}
+
+- (NSArray<NSString *> *)namesOf:(ORMObjectType *)player
+{
+	if (player == nil) {
+		return ORMNamesOf(nil);
+	}
+	@synchronized(self) {
+		NSArray *names = [_names objectForKey:player];
+		if (names == nil) {
+			names = ORMNamesOf(player);
+			[_names setObject:names forKey:player];
+		}
+		return names;
+	}
+}
+
+- (NSArray<NSString *> *)wordsOf:(NSString *)reading
+{
+	@synchronized(self) {
+		NSArray *words = [_words objectForKey:reading];
+		if (words == nil) {
+			words = ORMReadingWords(reading);
+			[_words setObject:words forKey:reading];
+		}
+		return words;
+	}
+}
+
+@end
+
 #pragma mark Matching a reading, in C
 
 /* A reading as its clauses are matched (what a regular expression did
@@ -586,6 +651,9 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 {
 	/* Matching a clause at the start of a chain, not the whole text. */
 	BOOL _prefixMode;
+	/* What matching asks of the model again and again, found once for
+	 * it (ORMMatchingCache). */
+	ORMMatchingCache *_cache;
 	ORMModel *_model;
 	NSMutableArray<ORMSentenceFact *> *_facts;
 	NSMutableArray<ORMSentenceConstraint *> *_constraints;
@@ -593,6 +661,20 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 }
 
 #pragma mark Clauses
+
+/* The names the player goes by, found once for the model. */
+- (NSArray<NSString *> *)namesOf:(ORMObjectType *)player
+{
+	return [[self cache] namesOf:player];
+}
+
+- (ORMMatchingCache *)cache
+{
+	if (_cache == nil) {
+		_cache = [ORMMatchingCache cacheOf:_model];
+	}
+	return _cache;
+}
 
 /* A reading's atoms: each placeholder an optionally quantified,
  * optionally numbered name, the first left out when omit is set; nil for
@@ -643,7 +725,7 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 	for (NSUInteger i = 0; i < parts; i++) {
 		ORMReadingPart *part = [reading.parts objectAtIndex:i];
 		ORMRole *role = part.roleIndex < [roles count] ? [roles objectAtIndex:part.roleIndex] : nil;
-		NSArray *each = ORMNamesOf(role.player);
+		NSArray *each = [self namesOf:role.player];
 		sets[i].count = [each count];
 		sets[i].names = calloc([each count], sizeof(unichar *));
 		sets[i].lengths = calloc([each count], sizeof(NSUInteger));
@@ -780,7 +862,7 @@ ORMReadingWords(NSString *reading)
 		NSArray *roles = [candidate objectAtIndex:2];
 		/* A reading whose own words the clause lacks cannot match it. */
 		BOOL possible = YES;
-		for (NSString *word in ORMReadingWords(reading)) {
+		for (NSString *word in [[self cache] wordsOf:reading]) {
 			if ([word rangeOfString:@"-"].location == NSNotFound && [text rangeOfString:word].location == NSNotFound) {
 				possible = NO;
 				break;
