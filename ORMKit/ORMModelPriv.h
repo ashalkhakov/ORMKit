@@ -153,6 +153,8 @@
 @interface ORMShape ()
 @property (nonatomic, readwrite) ORMShapeKind kind;
 @property (nonatomic, readwrite) NSRect bounds;
+/* The bounds the file has, as they are: the reader's. */
+- (void)setBoundsAsRead:(NSRect)bounds;
 @property (nonatomic, readwrite, weak) id subject;
 @property (nonatomic, readwrite, copy) NSString *subjectId;
 @property (nonatomic, readwrite, weak) ORMDiagram *diagram;

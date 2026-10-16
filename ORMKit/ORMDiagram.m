@@ -24,11 +24,26 @@ ORMShapeKindNamed(NSString *local)
 
 @implementation ORMShape
 
-/* Kept as the file has them: NORMA's inches, read back into points, so
- * that the model is what reading the written file gives. */
+/* Kept as the file will have them: NORMA's inches read back into points,
+ * until reading what is written gives them back (formatting and parsing
+ * are not exact inverses everywhere), so that the model is what reading
+ * the written file gives. */
 - (void)setBounds:(NSRect)bounds
 {
-	_bounds = ORMParseBounds(ORMFormatBounds(bounds));
+	NSRect kept = ORMParseBounds(ORMFormatBounds(bounds));
+	for (NSUInteger i = 0; i < 8; i++) {
+		NSRect again = ORMParseBounds(ORMFormatBounds(kept));
+		if (NSEqualRects(again, kept)) {
+			break;
+		}
+		kept = again;
+	}
+	_bounds = kept;
+}
+
+- (void)setBoundsAsRead:(NSRect)bounds
+{
+	_bounds = bounds;
 }
 
 - (void)reset
@@ -90,7 +105,7 @@ ORMShapeKindNamed(NSString *local)
 	shape.kind = ORMShapeKindNamed([element localName]);
 	shape.diagram = self;
 	shape.parent = parent;
-	shape.bounds = ORMParseBounds(ORMAttribute(element, @"AbsoluteBounds"));
+	[shape setBoundsAsRead:ORMParseBounds(ORMAttribute(element, @"AbsoluteBounds"))];
 	shape.isExpanded = ORMBoolAttribute(element, @"IsExpanded", NO);
 	shape.subjectId = ORMRef(ORMChild(element, DIAGRAM, @"Subject"));
 	shape.subject = [self.model elementWithId:shape.subjectId];
