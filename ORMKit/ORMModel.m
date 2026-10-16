@@ -266,6 +266,8 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	_isDerived = _providesPreferredIdentifier = NO;
 	_preferredIdentificationPath = nil;
 	_saysProvidesPreferredIdentifier = NO;
+	_explicitName = nil;
+	_keepsDerivedName = NO;
 }
 
 - (void)forgetDerivedValues
@@ -1360,6 +1362,8 @@ ORMWithout(NSArray *array, id object)
 			fact.preferredIdentificationPath = @(ORMBoolAttribute(element, @"PreferredIdentificationPath", NO));
 		}
 		fact.saysProvidesPreferredIdentifier = ORMBoolAttribute(element, @"ProvidesPreferredIdentifier", NO);
+		fact.explicitName = ORMAttribute(element, @"Name");
+		fact.keepsDerivedName = ORMAttribute(element, @"_Name") != nil;
 		[facts addObject:fact];
 		[self registerElement:fact];
 	}
@@ -1584,6 +1588,21 @@ ORMWithout(NSArray *array, id object)
 	[self linkRoles];
 	[self deriveReferenceModes];
 	[self linkValueConstraints];
+	/* What NORMA keeps derived beside the model, as it keeps it. */
+	for (ORMObjectType *type in self.objectTypes) {
+		if (type.kind == ORMEntityType) {
+			type.savedReferenceMode = type.referenceMode ?: @"";
+		}
+	}
+	for (ORMFactType *fact in self.factTypes) {
+		if (fact.explicitName != nil) {
+			fact.name = fact.explicitName;
+		} else if (fact.keepsDerivedName || fact.kind == ORMFactTypeOrdinary) {
+			fact.name = [fact derivedName];
+		} else {
+			fact.name = @"";
+		}
+	}
 }
 
 - (void)linkObjectTypes

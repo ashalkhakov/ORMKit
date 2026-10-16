@@ -256,8 +256,10 @@ ORMObjectTypeElementName(ORMObjectTypeKind kind)
 {
 	NSXMLElement *element = fact.element;
 	/* A name given it; one NORMA derives (_Name) is the normalizer's. */
-	if (ORMAttribute(element, @"Name") != nil) {
-		ORMWriteText(element, @"Name", fact.name);
+	if (fact.explicitName == nil) {
+		ORMSetAttribute(element, @"Name", nil);
+	} else {
+		ORMWriteText(element, @"Name", fact.explicitName);
 	}
 	ORMWriteNested(_document, element, @"Definitions", @"Definition", fact.definitionText);
 	ORMWriteNested(_document, element, @"Notes", @"Note", fact.noteText);
