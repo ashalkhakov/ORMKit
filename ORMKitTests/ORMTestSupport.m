@@ -8,6 +8,12 @@
 	NSUndoManager *_undoManager;
 }
 
++ (void)setUp
+{
+	[super setUp];
+	ORMEditor.checksAgreement = YES;
+}
+
 - (ORMQueryPlan *)archived:(ORMQueryPlan *)plan
 {
 	NSError *error = nil;

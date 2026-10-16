@@ -36,6 +36,11 @@ BOOL ORMIsAutomaticPlacement(NSPoint point);
 /* A new, empty model as NORMA would start one, with one diagram. */
 + (NSXMLDocument *)newDocumentNamed:(NSString *)name;
 
+/* For tests, while the editors move to the model (docs/MODEL.md): after
+ * every change, undo and redo, the model is compared with one read afresh
+ * from the document, and an exception raised where they differ. */
+@property (class, nonatomic) BOOL checksAgreement;
+
 /* undoManager may be nil: no undo. */
 - (instancetype)initWithDocument:(NSXMLDocument *)document undoManager:(NSUndoManager *)undoManager;
 

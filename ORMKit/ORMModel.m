@@ -2,6 +2,7 @@
 #import "ORMModelPriv.h"
 #import "ORMXML.h"
 #import "ORMReadingText.h"
+#import <objc/runtime.h>
 
 #define CORE ORMCoreNamespace
 
@@ -37,6 +38,21 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 	return self;
 }
 
+- (void)reset
+{
+	_definitionText = nil;
+	_noteText = nil;
+}
+
+- (void)resetWithElement:(NSXMLElement *)element model:(ORMModel *)model
+{
+	[self reset];
+	_element = element;
+	_model = model;
+	_identifier = [ORMAttribute(element, @"id") copy];
+	_name = [(ORMAttribute(element, @"Name") ?: ORMAttribute(element, @"_Name")) copy] ?: @"";
+}
+
 - (NSString *)description
 {
 	return [NSString stringWithFormat:@"<%@ %@ %@>", NSStringFromClass([self class]), self.identifier, self.name];
@@ -59,6 +75,28 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 {
 	NSArray<ORMObjectType *> *_family;
 	NSArray<NSString *> *_familyNames;
+}
+
+- (void)reset
+{
+	[super reset];
+	_family = nil;
+	_familyNames = nil;
+	_kind = ORMEntityType;
+	_isIndependent = _isExternal = _isPersonal = _isImplied = _isImplicitBooleanValue = NO;
+	_playedRoles = nil;
+	_preferredIdentifier = nil;
+	_nestedFactType = nil;
+	_referenceMode = nil;
+	_referenceModeKind = ORMReferenceModeNone;
+	_referenceModeValueType = nil;
+	_referenceModeFactType = nil;
+	_referenceModeRole = nil;
+	_dataType = nil;
+	_dataTypeLength = _dataTypeScale = 0;
+	_valueConstraint = nil;
+	_supertypes = _subtypes = nil;
+	_supertypeFacts = nil;
 }
 
 - (BOOL)isCompatibleWith:(ORMObjectType *)other
@@ -179,6 +217,20 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 @implementation ORMFactType
 {
 	NSString *_displayText;
+}
+
+- (void)reset
+{
+	[super reset];
+	_displayText = nil;
+	_kind = ORMFactTypeOrdinary;
+	_roles = nil;
+	_readingOrders = nil;
+	_internalConstraints = nil;
+	_objectifyingType = nil;
+	_impliedByFactType = nil;
+	_linkFactTypes = nil;
+	_isDerived = _providesPreferredIdentifier = NO;
 }
 
 - (BOOL)isLinkFactType
@@ -395,6 +447,20 @@ ORMCapitalizedWords(NSString *text)
 
 @implementation ORMRole
 
+- (void)reset
+{
+	[super reset];
+	_factType = nil;
+	_player = nil;
+	_index = 0;
+	_isMandatory = _isUnique = _isAlethicMandatory = _isAlethicUnique = NO;
+	_valueConstraint = nil;
+	_isSubtypeMetaRole = _isSupertypeMetaRole = NO;
+	_proxiedRole = nil;
+	_proxies = nil;
+	_constraints = nil;
+}
+
 - (ORMRole *)oppositeRole
 {
 	NSArray *roles = self.factType.roles;
@@ -448,6 +514,15 @@ ORMCapitalizedWords(NSString *text)
 @end
 
 @implementation ORMReadingOrder
+
+- (void)reset
+{
+	[super reset];
+	_factType = nil;
+	_roles = nil;
+	_readings = nil;
+}
+
 @end
 
 @implementation ORMReading
@@ -455,6 +530,16 @@ ORMCapitalizedWords(NSString *text)
 	NSArray<NSString *> *_words;
 	ORMReadingText *_parsedText;
 	BOOL _parsed;
+}
+
+- (void)reset
+{
+	[super reset];
+	_words = nil;
+	_parsedText = nil;
+	_parsed = NO;
+	_readingOrder = nil;
+	_text = nil;
 }
 
 - (BOOL)readsFromFirstRole
@@ -498,9 +583,31 @@ ORMCapitalizedWords(NSString *text)
 #pragma mark Constraints
 
 @implementation ORMRoleSequence
+
+- (void)reset
+{
+	[super reset];
+	_roles = nil;
+	_hasJoinPath = NO;
+}
+
 @end
 
 @implementation ORMConstraint
+
+- (void)reset
+{
+	[super reset];
+	_kind = ORMUniquenessConstraint;
+	_modality = ORMAlethic;
+	_roleSequences = nil;
+	_isInternal = _isSimple = _isImplied = NO;
+	_preferredIdentifierFor = nil;
+	_exclusiveOrPartner = nil;
+	_minFrequency = _maxFrequency = 0;
+	_ringType = 0;
+	_comparisonOperator = nil;
+}
 
 - (NSArray<ORMRole *> *)allRoles
 {
@@ -628,6 +735,14 @@ ORMQuoteValue(NSString *value, BOOL quotes)
 
 @implementation ORMValueRange
 
+- (void)reset
+{
+	[super reset];
+	_constraint = nil;
+	_minValue = _maxValue = nil;
+	_minInclusion = _maxInclusion = 0;
+}
+
 - (NSString *)displayText
 {
 	BOOL quotes = self.constraint == nil || [self.constraint quotesValues];
@@ -646,6 +761,13 @@ ORMQuoteValue(NSString *value, BOOL quotes)
 @end
 
 @implementation ORMValueConstraint
+
+- (void)reset
+{
+	[super reset];
+	_ranges = nil;
+	_valueType = nil;
+}
 
 - (BOOL)quotesValues
 {
@@ -671,6 +793,12 @@ ORMQuoteValue(NSString *value, BOOL quotes)
 @end
 
 @implementation ORMDataType
+
+- (void)reset
+{
+	[super reset];
+	_typeName = nil;
+}
 
 static NSArray *
 ORMDataTypeTable(void)
@@ -760,6 +888,14 @@ ORMDataTypeTable(void)
 @end
 
 @implementation ORMModelNote
+
+- (void)reset
+{
+	[super reset];
+	_text = nil;
+	_referencedElements = nil;
+}
+
 @end
 
 #pragma mark The model
@@ -781,6 +917,9 @@ ORMUnitReferenceModes(void)
 	/* Diagrams are read when first asked for: an editor reads the model
 	 * after every step of a group, and most steps look at no shape. */
 	BOOL _diagramsRead;
+	/* While the model is read again: the elements read before, by id, to
+	 * be read again in place. Kept until the diagrams are read. */
+	NSMutableDictionary<NSString *, ORMElement *> *_reusable;
 }
 
 + (instancetype)modelOfDocument:(NSXMLDocument *)document reason:(NSString **)reason
@@ -797,11 +936,16 @@ ORMUnitReferenceModes(void)
 	return model;
 }
 
+- (void)dealloc
+{
+	[self cutLinks];
+}
+
 /* The model owns its elements; their links to one another are back
  * links, weak in spirit, but arrays hold strongly: a role holds its
  * constraints, which hold their sequences, which hold the role. Cut when
- * the projection goes, or each projection outlives itself. */
-- (void)dealloc
+ * the model goes, or when it is read again, or what is gone outlives it. */
+- (void)cutLinks
 {
 	for (ORMObjectType *type in self.objectTypes) {
 		type.playedRoles = nil;
@@ -830,11 +974,46 @@ ORMUnitReferenceModes(void)
 	}
 }
 
+- (id)element:(Class)elementClass for:(NSXMLElement *)xml
+{
+	NSString *identifier = ORMAttribute(xml, @"id");
+	ORMElement *old = identifier != nil ? [_reusable objectForKey:identifier] : nil;
+	if (old != nil && [old class] == elementClass) {
+		/* Once: a file that gives two elements one id gets two. */
+		[_reusable removeObjectForKey:identifier];
+		[old resetWithElement:xml model:self];
+		return old;
+	}
+	return [[elementClass alloc] initWithElement:xml model:self];
+}
+
+- (void)readDocumentAgain:(NSXMLDocument *)document
+{
+	NSMutableDictionary *reusable = [NSMutableDictionary dictionaryWithDictionary:_elements];
+	/* Shapes not read since the last time are still to be had. */
+	for (NSString *identifier in _reusable) {
+		if ([reusable objectForKey:identifier] == nil) {
+			[reusable setObject:[_reusable objectForKey:identifier] forKey:identifier];
+		}
+	}
+	[self cutLinks];
+	_reusable = reusable;
+	_typesByName = nil;
+	_diagrams = nil;
+	_diagramsRead = NO;
+	[self readDocument:document model:ORMModelElementOfDocument(document)];
+}
+
 - (void)registerElement:(ORMElement *)element
 {
 	if (element.identifier != nil) {
 		[_elements setObject:element forKey:element.identifier];
 	}
+}
+
+- (NSDictionary *)elementsById
+{
+	return _elements;
 }
 
 - (id)elementWithId:(NSString *)identifier
@@ -938,7 +1117,7 @@ ORMUnitReferenceModes(void)
 		if ([node kind] != NSXMLElementKind) {
 			continue;
 		}
-		ORMDataType *type = [[ORMDataType alloc] initWithElement:(NSXMLElement *)node model:self];
+		ORMDataType *type = [self element:[ORMDataType class] for:(NSXMLElement *)node];
 		type.typeName = [node localName];
 		[types addObject:type];
 		[self registerElement:type];
@@ -958,10 +1137,10 @@ ORMUnitReferenceModes(void)
 	if (element == nil) {
 		return nil;
 	}
-	ORMValueConstraint *constraint = [[ORMValueConstraint alloc] initWithElement:element model:self];
+	ORMValueConstraint *constraint = [self element:[ORMValueConstraint class] for:element];
 	NSMutableArray *ranges = [NSMutableArray array];
 	for (NSXMLElement *rangeElement in ORMGrandchildren(element, CORE, @"ValueRanges", CORE, @"ValueRange")) {
-		ORMValueRange *range = [[ORMValueRange alloc] initWithElement:rangeElement model:self];
+		ORMValueRange *range = [self element:[ORMValueRange class] for:rangeElement];
 		range.minValue = ORMAttribute(rangeElement, @"MinValue") ?: @"";
 		range.maxValue = ORMAttribute(rangeElement, @"MaxValue") ?: @"";
 		range.minInclusion = ORMInclusionNamed(ORMAttribute(rangeElement, @"MinInclusion"));
@@ -984,7 +1163,7 @@ ORMUnitReferenceModes(void)
 		}
 		NSXMLElement *element = (NSXMLElement *)node;
 		NSString *local = [element localName];
-		ORMObjectType *type = [[ORMObjectType alloc] initWithElement:element model:self];
+		ORMObjectType *type = [self element:[ORMObjectType class] for:element];
 		if ([local isEqualToString:@"EntityType"]) {
 			type.kind = ORMEntityType;
 		} else if ([local isEqualToString:@"ValueType"]) {
@@ -1015,7 +1194,7 @@ ORMUnitReferenceModes(void)
 
 - (ORMRole *)readRole:(NSXMLElement *)element of:(ORMFactType *)fact index:(NSUInteger)index
 {
-	ORMRole *role = [[ORMRole alloc] initWithElement:element model:self];
+	ORMRole *role = [self element:[ORMRole class] for:element];
 	role.factType = fact;
 	role.index = index;
 	role.isSubtypeMetaRole = [[element localName] isEqualToString:@"SubtypeMetaRole"];
@@ -1034,7 +1213,7 @@ ORMUnitReferenceModes(void)
 		}
 		NSXMLElement *element = (NSXMLElement *)node;
 		NSString *local = [element localName];
-		ORMFactType *fact = [[ORMFactType alloc] initWithElement:element model:self];
+		ORMFactType *fact = [self element:[ORMFactType class] for:element];
 		if ([local isEqualToString:@"Fact"]) {
 			fact.kind = ORMFactTypeOrdinary;
 		} else if ([local isEqualToString:@"SubtypeFact"]) {
@@ -1071,13 +1250,13 @@ ORMUnitReferenceModes(void)
 		NSMutableArray *orders = [NSMutableArray array];
 		for (NSXMLElement *orderElement in ORMGrandchildren(fact.element, CORE, @"ReadingOrders", CORE,
 		                                                    @"ReadingOrder")) {
-			ORMReadingOrder *order = [[ORMReadingOrder alloc] initWithElement:orderElement model:self];
+			ORMReadingOrder *order = [self element:[ORMReadingOrder class] for:orderElement];
 			order.factType = fact;
 			order.roles = [self rolesIn:ORMChild(orderElement, CORE, @"RoleSequence")];
 			NSMutableArray *readings = [NSMutableArray array];
 			for (NSXMLElement *readingElement in ORMGrandchildren(orderElement, CORE, @"Readings", CORE,
 			                                                      @"Reading")) {
-				ORMReading *reading = [[ORMReading alloc] initWithElement:readingElement model:self];
+				ORMReading *reading = [self element:[ORMReading class] for:readingElement];
 				reading.readingOrder = order;
 				reading.text = ORMChildText(readingElement, CORE, @"Data") ?: @"";
 				[readings addObject:reading];
@@ -1108,7 +1287,7 @@ ORMUnitReferenceModes(void)
 
 - (ORMRoleSequence *)readSequence:(NSXMLElement *)element
 {
-	ORMRoleSequence *sequence = [[ORMRoleSequence alloc] initWithElement:element model:self];
+	ORMRoleSequence *sequence = [self element:[ORMRoleSequence class] for:element];
 	sequence.roles = [self rolesIn:element];
 	sequence.hasJoinPath = ORMChild(element, CORE, @"JoinRule") != nil || ORMChild(element, CORE, @"JoinPath") != nil;
 	[self registerElement:sequence];
@@ -1135,7 +1314,7 @@ ORMUnitReferenceModes(void)
 		if (kind == nil) {
 			continue;
 		}
-		ORMConstraint *constraint = [[ORMConstraint alloc] initWithElement:element model:self];
+		ORMConstraint *constraint = [self element:[ORMConstraint class] for:element];
 		constraint.kind = [kind integerValue];
 		constraint.modality = [ORMAttribute(element, @"Modality") isEqualToString:@"Deontic"] ? ORMDeontic
 		                                                                                     : ORMAlethic;
@@ -1173,7 +1352,7 @@ ORMUnitReferenceModes(void)
 {
 	NSMutableArray *notes = [NSMutableArray array];
 	for (NSXMLElement *element in ORMGrandchildren(_modelElement, CORE, @"ModelNotes", CORE, @"ModelNote")) {
-		ORMModelNote *note = [[ORMModelNote alloc] initWithElement:element model:self];
+		ORMModelNote *note = [self element:[ORMModelNote class] for:element];
 		note.text = ORMChildText(element, CORE, @"Text") ?: @"";
 		[notes addObject:note];
 		[self registerElement:note];
@@ -1495,13 +1674,141 @@ ORMReferenceModeIn(NSString *valueName, NSString *format, NSString *entityName)
 	NSXMLElement *root = [_document rootElement];
 	if (root != _modelElement) {
 		for (NSXMLElement *element in ORMChildren(root, ORMDiagramNamespace, @"ORMDiagram")) {
-			ORMDiagram *diagram = [[ORMDiagram alloc] initWithElement:element model:self];
+			ORMDiagram *diagram = [self element:[ORMDiagram class] for:element];
 			[self registerElement:diagram];
 			[diagram readShapes];
 			[diagrams addObject:diagram];
 		}
 	}
 	_diagrams = diagrams;
+	_reusable = nil;
 }
 
 @end
+
+#pragma mark Agreement
+
+/* The values an element is read with: the properties its readers set
+ * (readwrite, from ORMModelPriv.h), not what is worked out from them. Its
+ * XML element and its model are where it is, not what it is. A value
+ * object's are all its properties. */
+static NSArray<NSString *> *
+ORMReadValueKeys(Class elementClass, BOOL all)
+{
+	NSMutableArray *keys = [NSMutableArray array];
+	for (Class c = elementClass; c != Nil && c != [NSObject class]; c = class_getSuperclass(c)) {
+		unsigned int count = 0;
+		objc_property_t *properties = class_copyPropertyList(c, &count);
+		for (unsigned int i = 0; i < count; i++) {
+			NSString *name = [NSString stringWithUTF8String:property_getName(properties[i])];
+			NSArray *attributes = [[NSString stringWithUTF8String:property_getAttributes(properties[i])]
+				componentsSeparatedByString:@","];
+			if ((all || ![attributes containsObject:@"R"]) && ![name isEqualToString:@"element"]
+			    && ![name isEqualToString:@"model"] && ![keys containsObject:name]) {
+				[keys addObject:name];
+			}
+		}
+		free(properties);
+	}
+	return keys;
+}
+
+static NSString *ORMElementDisagreement(ORMElement *a, ORMElement *b);
+
+/* Two values the same: elements by id (or, with none, by their values),
+ * arrays and dictionaries item by item, the rest equal. */
+static BOOL
+ORMSameValue(id a, id b)
+{
+	if (a == nil || b == nil) {
+		return a == b;
+	}
+	if ([a isKindOfClass:[ORMElement class]] && [b isKindOfClass:[ORMElement class]]) {
+		NSString *ida = [a identifier], *idb = [b identifier];
+		if (ida != nil || idb != nil) {
+			return [a class] == [b class] && [ida isEqualToString:idb];
+		}
+		return ORMElementDisagreement(a, b) == nil;
+	}
+	if ([a isKindOfClass:[NSArray class]] && [b isKindOfClass:[NSArray class]]) {
+		if ([a count] != [b count]) {
+			return NO;
+		}
+		for (NSUInteger i = 0; i < [a count]; i++) {
+			if (!ORMSameValue([a objectAtIndex:i], [b objectAtIndex:i])) {
+				return NO;
+			}
+		}
+		return YES;
+	}
+	if ([a isKindOfClass:[NSDictionary class]] && [b isKindOfClass:[NSDictionary class]]) {
+		if ([a count] != [b count]) {
+			return NO;
+		}
+		for (id key in a) {
+			if (!ORMSameValue([a objectForKey:key], [b objectForKey:key])) {
+				return NO;
+			}
+		}
+		return YES;
+	}
+	/* A value object of ORMKit's that does not say when it is equal: by
+	 * its values. */
+	if ([a class] == [b class] && [NSStringFromClass([a class]) hasPrefix:@"ORM"]
+	    && class_getMethodImplementation([a class], @selector(isEqual:))
+	           == class_getMethodImplementation([NSObject class], @selector(isEqual:))) {
+		for (NSString *key in ORMReadValueKeys([a class], YES)) {
+			if (!ORMSameValue([a valueForKey:key], [b valueForKey:key])) {
+				return NO;
+			}
+		}
+		return YES;
+	}
+	return [a isEqual:b];
+}
+
+static NSString *
+ORMElementDisagreement(ORMElement *a, ORMElement *b)
+{
+	if ([a class] != [b class]) {
+		return [NSString stringWithFormat:@"%@ is %@ here, %@ there", a.identifier, [a class], [b class]];
+	}
+	for (NSString *key in ORMReadValueKeys([a class], NO)) {
+		id va = [a valueForKey:key], vb = [b valueForKey:key];
+		if (!ORMSameValue(va, vb)) {
+			return [NSString stringWithFormat:@"%@'s %@: %@ here, %@ there", a, key, va, vb];
+		}
+	}
+	return nil;
+}
+
+NSString *
+ORMModelDisagreement(ORMModel *model, ORMModel *other)
+{
+	/* Shapes are read when the diagrams are. */
+	[model diagrams];
+	[other diagrams];
+	NSDictionary *mine = [model valueForKey:@"elementsById"], *theirs = [other valueForKey:@"elementsById"];
+	for (NSString *key in @[ @"identifier", @"name", @"objectTypes", @"factTypes", @"constraints", @"dataTypes",
+	                         @"notes", @"diagrams" ]) {
+		if (!ORMSameValue([model valueForKey:key], [other valueForKey:key])) {
+			return [NSString stringWithFormat:@"the model's %@ differ", key];
+		}
+	}
+	for (NSString *identifier in mine) {
+		ORMElement *a = [mine objectForKey:identifier], *b = [theirs objectForKey:identifier];
+		if (b == nil) {
+			return [NSString stringWithFormat:@"%@ is here only", a];
+		}
+		NSString *difference = ORMElementDisagreement(a, b);
+		if (difference != nil) {
+			return difference;
+		}
+	}
+	for (NSString *identifier in theirs) {
+		if ([mine objectForKey:identifier] == nil) {
+			return [NSString stringWithFormat:@"%@ is there only", [theirs objectForKey:identifier]];
+		}
+	}
+	return nil;
+}

@@ -24,6 +24,22 @@ ORMShapeKindNamed(NSString *local)
 
 @implementation ORMShape
 
+- (void)reset
+{
+	[super reset];
+	_kind = ORMShapeUnknown;
+	_bounds = NSZeroRect;
+	_subject = nil;
+	_subjectId = nil;
+	_diagram = nil;
+	_parent = nil;
+	_relativeShapes = nil;
+	_isExpanded = NO;
+	_roleDisplayOrder = nil;
+	_orientation = ORMFactTypeHorizontal;
+	_constraintsBelow = _expandsReferenceMode = NO;
+}
+
 - (ORMObjectType *)objectType
 {
 	return [self.subject isKindOfClass:[ORMObjectType class]] ? self.subject : nil;
@@ -51,9 +67,19 @@ ORMShapeKindNamed(NSString *local)
 	NSArray<ORMShape *> *_allShapes;
 }
 
+- (void)reset
+{
+	[super reset];
+	_allShapes = nil;
+	_shapes = nil;
+	_isCompleteView = NO;
+	_baseFontName = nil;
+	_baseFontSize = 0;
+}
+
 - (ORMShape *)readShape:(NSXMLElement *)element parent:(ORMShape *)parent into:(NSMutableArray *)all
 {
-	ORMShape *shape = [[ORMShape alloc] initWithElement:element model:self.model];
+	ORMShape *shape = [self.model element:[ORMShape class] for:element];
 	shape.kind = ORMShapeKindNamed([element localName]);
 	shape.diagram = self;
 	shape.parent = parent;

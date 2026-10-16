@@ -11,6 +11,10 @@
 @property (nonatomic, readwrite, copy) NSString *definitionText;
 @property (nonatomic, readwrite, copy) NSString *noteText;
 - (instancetype)initWithElement:(NSXMLElement *)element model:(ORMModel *)model;
+/* Read again in place: every value as a new element's, then the element's. */
+- (void)resetWithElement:(NSXMLElement *)element model:(ORMModel *)model;
+/* Each class's values back to a new element's; a subclass calls super. */
+- (void)reset;
 @end
 
 @interface ORMObjectType ()
@@ -146,6 +150,12 @@
 /* Every projected element by id, and a way for the diagram to add its
  * shapes. */
 - (void)registerElement:(ORMElement *)element;
+/* The element read from xml: when the model is read again, the one read
+ * before for its id, if of the class, reset; else a new one. */
+- (id)element:(Class)elementClass for:(NSXMLElement *)xml;
+/* The document read again into the same model: an element whose id is
+ * still there is the same object, with its values read anew. */
+- (void)readDocumentAgain:(NSXMLDocument *)document;
 /* What ORMPath reads beside the model: join paths, derivation rules,
  * populations, cardinalities, each a dictionary by owner id. */
 @property (nonatomic, strong) NSMutableDictionary *extras;
@@ -154,6 +164,10 @@
 @interface ORMModel (ORMPathReading)
 - (void)readPathsAndPopulations;
 @end
+
+/* Where two models read differ, the first place found, in words; nil when
+ * they agree element for element (docs/MODEL.md, the agreement check). */
+NSString *ORMModelDisagreement(ORMModel *model, ORMModel *other);
 
 /* The orm:ORMModel element of a document: its root, or the root's child. */
 NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);

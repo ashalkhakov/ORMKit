@@ -23,6 +23,8 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	                  0.24388888899236916 * ORMPointsPerInch);
 }
 
+static BOOL ORMChecksAgreement;
+
 @implementation ORMEditor
 {
 	NSUndoManager *_undoManager;
@@ -149,14 +151,45 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	return _normalizer.writesImpliedMandatories;
 }
 
++ (BOOL)checksAgreement
+{
+	return ORMChecksAgreement;
+}
+
++ (void)setChecksAgreement:(BOOL)checks
+{
+	ORMChecksAgreement = checks;
+}
+
+- (void)checkAgreement
+{
+	if (!ORMChecksAgreement || _model == nil) {
+		return;
+	}
+	@autoreleasepool {
+		ORMModel *fresh = [ORMModel modelOfDocument:_document reason:NULL];
+		NSString *difference = ORMModelDisagreement(_model, fresh);
+		if (difference != nil) {
+			[NSException raise:NSInternalInconsistencyException
+			            format:@"The model and the document disagree: %@", difference];
+		}
+	}
+}
+
 - (BOOL)hasChanges
 {
 	return _hasChanges;
 }
 
+/* The same model, read again from the document: what holds one of its
+ * elements across a change holds it still. */
 - (void)reread
 {
-	_model = [ORMModel modelOfDocument:_document reason:NULL];
+	if (_model != nil && ORMModelElementOfDocument(_document) != nil) {
+		[_model readDocumentAgain:_document];
+	} else {
+		_model = [ORMModel modelOfDocument:_document reason:NULL];
+	}
 	_stale = NO;
 }
 
@@ -177,17 +210,13 @@ ORMDefaultFactTypeSize(NSUInteger roles)
  * step to undo. */
 - (BOOL)apply:(NSString *)name rollback:(BOOL)rollback with:(BOOL (^)(void))change
 {
-	/* The projection the change starts from is held for it: its objects'
-	 * links to one another are weak. */
-	__attribute__((objc_precise_lifetime)) ORMModel *start = _model;
-	(void)start;
 	/* A step of a group is read back for the next, and the group as a
 	 * whole normalized, from the readings it started with. */
 	if (_depth > 0) {
 		NSXMLDocument *before = rollback ? ORMCopyDocument(_document) : nil;
 		BOOL done;
 		/* What the step made is read when the next step, or the caller,
-		 * asks; the projection before it is let go of then. */
+		 * asks. */
 		@autoreleasepool {
 			done = change();
 		}
@@ -225,6 +254,7 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	}
 	_hasChanges = YES;
 	[self reread];
+	[self checkAgreement];
 	if (self.changed != nil) {
 		self.changed();
 	}
@@ -258,6 +288,7 @@ ORMDefaultFactTypeSize(NSUInteger roles)
 	_document = [state objectAtIndex:0];
 	_hasChanges = [[state objectAtIndex:1] boolValue];
 	[self reread];
+	[self checkAgreement];
 	if (self.changed != nil) {
 		self.changed();
 	}
