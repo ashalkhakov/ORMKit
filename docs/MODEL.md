@@ -101,9 +101,16 @@ Each step keeps every test passing.
    `_IsMandatory` does, and the Core Data mapper maps by them, so a deontic
    mandatory role is a required attribute. Alethic-only flags for the
    mapper would change how such models map: a decision to make.
-1. **The writer, and the full-rewrite check.** `ORMNormaWriter` writes each
-   kind of element from the model. Every fixture rewrites to the same
-   bytes. Nothing uses it yet.
+1. **The writer, and the full-rewrite check** (done). `ORMNormaWriter`
+   writes each kind of element from the model: object types, fact types,
+   roles, readings, constraints, value ranges, notes, diagrams and shapes.
+   Every NORMA fixture rewrites to the same bytes (`ORMWriterTests`).
+   Nothing uses it yet. Values read as numbers (shape bounds, font sizes)
+   are compared as read, so NORMA's digits stay. Gaps found on the way:
+   a fact type's own `Name` is not told apart from NORMA's derived `_Name`;
+   a sequence's role that does not resolve is not in the model, so the
+   writer keeps it; role uses' ids are the XML's. Populations, derivation
+   rules, queries and mappings come with their editors (step 3).
 2. **A model that lasts, with change tracking and undo records.** The
    editor keeps one model. An operation not yet moved over still edits the
    XML: the model is first written to the carrier, and the model read
