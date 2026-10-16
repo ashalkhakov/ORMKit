@@ -123,32 +123,22 @@ Each step keeps every test passing.
    populations, Core Data mappings, queries. Each operation changes the
    model and records its undo. Saving writes through the writer.
 
-   NORMA's model is done. The model tells what is read from what is
-   derived (`-[ORMModel derive]`: played roles, subtyping, internal
-   constraints, roles' flags, reference modes, fact type names, preferred
-   identifiers' owners). An operation runs in `-[ORMEditor
-   modelChange:with:]`: it changes elements and says which (`-wrote:`,
-   `-deleted:`); the model keeps NORMA's implied mandatories, unaries'
-   implicit names and shapes of what is gone as the normalizer does, is
-   derived, and the elements are written. Groups edit the XML only where
-   a step does. Moved: object types, fact types and readings,
+   Done. Every operation changes the model and records nothing in the
+   XML but through the writer, or is a document change to what the model
+   does not read (Core Data mappings and queries, still XML read on
+   demand). The model tells what is read from what is derived
+   (`-[ORMModel derive]`); an operation runs in `-[ORMEditor
+   modelChange:with:]`, says which elements it changed (`-wrote:`,
+   `-deleted:`), and the model keeps NORMA's rules (implied mandatories,
+   unaries' implicit names, shapes of what is gone, a derivation rule's
+   words from its query), is derived and written. Groups edit the XML only
+   where a step does. Moved: object types, fact types and readings,
    objectification, constraints, names, definitions and notes, deletion,
-   diagrams and shapes. A document built by all of them is the same
-   bytes as the XML editors wrote; the agreement check runs on each.
-
-   Sample populations are model too: role instances are elements of
-   their own on their roles, and what instances and facts come to is
-   derived; adding, renaming and removing change the model. Core Data
-   mappings and queries are edited in the document still, but the model
-   does not read them, so they leave it as it is (`-documentChange:with:`);
-   the normalizer says when it rewrote what the model reads from them (a
-   derivation rule's words), and the model is read again then. Still
-   edited in the XML, and read again after: derivation rules and join
-   paths (ORMPath's, which needs a writer of its own), from queries, the
-   fact type editor and the join path builder.
-
-   The Core Data import round trip takes 6.6 s on macOS, from 16.3: it
-   reads the model once.
+   diagrams and shapes, sample populations (role instances elements of
+   their own), derivation rules, and join paths (the writer makes NORMA's
+   role paths). Each is the same bytes as the XML editors wrote, and the
+   agreement check runs on each. The model is read again only when a
+   refused group puts back what it did, and when undone.
 
 4. **The normalizer goes**, its rules now the writer's (done, but for
    the XML edits left). After a model change the writer writes what NORMA
