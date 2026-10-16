@@ -391,9 +391,9 @@ ORMFirstDifference(NSData *one, NSData *other)
 			[self.factTypeEditor renameImplicitBooleanOf:fact was:was];
 		}
 	}
-	[model derive];
+	[model deriveAfterChanging:[_wrote arrayByAddingObjectsFromArray:_deleted]];
 	if ([self.constraintEditor keepImpliedMandatories]) {
-		[model derive];
+		[model deriveAfterChanging:[_wrote arrayByAddingObjectsFromArray:_deleted]];
 	}
 	ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
 	writer.gone = [NSSet setWithArray:[_deleted valueForKey:@"identifier"]];

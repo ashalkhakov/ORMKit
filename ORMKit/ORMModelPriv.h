@@ -30,6 +30,8 @@
 @end
 
 @interface ORMObjectType ()
+/* Its family, worked out when asked, forgotten. */
+- (void)forgetCaches;
 @property (nonatomic, readwrite) ORMObjectTypeKind kind;
 @property (nonatomic, readwrite, copy) NSString *defaultValue;
 @property (nonatomic, readwrite) BOOL isIndependent;
@@ -210,6 +212,10 @@
  * played roles, subtyping, internal constraints, a role's constraints and
  * flags, reference modes, link fact types, proxies' players. No XML. */
 - (void)derive;
+/* The same for what a change touched (made, changed or taken away), and
+ * what that changes: the rest kept as the last derive left it. A full
+ * derive where it cannot tell. */
+- (void)deriveAfterChanging:(NSArray<ORMElement *> *)touched;
 /* Whether the diagrams have been read: they are read when first asked for. */
 @property (nonatomic, readonly) BOOL diagramsRead;
 /* A new diagram in the model, after the others. */
