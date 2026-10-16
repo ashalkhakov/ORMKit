@@ -8,6 +8,8 @@
 @property (nonatomic, readwrite, copy) NSString *identifier;
 @property (nonatomic, readwrite, weak) ORMModel *model;
 @property (nonatomic, readwrite, copy) NSString *name;
+@property (nonatomic, readwrite, copy) NSString *definitionText;
+@property (nonatomic, readwrite, copy) NSString *noteText;
 - (instancetype)initWithElement:(NSXMLElement *)element model:(ORMModel *)model;
 @end
 
@@ -33,8 +35,6 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *supertypes;
 @property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *subtypes;
 @property (nonatomic, readwrite, copy) NSArray<ORMFactType *> *supertypeFacts;
-@property (nonatomic, readwrite, copy) NSString *definitionText;
-@property (nonatomic, readwrite, copy) NSString *noteText;
 @end
 
 @interface ORMFactType ()

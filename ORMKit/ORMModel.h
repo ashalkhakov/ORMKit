@@ -21,6 +21,10 @@
 /* What the element is called in the model; NORMA names constraints
  * (InternalUniquenessConstraint1) and the fact types it derives a name for. */
 @property (nonatomic, readonly, copy) NSString *name;
+/* Free text: NORMA's Definition and Note, of an object type or a fact
+ * type; nil where there is none. */
+@property (nonatomic, readonly, copy) NSString *definitionText;
+@property (nonatomic, readonly, copy) NSString *noteText;
 @end
 
 #pragma mark Object types
@@ -103,9 +107,6 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
  * has an identifier. Itself for a value type. */
 - (ORMObjectType *)identifiedType;
 
-/* Free text: NORMA's Definition and Note. */
-@property (nonatomic, readonly, copy) NSString *definitionText;
-@property (nonatomic, readonly, copy) NSString *noteText;
 
 /* "Person(.id)", "Mass(kg:)", "Name": how a diagram labels it. */
 - (NSString *)displayName;

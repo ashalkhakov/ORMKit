@@ -1034,6 +1034,8 @@ ORMUnitReferenceModes(void)
 			[roles addObject:[self readRole:(NSXMLElement *)roleNode of:fact index:[roles count]]];
 		}
 		fact.roles = roles;
+		fact.definitionText = ORMNestedText(element, @"Definitions", @"Definition");
+		fact.noteText = ORMNestedText(element, @"Notes", @"Note");
 		/* Derived when the rule says how, formally or in words. */
 		NSXMLElement *rule = ORMChild(element, CORE, @"DerivationRule");
 		fact.isDerived = ORMChild(rule, CORE, @"FactTypeDerivationPath") != nil
