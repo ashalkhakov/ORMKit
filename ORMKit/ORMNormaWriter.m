@@ -169,6 +169,25 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 	}
 }
 
+/* After an element is replaced by a copy: the elements read from its
+ * children point at the copies. */
+- (void)rebindChildrenOf:(ORMObjectType *)type
+{
+	ORMValueConstraint *constraint = type.ownValueConstraint;
+	if (constraint != nil) {
+		NSXMLElement *restriction = ORMChild(type.element, CORE, @"ValueRestriction");
+		for (NSXMLNode *node in [restriction children]) {
+			if ([node kind] == NSXMLElementKind && [[node URI] isEqualToString:CORE]) {
+				constraint.element = (NSXMLElement *)node;
+			}
+		}
+		NSArray *ranges = ORMGrandchildren(constraint.element, CORE, @"ValueRanges", CORE, @"ValueRange");
+		for (NSUInteger i = 0; i < MIN([ranges count], [constraint.ranges count]); i++) {
+			[[constraint.ranges objectAtIndex:i] setElement:[ranges objectAtIndex:i]];
+		}
+	}
+}
+
 /* The XML element of an element an editor made, where NORMA keeps its
  * kind, with its id. */
 - (void)makeElementOf:(ORMElement *)element
@@ -344,10 +363,43 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 
 #pragma mark Object types
 
+/* NORMA's element for each kind of object type. */
+static NSString *
+ORMObjectTypeElementName(ORMObjectTypeKind kind)
+{
+	return kind == ORMValueType ? @"ValueType" : kind == ORMObjectifiedType ? @"ObjectifiedType" : @"EntityType";
+}
+
 - (void)writeObjectType:(ORMObjectType *)type
 {
 	NSXMLElement *element = type.element;
+	NSString *local = ORMObjectTypeElementName(type.kind);
+	if (![[element localName] isEqualToString:local]) {
+		/* Another kind: the same attributes and children under its name. */
+		NSXMLElement *replacement = ORMNewElement(_document, CORE, local);
+		for (NSXMLNode *attribute in [element attributes]) {
+			[replacement addAttribute:[attribute copy]];
+		}
+		for (NSXMLNode *child in [element children]) {
+			[replacement addChild:[child copy]];
+		}
+		[(NSXMLElement *)[element parent] replaceChildAtIndex:[element index] withNode:replacement];
+		element = replacement;
+		type.element = element;
+		[self rebindChildrenOf:type];
+	}
 	ORMSetAttribute(element, @"Name", type.name);
+	if (type.savedReferenceMode == nil) {
+		ORMSetAttribute(element, @"_ReferenceMode", nil);
+	} else if (![ORMAttribute(element, @"_ReferenceMode") isEqualToString:type.savedReferenceMode]) {
+		ORMSetAttribute(element, @"_ReferenceMode", type.savedReferenceMode);
+	}
+	if (type.ownValueConstraint == nil) {
+		[ORMChild(element, CORE, @"ValueRestriction") detach];
+	}
+	if (type.kind != ORMValueType || type.dataType == nil) {
+		[ORMChild(element, CORE, @"ConceptualDataType") detach];
+	}
 	ORMWriteBool(element, @"IsIndependent", type.isIndependent, NO);
 	ORMWriteBool(element, @"IsExternal", type.isExternal, NO);
 	ORMWriteBool(element, @"IsPersonal", type.isPersonal, NO);

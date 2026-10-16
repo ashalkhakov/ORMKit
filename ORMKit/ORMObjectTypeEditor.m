@@ -365,31 +365,20 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		}
 		return NO;
 	}
-	[_editor change:value ? @"Make Value Type" : @"Make Entity Type" with:^{
-		NSXMLElement *old = type.element;
-		NSXMLElement *replacement = ORMNewElement(_editor.document, CORE, value ? @"ValueType" : @"EntityType");
-		for (NSXMLNode *attribute in [old attributes]) {
-			if (![[attribute name] isEqualToString:@"_ReferenceMode"]) {
-				[replacement addAttribute:[attribute copy]];
-			}
-		}
-		for (NSXMLNode *child in [old children]) {
-			NSString *local = [child localName];
-			if (!value && ([local isEqualToString:@"ConceptualDataType"] || [local isEqualToString:@"ValueRestriction"])) {
-				continue;
-			}
-			[replacement addChild:[child copy]];
-		}
+	[_editor modelChange:value ? @"Make Value Type" : @"Make Entity Type" with:^{
 		if (value) {
-			NSXMLElement *dataType = ORMNewElementWithId(_editor.document, CORE, @"ConceptualDataType", nil);
-			ORMSetAttribute(dataType, @"ref", [_editor dataTypeIdNamed:@"UnspecifiedDataType"]);
-			ORMSetAttribute(dataType, @"Scale", @"0");
-			ORMSetAttribute(dataType, @"Length", @"0");
-			ORMInsertChild(replacement, dataType);
+			type.kind = ORMValueType;
+			type.dataType = [self dataTypeNamed:@"UnspecifiedDataType"];
+			type.savedReferenceMode = nil;
 		} else {
-			ORMSetAttribute(replacement, @"_ReferenceMode", @"");
+			type.kind = ORMEntityType;
+			type.dataType = nil;
+			[_editor.model removeElement:type.ownValueConstraint];
+			type.ownValueConstraint = nil;
+			type.savedReferenceMode = @"";
 		}
-		[(NSXMLElement *)[old parent] replaceChildAtIndex:[old index] withNode:replacement];
+		type.dataTypeLength = type.dataTypeScale = 0;
+		[_editor wrote:type];
 	}];
 	return YES;
 }

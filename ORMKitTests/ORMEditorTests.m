@@ -150,6 +150,40 @@
 	XCTAssertEqualObjects(type.dataType.typeName, @"UnspecifiedDataType");
 }
 
+/* An entity type made a value type and back: NORMA's element of each
+ * kind, with what each kind has, the same object all along. */
+- (void)testAnObjectTypeChangesKind
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *colour = [self entity:@"Colour" mode:nil in:editor];
+	ORMObjectType *type = [editor.model elementWithId:colour];
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"_ReferenceMode"), @"");
+	XCTAssertTrue([editor.objectTypeEditor setValueType:YES of:colour reason:NULL]);
+	XCTAssertEqual([editor.model elementWithId:colour], type);
+	XCTAssertEqual(type.kind, ORMValueType);
+	XCTAssertEqualObjects([type.element localName], @"ValueType");
+	XCTAssertEqualObjects(type.dataType.typeName, @"UnspecifiedDataType");
+	XCTAssertNotNil(ORMChild(type.element, ORMCoreNamespace, @"ConceptualDataType"));
+	XCTAssertNil(ORMAttribute(type.element, @"_ReferenceMode"));
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"id"), colour);
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"{'red', 'green'}" of:colour reason:NULL]);
+	XCTAssertEqual([type.valueConstraint.ranges count], 2u);
+	XCTAssertTrue([editor.objectTypeEditor setValueType:NO of:colour reason:NULL]);
+	XCTAssertEqual(type.kind, ORMEntityType);
+	XCTAssertEqualObjects([type.element localName], @"EntityType");
+	XCTAssertNil(type.valueConstraint);
+	XCTAssertNil(ORMChild(type.element, ORMCoreNamespace, @"ValueRestriction"));
+	XCTAssertNil(ORMChild(type.element, ORMCoreNamespace, @"ConceptualDataType"));
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"_ReferenceMode"), @"");
+	[self.undoManager undo];
+	XCTAssertEqual(type.kind, ORMValueType);
+	XCTAssertEqual([type.valueConstraint.ranges count], 2u);
+	/* A value type with a value constraint, made a value type again. */
+	[self.undoManager redo];
+	XCTAssertTrue([editor.objectTypeEditor setValueType:YES of:colour reason:NULL]);
+	XCTAssertNil(type.valueConstraint);
+}
+
 - (void)testNamesAreUnique
 {
 	ORMEditor *editor = [self newEditor];

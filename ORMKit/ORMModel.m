@@ -980,6 +980,19 @@ ORMUnitReferenceModes(void)
 	          @"m", @"mile", @"mm", @"mph", @"USD", @"Year", @"day", @"hr", @"min", @"sec", @"in", @"lb" ];
 }
 
+/* The array without the object, itself where it is not there. */
+static NSArray *
+ORMWithout(NSArray *array, id object)
+{
+	NSUInteger index = [array indexOfObjectIdenticalTo:object];
+	if (index == NSNotFound) {
+		return array;
+	}
+	NSMutableArray *rest = [array mutableCopy];
+	[rest removeObjectAtIndex:index];
+	return rest;
+}
+
 @implementation ORMModel
 {
 	NSMutableDictionary<NSString *, id> *_elements;
@@ -1089,6 +1102,26 @@ ORMUnitReferenceModes(void)
 	} else if ([element isKindOfClass:[ORMModelNote class]]) {
 		_notes = [_notes arrayByAddingObject:(id)element];
 	}
+}
+
+- (void)removeElement:(ORMElement *)element
+{
+	if (element == nil) {
+		return;
+	}
+	if ([element isKindOfClass:[ORMValueConstraint class]]) {
+		for (ORMValueRange *range in [(ORMValueConstraint *)element ranges]) {
+			[self removeElement:range];
+		}
+	}
+	if (element.identifier != nil && [_elements objectForKey:element.identifier] == element) {
+		[_elements removeObjectForKey:element.identifier];
+	}
+	_dataTypes = ORMWithout(_dataTypes, element);
+	_objectTypes = ORMWithout(_objectTypes, element);
+	_factTypes = ORMWithout(_factTypes, element);
+	_constraints = ORMWithout(_constraints, element);
+	_notes = ORMWithout(_notes, element);
 }
 
 - (void)registerElement:(ORMElement *)element
