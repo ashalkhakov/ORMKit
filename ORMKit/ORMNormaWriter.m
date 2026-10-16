@@ -370,9 +370,6 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 					NSUInteger index = [ORMChild(reading.element, CORE, @"Data") index] + 1;
 					ORMInsertChildAt(reading.element, expanded, MIN(index, [reading.element childCount]));
 				} else if (![ORMShapeOf(existing) isEqual:ORMShapeOf(expanded)]) {
-					/* Beside the old one, which goes: gnustep-base's
-					 * -replaceChildAtIndex:withNode: frees what libxml2 keeps
-					 * in a parsed document's dictionary. */
 					ORMInsertChildAt(reading.element, expanded, [existing index]);
 					ORMDetach(existing);
 				}
@@ -878,10 +875,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	NSXMLElement *element = type.element;
 	NSString *local = ORMObjectTypeElementName(type.kind);
 	if (![[element localName] isEqualToString:local]) {
-		/* Another kind: renamed in place, its attributes and children kept.
-		 * Copied into a new element instead, its children's names (in
-		 * libxml2's dictionary for a parsed document) are freed when moved,
-		 * on GNUstep. */
+		/* Another kind: renamed in place, its attributes and children kept. */
 		NSString *prefix = [element prefix];
 		ORMRename(element, [prefix length] > 0 ? [NSString stringWithFormat:@"%@:%@", prefix, local] : local);
 	}

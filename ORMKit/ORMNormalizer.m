@@ -237,9 +237,6 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 					NSUInteger index = [ORMChild(reading.element, CORE, @"Data") index] + 1;
 					ORMInsertChildAt(reading.element, expanded, MIN(index, [reading.element childCount]));
 				} else if (![ORMShapeOf(existing) isEqual:ORMShapeOf(expanded)]) {
-					/* Beside the old one, which goes: gnustep-base's
-					 * -replaceChildAtIndex:withNode: frees what libxml2 keeps
-					 * in a parsed document's dictionary. */
 					ORMInsertChildAt(reading.element, expanded, [existing index]);
 					ORMDetach(existing);
 				}
