@@ -163,8 +163,12 @@ Each step keeps every test passing.
    `documentChange:`, and the normalizer after it) is gone. The harnesses
    that compare every operation's bytes with the XML editors' still give
    the same.
-6. **Measure**: the Core Data import round trip, the query tests' setUp, the
-   Fact Editor.
+6. **Measure** (macOS, done for now). An edit of OrmMetaModel (163 object
+   types) takes 1.4 ms, from 30 before step 3. The Core Data import round
+   trip takes 4.9 s without the test-time checks, 6.1 s with them (16.3 s
+   before). What is left is `-[ORMModel derive]`, every edit working the
+   whole model's links out again (link fact types, role constraints):
+   about half of an import's time. Making it incremental is for later.
 
 ## Not here
 
