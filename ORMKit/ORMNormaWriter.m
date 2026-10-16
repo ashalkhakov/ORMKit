@@ -2,8 +2,10 @@
 #import "ORMNormaWriter.h"
 #import "ORMModelPriv.h"
 #import "ORMXML.h"
+#import "ORMDiagram.h"
 
 #define CORE ORMCoreNamespace
+#define DIAGRAM ORMDiagramNamespace
 
 #pragma mark Values as NORMA writes them
 
@@ -159,6 +161,12 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 	for (ORMModelNote *note in self.model.notes) {
 		[self writeElement:note];
 	}
+	for (ORMDiagram *diagram in self.model.diagrams) {
+		[self writeElement:diagram];
+		for (ORMShape *shape in [diagram allShapes]) {
+			[self writeElement:shape];
+		}
+	}
 }
 
 - (void)writeElement:(ORMElement *)element
@@ -183,6 +191,10 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 		ORMWriteRoleRefs(_document, element.element, [(ORMRoleSequence *)element roles], self.model);
 	} else if ([element isKindOfClass:[ORMValueConstraint class]]) {
 		[self writeValueConstraint:(ORMValueConstraint *)element];
+	} else if ([element isKindOfClass:[ORMDiagram class]]) {
+		[self writeDiagram:(ORMDiagram *)element];
+	} else if ([element isKindOfClass:[ORMShape class]]) {
+		[self writeShape:(ORMShape *)element];
 	} else if ([element isKindOfClass:[ORMModelNote class]]) {
 		NSString *text = [(ORMModelNote *)element text];
 		if (![ORMChildText(element.element, CORE, @"Text") ?: @"" isEqualToString:text ?: @""]) {
@@ -262,6 +274,54 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 				ORMSetAttribute(element, [pair firstObject], ORMInclusionName(inclusion));
 			}
 		}
+	}
+}
+
+#pragma mark Diagrams
+
+- (void)writeDiagram:(ORMDiagram *)diagram
+{
+	NSXMLElement *element = diagram.element;
+	ORMWriteText(element, @"Name", diagram.name);
+	ORMWriteBool(element, @"IsCompleteView", diagram.isCompleteView, NO);
+	/* Tahoma where the file names none. */
+	NSString *font = ORMAttribute(element, @"BaseFontName");
+	if (![font ?: @"Tahoma" isEqualToString:diagram.baseFontName]) {
+		ORMSetAttribute(element, @"BaseFontName", diagram.baseFontName);
+	}
+	/* In inches in the file, compared as read. */
+	NSString *size = ORMAttribute(element, @"BaseFontSize");
+	double now = size != nil ? [size doubleValue] * ORMPointsPerInch : 7.0;
+	if (now != diagram.baseFontSize) {
+		ORMSetAttribute(element, @"BaseFontSize", [NSString stringWithFormat:@"%g", diagram.baseFontSize / ORMPointsPerInch]);
+	}
+}
+
+- (void)writeShape:(ORMShape *)shape
+{
+	NSXMLElement *element = shape.element;
+	/* Bounds in inches in the file: compared as read, so that NORMA's
+	 * digits stay where they say the same. */
+	if (!NSEqualRects(ORMParseBounds(ORMAttribute(element, @"AbsoluteBounds")), shape.bounds)) {
+		ORMSetAttribute(element, @"AbsoluteBounds", ORMFormatBounds(shape.bounds));
+	}
+	ORMWriteBool(element, @"IsExpanded", shape.isExpanded, NO);
+	ORMWriteBool(element, @"ExpandRefMode", shape.expandsReferenceMode, NO);
+	NSString *orientation = ORMAttribute(element, @"DisplayOrientation");
+	ORMFactTypeOrientation was = [orientation isEqualToString:@"VerticalRotatedRight"] ? ORMFactTypeVerticalRotatedRight
+		: [orientation isEqualToString:@"VerticalRotatedLeft"] ? ORMFactTypeVerticalRotatedLeft : ORMFactTypeHorizontal;
+	if (was != shape.orientation) {
+		ORMSetAttribute(element, @"DisplayOrientation", shape.orientation == ORMFactTypeVerticalRotatedRight ? @"VerticalRotatedRight"
+		                                                : shape.orientation == ORMFactTypeVerticalRotatedLeft ? @"VerticalRotatedLeft"
+		                                                                                                      : @"Horizontal");
+	}
+	BOOL below = [ORMAttribute(element, @"ConstraintDisplayPosition") isEqualToString:@"Bottom"];
+	if (below != shape.constraintsBelow) {
+		ORMSetAttribute(element, @"ConstraintDisplayPosition", shape.constraintsBelow ? @"Bottom" : @"Top");
+	}
+	NSXMLElement *subject = ORMChild(element, DIAGRAM, @"Subject");
+	if (shape.subjectId != nil && ![ORMRef(subject) isEqualToString:shape.subjectId]) {
+		ORMSetAttribute(subject, @"ref", shape.subjectId);
 	}
 }
 
