@@ -88,10 +88,11 @@ ORMWriteText(NSXMLElement *element, NSString *name, NSString *value)
  * the file's: the model reads past it, and so does the writer. */
 static void
 ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRole *> *roles, ORMModel *model,
-                 BOOL withIds, NSSet<NSString *> *gone)
+                 NSArray<NSString *> *useIds, NSSet<NSString *> *gone)
 {
 	NSMutableArray *children = [NSMutableArray array];
 	NSMutableArray *refs = [NSMutableArray array];
+	NSMutableArray *ids = [NSMutableArray array];
 	for (NSXMLElement *child in ORMChildren(container, CORE, @"Role")) {
 		if ([gone containsObject:ORMRef(child) ?: @""]) {
 			/* A role the model has just taken away. */
@@ -99,10 +100,11 @@ ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRo
 		} else if ([[model elementWithId:ORMRef(child)] isKindOfClass:[ORMRole class]]) {
 			[children addObject:child];
 			[refs addObject:ORMRef(child)];
+			[ids addObject:ORMAttribute(child, @"id") ?: @""];
 		}
 	}
 	NSArray *wanted = [roles valueForKey:@"identifier"];
-	if (container == nil || [refs isEqualToArray:wanted]) {
+	if (container == nil || ([refs isEqualToArray:wanted] && (useIds == nil || [ids isEqualToArray:useIds]))) {
 		return;
 	}
 	NSMutableDictionary *kept = [NSMutableDictionary dictionary];
@@ -110,12 +112,19 @@ ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRo
 		[kept setObject:child forKey:ORMRef(child) ?: @""];
 		ORMDetach(child);
 	}
-	for (NSString *identifier in wanted) {
+	for (NSUInteger i = 0; i < [wanted count]; i++) {
+		NSString *identifier = [wanted objectAtIndex:i];
 		NSXMLElement *child = [kept objectForKey:identifier];
 		if (child == nil) {
-			/* A constraint's use of a role has an id of its own. */
-			child = withIds ? ORMNewElementWithId(document, CORE, @"Role", nil) : ORMNewElement(document, CORE, @"Role");
+			/* A constraint's use of a role has an id of its own, the
+			 * model's. */
+			NSString *useId = i < [useIds count] ? [useIds objectAtIndex:i] : nil;
+			child = [useId length] > 0 ? ORMNewElementWithId(document, CORE, @"Role", useId)
+			                           : ORMNewElement(document, CORE, @"Role");
 			ORMSetAttribute(child, @"ref", identifier);
+		} else if (i < [useIds count] && [[useIds objectAtIndex:i] length] > 0
+		           && ![ORMAttribute(child, @"id") ?: @"" isEqualToString:[useIds objectAtIndex:i]]) {
+			ORMSetAttribute(child, @"id", [useIds objectAtIndex:i]);
 		}
 		ORMAddChild(container, child);
 	}
@@ -550,13 +559,14 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		[self writeRole:(ORMRole *)element];
 	} else if ([element isKindOfClass:[ORMReadingOrder class]]) {
 		ORMWriteRoleRefs(_document, ORMChild(element.element, CORE, @"RoleSequence"), [(ORMReadingOrder *)element roles],
-		                 self.model, NO, self.gone);
+		                 self.model, nil, self.gone);
 	} else if ([element isKindOfClass:[ORMReading class]]) {
 		[self writeReading:(ORMReading *)element];
 	} else if ([element isKindOfClass:[ORMConstraint class]]) {
 		[self writeConstraint:(ORMConstraint *)element];
 	} else if ([element isKindOfClass:[ORMRoleSequence class]]) {
-		ORMWriteRoleRefs(_document, element.element, [(ORMRoleSequence *)element roles], self.model, YES, self.gone);
+		ORMWriteRoleRefs(_document, element.element, [(ORMRoleSequence *)element roles], self.model,
+		                 [(ORMRoleSequence *)element roleUseIds], self.gone);
 	} else if ([element isKindOfClass:[ORMValueConstraint class]]) {
 		[self writeValueConstraint:(ORMValueConstraint *)element];
 	} else if ([element isKindOfClass:[ORMInstance class]]) {
@@ -626,7 +636,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			orders = orders ?: ORMEnsureChild(_document, element, CORE, @"ReadingOrders");
 			ORMAddChild(orders, made);
 			order.element = made;
-			ORMWriteRoleRefs(_document, ORMChild(made, CORE, @"RoleSequence"), order.roles, self.model, NO, self.gone);
+			ORMWriteRoleRefs(_document, ORMChild(made, CORE, @"RoleSequence"), order.roles, self.model, nil, self.gone);
 		}
 		NSXMLElement *readings = ORMChild(order.element, CORE, @"Readings");
 		ORMDetachOthers(readings, @"Reading", order.readings);
@@ -748,7 +758,7 @@ ORMPurposeName(ORMPathedRolePurpose purpose)
 				: constraint.element;
 			ORMAddChild(parent, made);
 			sequence.element = made;
-			ORMWriteRoleRefs(_document, made, sequence.roles, self.model, YES, self.gone);
+			ORMWriteRoleRefs(_document, made, sequence.roles, self.model, sequence.roleUseIds, self.gone);
 		}
 	}
 }

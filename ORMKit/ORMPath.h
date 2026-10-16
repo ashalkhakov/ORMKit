@@ -164,9 +164,6 @@ typedef NS_ENUM(NSInteger, ORMPathSourceKind) {
 @interface ORMRoleSequence (ORMPaths)
 /* NORMA's join path for a sequence over several fact types; nil without. */
 - (ORMRolePathOwner *)joinPath;
-/* The ids of the sequence's role uses (<orm:Role id ref/>), one a role:
- * what a join path's projections name. */
-- (NSArray<NSString *> *)roleUseIds;
 @end
 
 @interface ORMFactType (ORMPaths)
@@ -179,7 +176,6 @@ typedef NS_ENUM(NSInteger, ORMPathSourceKind) {
 - (ORMDerivationRule *)derivationRule;
 - (NSArray<ORMInstance *> *)instances;
 - (ORMCardinality *)cardinality;
-- (NSString *)defaultValue;
 @end
 
 @interface ORMRole (ORMPaths)

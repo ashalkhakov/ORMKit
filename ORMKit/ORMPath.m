@@ -135,15 +135,6 @@
 	return [[self.model.extras objectForKey:@"joinPaths"] objectForKey:self.identifier ?: @""];
 }
 
-- (NSArray<NSString *> *)roleUseIds
-{
-	NSMutableArray *ids = [NSMutableArray array];
-	for (NSXMLElement *use in ORMChildren(self.element, CORE, @"Role")) {
-		[ids addObject:ORMAttribute(use, @"id") ?: @""];
-	}
-	return ids;
-}
-
 @end
 
 @implementation ORMRoleInstance
@@ -185,11 +176,6 @@
 - (ORMCardinality *)cardinality
 {
 	return [[self.model.extras objectForKey:@"cardinalities"] objectForKey:self.identifier];
-}
-
-- (NSString *)defaultValue
-{
-	return ORMChildText(self.element, CORE, @"DefaultValue");
 }
 
 @end

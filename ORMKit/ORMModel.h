@@ -50,6 +50,8 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 
 @interface ORMObjectType : ORMElement
 @property (nonatomic, readonly) ORMObjectTypeKind kind;
+/* A value type's default value, as NORMA keeps it; nil for none. */
+@property (nonatomic, readonly, copy) NSString *defaultValue;
 @property (nonatomic, readonly) BOOL isEntity;
 @property (nonatomic, readonly) BOOL isIndependent;
 @property (nonatomic, readonly) BOOL isExternal;
@@ -312,6 +314,9 @@ typedef NS_ENUM(NSInteger, ORMModality) {
  * with the join path NORMA may keep for it left in the XML. */
 @interface ORMRoleSequence : ORMElement
 @property (nonatomic, readonly, copy) NSArray<ORMRole *> *roles;
+/* The ids of the sequence's role uses (<orm:Role id ref/>), one a role:
+ * what a join path's projections name. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *roleUseIds;
 /* As a reading order's. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *unresolvedRoleIds;
 /* NORMA keeps a join path for a sequence whose roles are not in one fact

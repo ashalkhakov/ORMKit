@@ -312,8 +312,7 @@
 					continue;
 				}
 				ORMRoleSequence *sequence = [constraint.roleSequences objectAtIndex:i];
-				/* The role uses' ids are the document's, the constraint
-				 * being written there already. */
+				/* The role uses' ids, the sequence's own. */
 				[_editor.model setJoinPath:[self joinPathOf:[plans objectAtIndex:i] uses:[sequence roleUseIds]]
 				                ofSequence:sequence];
 			}

@@ -98,6 +98,7 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	_family = nil;
 	_familyNames = nil;
 	_kind = ORMEntityType;
+	_defaultValue = nil;
 	_isIndependent = _isExternal = _isPersonal = _isImplied = _isImplicitBooleanValue = NO;
 	_playedRoles = nil;
 	_preferredIdentifier = nil;
@@ -450,7 +451,7 @@ ORMCapitalizedWords(NSString *text)
 		ORMObjectType *sup = [self supertype];
 		/* Older NORMA wrote "GirlIsASubtypeOfPerson". */
 		NSString *older = [NSString stringWithFormat:@"%@IsASubtypeOf%@", sub.name ?: @"", sup.name ?: @""];
-		if ([ORMAttribute(self.element, @"_Name") isEqualToString:older]) {
+		if ([self.savedDerivedName isEqualToString:older]) {
 			return older;
 		}
 		return [NSString stringWithFormat:@"%@IsSubtypeOf%@", sub.name ?: @"", sup.name ?: @""];
@@ -658,8 +659,29 @@ ORMCapitalizedWords(NSString *text)
 {
 	[super reset];
 	_roles = nil;
+	_roleUseIds = nil;
 	_unresolvedRoleIds = nil;
 	_hasJoinPath = NO;
+}
+
+- (void)setRoles:(NSArray<ORMRole *> *)roles
+{
+	NSMutableDictionary *uses = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < MIN([_roles count], [_roleUseIds count]); i++) {
+		[uses setObject:[_roleUseIds objectAtIndex:i] forKey:[[_roles objectAtIndex:i] identifier] ?: @""];
+	}
+	NSMutableArray *ids = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		[ids addObject:[uses objectForKey:role.identifier ?: @""] ?: ORMNewId()];
+	}
+	_roles = [roles copy];
+	_roleUseIds = ids;
+}
+
+- (void)setRoles:(NSArray<ORMRole *> *)roles useIds:(NSArray<NSString *> *)useIds
+{
+	_roles = [roles copy];
+	_roleUseIds = [useIds copy];
 }
 
 @end
@@ -1351,6 +1373,7 @@ ORMWithout(NSArray *array, id object)
 		NSXMLElement *element = (NSXMLElement *)node;
 		NSString *local = [element localName];
 		ORMObjectType *type = [self element:[ORMObjectType class] for:element];
+		type.defaultValue = ORMChildText(element, CORE, @"DefaultValue");
 		if ([local isEqualToString:@"EntityType"]) {
 			type.kind = ORMEntityType;
 		} else if ([local isEqualToString:@"ValueType"]) {
@@ -1473,17 +1496,28 @@ ORMWithout(NSArray *array, id object)
  * aside. */
 - (NSArray<ORMRole *> *)rolesIn:(NSXMLElement *)sequence unresolved:(NSArray **)unresolved
 {
+	return [self rolesIn:sequence unresolved:unresolved useIds:NULL];
+}
+
+/* The same, with each role's use's id ("" for none). */
+- (NSArray<ORMRole *> *)rolesIn:(NSXMLElement *)sequence unresolved:(NSArray **)unresolved useIds:(NSArray **)useIds
+{
 	NSMutableArray *roles = [NSMutableArray array];
 	NSMutableArray *refs = [NSMutableArray array];
+	NSMutableArray *ids = [NSMutableArray array];
 	for (NSXMLElement *child in ORMChildren(sequence, CORE, @"Role")) {
 		id role = [self elementWithId:ORMRef(child)];
 		if ([role isKindOfClass:[ORMRole class]]) {
 			[roles addObject:role];
+			[ids addObject:ORMAttribute(child, @"id") ?: @""];
 		} else {
 			[refs addObject:ORMRef(child) ?: @""];
 		}
 	}
 	*unresolved = refs;
+	if (useIds != NULL) {
+		*useIds = ids;
+	}
 	return roles;
 }
 
@@ -1491,7 +1525,9 @@ ORMWithout(NSArray *array, id object)
 {
 	ORMRoleSequence *sequence = [self element:[ORMRoleSequence class] for:element];
 	NSArray *unresolved = nil;
-	sequence.roles = [self rolesIn:element unresolved:&unresolved];
+	NSArray *useIds = nil;
+	NSArray *roles = [self rolesIn:element unresolved:&unresolved useIds:&useIds];
+	[sequence setRoles:roles useIds:useIds];
 	sequence.unresolvedRoleIds = unresolved;
 	sequence.hasJoinPath = ORMChild(element, CORE, @"JoinRule") != nil || ORMChild(element, CORE, @"JoinPath") != nil;
 	[self registerElement:sequence];

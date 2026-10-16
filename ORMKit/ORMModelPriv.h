@@ -31,6 +31,7 @@
 
 @interface ORMObjectType ()
 @property (nonatomic, readwrite) ORMObjectTypeKind kind;
+@property (nonatomic, readwrite, copy) NSString *defaultValue;
 @property (nonatomic, readwrite) BOOL isIndependent;
 @property (nonatomic, readwrite) BOOL isExternal;
 @property (nonatomic, readwrite) BOOL isPersonal;
@@ -115,7 +116,11 @@
 @end
 
 @interface ORMRoleSequence ()
+/* Set, a role kept keeps its use's id, one added is given one. */
 @property (nonatomic, readwrite, copy) NSArray<ORMRole *> *roles;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *roleUseIds;
+/* Both as read. */
+- (void)setRoles:(NSArray<ORMRole *> *)roles useIds:(NSArray<NSString *> *)useIds;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *unresolvedRoleIds;
 @property (nonatomic, readwrite) BOOL hasJoinPath;
 @end
