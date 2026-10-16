@@ -255,7 +255,9 @@ static BOOL ORMChecksAgreement;
 		[self reread];
 		return NO;
 	}
-	[_normalizer normalize];
+	if ([_normalizer normalize]) {
+		_editedXML = YES;
+	}
 	_depth--;
 	/* A manager that does not group by event (a document's that edits
 	 * text in place, a test's) gets the step as a group of its own. */

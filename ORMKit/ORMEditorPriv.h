@@ -27,9 +27,10 @@
  * the model is not read again unless an operation of the step edited the
  * XML. */
 - (void)modelChange:(NSString *)name with:(void (^)(void))change;
-/* A change to what the model does not read (ORMKit's Core Data mappings,
- * kept in the document and read from it on demand): one undoable step
- * like the others, after which the model is not read again. */
+/* A change to what the model does not read (ORMKit's Core Data mappings
+ * and queries, kept in the document and read from it on demand): one
+ * undoable step like the others, after which the model is not read
+ * again. */
 - (void)documentChange:(NSString *)name with:(void (^)(void))change;
 /* An element a model change changed, to be written. */
 - (void)wrote:(ORMElement *)element;
@@ -80,7 +81,10 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 /* The unary readings as a change starts: an implicit boolean value type is
  * renamed only when its reading was changed. */
 - (void)rememberUnaryReadings;
-- (void)normalize;
+/* NORMA's data kept up in the XML; YES when it changed what the model
+ * reads and does not keep up itself (a derivation rule's words, from its
+ * query), so that the model is read again. */
+- (BOOL)normalize;
 @end
 
 @interface ORMDiagramEditor ()

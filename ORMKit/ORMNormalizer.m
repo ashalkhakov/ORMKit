@@ -152,12 +152,12 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 	return expanded;
 }
 
-- (void)normalize
+- (BOOL)normalize
 {
 	/* The model as the change left it. */
 	ORMModel *model = [ORMModel modelOfDocument:_editor.document reason:NULL];
 	if (model == nil) {
-		return;
+		return NO;
 	}
 
 	for (ORMObjectType *type in model.objectTypes) {
@@ -244,7 +244,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 	}
 
 	[self normalizeImpliedMandatories:model];
-	[self normalizeDerivations:model];
+	BOOL rules = [self normalizeDerivations:model];
 
 	/* Each preferred identifier names what it identifies. */
 	NSMutableDictionary *identified = [NSMutableDictionary dictionary];
@@ -294,6 +294,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 			}
 		}
 	}
+	return rules;
 }
 
 /* NORMA's implied disjunctive mandatory constraints: every instance of
@@ -359,8 +360,9 @@ ORMWritesImpliedMandatories(ORMModel *model)
 /* A derivation query's fact type keeps the query's words as its rule's,
  * which NORMA shows (docs/DERIVATION.md). Only where a query derives one:
  * a file without queries is left as it is. */
-- (void)normalizeDerivations:(ORMModel *)model
+- (BOOL)normalizeDerivations:(ORMModel *)model
 {
+	BOOL changed = NO;
 	ORMVerbalizer *verbalizer = nil;
 	for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
 		ORMFactType *fact = query.kind == ORMQueryDerivation ? query.derivedFactType : nil;
@@ -376,8 +378,10 @@ ORMWritesImpliedMandatories(ORMModel *model)
 			stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 		if ([text length] > 0 && ![ORMChildText(note, CORE, @"Body") isEqualToString:text]) {
 			ORMSetChildText(_editor.document, note, CORE, @"Body", text);
+			changed = YES;
 		}
 	}
+	return changed;
 }
 
 - (void)normalizeImpliedMandatories:(ORMModel *)model

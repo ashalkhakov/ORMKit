@@ -1345,7 +1345,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		return nil;
 	}
 	__block NSString *created = nil;
-	[_editor change:@"Add Query" with:^{
+	[_editor documentChange:@"Add Query" with:^{
 		NSXMLElement *query = ORMNewElementWithId(_editor.document, Q, @"Query", nil);
 		ORMSetAttribute(query, @"Name", [name length] > 0 ? name : [NSString stringWithFormat:@"%@ Query", type.name]);
 		NSXMLElement *root = ORMNewElementWithId(_editor.document, Q, @"Node", nil);
@@ -1385,7 +1385,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		return NO;
 	}
 	if (![ORMAttribute(query, @"Name") isEqualToString:name]) {
-		[_editor change:@"Rename Query" with:^{
+		[_editor documentChange:@"Rename Query" with:^{
 			ORMSetAttribute(query, @"Name", name);
 		}];
 	}
@@ -1473,7 +1473,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		return NO;
 	}
 	if ([ORMAttribute(query, @"Modality") isEqualToString:@"Deontic"] != deontic) {
-		[_editor change:deontic ? @"Make Constraint Deontic" : @"Make Constraint Alethic" with:^{
+		[_editor documentChange:deontic ? @"Make Constraint Deontic" : @"Make Constraint Alethic" with:^{
 			ORMSetAttribute(query, @"Modality", deontic ? @"Deontic" : nil);
 		}];
 	}
@@ -1505,7 +1505,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	if ([ORMAttribute(query, @"Function") isEqualToString:name] && [ORMAttribute(query, @"Of") isEqualToString:nodeId]) {
 		return YES;
 	}
-	[_editor change:@"Set Calculation" with:^{
+	[_editor documentChange:@"Set Calculation" with:^{
 		ORMSetAttribute(query, @"Function", name);
 		ORMSetAttribute(query, @"Of", nodeId);
 	}];
@@ -1547,7 +1547,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		return role != entry && !role.player.isImplicitBooleanValue;
 	}]];
 	__block NSString *created = nil;
-	[_editor change:@"Add Query Step" with:^{
+	[_editor documentChange:@"Add Query Step" with:^{
 		NSXMLElement *step = ORMNewElementWithId(_editor.document, Q, @"Step", nil);
 		ORMSetAttribute(step, @"ref", entry.factType.identifier);
 		ORMSetAttribute(step, @"Role", entry.identifier);
@@ -1578,7 +1578,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	for (NSXMLElement *node in of != nil ? ORMDescendants(step, Q, @"Node") : @[]) {
 		takesOf = takesOf || [ORMAttribute(node, @"id") isEqualToString:of];
 	}
-	[_editor change:@"Remove Query Step" with:^{
+	[_editor documentChange:@"Remove Query Step" with:^{
 		[step detach];
 		if (takesOf) {
 			ORMSetAttribute(query, @"Of", nil);
@@ -1592,7 +1592,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	if (node == nil || ORMBoolAttribute(node, @"Projected", NO) == projected) {
 		return;
 	}
-	[_editor change:projected ? @"List in Query" : @"Do Not List in Query" with:^{
+	[_editor documentChange:projected ? @"List in Query" : @"Do Not List in Query" with:^{
 		ORMSetBoolAttribute(node, @"Projected", projected, NO);
 	}];
 }
@@ -1613,7 +1613,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Query Condition" with:^{
+	[_editor documentChange:@"Set Query Condition" with:^{
 		ORMSetAttribute(node, @"Comparison", comparison);
 		ORMSetAttribute(node, @"Value", comparison != nil ? (value ?: @"") : nil);
 		ORMSetAttribute(node, @"CompareTo", nil);
@@ -1659,7 +1659,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Query Condition" with:^{
+	[_editor documentChange:@"Set Query Condition" with:^{
 		ORMSetAttribute(node, @"Comparison", comparison);
 		ORMSetAttribute(node, @"Value", nil);
 		ORMSetAttribute(node, @"CompareTo", otherNodeId);
@@ -1674,7 +1674,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	if (node == nil || [ORMAttribute(node, @"Label") ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[_editor change:@"Set Query Label" with:^{
+	[_editor documentChange:@"Set Query Label" with:^{
 		ORMSetAttribute(node, @"Label", value);
 	}];
 }
@@ -1685,7 +1685,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	if (node == nil || [ORMAttribute(node, @"Combine") isEqualToString:@"Or"] == flag) {
 		return;
 	}
-	[_editor change:@"Set Query Alternatives" with:^{
+	[_editor documentChange:@"Set Query Alternatives" with:^{
 		ORMSetAttribute(node, @"Combine", flag ? @"Or" : nil);
 	}];
 }
@@ -1697,7 +1697,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	if (step == nil || [ORMAttribute(step, @"Operator") ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[_editor change:@"Set Query Operator" with:^{
+	[_editor documentChange:@"Set Query Operator" with:^{
 		ORMSetAttribute(step, @"Operator", value);
 	}];
 }
@@ -1716,7 +1716,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Query Count" with:^{
+	[_editor documentChange:@"Set Query Count" with:^{
 		ORMSetAttribute(step, @"Count", comparison);
 		ORMSetAttribute(step, @"CountValue",
 		                comparison != nil ? [NSString stringWithFormat:@"%lu", (unsigned long)value] : nil);
@@ -1763,7 +1763,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Query Aggregate" with:^{
+	[_editor documentChange:@"Set Query Aggregate" with:^{
 		ORMSetAttribute(step, @"Count", comparison);
 		ORMSetAttribute(step, @"CountValue", comparison != nil ? (value ?: @"") : nil);
 		ORMSetAttribute(step, @"Aggregate", comparison != nil && aggregate != ORMQueryCount
@@ -1800,7 +1800,7 @@ ORMIsAbove(NSXMLElement *node, NSXMLElement *step)
 	if ([ORMAttribute(step, @"GroupNode") ?: @"" isEqualToString:value ?: @""]) {
 		return YES;
 	}
-	[_editor change:@"Set Query Aggregate Group" with:^{
+	[_editor documentChange:@"Set Query Aggregate Group" with:^{
 		ORMSetAttribute(step, @"GroupNode", value);
 	}];
 	return YES;
@@ -1821,7 +1821,7 @@ ORMIsAbove(NSXMLElement *node, NSXMLElement *step)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Query Compared Aggregate" with:^{
+	[_editor documentChange:@"Set Query Compared Aggregate" with:^{
 		ORMSetAttribute(step, @"CompareAggregate",
 		                nodeId != nil ? [ORMQueryAggregateNames() objectAtIndex:(NSUInteger)aggregate] : nil);
 		ORMSetAttribute(step, @"CompareGroupNode", nodeId);
@@ -1836,7 +1836,7 @@ ORMIsAbove(NSXMLElement *node, NSXMLElement *step)
 	if (node == nil || [ORMAttribute(node, @"Sort") ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[_editor change:@"Set Query Sort" with:^{
+	[_editor documentChange:@"Set Query Sort" with:^{
 		ORMSetAttribute(node, @"Sort", value);
 	}];
 }
