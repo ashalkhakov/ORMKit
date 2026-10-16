@@ -110,14 +110,21 @@ Each step keeps every test passing.
    a sequence's role that does not resolve is not in the model, so the
    writer keeps it; role uses' ids are the XML's. Populations, derivation
    rules, queries and mappings come with their editors (step 3).
-2. **A model that lasts, with change tracking and undo records.** The
-   editor keeps one model. An operation not yet moved over still edits the
-   XML: the model is first written to the carrier, and the model read
-   again after the operation, as now. The agreement check runs in tests.
+2. **A model that lasts** (done). The editor keeps one model. An operation
+   not yet moved over still edits the XML, and the model is read again
+   into the same objects (`-[ORMModel readDocumentAgain:]`): an element
+   whose id is still there is the same object, each class resetting its
+   values first (`-reset`). The agreement check runs in tests
+   (`ORMEditor.checksAgreement`, `ORMModelDisagreement`), after every
+   change, undo and redo; it also catches a reset that misses a value. It
+   costs the macOS suite about a tenth more.
 3. **The editors, one domain at a time**: object types, fact types and
    readings, constraints, element names and deletion, diagrams and shapes,
    populations, Core Data mappings, queries. Each operation changes the
-   model and records its undo. Saving writes through the writer.
+   model and records its undo. Saving writes through the writer. The
+   change tracking and undo records come with the first domain, which
+   gives them a use and tests them through its operations' undo and
+   redo.
 4. **The normalizer goes**, its rules now the writer's.
 5. **The XML leaves the rest of ORMKit.** `ORMElement.element` becomes the
    writer's private business. Code that reads XML outside the reader and the
