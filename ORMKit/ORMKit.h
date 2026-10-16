@@ -30,6 +30,7 @@
 #import "ORMReadingText.h"
 #import "ORMValueConstraintParser.h"
 #import "ORMEditor.h"
+#import "ORMNormaWriter.h"
 #import "ORMVerbalizer.h"
 #import "ORMFactSentence.h"
 #import "ORMConstraintSentence.h"
