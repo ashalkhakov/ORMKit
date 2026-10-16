@@ -967,11 +967,8 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 		for (ORMRole *role in at.playedRoles) {
 			/* A link fact type is gone through as its objectified fact
 			 * type's role: NORMA's paths do. */
-			BOOL link = NO;
-			for (ORMRole *other in role.factType.roles) {
-				link = link || other.proxiedRole != nil;
-			}
-			if ((role.factType.kind == ORMFactTypeImplied && !link) || role.player.isImplicitBooleanValue) {
+			if ((role.factType.kind == ORMFactTypeImplied && ![role.factType isLinkFactType])
+			    || role.player.isImplicitBooleanValue) {
 				continue;
 			}
 			/* The reference scheme is how a condition names the instance

@@ -144,12 +144,8 @@
 			for (ORMRole *role in type.playedRoles) {
 				[pending addObject:role.factType.identifier];
 			}
-			if (type.nestedFactType != nil) {
-				for (ORMFactType *fact in model.factTypes) {
-					if (fact.impliedByFactType == type.nestedFactType) {
-						[pending addObject:fact.identifier];
-					}
-				}
+			for (ORMFactType *link in type.nestedFactType.linkFactTypes) {
+				[pending addObject:link.identifier];
 			}
 			/* Its reference mode's value type, when nothing else uses it. */
 			ORMObjectType *value = type.referenceModeValueType;
@@ -164,12 +160,8 @@
 					[pending addObject:role.player.identifier];
 				}
 				/* Link fact types stand for the roles. */
-				for (ORMFactType *link in model.factTypes) {
-					for (ORMRole *linkRole in link.roles) {
-						if (linkRole.proxiedRole == role) {
-							[pending addObject:link.identifier];
-						}
-					}
+				for (ORMRole *proxy in role.proxies) {
+					[pending addObject:proxy.factType.identifier];
 				}
 			}
 			if (fact.objectifyingType != nil) {

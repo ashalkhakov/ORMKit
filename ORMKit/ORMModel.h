@@ -146,6 +146,12 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 @property (nonatomic, readonly, weak) ORMObjectType *objectifyingType;
 /* For a link fact type, the objectified fact type it is implied by. */
 @property (nonatomic, readonly, weak) ORMFactType *impliedByFactType;
+/* For an objectified fact type, the link fact types its objectification
+ * implies: those whose impliedByFactType it is. */
+@property (nonatomic, readonly, copy) NSArray<ORMFactType *> *linkFactTypes;
+/* Whether it is a link fact type: one of its roles stands for a role of
+ * the fact type objectified (proxiedRole). */
+- (BOOL)isLinkFactType;
 /* Derived or semiderived: NORMA keeps the rule; ORMKit keeps it as XML. */
 @property (nonatomic, readonly) BOOL isDerived;
 /* For a subtype fact: whether the subtype is identified through the
@@ -211,6 +217,9 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 /* For a link fact type's role: the role of the objectified fact type it
  * stands for (NORMA's RoleProxy). */
 @property (nonatomic, readonly, weak) ORMRole *proxiedRole;
+/* For a role of an objectified fact type: the link fact types' roles
+ * that stand for it, those whose proxiedRole it is. */
+@property (nonatomic, readonly, copy) NSArray<ORMRole *> *proxies;
 /* Every constraint that has the role in one of its sequences. */
 @property (nonatomic, readonly, copy) NSArray<ORMConstraint *> *constraints;
 

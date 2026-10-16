@@ -176,6 +176,16 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	NSString *_displayText;
 }
 
+- (BOOL)isLinkFactType
+{
+	for (ORMRole *role in self.roles) {
+		if (role.proxiedRole != nil) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 - (ORMObjectType *)subtype
 {
 	return self.kind == ORMFactTypeSubtype && [self.roles count] == 2 ? [[self.roles firstObject] player] : nil;
@@ -768,8 +778,10 @@ ORMUnitReferenceModes(void)
 	}
 	for (ORMFactType *fact in self.factTypes) {
 		fact.internalConstraints = nil;
+		fact.linkFactTypes = nil;
 		for (ORMRole *role in fact.roles) {
 			role.constraints = nil;
+			role.proxies = nil;
 		}
 		for (ORMReadingOrder *order in fact.readingOrders) {
 			order.roles = nil;
@@ -1169,6 +1181,8 @@ ORMUnitReferenceModes(void)
 		NSXMLElement *implied = ORMChild(fact.element, CORE, @"ImpliedByObjectification");
 		if (implied != nil) {
 			fact.impliedByFactType = [objectifications objectForKey:ORMRef(implied)];
+			ORMFactType *objectified = fact.impliedByFactType;
+			objectified.linkFactTypes = [(objectified.linkFactTypes ?: @[]) arrayByAddingObject:fact];
 		}
 	}
 }
@@ -1193,6 +1207,8 @@ ORMUnitReferenceModes(void)
 			/* A link fact type's proxy: <orm:RoleProxy id><orm:Role ref/></orm:RoleProxy>. */
 			if ([[role.element localName] isEqualToString:@"RoleProxy"]) {
 				role.proxiedRole = [self elementWithId:ORMRef(ORMChild(role.element, CORE, @"Role"))];
+				ORMRole *proxied = [role.proxiedRole isKindOfClass:[ORMRole class]] ? role.proxiedRole : nil;
+				proxied.proxies = [(proxied.proxies ?: @[]) arrayByAddingObject:role];
 			}
 		}
 	}

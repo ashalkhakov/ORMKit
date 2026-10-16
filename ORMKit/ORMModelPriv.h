@@ -44,6 +44,7 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMConstraint *> *internalConstraints;
 @property (nonatomic, readwrite, weak) ORMObjectType *objectifyingType;
 @property (nonatomic, readwrite, weak) ORMFactType *impliedByFactType;
+@property (nonatomic, readwrite, copy) NSArray<ORMFactType *> *linkFactTypes;
 @property (nonatomic, readwrite) BOOL isDerived;
 @property (nonatomic, readwrite) BOOL providesPreferredIdentifier;
 @end
@@ -58,6 +59,7 @@
 @property (nonatomic, readwrite) BOOL isSubtypeMetaRole;
 @property (nonatomic, readwrite) BOOL isSupertypeMetaRole;
 @property (nonatomic, readwrite, weak) ORMRole *proxiedRole;
+@property (nonatomic, readwrite, copy) NSArray<ORMRole *> *proxies;
 @property (nonatomic, readwrite, copy) NSArray<ORMConstraint *> *constraints;
 @end
 
