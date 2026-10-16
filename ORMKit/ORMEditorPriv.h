@@ -21,6 +21,15 @@
  * projection is rebuilt after it so the next operation sees its result. */
 - (void)change:(NSString *)name with:(void (^)(void))change;
 
+/* The same, for an operation moved to the model (docs/MODEL.md): it
+ * changes the model's elements, saying which with -wrote:, and the model
+ * is derived again and the elements written to the document after it;
+ * the model is not read again unless an operation of the step edited the
+ * XML. */
+- (void)modelChange:(NSString *)name with:(void (^)(void))change;
+/* An element a model change changed, to be written. */
+- (void)wrote:(ORMElement *)element;
+
 /* The element with the id, made since the projection was built or not. */
 - (NSXMLElement *)xml:(NSString *)elementId;
 /* A section of the orm:ORMModel element (Objects, Facts, Constraints,

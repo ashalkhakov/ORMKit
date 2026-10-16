@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMEditorPriv.h"
 #import "ORMPath.h"
+#import "ORMNormaWriter.h"
 
 /* NORMA's role box: 0.16 by 0.11 inches, with 0.032 a side around them
  * inside a fact type shape. */
@@ -43,6 +44,11 @@ static BOOL ORMChecksAgreement;
 	/* A step of a group changed the document: the projection is read again
 	 * when it is next asked for, not after every step. */
 	BOOL _stale;
+	/* A step of the change being made edited the XML: the model is read
+	 * again after it. */
+	BOOL _editedXML;
+	/* What a model change changed, to be written. */
+	NSMutableArray<ORMElement *> *_wrote;
 }
 
 #pragma mark Documents
@@ -210,6 +216,11 @@ static BOOL ORMChecksAgreement;
  * step to undo. */
 - (BOOL)apply:(NSString *)name rollback:(BOOL)rollback with:(BOOL (^)(void))change
 {
+	return [self apply:name rollback:rollback editsXML:YES with:change];
+}
+
+- (BOOL)apply:(NSString *)name rollback:(BOOL)rollback editsXML:(BOOL)editsXML with:(BOOL (^)(void))change
+{
 	/* A step of a group is read back for the next, and the group as a
 	 * whole normalized, from the readings it started with. */
 	if (_depth > 0) {
@@ -222,13 +233,18 @@ static BOOL ORMChecksAgreement;
 		}
 		if (!done && before != nil) {
 			_document = before;
+			_stale = YES;
 		}
-		_stale = YES;
+		if (editsXML) {
+			_stale = YES;
+			_editedXML = YES;
+		}
 		return done;
 	}
 	[_normalizer rememberUnaryReadings];
 	NSXMLDocument *before = ORMCopyDocument(_document);
 	BOOL hadChanges = _hasChanges;
+	_editedXML = editsXML;
 	_depth++;
 	BOOL done = change();
 	if (!done && rollback) {
@@ -253,7 +269,9 @@ static BOOL ORMChecksAgreement;
 		[_undoManager endUndoGrouping];
 	}
 	_hasChanges = YES;
-	[self reread];
+	if (_editedXML || _stale) {
+		[self reread];
+	}
 	[self checkAgreement];
 	if (self.changed != nil) {
 		self.changed();
@@ -267,6 +285,30 @@ static BOOL ORMChecksAgreement;
 		change();
 		return YES;
 	}];
+}
+
+- (void)modelChange:(NSString *)name with:(void (^)(void))change
+{
+	[self apply:name rollback:NO editsXML:NO with:^BOOL {
+		/* The model as the steps before left it. */
+		ORMModel *model = self.model;
+		_wrote = [NSMutableArray array];
+		change();
+		[model derive];
+		ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
+		for (ORMElement *element in _wrote) {
+			[writer writeElement:element];
+		}
+		_wrote = nil;
+		return YES;
+	}];
+}
+
+- (void)wrote:(ORMElement *)element
+{
+	if (element != nil && [_wrote indexOfObjectIdenticalTo:element] == NSNotFound) {
+		[_wrote addObject:element];
+	}
 }
 
 - (void)group:(NSString *)name with:(void (^)(void))operations

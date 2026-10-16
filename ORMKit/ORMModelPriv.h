@@ -11,6 +11,9 @@
 @property (nonatomic, readwrite, copy) NSString *definitionText;
 @property (nonatomic, readwrite, copy) NSString *noteText;
 - (instancetype)initWithElement:(NSXMLElement *)element model:(ORMModel *)model;
+/* A new element, made by an editor: a new id, no XML element until the
+ * writer makes it. */
+- (instancetype)initWithModel:(ORMModel *)model;
 /* Read again in place: every value as a new element's, then the element's. */
 - (void)resetWithElement:(NSXMLElement *)element model:(ORMModel *)model;
 /* Each class's values back to a new element's; a subclass calls super. */
@@ -173,6 +176,9 @@
  * played roles, subtyping, internal constraints, a role's constraints and
  * flags, reference modes, link fact types, proxies' players. No XML. */
 - (void)derive;
+/* A new element taken into the model: registered, and listed where its
+ * kind is (data types, object types, fact types, constraints, notes). */
+- (void)addElement:(ORMElement *)element;
 /* How each kind of reference mode names its value type ("{0}_{1}"), by
  * kind ("Popular"); the model's custom reference modes, name to kind. */
 @property (nonatomic, copy) NSDictionary<NSString *, NSString *> *referenceModeFormats;

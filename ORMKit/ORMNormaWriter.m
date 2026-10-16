@@ -169,10 +169,27 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 	}
 }
 
+/* The XML element of an element an editor made, where NORMA keeps its
+ * kind, with its id. */
+- (void)makeElementOf:(ORMElement *)element
+{
+	NSXMLElement *made = nil;
+	if ([element isKindOfClass:[ORMDataType class]]) {
+		made = ORMNewElementWithId(_document, CORE, [(ORMDataType *)element typeName], element.identifier);
+		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"DataTypes") addChild:made];
+	} else {
+		[NSException raise:NSInternalInconsistencyException format:@"The writer makes no %@ yet.", [element class]];
+	}
+	element.element = made;
+}
+
 - (void)writeElement:(ORMElement *)element
 {
 	if (element == nil) {
 		return;
+	}
+	if (element.element == nil) {
+		[self makeElementOf:element];
 	}
 	if ([element isKindOfClass:[ORMObjectType class]]) {
 		[self writeObjectType:(ORMObjectType *)element];
@@ -339,9 +356,15 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 	ORMWriteNested(_document, element, @"Notes", @"Note", type.noteText);
 	if (type.kind == ORMValueType) {
 		NSXMLElement *dataType = ORMChild(element, CORE, @"ConceptualDataType");
-		if (type.dataType != nil) {
+		if (dataType == nil && type.dataType != nil) {
+			/* NORMA gives it an id, and spells out its scale and length. */
+			dataType = ORMNewElementWithId(_document, CORE, @"ConceptualDataType", nil);
+			ORMSetAttribute(dataType, @"ref", type.dataType.identifier);
+			ORMSetAttribute(dataType, @"Scale", @"0");
+			ORMSetAttribute(dataType, @"Length", @"0");
+			ORMInsertChild(element, dataType);
+		} else if (type.dataType != nil) {
 			ORMWriteRef(_document, element, @"ConceptualDataType", type.dataType.identifier);
-			dataType = ORMChild(element, CORE, @"ConceptualDataType");
 		}
 		ORMWriteInteger(dataType, @"Length", type.dataTypeLength, 0);
 		ORMWriteInteger(dataType, @"Scale", type.dataTypeScale, 0);

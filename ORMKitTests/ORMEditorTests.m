@@ -95,6 +95,61 @@
 	XCTAssertEqual(implied, (NSUInteger)1);
 }
 
+/* An object type's flags: the same object changed, written as NORMA
+ * writes them, the default left out; undone and done again. */
+- (void)testAnObjectTypesFlags
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	ORMObjectType *type = [editor.model elementWithId:person];
+	XCTAssertTrue([editor.objectTypeEditor setIndependent:YES of:person reason:NULL]);
+	XCTAssertTrue([editor.objectTypeEditor setPersonal:YES of:person reason:NULL]);
+	XCTAssertTrue([editor.objectTypeEditor setExternal:YES of:person reason:NULL]);
+	XCTAssertEqual([editor.model elementWithId:person], type);
+	XCTAssertTrue(type.isIndependent && type.isPersonal && type.isExternal);
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"IsIndependent"), @"true");
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"IsPersonal"), @"true");
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"IsExternal"), @"true");
+	XCTAssertTrue([editor.objectTypeEditor setIndependent:NO of:person reason:NULL]);
+	XCTAssertFalse(type.isIndependent);
+	XCTAssertNil(ORMAttribute(type.element, @"IsIndependent"));
+	[self.undoManager undo];
+	XCTAssertTrue(type.isIndependent);
+	XCTAssertEqualObjects(ORMAttribute(type.element, @"IsIndependent"), @"true");
+	[self.undoManager undo];
+	XCTAssertFalse(type.isExternal);
+	[self.undoManager redo];
+	XCTAssertTrue(type.isExternal);
+	XCTAssertEqual([editor.model elementWithId:person], type);
+}
+
+/* A data type the model has not used yet is made, as NORMA makes one. */
+- (void)testAValueTypesDataType
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *height = [editor.objectTypeEditor addValueTypeNamed:@"Height" dataType:nil onDiagram:nil at:NSZeroPoint
+	                                                       reason:NULL];
+	ORMObjectType *type = [editor.model elementWithId:height];
+	NSUInteger before = [editor.model.dataTypes count];
+	XCTAssertTrue([editor.objectTypeEditor setDataType:@"DecimalNumericDataType" length:10 scale:2 of:height reason:NULL]);
+	XCTAssertEqualObjects(type.dataType.typeName, @"DecimalNumericDataType");
+	XCTAssertEqual(type.dataTypeLength, 10);
+	XCTAssertEqual(type.dataTypeScale, 2);
+	XCTAssertEqual([editor.model.dataTypes count], before + 1);
+	NSXMLElement *conceptual = ORMChild(type.element, ORMCoreNamespace, @"ConceptualDataType");
+	XCTAssertEqualObjects(ORMRef(conceptual), type.dataType.identifier);
+	XCTAssertEqualObjects(ORMAttribute(conceptual, @"Length"), @"10");
+	XCTAssertEqualObjects([type.dataType.element localName], @"DecimalNumericDataType");
+	/* Used again, not made again. */
+	XCTAssertTrue([editor.objectTypeEditor setDataType:@"DecimalNumericDataType" length:0 scale:0 of:height reason:NULL]);
+	XCTAssertEqual([editor.model.dataTypes count], before + 1);
+	XCTAssertEqualObjects(ORMAttribute(conceptual, @"Length"), @"0");
+	[self.undoManager undo];
+	[self.undoManager undo];
+	XCTAssertEqual([editor.model.dataTypes count], before);
+	XCTAssertEqualObjects(type.dataType.typeName, @"UnspecifiedDataType");
+}
+
 - (void)testNamesAreUnique
 {
 	ORMEditor *editor = [self newEditor];

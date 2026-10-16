@@ -38,6 +38,16 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 	return self;
 }
 
+- (instancetype)initWithModel:(ORMModel *)model
+{
+	if ((self = [super init])) {
+		_model = model;
+		_identifier = [ORMNewId() copy];
+		_name = @"";
+	}
+	return self;
+}
+
 - (void)reset
 {
 	_definitionText = nil;
@@ -1063,6 +1073,22 @@ ORMUnitReferenceModes(void)
 	_diagrams = nil;
 	_diagramsRead = NO;
 	[self readDocument:document model:ORMModelElementOfDocument(document)];
+}
+
+- (void)addElement:(ORMElement *)element
+{
+	[self registerElement:element];
+	if ([element isKindOfClass:[ORMDataType class]]) {
+		_dataTypes = [_dataTypes arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMObjectType class]]) {
+		_objectTypes = [_objectTypes arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMFactType class]]) {
+		_factTypes = [_factTypes arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMConstraint class]]) {
+		_constraints = [_constraints arrayByAddingObject:(id)element];
+	} else if ([element isKindOfClass:[ORMModelNote class]]) {
+		_notes = [_notes arrayByAddingObject:(id)element];
+	}
 }
 
 - (void)registerElement:(ORMElement *)element

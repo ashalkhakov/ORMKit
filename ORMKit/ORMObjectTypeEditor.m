@@ -71,6 +71,21 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	return YES;
 }
 
+/* The model's data type of the name, made when it has none. */
+- (ORMDataType *)dataTypeNamed:(NSString *)typeName
+{
+	for (ORMDataType *type in _editor.model.dataTypes) {
+		if ([type.typeName isEqualToString:typeName]) {
+			return type;
+		}
+	}
+	ORMDataType *made = [[ORMDataType alloc] initWithModel:_editor.model];
+	made.typeName = typeName;
+	[_editor.model addElement:made];
+	[_editor wrote:made];
+	return made;
+}
+
 /* A new <orm:ValueType>, its data type set. */
 - (NSXMLElement *)newValueTypeNamed:(NSString *)name dataType:(NSString *)typeName
 {
@@ -287,20 +302,17 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		}
 		return NO;
 	}
-	[_editor change:@"Set Data Type" with:^{
-		NSXMLElement *dataType = ORMChild(type.element, CORE, @"ConceptualDataType");
-		if (dataType == nil) {
-			dataType = ORMNewElementWithId(_editor.document, CORE, @"ConceptualDataType", nil);
-			ORMInsertChild(type.element, dataType);
-		}
-		ORMSetAttribute(dataType, @"ref", [_editor dataTypeIdNamed:typeName]);
-		ORMSetAttribute(dataType, @"Scale", [NSString stringWithFormat:@"%ld", (long)MAX(scale, (NSInteger)0)]);
-		ORMSetAttribute(dataType, @"Length", [NSString stringWithFormat:@"%ld", (long)MAX(length, (NSInteger)0)]);
+	[_editor modelChange:@"Set Data Type" with:^{
+		type.dataType = [self dataTypeNamed:typeName];
+		type.dataTypeScale = MAX(scale, (NSInteger)0);
+		type.dataTypeLength = MAX(length, (NSInteger)0);
+		[_editor wrote:type];
 	}];
 	return YES;
 }
 
-- (BOOL)setFlag:(NSString *)attribute to:(BOOL)flag of:(NSString *)objectTypeId named:(NSString *)action
+/* One of an object type's flags, by its property's key. */
+- (BOOL)setFlag:(NSString *)key to:(BOOL)flag of:(NSString *)objectTypeId named:(NSString *)action
          reason:(NSString **)reason
 {
 	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
@@ -310,28 +322,29 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 		}
 		return NO;
 	}
-	if (ORMBoolAttribute(type.element, attribute, NO) == flag) {
+	if ([[type valueForKey:key] boolValue] == flag) {
 		return YES;
 	}
-	[_editor change:action with:^{
-		ORMSetBoolAttribute(type.element, attribute, flag, NO);
+	[_editor modelChange:action with:^{
+		[type setValue:@(flag) forKey:key];
+		[_editor wrote:type];
 	}];
 	return YES;
 }
 
 - (BOOL)setIndependent:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason
 {
-	return [self setFlag:@"IsIndependent" to:flag of:objectTypeId named:@"Set Independent" reason:reason];
+	return [self setFlag:@"isIndependent" to:flag of:objectTypeId named:@"Set Independent" reason:reason];
 }
 
 - (BOOL)setPersonal:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason
 {
-	return [self setFlag:@"IsPersonal" to:flag of:objectTypeId named:@"Set Personal" reason:reason];
+	return [self setFlag:@"isPersonal" to:flag of:objectTypeId named:@"Set Personal" reason:reason];
 }
 
 - (BOOL)setExternal:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason
 {
-	return [self setFlag:@"IsExternal" to:flag of:objectTypeId named:@"Set External" reason:reason];
+	return [self setFlag:@"isExternal" to:flag of:objectTypeId named:@"Set External" reason:reason];
 }
 
 - (BOOL)setValueType:(BOOL)value of:(NSString *)objectTypeId reason:(NSString **)reason
