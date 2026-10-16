@@ -752,7 +752,7 @@ ORMMatchProperty(ORMCDEntity *entity, ORMCDProperty *like)
 	if ([theirs isKindOfClass:[ORMCDAttribute class]] && far != nil) {
 		ORMCDAttribute *attribute = (ORMCDAttribute *)theirs;
 		ORMCDAttribute *old = (ORMCDAttribute *)was;
-		ORMObjectType *valueType = far.player.kind == ORMValueType ? far.player : far.player.referenceModeValueType;
+		ORMObjectType *valueType = [far.player valueType];
 		if (![attribute.attributeType isEqualToString:old.attributeType] && valueType != nil) {
 			NSString *dataType = ORMDataTypeForAttributeType(attribute.attributeType);
 			NSUInteger uses = [valueType.playedRoles count];

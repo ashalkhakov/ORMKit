@@ -194,7 +194,7 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 			return [editor.objectTypeEditor setReferenceMode:value kind:ORMReferenceModeGeneral ofEntity:identifier reason:reason];
 		})];
 	}
-	ORMObjectType *valueType = type.kind == ORMValueType ? type : type.referenceModeValueType;
+	ORMObjectType *valueType = [type valueType];
 	if (valueType != nil) {
 		NSString *valueId = valueType.identifier;
 		NSArray *typeNames = [ORMDataType allTypeNames];

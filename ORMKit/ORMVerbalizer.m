@@ -481,7 +481,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		[self emit:b kind:ORMVerbalInformation];
 	}
 
-	ORMObjectType *valueType = type.kind == ORMValueType ? type : type.referenceModeValueType;
+	ORMObjectType *valueType = [type valueType];
 	if (valueType.dataType != nil) {
 		b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"Portable data type: "];

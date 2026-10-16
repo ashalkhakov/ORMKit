@@ -79,6 +79,9 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 @property (nonatomic, readonly) ORMReferenceModeKind referenceModeKind;
 /* The value type that holds the reference mode's values. */
 @property (nonatomic, readonly, weak) ORMObjectType *referenceModeValueType;
+/* The value type that holds its values: itself for a value type, its
+ * reference mode's for an entity type that has one; nil otherwise. */
+- (ORMObjectType *)valueType;
 /* The binary fact type the reference mode abbreviates. */
 @property (nonatomic, readonly, weak) ORMFactType *referenceModeFactType;
 /* The role the value type plays in it: what its preferred identifier

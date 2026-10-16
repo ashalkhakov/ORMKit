@@ -172,8 +172,7 @@ ORMCalculationFunctionNames(void)
 
 - (BOOL)isNumeric
 {
-	ORMObjectType *type = self.objectType.kind == ORMValueType ? self.objectType
-	                                                           : self.objectType.referenceModeValueType;
+	ORMObjectType *type = [self.objectType valueType];
 	return type.dataType.family == ORMDataTypeNumeric;
 }
 
@@ -1762,7 +1761,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		return NO;
 	}
 	ORMObjectType *type = node != nil ? [self typeOfQueryNode:node] : nil;
-	ORMObjectType *valued = type.kind == ORMValueType ? type : type.referenceModeValueType;
+	ORMObjectType *valued = [type valueType];
 	if ((aggregate == ORMQueryTotal || aggregate == ORMQueryAverage) && type != nil
 	    && valued.dataType.family != ORMDataTypeNumeric) {
 		if (reason != NULL) {

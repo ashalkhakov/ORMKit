@@ -101,6 +101,11 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	return _familyNames;
 }
 
+- (ORMObjectType *)valueType
+{
+	return self.kind == ORMValueType ? self : self.referenceModeValueType;
+}
+
 - (ORMObjectType *)identifiedType
 {
 	ORMObjectType *type = self;
@@ -1463,7 +1468,7 @@ ORMReferenceModeIn(NSString *valueName, NSString *format, NSString *entityName)
 	for (ORMFactType *fact in self.factTypes) {
 		for (ORMRole *role in fact.roles) {
 			ORMObjectType *player = role.player;
-			role.valueConstraint.valueType = player.kind == ORMValueType ? player : player.referenceModeValueType;
+			role.valueConstraint.valueType = [player valueType];
 		}
 	}
 }

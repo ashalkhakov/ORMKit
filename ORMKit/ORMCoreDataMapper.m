@@ -591,13 +591,6 @@ ORMReservedNames(void)
 	return resolved != nil ? [resolved integerValue] : ORMResolvedOutOfScope;
 }
 
-/* The value type that holds a value-ish object type's values: itself, or an
- * absorbed entity type's reference mode's. */
-- (ORMObjectType *)valueTypeOf:(ORMObjectType *)type
-{
-	return type.kind == ORMValueType ? type : type.referenceModeValueType;
-}
-
 #pragma mark Entities
 
 /* The supertype a subtype's entity inherits from: the one that identifies
@@ -840,7 +833,7 @@ ORMReservedNames(void)
 			NSMutableArray *roleIds = [NSMutableArray array];
 			NSMutableArray *names = [NSMutableArray array];
 			for (ORMRole *role in roles) {
-				ORMObjectType *valueType = [self valueTypeOf:role.player];
+				ORMObjectType *valueType = [role.player valueType];
 				NSString *source = [member.identifier stringByAppendingFormat:@"/%@", role.identifier];
 				NSString *name = [self claimName:[self candidatesFor:role near:[role oppositeRole] toMany:NO]
 				                          source:source on:entity];
@@ -1110,7 +1103,7 @@ ORMRegexEscape(NSString *value)
 /* The entity a many-valued use of a value type makes, made once. */
 - (ORMCDEntity *)valueEntityFor:(ORMObjectType *)type
 {
-	ORMObjectType *valueType = [self valueTypeOf:type];
+	ORMObjectType *valueType = [type valueType];
 	ORMCDEntity *entity = [_valueEntities objectForKey:type.identifier];
 	if (entity != nil) {
 		return entity;
@@ -1175,7 +1168,7 @@ ORMCapitalized(NSString *name)
 			                                optional:optional]];
 		} else if (resolved == ORMResolvedValue) {
 			NSString *name = [self claimName:@[ candidate ] source:componentSource on:entity];
-			[entity.attributes addObject:[self attributeFor:[self valueTypeOf:player] name:name source:componentSource
+			[entity.attributes addObject:[self attributeFor:[player valueType] name:name source:componentSource
 			                                       optional:optional roleConstraint:component.valueConstraint]];
 			[names addObject:name];
 		} else if (resolved == ORMResolvedEntity || resolved == ORMResolvedFolded) {
@@ -1366,7 +1359,7 @@ ORMDeletionRule(ORMRole *far)
 - (void)mapEntity:(ORMRole *)near toValue:(ORMRole *)far
 {
 	ORMCDEntity *entity = [self entityOf:near.player forSource:far.identifier];
-	ORMObjectType *valueType = [self valueTypeOf:far.player];
+	ORMObjectType *valueType = [far.player valueType];
 	ORMFactType *fact = near.factType;
 	if (near.isUnique) {
 		NSString *name = [self claimName:[self candidatesFor:far near:near toMany:NO] source:far.identifier on:entity];
@@ -1502,7 +1495,7 @@ ORMDeletionRule(ORMRole *far)
 			[entity.relationships addObject:forward];
 			[player.relationships addObject:backward];
 		} else if (resolved == ORMResolvedValue) {
-			[entity.attributes addObject:[self attributeFor:[self valueTypeOf:role.player] name:name
+			[entity.attributes addObject:[self attributeFor:[role.player valueType] name:name
 			                                         source:role.identifier optional:NO
 			                                 roleConstraint:role.valueConstraint]];
 		}
