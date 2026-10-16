@@ -327,52 +327,45 @@
 		}
 	}
 	__block NSString *created = nil;
-	[_editor change:@"Objectify Fact Type" with:^{
-		NSString *identifierId = identifier.identifier;
-		if (identifierId == nil) {
-			NSMutableArray *all = [NSMutableArray array];
-			for (ORMRole *role in fact.roles) {
-				[all addObject:role.identifier];
-			}
-			identifierId = ORMAttribute([_editor.constraintEditor newInternalUniqueness:all], @"id");
-		}
-		NSXMLElement *type = ORMNewElementWithId(_editor.document, CORE, @"ObjectifiedType", nil);
-		ORMSetAttribute(type, @"Name", typeName);
-		ORMSetAttribute(type, @"IsIndependent", @"true");
-		ORMSetAttribute(type, @"_ReferenceMode", @"");
-		ORMInsertChild(type, ORMNewRef(_editor.document, CORE, @"PreferredIdentifier", identifierId));
-		NSXMLElement *nested = ORMNewElementWithId(_editor.document, CORE, @"NestedPredicate", nil);
-		ORMSetAttribute(nested, @"ref", factTypeId);
-		ORMSetAttribute(nested, @"IsImplied", @"false");
-		ORMInsertChild(type, nested);
-		[[_editor section:@"Objects"] addChild:type];
-		created = ORMAttribute(type, @"id");
+	[_editor modelChange:@"Objectify Fact Type" with:^{
+		ORMModel *model = _editor.model;
+		ORMConstraint *preferred = identifier ?: [_editor.constraintEditor addInternalUniqueness:fact.roles];
+		ORMObjectType *type = [[ORMObjectType alloc] initWithModel:model];
+		type.name = typeName;
+		type.kind = ORMObjectifiedType;
+		type.isIndependent = YES;
+		type.savedReferenceMode = @"";
+		type.preferredIdentifier = preferred;
+		type.nestedFactType = fact;
+		type.objectificationId = ORMNewId();
+		[model addElement:type];
+		[_editor wrote:type];
+		created = type.identifier;
 
 		/* NORMA's link fact types: for each role, "{objectified} involves
 		 * {player}", the objectified type's role unique and mandatory. */
 		for (ORMRole *role in [fact visibleRoles]) {
-			NSXMLElement *link = ORMNewElementWithId(_editor.document, CORE, @"ImpliedFact", nil);
-			ORMSetAttribute(link, @"_Name", [NSString stringWithFormat:@"%@Involves%@", typeName, role.player.name]);
-			NSXMLElement *roles = ORMEnsureChild(_editor.document, link, CORE, @"FactRoles");
-			NSXMLElement *proxy = ORMNewElementWithId(_editor.document, CORE, @"RoleProxy", nil);
-			[proxy addChild:ORMNewRef(_editor.document, CORE, @"Role", role.identifier)];
-			[roles addChild:proxy];
-			NSXMLElement *own = ORMNewElementWithId(_editor.document, CORE, @"Role", nil);
-			ORMSetAttribute(own, @"_IsMandatory", @"true");
-			ORMSetAttribute(own, @"_Multiplicity", @"ExactlyOne");
-			ORMSetAttribute(own, @"Name", @"");
-			[own addChild:ORMNewRef(_editor.document, CORE, @"RolePlayer", created)];
-			[roles addChild:own];
-			[[_editor section:@"Facts"] addChild:link];
-			NSString *proxyId = ORMAttribute(proxy, @"id");
-			NSString *ownId = ORMAttribute(own, @"id");
-			[self appendReading:@"{0} involves {1}" to:link roles:@[ ownId, proxyId ]];
-			[self appendReading:@"{0} is involved in {1}" to:link roles:@[ proxyId, ownId ]];
-			NSXMLElement *unique = [_editor.constraintEditor newInternalUniqueness:@[ ownId ]];
-			ORMSetAttribute(unique, @"IsImplied", @"true");
-			NSXMLElement *mandatory = [_editor.constraintEditor newSimpleMandatory:ownId];
-			ORMSetAttribute(mandatory, @"IsImplied", @"true");
-			[link addChild:ORMNewRef(_editor.document, CORE, @"ImpliedByObjectification", ORMAttribute(nested, @"id"))];
+			ORMFactType *link = [[ORMFactType alloc] initWithModel:model];
+			link.kind = ORMFactTypeImplied;
+			link.savedDerivedName = [NSString stringWithFormat:@"%@Involves%@", typeName, role.player.name];
+			link.impliedByFactType = fact;
+			ORMRole *proxy = [[ORMRole alloc] initWithModel:model];
+			proxy.factType = link;
+			proxy.proxiedRole = role;
+			ORMRole *own = [[ORMRole alloc] initWithModel:model];
+			own.factType = link;
+			own.index = 1;
+			own.player = type;
+			link.roles = @[ proxy, own ];
+			link.readingOrders = @[];
+			[model registerElement:proxy];
+			[model registerElement:own];
+			[model addElement:link];
+			[_editor wrote:link];
+			[self addReading:@"{0} involves {1}" to:link roles:@[ own, proxy ]];
+			[self addReading:@"{0} is involved in {1}" to:link roles:@[ proxy, own ]];
+			[_editor.constraintEditor addInternalUniqueness:@[ own ]].isImplied = YES;
+			[_editor.constraintEditor addSimpleMandatory:own].isImplied = YES;
 		}
 	}];
 	return created;
@@ -394,7 +387,7 @@
 		}
 		return NO;
 	}
-	[_editor change:@"Unobjectify Fact Type" with:^{
+	[_editor group:@"Unobjectify Fact Type" with:^{
 		[_editor.elementEditor deleteElements:@[ type.identifier ]];
 	}];
 	return YES;

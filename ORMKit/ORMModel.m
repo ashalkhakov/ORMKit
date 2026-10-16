@@ -114,6 +114,7 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	_supertypeFacts = nil;
 	_ownValueConstraint = nil;
 	_savedReferenceMode = nil;
+	_objectificationId = nil;
 }
 
 - (void)forgetDerivedValues
@@ -1539,6 +1540,7 @@ ORMWithout(NSArray *array, id object)
 		if ([fact isKindOfClass:[ORMFactType class]]) {
 			type.nestedFactType = fact;
 			NSString *objectificationId = ORMAttribute(nested, @"id");
+			type.objectificationId = objectificationId;
 			if (objectificationId != nil) {
 				[objectifications setObject:fact forKey:objectificationId];
 			}

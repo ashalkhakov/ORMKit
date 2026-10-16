@@ -294,11 +294,13 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Objects") addChild:made];
 	} else if ([element isKindOfClass:[ORMFactType class]]) {
 		ORMFactTypeKind kind = [(ORMFactType *)element kind];
-		made = ORMNewElementWithId(_document, CORE, kind == ORMFactTypeSubtype ? @"SubtypeFact" : @"Fact",
+		made = ORMNewElementWithId(_document, CORE,
+		                           kind == ORMFactTypeSubtype ? @"SubtypeFact"
+		                           : kind == ORMFactTypeImplied ? @"ImpliedFact" : @"Fact",
 		                           element.identifier);
 		/* The name NORMA derives is the normalizer's to keep up; a subtype
-		 * fact starts with one, which tells it to. */
-		if (kind == ORMFactTypeSubtype) {
+		 * or link fact type starts with one, which tells it to. */
+		if (kind != ORMFactTypeOrdinary) {
 			ORMSetAttribute(made, @"_Name", [(ORMFactType *)element savedDerivedName]);
 		}
 		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Facts") addChild:made];
@@ -374,7 +376,14 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	NSXMLElement *element = fact.element;
 	NSXMLElement *roles = ORMChild(element, CORE, @"FactRoles");
 	for (ORMRole *role in fact.roles) {
-		if (role.element == nil) {
+		if (role.element == nil && role.proxiedRole != nil) {
+			/* A link fact type's proxy: the role it stands for, nothing more. */
+			NSXMLElement *made = ORMNewElementWithId(_document, CORE, @"RoleProxy", role.identifier);
+			[made addChild:ORMNewRef(_document, CORE, @"Role", role.proxiedRole.identifier)];
+			roles = roles ?: ORMEnsureChild(_document, element, CORE, @"FactRoles");
+			[roles addChild:made];
+			role.element = made;
+		} else if (role.element == nil) {
 			NSString *local = role.isSubtypeMetaRole ? @"SubtypeMetaRole"
 				: role.isSupertypeMetaRole ? @"SupertypeMetaRole" : @"Role";
 			NSXMLElement *made = ORMNewElementWithId(_document, CORE, local, role.identifier);
@@ -438,6 +447,10 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 {
 	NSXMLElement *element = fact.element;
 	[self writePartsOf:fact];
+	if (fact.impliedByFactType != nil) {
+		ORMWriteRef(_document, element, @"ImpliedByObjectification",
+		            fact.impliedByFactType.objectifyingType.objectificationId);
+	}
 	/* A name given it; one NORMA derives (_Name) is the normalizer's. */
 	if (![ORMAttribute(element, @"Name") ?: @"" isEqualToString:fact.explicitName ?: @""]
 	    || (ORMAttribute(element, @"Name") == nil) != (fact.explicitName == nil)) {
@@ -637,11 +650,6 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		[self rebindChildrenOf:type];
 	}
 	ORMSetAttribute(element, @"Name", type.name);
-	if (type.savedReferenceMode == nil) {
-		ORMSetAttribute(element, @"_ReferenceMode", nil);
-	} else if (![ORMAttribute(element, @"_ReferenceMode") isEqualToString:type.savedReferenceMode]) {
-		ORMSetAttribute(element, @"_ReferenceMode", type.savedReferenceMode);
-	}
 	[self writeValueConstraint:type.ownValueConstraint of:element as:@"ValueConstraint"];
 	if (type.kind != ORMValueType || type.dataType == nil) {
 		[ORMChild(element, CORE, @"ConceptualDataType") detach];
@@ -650,6 +658,11 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	ORMWriteBool(element, @"IsExternal", type.isExternal, NO);
 	ORMWriteBool(element, @"IsPersonal", type.isPersonal, NO);
 	ORMWriteBool(element, @"IsImplicitBooleanValue", type.isImplicitBooleanValue, NO);
+	if (type.savedReferenceMode == nil) {
+		ORMSetAttribute(element, @"_ReferenceMode", nil);
+	} else if (![ORMAttribute(element, @"_ReferenceMode") isEqualToString:type.savedReferenceMode]) {
+		ORMSetAttribute(element, @"_ReferenceMode", type.savedReferenceMode);
+	}
 	ORMWriteNested(_document, element, @"Definitions", @"Definition", type.definitionText);
 	ORMWriteNested(_document, element, @"Notes", @"Note", type.noteText);
 	if (type.kind == ORMValueType) {
@@ -668,7 +681,13 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		ORMWriteInteger(dataType, @"Scale", type.dataTypeScale, 0);
 	}
 	ORMWriteRef(_document, element, @"PreferredIdentifier", type.preferredIdentifier.identifier);
-	if (type.nestedFactType != nil) {
+	if (type.nestedFactType != nil && ORMChild(element, CORE, @"NestedPredicate") == nil) {
+		/* NORMA gives the objectification an id, and spells IsImplied out. */
+		NSXMLElement *nested = ORMNewElementWithId(_document, CORE, @"NestedPredicate", type.objectificationId);
+		ORMSetAttribute(nested, @"ref", type.nestedFactType.identifier);
+		ORMSetAttribute(nested, @"IsImplied", type.isImplied ? @"true" : @"false");
+		ORMInsertChild(element, nested);
+	} else if (type.nestedFactType != nil) {
 		ORMWriteRef(_document, element, @"NestedPredicate", type.nestedFactType.identifier);
 		ORMWriteBool(ORMChild(element, CORE, @"NestedPredicate"), @"IsImplied", type.isImplied, NO);
 	}

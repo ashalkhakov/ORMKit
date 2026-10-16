@@ -50,6 +50,9 @@
  * and NORMA's _ReferenceMode, which settles how a value type's name reads. */
 @property (nonatomic, readwrite, strong) ORMValueConstraint *ownValueConstraint;
 @property (nonatomic, readwrite, copy) NSString *savedReferenceMode;
+/* An objectified type's objectification's own id (its NestedPredicate's),
+ * which its link fact types name. */
+@property (nonatomic, readwrite, copy) NSString *objectificationId;
 @end
 
 @interface ORMFactType ()
