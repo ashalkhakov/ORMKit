@@ -104,12 +104,10 @@
 		NSString *name = [fact displayText];
 		NSSet *roles = [NSSet setWithArray:fact.roles];
 		for (ORMReadingOrder *order in fact.readingOrders) {
-			/* A role the file names that is not there is dropped from order.roles. */
-			NSXMLElement *sequence = ORMChild(order.element, ORMCoreNamespace, @"RoleSequence");
-			NSUInteger named = [ORMChildren(sequence, ORMCoreNamespace, @"Role") count];
+			/* A role the file names that is not there is not in order.roles. */
 			NSSet *placed = [NSSet setWithArray:order.roles];
 			BOOL covers = [placed isSubsetOfSet:roles] && [[NSSet setWithArray:[fact visibleRoles]] isSubsetOfSet:placed]
-			              && named == [order.roles count];
+			              && [order.unresolvedRoleIds count] == 0;
 			if (!covers) {
 				[self add:ORMIssueError area:@"Model"
 				     text:[NSString stringWithFormat:@"A reading order of \"%@\" does not place its roles: one is missing or not the fact type's.", name]

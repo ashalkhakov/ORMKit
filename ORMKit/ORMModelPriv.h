@@ -6,7 +6,8 @@
 
 @class ORMStoredQuery, ORMQueryPart;
 
-/* What the projection's builders set: the public classes are read-only. */
+/* What the reader, the editors and the writer set: the public classes are
+ * read-only. */
 
 @interface ORMElement ()
 @property (nonatomic, readwrite, strong) NSXMLElement *element;
@@ -104,6 +105,7 @@
 @interface ORMReadingOrder ()
 @property (nonatomic, readwrite, weak) ORMFactType *factType;
 @property (nonatomic, readwrite, copy) NSArray<ORMRole *> *roles;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *unresolvedRoleIds;
 @property (nonatomic, readwrite, copy) NSArray<ORMReading *> *readings;
 @end
 
@@ -114,6 +116,7 @@
 
 @interface ORMRoleSequence ()
 @property (nonatomic, readwrite, copy) NSArray<ORMRole *> *roles;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *unresolvedRoleIds;
 @property (nonatomic, readwrite) BOOL hasJoinPath;
 @end
 
@@ -189,7 +192,7 @@
 @end
 
 @interface ORMModel ()
-/* Every projected element by id, and a way for the diagram to add its
+/* Every element by id, and a way for the diagram to add its
  * shapes. */
 - (void)registerElement:(ORMElement *)element;
 /* The element read from xml: when the model is read again, the one read
@@ -223,6 +226,11 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMCoreDataMapping *> *coreDataMappings;
 /* The queries the document keeps, in order. */
 @property (nonatomic, copy) NSArray<ORMStoredQuery *> *storedQueries;
+/* While a change is made: the names of the elements it took out, the
+ * document's until it is written. */
+@property (nonatomic, strong) NSMutableSet<NSString *> *removedNames;
+/* Whether a reading of the file has NORMA's <orm:ExpandedData>. */
+@property (nonatomic) BOOL readingsHaveExpandedData;
 @end
 
 @interface ORMModel (ORMPathReading)
@@ -405,6 +413,7 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 @property (nonatomic, readwrite, weak) ORMFactType *factType;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *roleInstanceIds;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMInstance *> *instancesByRole;
+@property (nonatomic, readwrite) BOOL isKeptOnPlayer;
 @end
 
 @interface ORMModel (ORMPopulations)

@@ -16,32 +16,16 @@
  * editor of its parts. */
 @interface ORMEditor ()
 
-/* One undoable step: the document as it was is what undo restores. Inside
- * a group, or another change, it joins the step being made, and the
- * projection is rebuilt after it so the next operation sees its result. */
-- (void)change:(NSString *)name with:(void (^)(void))change;
-
-/* The same, for an operation moved to the model (docs/MODEL.md): it
- * changes the model's elements, saying which with -wrote:, and the model
- * is derived again and the elements written to the document after it;
- * the model is not read again unless an operation of the step edited the
- * XML. */
+/* One undoable step (docs/MODEL.md): it changes the model's elements,
+ * saying which with -wrote: and -deleted:, and the model is derived again
+ * and the elements written to the document after it. Inside a group, or
+ * another change, it joins the step being made. */
 - (void)modelChange:(NSString *)name with:(void (^)(void))change;
-/* A change to what the model does not read (ORMKit's Core Data mappings
- * and queries, kept in the document and read from it on demand): one
- * undoable step like the others, after which the model is not read
- * again. */
-- (void)documentChange:(NSString *)name with:(void (^)(void))change;
 /* An element a model change changed, to be written. */
 - (void)wrote:(ORMElement *)element;
 /* An element a model change took out of the model: its XML element goes. */
 - (void)deleted:(ORMElement *)element;
 
-/* The element with the id, made since the projection was built or not. */
-- (NSXMLElement *)xml:(NSString *)elementId;
-/* A section of the orm:ORMModel element (Objects, Facts, Constraints,
- * DataTypes, ...), made when missing. */
-- (NSXMLElement *)section:(NSString *)local;
 /* "InternalUniquenessConstraint7": the prefix and the next number no
  * constraint of the model has. */
 - (NSString *)nextName:(NSString *)prefix;
@@ -51,10 +35,6 @@
 
 /* The ids' roles, refused with why when one is not a role. */
 - (NSArray<ORMRole *> *)rolesWithIds:(NSArray<NSString *> *)roleIds reason:(NSString **)reason;
-/* <orm:RoleSequence> holding <orm:Role id ref/> for the roles. */
-- (NSXMLElement *)newRoleSequence:(NSArray<NSString *> *)roleIds withId:(BOOL)withId;
-/* A new constraint element of the kind named, in Constraints. */
-- (NSXMLElement *)newConstraint:(NSString *)local named:(NSString *)prefix;
 
 /* Whether readings get NORMA's <orm:ExpandedData>: as the file had it
  * when opened (older NORMA did not write it). */
@@ -67,23 +47,22 @@
 
 /* NORMA's denormalized data (each object type's PlayedRoles, each fact
  * type's InternalConstraints, _IsMandatory, _Multiplicity, _Name,
- * _ReferenceMode, readings' ExpandedData, implied mandatories), kept up
- * from the model after each change, as the version of NORMA that wrote the
- * file keeps it. */
+ * _ReferenceMode, readings' ExpandedData, implied mandatories), worked
+ * out from the XML as the version of NORMA that wrote the file keeps it:
+ * in tests, a check that the writer, which keeps it from the model, left
+ * nothing to do. */
 /* The roles each object type's implied inclusive-or covers, by the
  * type's id: only the types that need one (ORMNormalizer.m). */
 NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMModel *model);
 
 @interface ORMNormalizer : NSObject
 - (instancetype)initWithEditor:(ORMEditor *)editor;
-@property (nonatomic, readonly) BOOL writesExpandedData;
-@property (nonatomic, readonly) BOOL writesImpliedMandatories;
 /* The unary readings as a change starts: an implicit boolean value type is
  * renamed only when its reading was changed. */
 - (void)rememberUnaryReadings;
 /* NORMA's data kept up in the XML; YES when it changed what the model
  * reads and does not keep up itself (a derivation rule's words, from its
- * query), so that the model is read again. */
+ * query). */
 - (BOOL)normalize;
 @end
 

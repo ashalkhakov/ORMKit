@@ -35,20 +35,19 @@ static BOOL ORMChecksAgreement;
 	 * takes the snapshot. */
 	NSUInteger _depth;
 	BOOL _hasChanges;
-	/* NORMA's denormalized data, kept up after each change. */
+	/* In tests, the check that the writer kept up NORMA's data. */
 	ORMNormalizer *_normalizer;
+	BOOL _writesExpandedData;
+	BOOL _writesImpliedMandatories;
 	ORMObjectTypeEditor *_objectTypeEditor;
 	ORMFactTypeEditor *_factTypeEditor;
 	ORMConstraintEditor *_constraintEditor;
 	ORMDiagramEditor *_diagramEditor;
 	ORMElementEditor *_elementEditor;
 	ORMPopulationEditor *_populationEditor;
-	/* A step of a group changed the document: the projection is read again
-	 * when it is next asked for, not after every step. */
+	/* A refused step of a group put back what it did: the model is read
+	 * again when it is next asked for. */
 	BOOL _stale;
-	/* A step of the change being made edited the XML: the model is read
-	 * again after it. */
-	BOOL _editedXML;
 	/* What a model change changed, to be written, and took away. */
 	NSMutableArray<ORMElement *> *_wrote;
 	NSMutableArray<ORMElement *> *_deleted;
@@ -93,6 +92,8 @@ static BOOL ORMChecksAgreement;
 		_document = document;
 		_undoManager = undoManager;
 		_model = [ORMModel modelOfDocument:document reason:NULL];
+		_writesExpandedData = ORMWritesExpandedData(_model);
+		_writesImpliedMandatories = ORMWritesImpliedMandatories(_model);
 		_normalizer = [[ORMNormalizer alloc] initWithEditor:self];
 	}
 	return self;
@@ -150,14 +151,38 @@ static BOOL ORMChecksAgreement;
 
 #pragma mark Its file
 
-- (BOOL)writesExpandedData
+@synthesize writesExpandedData = _writesExpandedData;
+@synthesize writesImpliedMandatories = _writesImpliedMandatories;
+
+/* An older NORMA wrote no ExpandedData: a file with readings and none
+ * gets none. */
+static BOOL
+ORMWritesExpandedData(ORMModel *model)
 {
-	return _normalizer.writesExpandedData;
+	if (model.readingsHaveExpandedData) {
+		return YES;
+	}
+	for (ORMFactType *fact in model.factTypes) {
+		for (ORMReadingOrder *order in fact.readingOrders) {
+			if ([order.readings count] > 0) {
+				return NO;
+			}
+		}
+	}
+	return YES;
 }
 
-- (BOOL)writesImpliedMandatories
+/* An older NORMA wrote no implied mandatory constraints: a file that
+ * needs some and has none stays as it is. */
+static BOOL
+ORMWritesImpliedMandatories(ORMModel *model)
 {
-	return _normalizer.writesImpliedMandatories;
+	for (ORMConstraint *constraint in model.constraints) {
+		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied && constraint.impliedByObjectTypeId != nil) {
+			return YES;
+		}
+	}
+	return [ORMImpliedMandatoryRoles(model) count] == 0;
 }
 
 + (BOOL)checksAgreement
@@ -254,23 +279,15 @@ ORMFirstDifference(NSData *one, NSData *other)
  * step to undo. */
 - (BOOL)apply:(NSString *)name rollback:(BOOL)rollback with:(BOOL (^)(void))change
 {
-	return [self apply:name rollback:rollback editsXML:YES with:change];
-}
-
-- (BOOL)apply:(NSString *)name rollback:(BOOL)rollback editsXML:(BOOL)editsXML with:(BOOL (^)(void))change
-{
-	/* A step of a group is read back for the next, and the group as a
-	 * whole normalized, from the readings it started with. */
 	if (_depth > 0) {
 		/* A step that may be refused keeps its own journal, inside the
-		 * change's: refused, it puts back its part. */
+		 * change's: refused, it puts back its part, and the model is read
+		 * again from that when next asked for. */
 		ORMXMLJournal *inner = rollback ? [[ORMXMLJournal alloc] initWithDocument:_document] : nil;
 		if (inner != nil) {
 			ORMOpenJournal(inner);
 		}
 		BOOL done;
-		/* What the step made is read when the next step, or the caller,
-		 * asks. */
 		@autoreleasepool {
 			done = change();
 		}
@@ -281,19 +298,16 @@ ORMFirstDifference(NSData *one, NSData *other)
 			[inner restore];
 			_stale = YES;
 		}
-		if (editsXML) {
-			_stale = YES;
-			_editedXML = YES;
-		}
 		return done;
 	}
-	[_normalizer rememberUnaryReadings];
+	if (ORMChecksAgreement) {
+		[_normalizer rememberUnaryReadings];
+	}
 	/* Undo puts back the elements the change touched, each as it was. */
 	ORMXMLJournal *journal = [[ORMXMLJournal alloc] initWithDocument:_document];
 	ORMOpenJournal(journal);
 	NSData *was = ORMChecksAgreement ? ORMDataOfDocument(_document) : nil;
 	BOOL hadChanges = _hasChanges;
-	_editedXML = editsXML;
 	_depth++;
 	BOOL done = change();
 	if (!done && rollback) {
@@ -304,17 +318,12 @@ ORMFirstDifference(NSData *one, NSData *other)
 		[self reread];
 		return NO;
 	}
-	if (_editedXML || _stale) {
-		/* What NORMA keeps beside the model, kept up from the XML. */
-		if ([_normalizer normalize]) {
-			_editedXML = YES;
-		}
-	} else {
-		/* Model changes wrote it as they went; a derivation rule's words
-		 * come from its query. */
-		[self keepDerivationWords];
-		[self checkNormalized];
+	if (_stale) {
+		[self reread];
 	}
+	/* A derivation rule's words come from its query. */
+	[self keepDerivationWords];
+	[self checkNormalized];
 	ORMCloseJournal(journal);
 	_depth--;
 	/* A manager that does not group by event (a document's that edits
@@ -330,9 +339,6 @@ ORMFirstDifference(NSData *one, NSData *other)
 		[_undoManager endUndoGrouping];
 	}
 	_hasChanges = YES;
-	if (_editedXML || _stale) {
-		[self reread];
-	}
 	[self checkAgreement];
 	if (self.changed != nil) {
 		self.changed();
@@ -340,17 +346,9 @@ ORMFirstDifference(NSData *one, NSData *other)
 	return done;
 }
 
-- (void)change:(NSString *)name with:(void (^)(void))change
-{
-	[self apply:name rollback:NO with:^BOOL {
-		change();
-		return YES;
-	}];
-}
-
 - (void)modelChange:(NSString *)name with:(void (^)(void))change
 {
-	[self apply:name rollback:NO editsXML:NO with:^BOOL {
+	[self apply:name rollback:NO with:^BOOL {
 		[self changeModel:change];
 		return YES;
 	}];
@@ -364,6 +362,7 @@ ORMFirstDifference(NSData *one, NSData *other)
 	ORMModel *model = self.model;
 	_wrote = [NSMutableArray array];
 	_deleted = [NSMutableArray array];
+	model.removedNames = [NSMutableSet set];
 	/* Each unary's reading as the change finds it: an implicit type is
 	 * named by its reading when that changes, its player renamed too. */
 	NSMutableDictionary *unaries = [NSMutableDictionary dictionary];
@@ -398,7 +397,7 @@ ORMFirstDifference(NSData *one, NSData *other)
 	}
 	ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
 	writer.gone = [NSSet setWithArray:[_deleted valueForKey:@"identifier"]];
-	writer.writesExpandedData = _normalizer.writesExpandedData;
+	writer.writesExpandedData = _writesExpandedData;
 	for (ORMElement *element in _wrote) {
 		if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
 			[writer writeElement:element];
@@ -429,6 +428,7 @@ ORMFirstDifference(NSData *one, NSData *other)
 	[writer writeReferenceModes];
 	_wrote = nil;
 	_deleted = nil;
+	model.removedNames = nil;
 }
 
 /* A derivation query's fact type keeps the query's words as its rule's
@@ -458,14 +458,6 @@ ORMFirstDifference(NSData *one, NSData *other)
 			[(ORMDerivationRule *)[change objectAtIndex:1] setInformalText:[change lastObject]];
 			[self wrote:[change firstObject]];
 		}
-	}];
-}
-
-- (void)documentChange:(NSString *)name with:(void (^)(void))change
-{
-	[self apply:name rollback:NO editsXML:NO with:^BOOL {
-		change();
-		return YES;
 	}];
 }
 
@@ -559,11 +551,9 @@ ORMFirstDifference(NSData *one, NSData *other)
 	}
 }
 
-/* A group edits the XML only where one of its steps does: those mark the
- * model to be read again. */
 - (void)group:(NSString *)name with:(void (^)(void))operations
 {
-	[self apply:name rollback:NO editsXML:NO with:^BOOL {
+	[self apply:name rollback:NO with:^BOOL {
 		operations();
 		return YES;
 	}];
@@ -571,7 +561,7 @@ ORMFirstDifference(NSData *one, NSData *other)
 
 - (BOOL)group:(NSString *)name trying:(BOOL (^)(void))operations
 {
-	return [self apply:name rollback:YES editsXML:NO with:operations];
+	return [self apply:name rollback:YES with:operations];
 }
 
 /* Undo and redo alike: the elements the change touched put back, and
@@ -653,40 +643,14 @@ ORMFirstDifference(NSData *one, NSData *other)
 
 #pragma mark Shared
 
-- (NSXMLElement *)xml:(NSString *)elementId
-{
-	if (elementId == nil) {
-		return nil;
-	}
-	ORMElement *projected = [_model elementWithId:elementId];
-	NSXMLElement *element = projected.element;
-	if (element != nil && [element rootDocument] == _document) {
-		return element;
-	}
-	return ORMElementWithId(_document, elementId);
-}
-
-- (NSXMLElement *)section:(NSString *)local
-{
-	return ORMEnsureChild(_document, ORMModelElementOfDocument(_document), CORE, local);
-}
-
 - (NSString *)nextName:(NSString *)prefix
 {
-	/* The document's names, and those of what a model change has made
-	 * and not yet written. */
-	NSMutableArray *names = [NSMutableArray array];
-	for (NSXMLElement *element in ORMDescendants(ORMModelElementOfDocument(_document), CORE, nil)) {
-		NSString *name = ORMAttribute(element, @"Name");
-		if (name != nil) {
-			[names addObject:name];
-		}
-	}
-	if (_wrote != nil) {
-		for (ORMElement *element in [[_model valueForKey:@"elementsById"] allValues]) {
-			if (element.element == nil && element.name != nil) {
-				[names addObject:element.name];
-			}
+	/* The model's names, and those of what the change being made took out
+	 * of it: the document's until it is written. */
+	NSMutableArray *names = [NSMutableArray arrayWithArray:[_model.removedNames allObjects] ?: @[]];
+	for (ORMElement *element in [[_model valueForKey:@"elementsById"] allValues]) {
+		if (element.name != nil) {
+			[names addObject:element.name];
 		}
 	}
 	NSUInteger highest = 0;
@@ -741,26 +705,6 @@ ORMFirstDifference(NSData *one, NSData *other)
 		return nil;
 	}
 	return roles;
-}
-
-- (NSXMLElement *)newRoleSequence:(NSArray<NSString *> *)roleIds withId:(BOOL)withId
-{
-	NSXMLElement *sequence = withId ? ORMNewElementWithId(_document, CORE, @"RoleSequence", nil)
-	                                : ORMNewElement(_document, CORE, @"RoleSequence");
-	for (NSString *roleId in roleIds) {
-		NSXMLElement *role = ORMNewElementWithId(_document, CORE, @"Role", nil);
-		ORMSetAttribute(role, @"ref", roleId);
-		ORMAddChild(sequence, role);
-	}
-	return sequence;
-}
-
-- (NSXMLElement *)newConstraint:(NSString *)local named:(NSString *)prefix
-{
-	NSXMLElement *constraint = ORMNewElementWithId(_document, CORE, local, nil);
-	ORMSetAttribute(constraint, @"Name", [self nextName:prefix]);
-	ORMAddChild([self section:@"Constraints"], constraint);
-	return constraint;
 }
 
 @end

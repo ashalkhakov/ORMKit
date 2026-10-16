@@ -1,21 +1,20 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <Foundation/Foundation.h>
 
-/* An ORM2 model as NORMA saves it, read from the XML into objects.
- *
- * The NSXMLDocument is the model; these objects are a projection of it,
- * rebuilt after every change (ORMEditor does that), and never changed in
- * place. Each holds the element it was read from. Their links to one
- * another are weak and the ORMModel holds them all, so keep the model
- * alive while you use what it gave you. */
+/* An ORM2 model: its object types, fact types, constraints, diagrams,
+ * populations, queries and Core Data mappings, as objects (docs/MODEL.md).
+ * It is read once from NORMA's .orm XML when a file is opened, changed
+ * only through ORMEditor, which records the undo, and written back into
+ * the document by ORMNormaWriter; nothing else reads or writes the XML.
+ * The objects' links to one another are weak and the ORMModel holds them
+ * all, so keep the model alive while you use what it gave you. */
 
 @class ORMReadingText;
 @class ORMModel, ORMObjectType, ORMFactType, ORMRole, ORMReadingOrder, ORMReading, ORMConstraint, ORMRoleSequence,
 	ORMValueConstraint, ORMDataType, ORMModelNote, ORMDiagram, ORMCoreDataMapping;
 
-/* What every projected element has. */
+/* What every element has. */
 @interface ORMElement : NSObject
-@property (nonatomic, readonly, strong) NSXMLElement *element;
 @property (nonatomic, readonly, copy) NSString *identifier;
 @property (nonatomic, readonly, weak) ORMModel *model;
 /* What the element is called in the model; NORMA names constraints
@@ -252,6 +251,9 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 @property (nonatomic, readonly, weak) ORMFactType *factType;
 /* The roles in the order its readings place them: {0} is the first. */
 @property (nonatomic, readonly, copy) NSArray<ORMRole *> *roles;
+/* The refs the file names that are no role of the model's ("" for a
+ * Role with none): not in roles, and kept in the file. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *unresolvedRoleIds;
 @property (nonatomic, readonly, copy) NSArray<ORMReading *> *readings;
 @end
 
@@ -310,6 +312,8 @@ typedef NS_ENUM(NSInteger, ORMModality) {
  * with the join path NORMA may keep for it left in the XML. */
 @interface ORMRoleSequence : ORMElement
 @property (nonatomic, readonly, copy) NSArray<ORMRole *> *roles;
+/* As a reading order's. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *unresolvedRoleIds;
 /* NORMA keeps a join path for a sequence whose roles are not in one fact
  * type; ORMKit reads that it has one, not what it says. */
 @property (nonatomic, readonly) BOOL hasJoinPath;
@@ -416,7 +420,7 @@ typedef NS_ENUM(NSInteger, ORMDataTypeFamily) {
 #pragma mark The model
 
 @interface ORMModel : NSObject
-/* The projection of a document; nil with why when it holds no ORM model. */
+/* The model a document holds, read; nil with why when it holds none. */
 + (instancetype)modelOfDocument:(NSXMLDocument *)document reason:(NSString **)reason;
 
 @property (nonatomic, readonly, strong) NSXMLDocument *document;
@@ -437,7 +441,7 @@ typedef NS_ENUM(NSInteger, ORMDataTypeFamily) {
 @property (nonatomic, readonly, copy) NSArray<ORMCoreDataMapping *> *coreDataMappings;
 - (ORMCoreDataMapping *)coreDataMappingWithId:(NSString *)identifier;
 
-/* Any projected element by id: object types, fact types, roles, readings,
+/* Any element by id: object types, fact types, roles, readings,
  * constraints, shapes. */
 - (id)elementWithId:(NSString *)identifier;
 - (ORMObjectType *)objectTypeNamed:(NSString *)name;

@@ -687,6 +687,7 @@
 				fact.identifier = [NSString stringWithFormat:@"%@.%@", player.identifier, role.identifier];
 				fact.factType = role.factType;
 				fact.instancesByRole = @{ role.identifier: player };
+				fact.isKeptOnPlayer = YES;
 				NSMutableArray *list = [factInstances objectForKey:role.factType.identifier];
 				if (list == nil) {
 					list = [NSMutableArray array];

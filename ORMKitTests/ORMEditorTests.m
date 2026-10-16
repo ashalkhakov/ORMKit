@@ -247,7 +247,7 @@
 
 	XCTAssertTrue([editor.factTypeEditor setPlayer:city ofRole:[roles[1] identifier] reason:NULL]);
 	XCTAssertEqualObjects([roles[1] player].name, @"City");
-	XCTAssertEqualObjects(ORMRef(ORMChild([roles[1] element], ORMCoreNamespace, @"RolePlayer")), city);
+	XCTAssertEqualObjects(ORMRef(ORMChild([(ORMRole *)roles[1] element], ORMCoreNamespace, @"RolePlayer")), city);
 	XCTAssertEqual([[[editor.model elementWithId:country] playedRoles] count], 0u);
 
 	[self.undoManager undo];

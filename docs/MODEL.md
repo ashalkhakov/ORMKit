@@ -124,9 +124,8 @@ Each step keeps every test passing.
    model and records its undo. Saving writes through the writer.
 
    Done. Every operation changes the model and records nothing in the
-   XML but through the writer, or is a document change to what the model
-   does not read (Core Data mappings and queries, still XML read on
-   demand). The model tells what is read from what is derived
+   XML but through the writer. The model tells what is read from what is
+   derived
    (`-[ORMModel derive]`); an operation runs in `-[ORMEditor
    modelChange:with:]`, says which elements it changed (`-wrote:`,
    `-deleted:`), and the model keeps NORMA's rules (implied mandatories,
@@ -135,26 +134,35 @@ Each step keeps every test passing.
    where a step does. Moved: object types, fact types and readings,
    objectification, constraints, names, definitions and notes, deletion,
    diagrams and shapes, sample populations (role instances elements of
-   their own), derivation rules, and join paths (the writer makes NORMA's
-   role paths). Each is the same bytes as the XML editors wrote, and the
-   agreement check runs on each. The model is read again only when a
-   refused group puts back what it did, and when undone.
+   their own), derivation rules, join paths (the writer makes NORMA's
+   role paths), Core Data mappings (`-[ORMModel coreDataMappings]`) and
+   queries (`ORMStoredQuery`, the query as the document has it, which
+   `ORMQuery` is read from). Each is the same bytes as the XML editors
+   wrote, and the agreement check runs on each. The model is read again
+   only when a refused group puts back what it did, and when undone.
 
-4. **The normalizer goes**, its rules now the writer's (done, but for
-   the XML edits left). After a model change the writer writes what NORMA
-   keeps beside the model for the elements touched and those they affect
-   (`-[ORMEditor affectedBy:]`, `-[ORMNormaWriter writeNormaDataOf:]`);
-   the normalizer runs only after XML edits, and in tests after model
-   changes as a check that it finds nothing to do. Undo no longer copies
+4. **The normalizer goes**, its rules now the writer's (done). After a
+   model change the writer writes what NORMA keeps beside the model for
+   the elements touched and those they affect (`-[ORMEditor affectedBy:]`,
+   `-[ORMNormaWriter writeNormaDataOf:]`); the normalizer runs only in
+   tests, after every change, as a check that it finds nothing to do. Undo no longer copies
    the document: a journal (`ORMXMLJournal`) keeps each element a change
    touches as it was, every edit of the document going through ORMXML's
    journaled helpers, and in tests an undone or redone change gives back
    the document's bytes exactly. Undo reads the model again: it is not
    the path an edit takes. A single edit of OrmMetaModel (163 object
    types) takes 1.9 ms on macOS, from 30.
-5. **The XML leaves the rest of ORMKit.** `ORMElement.element` becomes the
-   writer's private business. Code that reads XML outside the reader and the
-   writer moves to the model (the audit of such places is in the PR).
+5. **The XML leaves the rest of ORMKit** (done). `ORMElement.element` is
+   the reader's and the writer's private business (the tests declare it to
+   look at what was written). What still read the XML reads the model: a
+   reading order's or a sequence's refs that are no role
+   (`unresolvedRoleIds`), a unary fact kept on its player
+   (`isKeptOnPlayer`), the next free name (the model's names, and those of
+   what the change took out), whether the file writes ExpandedData and
+   implied mandatories. The XML editing path (`change:with:`,
+   `documentChange:`, and the normalizer after it) is gone. The harnesses
+   that compare every operation's bytes with the XML editors' still give
+   the same.
 6. **Measure**: the Core Data import round trip, the query tests' setUp, the
    Fact Editor.
 

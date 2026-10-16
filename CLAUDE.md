@@ -21,13 +21,12 @@ The `.orm` XML is NORMA interop: read once when a file is opened, and
 written from the model when it is saved, into the document read (the
 carrier), so that what ORMKit does not model survives. Nothing else reads
 or writes the XML; apps built from a model use neither
-([docs/MODEL.md](docs/MODEL.md), moving there step by step: until then
-operations not yet moved edit the XML and the model is read again).
+([docs/MODEL.md](docs/MODEL.md)).
 
 Two invariants hold and are tested: an unchanged NORMA file is written back
 byte for byte, and one read and written again with every element written
-from the model is the same bytes. A change to what the writer (today
-`-[ORMNormalizer normalize]`) writes is a change to what NORMA would write:
+from the model is the same bytes. A change to what the writer
+(`ORMNormaWriter`) writes is a change to what NORMA would write:
 check it against the files in `ORMKitTests/Fixtures` (StockMate is NORMA's
 own; PreventiveMaintenance was written by another tool and is not
 authoritative).

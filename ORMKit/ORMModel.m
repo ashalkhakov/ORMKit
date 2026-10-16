@@ -581,6 +581,7 @@ ORMCapitalizedWords(NSString *text)
 	[super reset];
 	_factType = nil;
 	_roles = nil;
+	_unresolvedRoleIds = nil;
 	_readings = nil;
 }
 
@@ -657,6 +658,7 @@ ORMCapitalizedWords(NSString *text)
 {
 	[super reset];
 	_roles = nil;
+	_unresolvedRoleIds = nil;
 	_hasJoinPath = NO;
 }
 
@@ -1152,6 +1154,9 @@ ORMWithout(NSArray *array, id object)
 	if (element.identifier != nil && [_elements objectForKey:element.identifier] == element) {
 		[_elements removeObjectForKey:element.identifier];
 	}
+	if (element.name != nil) {
+		[self.removedNames addObject:element.name];
+	}
 	_typesByName = nil;
 	_dataTypes = ORMWithout(_dataTypes, element);
 	_objectTypes = ORMWithout(_objectTypes, element);
@@ -1273,6 +1278,7 @@ ORMWithout(NSArray *array, id object)
 	_elements = [NSMutableDictionary dictionary];
 	_document = document;
 	_modelElement = modelElement;
+	self.readingsHaveExpandedData = NO;
 	_identifier = [ORMAttribute(modelElement, @"id") copy];
 	_name = [ORMAttribute(modelElement, @"Name") copy] ?: @"";
 	self.extras = nil;
@@ -1438,13 +1444,18 @@ ORMWithout(NSArray *array, id object)
 		                                                    @"ReadingOrder")) {
 			ORMReadingOrder *order = [self element:[ORMReadingOrder class] for:orderElement];
 			order.factType = fact;
-			order.roles = [self rolesIn:ORMChild(orderElement, CORE, @"RoleSequence")];
+			NSArray *unresolved = nil;
+			order.roles = [self rolesIn:ORMChild(orderElement, CORE, @"RoleSequence") unresolved:&unresolved];
+			order.unresolvedRoleIds = unresolved;
 			NSMutableArray *readings = [NSMutableArray array];
 			for (NSXMLElement *readingElement in ORMGrandchildren(orderElement, CORE, @"Readings", CORE,
 			                                                      @"Reading")) {
 				ORMReading *reading = [self element:[ORMReading class] for:readingElement];
 				reading.readingOrder = order;
 				reading.text = ORMChildText(readingElement, CORE, @"Data") ?: @"";
+				if (ORMChild(readingElement, CORE, @"ExpandedData") != nil) {
+					self.readingsHaveExpandedData = YES;
+				}
 				[readings addObject:reading];
 				[self registerElement:reading];
 			}
@@ -1458,23 +1469,30 @@ ORMWithout(NSArray *array, id object)
 
 /* The roles a sequence's children point at: <orm:Role ref=.../>, whose
  * own id, when it has one, names the constraint's use of the role. A
- * role that is not (or no longer) in the model is skipped. */
-- (NSArray<ORMRole *> *)rolesIn:(NSXMLElement *)sequence
+ * role that is not (or no longer) in the model is skipped, its ref put
+ * aside. */
+- (NSArray<ORMRole *> *)rolesIn:(NSXMLElement *)sequence unresolved:(NSArray **)unresolved
 {
 	NSMutableArray *roles = [NSMutableArray array];
+	NSMutableArray *refs = [NSMutableArray array];
 	for (NSXMLElement *child in ORMChildren(sequence, CORE, @"Role")) {
 		id role = [self elementWithId:ORMRef(child)];
 		if ([role isKindOfClass:[ORMRole class]]) {
 			[roles addObject:role];
+		} else {
+			[refs addObject:ORMRef(child) ?: @""];
 		}
 	}
+	*unresolved = refs;
 	return roles;
 }
 
 - (ORMRoleSequence *)readSequence:(NSXMLElement *)element
 {
 	ORMRoleSequence *sequence = [self element:[ORMRoleSequence class] for:element];
-	sequence.roles = [self rolesIn:element];
+	NSArray *unresolved = nil;
+	sequence.roles = [self rolesIn:element unresolved:&unresolved];
+	sequence.unresolvedRoleIds = unresolved;
 	sequence.hasJoinPath = ORMChild(element, CORE, @"JoinRule") != nil || ORMChild(element, CORE, @"JoinPath") != nil;
 	[self registerElement:sequence];
 	return sequence;

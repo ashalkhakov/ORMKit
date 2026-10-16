@@ -846,7 +846,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 - (BOOL)removeFactNow:(NSString *)factInstanceId reason:(NSString **)reason
 {
 	ORMFactInstance *fact = [_editor.model elementWithId:factInstanceId];
-	if (![fact isKindOfClass:[ORMFactInstance class]] || fact.element == nil) {
+	if (![fact isKindOfClass:[ORMFactInstance class]] || fact.isKeptOnPlayer) {
 		return [self refuse:@"There is no such fact." reason:reason];
 	}
 	BOOL blocked = NO;
@@ -1443,7 +1443,7 @@ ORMWrapPart(NSString *name, BOOL composite)
 	for (ORMFactType *fact in model.factTypes) {
 		for (ORMFactInstance *instance in [fact instances]) {
 			/* A unary fact NORMA keeps on its player goes with it. */
-			if (instance.element != nil) {
+			if (!instance.isKeptOnPlayer) {
 				[gone addObject:instance];
 			}
 		}

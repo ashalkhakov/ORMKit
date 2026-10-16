@@ -559,9 +559,8 @@ ORMIdentifiedBy(ORMConstraint *constraint)
 			continue;
 		}
 		NSArray *have = [[current allRoles] valueForKey:@"identifier"];
-		NSXMLElement *written = ORMChild(current.element, CORE, @"RoleSequence");
 		if (current != nil && [[NSSet setWithArray:have] isEqualToSet:[NSSet setWithArray:roleIds]]
-		    && (written == nil || [have count] == [ORMChildren(written, CORE, @"Role") count])) {
+		    && [[[current.roleSequences firstObject] unresolvedRoleIds] count] == 0) {
 			continue;
 		}
 		NSMutableArray *roles = [NSMutableArray array];

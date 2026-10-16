@@ -232,7 +232,7 @@ That takes the place of the dependency order of step 3.
    Of then offers the fact types the query's listed nodes play the roles of,
    in order. A derived fact type's inspector says what derives it (the
    query, NORMA's rule or its note), and has Partly Derived and Stored. A
-   query's words are its own there: the normalizer keeps them.
+   query's words are its own there: the editor keeps them.
 8. **Done: NORMA's rules as queries.** A plain role path with projections
    is read as a derivation query (`+[ORMQuery derivationsInModel:]`).
    Expansion, ORMDeriver, the Core Data mapping and the save hook take it

@@ -150,6 +150,9 @@ typedef NS_ENUM(NSInteger, ORMPathSourceKind) {
 @property (nonatomic, readonly, weak) ORMFactType *factType;
 /* The instance playing each role, by role id. */
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMInstance *> *instancesByRole;
+/* A unary fact NORMA keeps on its player, as the instance's: no element
+ * of its own, to be removed by itself. */
+@property (nonatomic, readonly) BOOL isKeptOnPlayer;
 @end
 
 /* Cardinality: how many instances there may be. */

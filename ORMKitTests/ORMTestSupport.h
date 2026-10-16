@@ -6,6 +6,12 @@
 #import "ORMKit.h"
 #endif
 
+/* The XML element an element was read from and is written to: the
+ * writer's business, which the tests look at to see what it wrote. */
+@interface ORMElement (ORMWrittenElement)
+@property (nonatomic, readonly, strong) NSXMLElement *element;
+@end
+
 /* What every ORMKit test shares: the fixtures, found beside this file, so
  * the tests run from a source tree on both platforms. */
 @interface ORMTestCase : XCTestCase

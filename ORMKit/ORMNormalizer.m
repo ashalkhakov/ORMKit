@@ -8,24 +8,6 @@
 /* Whether the file is of the NORMA versions that write each reading's
  * <orm:ExpandedData>: one that has readings and none of it is older, and
  * stays as it is; one with none yet is written as NORMA writes now. */
-static BOOL ORMWritesImpliedMandatories(ORMModel *model);
-
-static BOOL
-ORMWritesExpandedData(ORMModel *model)
-{
-	BOOL readings = NO;
-	for (ORMFactType *fact in model.factTypes) {
-		for (ORMReadingOrder *order in fact.readingOrders) {
-			for (ORMReading *reading in order.readings) {
-				if (ORMChild(reading.element, CORE, @"ExpandedData") != nil) {
-					return YES;
-				}
-				readings = YES;
-			}
-		}
-	}
-	return !readings;
-}
 
 @implementation ORMNormalizer
 {
@@ -39,8 +21,6 @@ ORMWritesExpandedData(ORMModel *model)
 {
 	if ((self = [super init])) {
 		_editor = editor;
-		_writesExpandedData = ORMWritesExpandedData(editor.model);
-		_writesImpliedMandatories = ORMWritesImpliedMandatories(editor.model);
 	}
 	return self;
 }
@@ -227,7 +207,7 @@ ORMExpandedData(NSXMLDocument *document, NSString *text, NSUInteger arity)
 			ORMSyncRefs(_editor.document, container, internal);
 			ORMPruneIfEmpty(container);
 		}
-		for (ORMReadingOrder *order in _writesExpandedData ? fact.readingOrders : @[]) {
+		for (ORMReadingOrder *order in _editor.writesExpandedData ? fact.readingOrders : @[]) {
 			for (ORMReading *reading in order.readings) {
 				NSXMLElement *expanded = ORMExpandedData(_editor.document, reading.text, [order.roles count]);
 				NSXMLElement *existing = ORMChild(reading.element, CORE, @"ExpandedData");
@@ -343,20 +323,6 @@ ORMImpliedMandatoryRoles(ORMModel *model)
 	return needed;
 }
 
-/* Whether the file is of the NORMA versions that keep implied mandatory
- * constraints: one that needs some and has none is older, and stays as it
- * is. */
-static BOOL
-ORMWritesImpliedMandatories(ORMModel *model)
-{
-	for (ORMConstraint *constraint in model.constraints) {
-		if (constraint.kind == ORMMandatoryConstraint && constraint.isImplied
-		    && ORMChild(constraint.element, CORE, @"ImpliedByObjectType") != nil) {
-			return YES;
-		}
-	}
-	return [ORMImpliedMandatoryRoles(model) count] == 0;
-}
 
 /* A derivation query's fact type keeps the query's words as its rule's,
  * which NORMA shows (docs/DERIVATION.md). Only where a query derives one:
@@ -387,7 +353,7 @@ ORMWritesImpliedMandatories(ORMModel *model)
 
 - (void)normalizeImpliedMandatories:(ORMModel *)model
 {
-	if (!_writesImpliedMandatories) {
+	if (!_editor.writesImpliedMandatories) {
 		return;
 	}
 	NSMutableDictionary *existing = [NSMutableDictionary dictionary];
@@ -419,11 +385,20 @@ ORMWritesImpliedMandatories(ORMModel *model)
 		}
 		NSXMLElement *constraint = current.element;
 		if (constraint == nil) {
-			constraint = [_editor newConstraint:@"MandatoryConstraint" named:@"ImpliedMandatoryConstraint"];
+			NSXMLDocument *document = _editor.document;
+			constraint = ORMNewElementWithId(document, CORE, @"MandatoryConstraint", nil);
+			ORMSetAttribute(constraint, @"Name", [_editor nextName:@"ImpliedMandatoryConstraint"]);
+			ORMAddChild(ORMEnsureChild(document, ORMModelElementOfDocument(document), CORE, @"Constraints"), constraint);
 			ORMSetAttribute(constraint, @"IsImplied", @"true");
 		}
 		ORMDetach(ORMChild(constraint, CORE, @"RoleSequence"));
-		ORMInsertChildAt(constraint, [_editor newRoleSequence:roles withId:NO], 0);
+		NSXMLElement *sequence = ORMNewElement(_editor.document, CORE, @"RoleSequence");
+		for (NSString *roleId in roles) {
+			NSXMLElement *role = ORMNewElementWithId(_editor.document, CORE, @"Role", nil);
+			ORMSetAttribute(role, @"ref", roleId);
+			ORMAddChild(sequence, role);
+		}
+		ORMInsertChildAt(constraint, sequence, 0);
 		if (ORMChild(constraint, CORE, @"ImpliedByObjectType") == nil) {
 			ORMAddChild(constraint, ORMNewRef(_editor.document, CORE, @"ImpliedByObjectType", type.identifier));
 		}
