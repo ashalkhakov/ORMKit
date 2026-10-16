@@ -9,6 +9,7 @@
  * another are weak and the ORMModel holds them all, so keep the model
  * alive while you use what it gave you. */
 
+@class ORMReadingText;
 @class ORMModel, ORMObjectType, ORMFactType, ORMRole, ORMReadingOrder, ORMReading, ORMConstraint, ORMRoleSequence,
 	ORMValueConstraint, ORMDataType, ORMModelNote, ORMDiagram;
 
@@ -218,6 +219,9 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 @property (nonatomic, readonly, copy) NSString *text;
 /* Its own words, its placeholders left out: was, born, in. Found once. */
 - (NSArray<NSString *> *)words;
+/* Its text parsed: what comes before each placeholder and binds to it
+ * (ORMReadingText); nil where it does not parse. Parsed once. */
+- (ORMReadingText *)parsedText;
 /* The reading with each placeholder replaced by its role player's name:
  * "Person was born in Country". */
 - (NSString *)expandedText;

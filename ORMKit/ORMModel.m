@@ -382,6 +382,17 @@ ORMCapitalizedWords(NSString *text)
 @implementation ORMReading
 {
 	NSArray<NSString *> *_words;
+	ORMReadingText *_parsedText;
+	BOOL _parsed;
+}
+
+- (ORMReadingText *)parsedText
+{
+	if (!_parsed) {
+		_parsedText = [ORMReadingText readingTextWithString:self.text arity:[self.readingOrder.roles count] reason:NULL];
+		_parsed = YES;
+	}
+	return _parsedText;
 }
 
 - (NSArray<NSString *> *)words

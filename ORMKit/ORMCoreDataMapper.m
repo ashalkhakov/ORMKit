@@ -291,7 +291,7 @@ ORMReservedNames(void)
 	if (reading == nil) {
 		return @"";
 	}
-	ORMReadingText *text = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
+	ORMReadingText *text = [reading parsedText];
 	return [text expandWithNames:^NSString *(NSUInteger index, NSString *pre, NSString *post) {
 		ORMRole *role = index < [order.roles count] ? [order.roles objectAtIndex:index] : nil;
 		if (role == near) {
@@ -1254,7 +1254,7 @@ ORMCapitalized(NSString *name)
 	if (reading.text == nil) {
 		return nil;
 	}
-	ORMReadingText *text = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
+	ORMReadingText *text = [reading parsedText];
 	for (ORMReadingPart *part in text.parts) {
 		if (part.roleIndex < [order.roles count] && [order.roles objectAtIndex:part.roleIndex] == far
 		    && ([part.preBoundText length] > 0 || [part.postBoundText length] > 0)) {

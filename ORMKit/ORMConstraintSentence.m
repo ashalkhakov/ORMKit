@@ -730,7 +730,9 @@ ORMNamesOf(ORMObjectType *player)
 		if (!possible) {
 			continue;
 		}
-		ORMReadingText *parsed = [ORMReadingText readingTextWithString:reading arity:[roles count] reason:NULL];
+		ORMReadingText *parsed = [candidate count] > 3 ? [(ORMReading *)[candidate objectAtIndex:3] parsedText]
+		                                               : [ORMReadingText readingTextWithString:reading arity:[roles count]
+		                                                                                reason:NULL];
 		NSUInteger parts = [parsed.parts count];
 		NSRange *quantifiers = calloc(parts + 1, sizeof(NSRange));
 		NSRange *names = calloc(parts + 1, sizeof(NSRange));

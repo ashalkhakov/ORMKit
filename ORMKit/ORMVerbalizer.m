@@ -320,7 +320,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	if (reading == nil) {
 		return NO;
 	}
-	ORMReadingText *text = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
+	ORMReadingText *text = [reading parsedText];
 	ORMReadingPart *part = [text.parts firstObject];
 	return text != nil && [text.frontText length] == 0 && [part.preBoundText length] == 0;
 }

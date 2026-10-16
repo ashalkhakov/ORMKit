@@ -383,7 +383,7 @@ ORMReadingPhrase(ORMShape *factTypeShape, ORMReadingOrder *order)
 		return @"";
 	}
 	NSArray *shown = ORMShownRoles(factTypeShape);
-	ORMReadingText *text = [ORMReadingText readingTextWithString:reading.text arity:[order.roles count] reason:NULL];
+	ORMReadingText *text = [reading parsedText];
 	if (text == nil) {
 		return reading.text;
 	}
