@@ -1969,6 +1969,13 @@ static NSString *ORMElementDisagreement(ORMElement *a, ORMElement *b);
 static BOOL
 ORMSameValue(id a, id b)
 {
+	/* No list is an empty one. */
+	if (a == nil && ([b isKindOfClass:[NSArray class]] || [b isKindOfClass:[NSDictionary class]])) {
+		return [b count] == 0;
+	}
+	if (b == nil && ([a isKindOfClass:[NSArray class]] || [a isKindOfClass:[NSDictionary class]])) {
+		return [a count] == 0;
+	}
 	if (a == nil || b == nil) {
 		return a == b;
 	}

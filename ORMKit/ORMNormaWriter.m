@@ -361,6 +361,46 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			}
 			[shapes addChild:made];
 		}
+	} else if ([element isKindOfClass:[ORMInstance class]]) {
+		/* As NORMA writes a sample population's instance. */
+		ORMInstance *instance = (ORMInstance *)element;
+		made = ORMNewElementWithId(_document, CORE, instance.elementName, element.identifier);
+		if (instance.value != nil) {
+			ORMSetChildText(_document, made, CORE, @"Value", instance.value);
+			if (instance.invariantValue != nil) {
+				NSXMLElement *invariant = ORMNewElement(_document, CORE, @"InvariantValue");
+				[invariant setStringValue:instance.invariantValue];
+				[made addChild:invariant];
+			}
+		}
+		if ([instance.identifyingRoleInstances count] > 0) {
+			NSXMLElement *refs = ORMNewElement(_document, CORE, @"RoleInstances");
+			for (NSString *roleInstance in instance.identifyingRoleInstances) {
+				[refs addChild:ORMNewRef(_document, CORE, @"EntityTypeRoleInstance", roleInstance)];
+			}
+			[made addChild:refs];
+		}
+		if (instance.supertypeInstanceId != nil) {
+			[made addChild:ORMNewRef(_document, CORE, @"SupertypeInstance", instance.supertypeInstanceId)];
+		}
+		if (instance.objectifiedInstanceId != nil) {
+			[made addChild:ORMNewRef(_document, CORE, @"ObjectifiedInstance", instance.objectifiedInstanceId)];
+		}
+		[ORMEnsureChild(_document, instance.objectType.element, CORE, @"Instances") addChild:made];
+	} else if ([element isKindOfClass:[ORMRoleInstance class]]) {
+		ORMRoleInstance *roleInstance = (ORMRoleInstance *)element;
+		made = ORMNewElementWithId(_document, CORE, roleInstance.elementName, element.identifier);
+		ORMSetAttribute(made, @"ref", roleInstance.instanceId);
+		[ORMEnsureChild(_document, roleInstance.role.element, CORE, @"RoleInstances") addChild:made];
+	} else if ([element isKindOfClass:[ORMFactInstance class]]) {
+		ORMFactInstance *fact = (ORMFactInstance *)element;
+		made = ORMNewElementWithId(_document, CORE, @"FactTypeInstance", element.identifier);
+		NSXMLElement *refs = ORMNewElement(_document, CORE, @"RoleInstances");
+		for (NSString *roleInstance in fact.roleInstanceIds) {
+			[refs addChild:ORMNewRef(_document, CORE, @"FactTypeRoleInstance", roleInstance)];
+		}
+		[made addChild:refs];
+		[ORMEnsureChild(_document, fact.factType.element, CORE, @"Instances") addChild:made];
 	} else if ([element isKindOfClass:[ORMModelNote class]]) {
 		ORMModelNote *note = (ORMModelNote *)element;
 		made = ORMNewElementWithId(_document, CORE, @"ModelNote", element.identifier);
@@ -408,6 +448,22 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		ORMWriteRoleRefs(_document, element.element, [(ORMRoleSequence *)element roles], self.model, YES, self.gone);
 	} else if ([element isKindOfClass:[ORMValueConstraint class]]) {
 		[self writeValueConstraint:(ORMValueConstraint *)element];
+	} else if ([element isKindOfClass:[ORMInstance class]]) {
+		/* A value renamed: its text, and its invariant form. */
+		ORMInstance *instance = (ORMInstance *)element;
+		for (NSArray *pair in @[ @[ @"Value", instance.value ?: [NSNull null] ],
+		                         @[ @"InvariantValue", instance.invariantValue ?: [NSNull null] ] ]) {
+			NSXMLElement *child = ORMChild(element.element, CORE, [pair firstObject]);
+			NSString *text = [pair lastObject] == [NSNull null] ? nil : [pair lastObject];
+			if (child != nil && text != nil && ![[child stringValue] isEqualToString:text]) {
+				[child setStringValue:text];
+			}
+		}
+	} else if ([element isKindOfClass:[ORMRoleInstance class]]) {
+		NSString *ref = [(ORMRoleInstance *)element instanceId];
+		if (![ORMRef(element.element) isEqualToString:ref ?: @""]) {
+			ORMSetAttribute(element.element, @"ref", ref);
+		}
 	} else if ([element isKindOfClass:[ORMDiagram class]]) {
 		[self writeDiagram:(ORMDiagram *)element];
 	} else if ([element isKindOfClass:[ORMShape class]]) {
