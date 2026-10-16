@@ -770,7 +770,7 @@ ORMRingTypeNames(void)
 
 #pragma mark Values and data types
 
-static ORMRangeInclusion
+ORMRangeInclusion
 ORMInclusionNamed(NSString *name)
 {
 	if ([name isEqualToString:@"Open"]) {

@@ -404,40 +404,51 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 			return NO;
 		}
 	}
-	NSXMLElement *owner = [(ORMElement *)target element];
-	[_editor change:@"Set Value Constraint" with:^{
-		NSXMLElement *restriction = ORMChild(owner, CORE, @"ValueRestriction");
-		NSXMLElement *constraint = nil;
-		for (NSXMLNode *node in [restriction children]) {
-			if ([node kind] == NSXMLElementKind) {
-				constraint = (NSXMLElement *)node;
-			}
-		}
-		if (ranges == nil) {
-			[restriction detach];
-			return;
-		}
-		if (constraint == nil) {
-			restriction = restriction ?: ORMEnsureChild(_editor.document, owner, CORE, @"ValueRestriction");
-			constraint = ORMNewElementWithId(_editor.document, CORE,
-			                                 isRole ? @"RoleValueConstraint" : @"ValueConstraint", nil);
-			ORMSetAttribute(constraint, @"Name",
-			                [_editor nextName:isRole ? @"RoleValueConstraint" : @"ValueTypeValueConstraint"]);
-			[restriction addChild:constraint];
-		}
-		[ORMChild(constraint, CORE, @"ValueRanges") detach];
-		NSXMLElement *rangesElement = ORMNewElement(_editor.document, CORE, @"ValueRanges");
-		for (NSDictionary *range in ranges) {
-			NSXMLElement *element = ORMNewElementWithId(_editor.document, CORE, @"ValueRange", nil);
-			ORMSetAttribute(element, @"MinValue", [range objectForKey:@"min"]);
-			ORMSetAttribute(element, @"MaxValue", [range objectForKey:@"max"]);
-			ORMSetAttribute(element, @"MinInclusion", [range objectForKey:@"minInclusion"]);
-			ORMSetAttribute(element, @"MaxInclusion", [range objectForKey:@"maxInclusion"]);
-			[rangesElement addChild:element];
-		}
-		[constraint addChild:rangesElement];
+	[_editor modelChange:@"Set Value Constraint" with:^{
+		[self setRanges:ranges of:target];
 	}];
 	return YES;
+}
+
+/* A value type's or a role's value constraint, its ranges those parsed
+ * (ORMValueConstraintParser's): made when it has none, taken away when
+ * there are none. */
+- (void)setRanges:(NSArray<NSDictionary *> *)parsed of:(ORMElement *)owner
+{
+	BOOL isRole = [owner isKindOfClass:[ORMRole class]];
+	ORMValueConstraint *values = isRole ? [(ORMRole *)owner valueConstraint] : [(ORMObjectType *)owner ownValueConstraint];
+	ORMModel *model = _editor.model;
+	if (parsed == nil) {
+		[model removeElement:values];
+		values = nil;
+	} else if (values == nil) {
+		values = [[ORMValueConstraint alloc] initWithModel:model];
+		values.name = [_editor nextName:isRole ? @"RoleValueConstraint" : @"ValueTypeValueConstraint"];
+		[model addElement:values];
+	} else {
+		for (ORMValueRange *range in values.ranges) {
+			[model removeElement:range];
+		}
+	}
+	NSMutableArray *ranges = [NSMutableArray array];
+	for (NSDictionary *range in parsed) {
+		ORMValueRange *made = [[ORMValueRange alloc] initWithModel:model];
+		made.minValue = [range objectForKey:@"min"] ?: @"";
+		made.maxValue = [range objectForKey:@"max"] ?: @"";
+		made.minInclusion = ORMInclusionNamed([range objectForKey:@"minInclusion"]);
+		made.maxInclusion = ORMInclusionNamed([range objectForKey:@"maxInclusion"]);
+		made.constraint = values;
+		[model addElement:made];
+		[ranges addObject:made];
+	}
+	values.ranges = ranges;
+	if (isRole) {
+		[(ORMRole *)owner setValueConstraint:values];
+	} else {
+		[(ORMObjectType *)owner setOwnValueConstraint:values];
+	}
+	[_editor wrote:owner];
+	[_editor wrote:values];
 }
 
 - (NSString *)addSubtype:(NSString *)subtypeId of:(NSString *)supertypeId reason:(NSString **)reason

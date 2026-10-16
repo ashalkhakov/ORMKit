@@ -199,5 +199,8 @@
  * they agree element for element (docs/MODEL.md, the agreement check). */
 NSString *ORMModelDisagreement(ORMModel *model, ORMModel *other);
 
+/* NORMA's range inclusion of the name: Open, Closed, else NotSet. */
+ORMRangeInclusion ORMInclusionNamed(NSString *name);
+
 /* The orm:ORMModel element of a document: its root, or the root's child. */
 NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);

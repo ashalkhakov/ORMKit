@@ -260,6 +260,24 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 	if (role.proxiedRole == nil) {
 		ORMWriteRef(_document, element, @"RolePlayer", role.player.identifier);
 	}
+	[self writeValueConstraint:role.valueConstraint of:element as:@"RoleValueConstraint"];
+}
+
+/* An element's value constraint in its ValueRestriction: made where the
+ * model made one, taken away where it took it away. */
+- (void)writeValueConstraint:(ORMValueConstraint *)values of:(NSXMLElement *)owner as:(NSString *)local
+{
+	if (values == nil) {
+		[ORMChild(owner, CORE, @"ValueRestriction") detach];
+		return;
+	}
+	if (values.element == nil) {
+		NSXMLElement *restriction = ORMEnsureChild(_document, owner, CORE, @"ValueRestriction");
+		NSXMLElement *made = ORMNewElementWithId(_document, CORE, local, values.identifier);
+		ORMSetAttribute(made, @"Name", values.name);
+		[restriction addChild:made];
+		values.element = made;
+	}
 }
 
 - (void)writeReading:(ORMReading *)reading
@@ -297,6 +315,30 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 
 - (void)writeValueConstraint:(ORMValueConstraint *)values
 {
+	/* The ranges the model has, in its order: those it took away gone,
+	 * those it made made, as NORMA writes a range. */
+	NSXMLElement *container = ORMChild(values.element, CORE, @"ValueRanges");
+	NSArray *kept = [values.ranges valueForKey:@"element"];
+	for (NSXMLElement *child in ORMChildren(container, CORE, @"ValueRange")) {
+		if ([kept indexOfObjectIdenticalTo:child] == NSNotFound) {
+			[child detach];
+		}
+	}
+	for (ORMValueRange *range in values.ranges) {
+		if (range.element == nil) {
+			container = container ?: ORMEnsureChild(_document, values.element, CORE, @"ValueRanges");
+			NSXMLElement *made = ORMNewElementWithId(_document, CORE, @"ValueRange", range.identifier);
+			ORMSetAttribute(made, @"MinValue", range.minValue ?: @"");
+			ORMSetAttribute(made, @"MaxValue", range.maxValue ?: @"");
+			ORMSetAttribute(made, @"MinInclusion", ORMInclusionName(range.minInclusion));
+			ORMSetAttribute(made, @"MaxInclusion", ORMInclusionName(range.maxInclusion));
+			[container addChild:made];
+			range.element = made;
+		}
+	}
+	if ([values.ranges count] == 0) {
+		[container detach];
+	}
 	for (ORMValueRange *range in values.ranges) {
 		NSXMLElement *element = range.element;
 		ORMWriteText(element, @"MinValue", range.minValue);
@@ -394,9 +436,7 @@ ORMObjectTypeElementName(ORMObjectTypeKind kind)
 	} else if (![ORMAttribute(element, @"_ReferenceMode") isEqualToString:type.savedReferenceMode]) {
 		ORMSetAttribute(element, @"_ReferenceMode", type.savedReferenceMode);
 	}
-	if (type.ownValueConstraint == nil) {
-		[ORMChild(element, CORE, @"ValueRestriction") detach];
-	}
+	[self writeValueConstraint:type.ownValueConstraint of:element as:@"ValueConstraint"];
 	if (type.kind != ORMValueType || type.dataType == nil) {
 		[ORMChild(element, CORE, @"ConceptualDataType") detach];
 	}

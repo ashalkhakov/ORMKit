@@ -184,6 +184,40 @@
 	XCTAssertNil(type.valueConstraint);
 }
 
+/* A role's value constraint: made, its ranges replaced, taken away, as
+ * NORMA keeps one; undone. */
+- (void)testARolesValueConstraint
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *age = [editor.objectTypeEditor addValueTypeNamed:@"Age" dataType:@"UnsignedIntegerNumericDataType" onDiagram:nil
+	                                                     at:NSZeroPoint reason:NULL];
+	NSString *fact = [self fact:@[ person, age ] reading:@"{0} has {1}" in:editor];
+	ORMRole *role = [[[editor.model elementWithId:fact] roles] lastObject];
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"0..150" of:role.identifier reason:NULL]);
+	ORMValueConstraint *values = role.valueConstraint;
+	XCTAssertEqual([values.ranges count], 1u);
+	XCTAssertEqualObjects([values.element localName], @"RoleValueConstraint");
+	XCTAssertEqualObjects(ORMAttribute(values.element, @"Name"), @"RoleValueConstraint1");
+	XCTAssertEqualObjects(values.valueType.name, @"Age");
+	NSArray *ranges = ORMGrandchildren(values.element, ORMCoreNamespace, @"ValueRanges", ORMCoreNamespace, @"ValueRange");
+	XCTAssertEqual([ranges count], 1u);
+	XCTAssertEqualObjects(ORMAttribute([ranges firstObject], @"MaxValue"), @"150");
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"{1, 3..5}" of:role.identifier reason:NULL]);
+	XCTAssertEqual(role.valueConstraint, values);
+	XCTAssertEqual([values.ranges count], 2u);
+	ranges = ORMGrandchildren(values.element, ORMCoreNamespace, @"ValueRanges", ORMCoreNamespace, @"ValueRange");
+	XCTAssertEqual([ranges count], 2u);
+	XCTAssertEqualObjects([values displayText], @"{1, 3..5}");
+	XCTAssertTrue([editor.objectTypeEditor setValueConstraint:@"" of:role.identifier reason:NULL]);
+	XCTAssertNil(role.valueConstraint);
+	XCTAssertNil(ORMChild(role.element, ORMCoreNamespace, @"ValueRestriction"));
+	[self.undoManager undo];
+	XCTAssertEqualObjects([role.valueConstraint displayText], @"{1, 3..5}");
+	[self.undoManager undo];
+	XCTAssertEqualObjects([role.valueConstraint displayText], @"{0..150}");
+}
+
 - (void)testNamesAreUnique
 {
 	ORMEditor *editor = [self newEditor];
