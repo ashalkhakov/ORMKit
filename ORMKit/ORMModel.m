@@ -507,6 +507,7 @@ ORMCapitalizedWords(NSString *text)
 	_proxiedRole = nil;
 	_proxies = nil;
 	_constraints = nil;
+	_roleInstances = nil;
 }
 
 - (void)forgetDerivedValues
@@ -1258,6 +1259,7 @@ ORMWithout(NSArray *array, id object)
 	_modelElement = modelElement;
 	_identifier = [ORMAttribute(modelElement, @"id") copy];
 	_name = [ORMAttribute(modelElement, @"Name") copy] ?: @"";
+	self.extras = nil;
 
 	[self readDataTypes];
 	[self readObjectTypes];
@@ -1631,6 +1633,9 @@ ORMWithout(NSArray *array, id object)
 	[self linkRoles];
 	[self deriveReferenceModes];
 	[self linkValueConstraints];
+	if (self.extras != nil) {
+		[self derivePopulations];
+	}
 	/* What NORMA keeps derived beside the model, as it keeps it. Each
 	 * preferred identifier names what it identifies. */
 	for (ORMConstraint *constraint in self.constraints) {

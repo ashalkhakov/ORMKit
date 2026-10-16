@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMDiagram.h"
+#import "ORMPath.h"
 
 /* What the projection's builders set: the public classes are read-only. */
 
@@ -92,6 +93,8 @@
 @property (nonatomic, readwrite, weak) ORMRole *proxiedRole;
 @property (nonatomic, readwrite, copy) NSArray<ORMRole *> *proxies;
 @property (nonatomic, readwrite, copy) NSArray<ORMConstraint *> *constraints;
+/* The sample population's role instances under it, in the file's order. */
+@property (nonatomic, readwrite, copy) NSArray<ORMRoleInstance *> *roleInstances;
 @end
 
 @interface ORMReadingOrder ()
@@ -232,3 +235,47 @@ ORMRangeInclusion ORMInclusionNamed(NSString *name);
 
 /* The orm:ORMModel element of a document: its root, or the root's child. */
 NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
+
+/* The sample population, as the file has it: each instance and fact what
+ * it names, by id; what that comes to (instancesByRole, a role instance's
+ * player) derived. */
+@interface ORMInstance ()
+@property (nonatomic, readwrite, weak) ORMObjectType *objectType;
+@property (nonatomic, readwrite, copy) NSString *value;
+/* ValueTypeInstance, EntityTypeInstance or EntityTypeSubtypeInstance. */
+@property (nonatomic, readwrite, copy) NSString *elementName;
+/* A number's or moment's culture-invariant form, beside its value. */
+@property (nonatomic, readwrite, copy) NSString *invariantValue;
+/* The role instances that identify an entity instance, by id, and the
+ * supertype instance a subtype instance is. */
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *identifyingRoleInstances;
+@property (nonatomic, readwrite, copy) NSString *supertypeInstanceId;
+@property (nonatomic, readwrite, copy) NSString *objectifiedInstanceId;
+/* The unary roles it plays, NORMA keeping those facts on it, by role id. */
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *unaryRoleIds;
+@end
+
+@interface ORMRoleInstance ()
+/* EntityTypeRoleInstance or FactTypeRoleInstance. */
+@property (nonatomic, readwrite, copy) NSString *elementName;
+@property (nonatomic, readwrite, weak) ORMRole *role;
+@property (nonatomic, readwrite, copy) NSString *instanceId;
+@end
+
+@interface ORMFactInstance ()
+@property (nonatomic, readwrite, weak) ORMFactType *factType;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *roleInstanceIds;
+@property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMInstance *> *instancesByRole;
+@end
+
+@interface ORMModel (ORMPopulations)
+/* What the population's elements come to: each role instance's player,
+ * each fact's instances by role, the unary facts NORMA keeps on their
+ * players. Part of -derive. */
+- (void)derivePopulations;
+/* An element of the sample population taken into the model, or out of it,
+ * inside a model change: listed with its type, its fact type or its role,
+ * and registered. */
+- (void)addPopulationElement:(ORMElement *)element;
+- (void)removePopulationElement:(ORMElement *)element;
+@end

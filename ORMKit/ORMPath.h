@@ -136,6 +136,16 @@ typedef NS_ENUM(NSInteger, ORMPathSourceKind) {
 - (NSString *)displayText;
 @end
 
+/* A role an instance plays in the sample population: NORMA's element under
+ * the role, with an id of its own, which an entity instance's
+ * identification or a fact names. */
+@interface ORMRoleInstance : ORMElement
+@property (nonatomic, readonly, weak) ORMRole *role;
+/* The instance playing the role; nil where the file names none the model
+ * has. */
+- (ORMInstance *)instance;
+@end
+
 @interface ORMFactInstance : ORMElement
 @property (nonatomic, readonly, weak) ORMFactType *factType;
 /* The instance playing each role, by role id. */
