@@ -252,6 +252,10 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 @implementation ORMFactType
 {
 	NSString *_displayText;
+	/* The derived name, and what it was worked out from: worked out again
+	 * only when that changes, -[ORMModel derive] asking after every edit. */
+	NSString *_derivedName;
+	NSArray *_derivedNameKey;
 }
 
 - (void)reset
@@ -422,7 +426,41 @@ ORMCapitalizedWords(NSString *text)
  * own words capitalized and run together, the object type names in their
  * own case without punctuation (NORMA writes "WeightHaskgValue" and
  * "ProductHasProductId"). */
+/* What the derived name is worked out from: the kind, the objectifying
+ * type's name, the subtype's and supertype's, the primary reading and its
+ * players', the visible roles' players', and the name the file has. */
+- (NSArray *)derivedNameKey
+{
+	NSNull *none = [NSNull null];
+	NSMutableArray *key = [NSMutableArray arrayWithObjects:@(self.kind), self.objectifyingType.name ?: none,
+	                                                       self.savedDerivedName ?: none, nil];
+	if (self.kind == ORMFactTypeSubtype) {
+		[key addObject:[self subtype].name ?: none];
+		[key addObject:[self supertype].name ?: none];
+	}
+	ORMReading *reading = [self primaryReading];
+	[key addObject:reading.text ?: none];
+	for (ORMRole *role in reading.readingOrder.roles) {
+		[key addObject:role.player.name ?: none];
+	}
+	[key addObject:none];
+	for (ORMRole *role in [self visibleRoles]) {
+		[key addObject:role.player.name ?: none];
+	}
+	return key;
+}
+
 - (NSString *)derivedName
+{
+	NSArray *key = [self derivedNameKey];
+	if (_derivedName == nil || ![_derivedNameKey isEqualToArray:key]) {
+		_derivedName = [self derivedNameWorkedOut];
+		_derivedNameKey = key;
+	}
+	return _derivedName;
+}
+
+- (NSString *)derivedNameWorkedOut
 {
 	/* NORMA has written the object type names three ways: punctuation
 	 * taken out ("ProductHasProductId" for Product_Id, "WeightHaskgValue"),
@@ -1699,6 +1737,9 @@ ORMWithout(NSArray *array, id object)
 				[reading forgetDerivedValues];
 			}
 		}
+	}
+	for (ORMCoreDataMapping *mapping in self.coreDataMappings) {
+		[mapping forgetDerivedValues];
 	}
 	[self linkObjectTypes];
 	[self linkFactTypes];

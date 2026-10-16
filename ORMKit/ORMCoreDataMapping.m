@@ -46,6 +46,24 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 @implementation ORMCoreDataMapping
 {
 	ORMCDModel *_baseline;
+	/* What the public values come to, until the model is derived again. */
+	NSDictionary *_nameOverrides;
+	NSDictionary *_objectTypeMappings;
+	NSDictionary *_transformables;
+	NSDictionary *_joins;
+	NSSet *_excludedSources;
+	NSSet *_keptElements;
+}
+
+- (void)forgetDerivedValues
+{
+	[super forgetDerivedValues];
+	_nameOverrides = nil;
+	_objectTypeMappings = nil;
+	_transformables = nil;
+	_joins = nil;
+	_excludedSources = nil;
+	_keptElements = nil;
 }
 
 + (instancetype)defaultMappingNamed:(NSString *)name
@@ -76,6 +94,7 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 	self.excluded = @[];
 	self.kept = @[];
 	self.baselineXML = nil;
+	[self forgetDerivedValues];
 }
 
 - (void)reset
@@ -171,6 +190,7 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 	}
 	self.excluded = excluded;
 	self.baselineXML = ORMNonEmpty([ORMChild(element, CD, @"Baseline") stringValue]);
+	[self forgetDerivedValues];
 }
 
 - (void)setBaselineXML:(NSString *)baselineXML
@@ -200,24 +220,33 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 
 - (NSDictionary<NSString *, NSString *> *)nameOverrides
 {
+	if (_nameOverrides != nil) {
+		return _nameOverrides;
+	}
 	NSMutableDictionary *names = [NSMutableDictionary dictionary];
 	for (NSArray *override in self.overrides) {
 		[names setObject:[override lastObject] forKey:[override firstObject]];
 	}
-	return names;
+	return _nameOverrides = names;
 }
 
 - (NSDictionary<NSString *, NSNumber *> *)objectTypeMappings
 {
+	if (_objectTypeMappings != nil) {
+		return _objectTypeMappings;
+	}
 	NSMutableDictionary *types = [NSMutableDictionary dictionary];
 	for (ORMMappingOption *option in self.options) {
 		[types setObject:@(option.how) forKey:option.objectTypeId];
 	}
-	return types;
+	return _objectTypeMappings = types;
 }
 
 - (NSDictionary<NSString *, NSArray<NSString *> *> *)transformables
 {
+	if (_transformables != nil) {
+		return _transformables;
+	}
 	NSMutableDictionary *transformables = [NSMutableDictionary dictionary];
 	for (ORMMappingOption *option in self.options) {
 		if (option.how == ORMMapTransformable) {
@@ -226,13 +255,16 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 			                   forKey:option.objectTypeId];
 		}
 	}
-	return transformables;
+	return _transformables = transformables;
 }
 
 /* The hub, the first member, has no Via, and is not outer: every instance
  * has a row in it. Another's Via is the hub unless it says. */
 - (NSDictionary<NSString *, NSArray<ORMJoinMember *> *> *)joins
 {
+	if (_joins != nil) {
+		return _joins;
+	}
 	NSMutableDictionary *joins = [NSMutableDictionary dictionary];
 	for (ORMMappingOption *option in self.options) {
 		if (option.how != ORMMapJoined || [option.members count] == 0) {
@@ -254,17 +286,17 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 		}
 		[joins setObject:members forKey:option.objectTypeId];
 	}
-	return joins;
+	return _joins = joins;
 }
 
 - (NSSet<NSString *> *)excludedSources
 {
-	return [NSSet setWithArray:self.excluded];
+	return _excludedSources ?: (_excludedSources = [NSSet setWithArray:self.excluded]);
 }
 
 - (NSSet<NSString *> *)keptElements
 {
-	return [NSSet setWithArray:self.kept];
+	return _keptElements ?: (_keptElements = [NSSet setWithArray:self.kept]);
 }
 
 - (ORMMappingOption *)optionFor:(NSString *)objectTypeId
@@ -371,12 +403,13 @@ static NSDictionary<NSString *, NSXMLElement *> *
 ORMKeepChildren(NSXMLElement *parent, NSString *local, NSString *attribute, NSArray<NSString *> *keys)
 {
 	NSMutableDictionary *kept = [NSMutableDictionary dictionary];
+	NSSet *wanted = [NSSet setWithArray:keys];
 	for (NSXMLElement *child in ORMChildren(parent, CD, local)) {
 		NSString *key = ORMAttribute(child, attribute);
 		if (key == nil) {
 			continue;
 		}
-		if ([keys containsObject:key]) {
+		if ([wanted containsObject:key]) {
 			[kept setObject:child forKey:key];
 		} else {
 			ORMDetach(child);
