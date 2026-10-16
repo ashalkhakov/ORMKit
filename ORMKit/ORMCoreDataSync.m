@@ -44,7 +44,7 @@
 - (NSString *)addCoreDataMappingNamed:(NSString *)name path:(NSString *)path
 {
 	__block NSString *created = nil;
-	[_editor change:@"Add Core Data Mapping" with:^{
+	[_editor documentChange:@"Add Core Data Mapping" with:^{
 		NSXMLElement *mapping = ORMNewElementWithId(_editor.document, CD, @"Mapping", nil);
 		NSString *mappingName = [name length] > 0 ? name : _editor.model.name;
 		ORMSetAttribute(mapping, @"Name", mappingName);
@@ -63,7 +63,7 @@
 	if (mapping == nil) {
 		return;
 	}
-	[_editor change:@"Remove Core Data Mapping" with:^{
+	[_editor documentChange:@"Remove Core Data Mapping" with:^{
 		NSXMLElement *container = (NSXMLElement *)[mapping parent];
 		[mapping detach];
 		ORMPruneIfEmpty(container);
@@ -77,7 +77,7 @@
 	if (mapping == nil || [ORMAttribute(mapping, attribute) ?: @"" isEqualToString:value ?: @""]) {
 		return;
 	}
-	[_editor change:action with:^{
+	[_editor documentChange:action with:^{
 		ORMSetAttribute(mapping, attribute, value);
 	}];
 }
@@ -106,7 +106,7 @@
 	if (mapping == nil) {
 		return;
 	}
-	[_editor change:@"Set Mapping Scope" with:^{
+	[_editor documentChange:@"Set Mapping Scope" with:^{
 		ORMSetAttribute(mapping, @"Scope", scope == ORMScopeDiagram ? @"Diagram"
 		                                   : scope == ORMScopeObjectTypes ? @"ObjectTypes" : @"Model");
 		for (NSXMLElement *include in ORMChildren(mapping, CD, @"Include")) {
@@ -164,7 +164,7 @@
 	if (wanted && existing != nil && (attribute == nil || [ORMAttribute(existing, attribute) isEqualToString:value])) {
 		return;
 	}
-	[_editor change:action with:^{
+	[_editor documentChange:action with:^{
 		if (!wanted) {
 			[existing detach];
 			return;
@@ -279,7 +279,7 @@
 		for (NSXMLElement *each in ORMChildren([self mappingElement:mappingId], CD, @"ObjectTypeMapping")) {
 			option = [ORMRef(each) isEqualToString:objectTypeId] ? each : option;
 		}
-		[_editor change:@"Add Joined Entity" with:^{
+		[_editor documentChange:@"Add Joined Entity" with:^{
 			NSXMLElement *member = ORMNewElementWithId(_editor.document, CD, @"Member", nil);
 			ORMSetAttribute(member, @"Name", name);
 			ORMSetAttribute(member, @"By", identifierId);
@@ -300,7 +300,7 @@
 	if (member == nil) {
 		return;
 	}
-	[_editor change:@"Remove Joined Entity" with:^{
+	[_editor documentChange:@"Remove Joined Entity" with:^{
 		[member detach];
 	}];
 }
@@ -311,7 +311,7 @@
 	if (member == nil || ORMBoolAttribute(member, @"Outer", NO) == outer) {
 		return;
 	}
-	[_editor change:outer ? @"Make Joined Entity Outer" : @"Make Joined Entity Inner" with:^{
+	[_editor documentChange:outer ? @"Make Joined Entity Outer" : @"Make Joined Entity Inner" with:^{
 		ORMSetAttribute(member, @"Outer", outer ? @"true" : nil);
 	}];
 }
@@ -322,7 +322,7 @@
 	if (member == nil || ORMBoolAttribute(member, @"OptionalBy", NO) == optional) {
 		return;
 	}
-	[_editor change:@"Set Joined Entity's Values Optional" with:^{
+	[_editor documentChange:@"Set Joined Entity's Values Optional" with:^{
 		ORMSetAttribute(member, @"OptionalBy", optional ? @"true" : nil);
 	}];
 }
@@ -348,7 +348,7 @@
 	if (already == held && [holding count] == (held ? 1u : 0u)) {
 		return;
 	}
-	[_editor change:held ? @"Keep in Joined Entity" : @"Keep in Hub" with:^{
+	[_editor documentChange:held ? @"Keep in Joined Entity" : @"Keep in Hub" with:^{
 		for (NSXMLElement *holds in holding) {
 			[holds detach];
 		}
@@ -367,7 +367,7 @@
 	if (holds == nil || ORMBoolAttribute(holds, @"Required", NO) == required) {
 		return;
 	}
-	[_editor change:required ? @"Require in Joined Entity" : @"Make Optional in Joined Entity" with:^{
+	[_editor documentChange:required ? @"Require in Joined Entity" : @"Make Optional in Joined Entity" with:^{
 		ORMSetAttribute(holds, @"Required", required ? @"true" : nil);
 	}];
 }
@@ -394,7 +394,7 @@
 	if ([[ORMChild(mapping, CD, @"Baseline") stringValue] isEqualToString:contents]) {
 		return;
 	}
-	[_editor change:@"Synchronize Core Data" with:^{
+	[_editor documentChange:@"Synchronize Core Data" with:^{
 		ORMSetChildText(_editor.document, mapping, CD, @"Baseline", contents);
 	}];
 }

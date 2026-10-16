@@ -344,6 +344,14 @@ static BOOL ORMChecksAgreement;
 	}];
 }
 
+- (void)documentChange:(NSString *)name with:(void (^)(void))change
+{
+	[self apply:name rollback:NO editsXML:NO with:^BOOL {
+		change();
+		return YES;
+	}];
+}
+
 - (void)wrote:(ORMElement *)element
 {
 	if (element != nil && [_wrote indexOfObjectIdenticalTo:element] == NSNotFound) {
@@ -358,14 +366,19 @@ static BOOL ORMChecksAgreement;
 	}
 }
 
+/* A group edits the XML only where one of its steps does: those mark the
+ * model to be read again. */
 - (void)group:(NSString *)name with:(void (^)(void))operations
 {
-	[self change:name with:operations];
+	[self apply:name rollback:NO editsXML:NO with:^BOOL {
+		operations();
+		return YES;
+	}];
 }
 
 - (BOOL)group:(NSString *)name trying:(BOOL (^)(void))operations
 {
-	return [self apply:name rollback:YES with:operations];
+	return [self apply:name rollback:YES editsXML:NO with:operations];
 }
 
 /* Undo and redo alike: the document and whether it had changes, swapped

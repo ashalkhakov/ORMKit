@@ -24,6 +24,13 @@ ORMShapeKindNamed(NSString *local)
 
 @implementation ORMShape
 
+/* Kept as the file has them: NORMA's inches, read back into points, so
+ * that the model is what reading the written file gives. */
+- (void)setBounds:(NSRect)bounds
+{
+	_bounds = ORMParseBounds(ORMFormatBounds(bounds));
+}
+
 - (void)reset
 {
 	[super reset];

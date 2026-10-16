@@ -27,6 +27,10 @@
  * the model is not read again unless an operation of the step edited the
  * XML. */
 - (void)modelChange:(NSString *)name with:(void (^)(void))change;
+/* A change to what the model does not read (ORMKit's Core Data mappings,
+ * kept in the document and read from it on demand): one undoable step
+ * like the others, after which the model is not read again. */
+- (void)documentChange:(NSString *)name with:(void (^)(void))change;
 /* An element a model change changed, to be written. */
 - (void)wrote:(ORMElement *)element;
 /* An element a model change took out of the model: its XML element goes. */
