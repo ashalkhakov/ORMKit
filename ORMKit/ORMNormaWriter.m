@@ -135,6 +135,39 @@ ORMObjectTypeElementName(ORMObjectTypeKind kind)
 	return kind == ORMValueType ? @"ValueType" : kind == ORMObjectifiedType ? @"ObjectifiedType" : @"EntityType";
 }
 
+/* NORMA's element for each kind of shape. */
+static NSString *
+ORMShapeElementName(ORMShapeKind kind)
+{
+	switch (kind) {
+	case ORMShapeObjectType:
+		return @"ObjectTypeShape";
+	case ORMShapeFactType:
+		return @"FactTypeShape";
+	case ORMShapeReading:
+		return @"ReadingShape";
+	case ORMShapeRoleName:
+		return @"RoleNameShape";
+	case ORMShapeObjectifiedFactTypeName:
+		return @"ObjectifiedFactTypeNameShape";
+	case ORMShapeValueConstraint:
+		return @"ValueConstraintShape";
+	case ORMShapeExternalConstraint:
+		return @"ExternalConstraintShape";
+	case ORMShapeFrequencyConstraint:
+		return @"FrequencyConstraintShape";
+	case ORMShapeRingConstraint:
+		return @"RingConstraintShape";
+	case ORMShapeValueComparisonConstraint:
+		return @"ValueComparisonConstraintShape";
+	case ORMShapeModelNote:
+		return @"ModelNoteShape";
+	case ORMShapeUnknown:
+		break;
+	}
+	return nil;
+}
+
 /* NORMA's element for each kind of constraint. */
 static NSString *
 ORMConstraintElementName(ORMConstraintKind kind)
@@ -308,6 +341,45 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		made = ORMNewElementWithId(_document, CORE, ORMConstraintElementName([(ORMConstraint *)element kind]),
 		                           element.identifier);
 		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Constraints") addChild:made];
+	} else if ([element isKindOfClass:[ORMDiagram class]]) {
+		/* As NORMA starts one: its base font spelled out, in inches. */
+		ORMDiagram *diagram = (ORMDiagram *)element;
+		made = ORMNewElementWithId(_document, DIAGRAM, @"ORMDiagram", element.identifier);
+		ORMSetAttribute(made, @"IsCompleteView", diagram.isCompleteView ? @"true" : @"false");
+		ORMSetAttribute(made, @"Name", diagram.name);
+		ORMSetAttribute(made, @"BaseFontName", diagram.baseFontName);
+		NSString *normaSize = @"0.0972222238779068";
+		ORMSetAttribute(made, @"BaseFontSize", diagram.baseFontSize == [normaSize doubleValue] * ORMPointsPerInch
+		                                       ? normaSize
+		                                       : [NSString stringWithFormat:@"%g", diagram.baseFontSize / ORMPointsPerInch]);
+		[made addChild:ORMNewRef(_document, DIAGRAM, @"Subject", self.model.identifier)];
+		/* After the last diagram, before what NORMA's extensions keep. */
+		NSXMLElement *root = [_document rootElement];
+		NSArray *diagrams = ORMChildren(root, DIAGRAM, @"ORMDiagram");
+		NSUInteger index = [diagrams count] > 0 ? [[diagrams lastObject] index] + 1 : [root childCount];
+		[root insertChild:made atIndex:index];
+	} else if ([element isKindOfClass:[ORMShape class]]) {
+		ORMShape *shape = (ORMShape *)element;
+		made = ORMNewElementWithId(_document, DIAGRAM, ORMShapeElementName(shape.kind), element.identifier);
+		ORMSetAttribute(made, @"IsExpanded", shape.isExpanded ? @"true" : @"false");
+		ORMSetAttribute(made, @"AbsoluteBounds", ORMFormatBounds(shape.bounds));
+		ORMInsertChild(made, ORMNewRef(_document, DIAGRAM, @"Subject", shape.subjectId));
+		if (shape.parent != nil) {
+			NSXMLElement *relative = ORMChild(shape.parent.element, DIAGRAM, @"RelativeShapes");
+			if (relative == nil) {
+				relative = ORMNewElement(_document, DIAGRAM, @"RelativeShapes");
+				ORMInsertChild(shape.parent.element, relative);
+			}
+			[relative addChild:made];
+		} else {
+			NSXMLElement *shapes = ORMChild(shape.diagram.element, DIAGRAM, @"Shapes");
+			if (shapes == nil) {
+				shapes = ORMNewElement(_document, DIAGRAM, @"Shapes");
+				/* Shapes come before the diagram's Subject. */
+				[shape.diagram.element insertChild:shapes atIndex:0];
+			}
+			[shapes addChild:made];
+		}
 	} else if ([element isKindOfClass:[ORMModelNote class]]) {
 		ORMModelNote *note = (ORMModelNote *)element;
 		made = ORMNewElementWithId(_document, CORE, @"ModelNote", element.identifier);
@@ -601,6 +673,35 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	}
 }
 
+/* A fact type shape's roles left to right, compared as the reader reads
+ * them: its RoleDisplayOrder where that names every role, else the fact
+ * type's order. Made where the model has an order and the shape none. */
+- (void)writeRoleDisplayOrderOf:(ORMShape *)shape
+{
+	NSXMLElement *order = ORMChild(shape.element, DIAGRAM, @"RoleDisplayOrder");
+	NSArray *factRoles = shape.factType.roles ?: @[];
+	NSMutableArray *read = [NSMutableArray array];
+	for (NSXMLElement *ref in ORMChildren(order, DIAGRAM, @"Role")) {
+		id role = [self.model elementWithId:ORMRef(ref)];
+		if ([role isKindOfClass:[ORMRole class]] && [factRoles indexOfObjectIdenticalTo:role] != NSNotFound) {
+			[read addObject:role];
+		}
+	}
+	NSArray *now = [read count] == [factRoles count] ? read : factRoles;
+	if (order != nil && [now isEqualToArray:shape.roleDisplayOrder]) {
+		return;
+	}
+	if (order == nil && ![_made containsObject:shape.element] && [now isEqualToArray:shape.roleDisplayOrder]) {
+		return;
+	}
+	[order detach];
+	NSXMLElement *display = ORMNewElement(_document, DIAGRAM, @"RoleDisplayOrder");
+	for (ORMRole *role in shape.roleDisplayOrder) {
+		[display addChild:ORMNewRef(_document, DIAGRAM, @"Role", role.identifier)];
+	}
+	ORMInsertChild(shape.element, display);
+}
+
 - (void)writeShape:(ORMShape *)shape
 {
 	NSXMLElement *element = shape.element;
@@ -615,9 +716,13 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	ORMFactTypeOrientation was = [orientation isEqualToString:@"VerticalRotatedRight"] ? ORMFactTypeVerticalRotatedRight
 		: [orientation isEqualToString:@"VerticalRotatedLeft"] ? ORMFactTypeVerticalRotatedLeft : ORMFactTypeHorizontal;
 	if (was != shape.orientation) {
+		/* Horizontal is NORMA's default, left out. */
 		ORMSetAttribute(element, @"DisplayOrientation", shape.orientation == ORMFactTypeVerticalRotatedRight ? @"VerticalRotatedRight"
 		                                                : shape.orientation == ORMFactTypeVerticalRotatedLeft ? @"VerticalRotatedLeft"
-		                                                                                                      : @"Horizontal");
+		                                                                                                      : nil);
+	}
+	if (shape.kind == ORMShapeFactType) {
+		[self writeRoleDisplayOrderOf:shape];
 	}
 	BOOL below = [ORMAttribute(element, @"ConstraintDisplayPosition") isEqualToString:@"Bottom"];
 	if (below != shape.constraintsBelow) {
@@ -644,7 +749,11 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		for (NSXMLNode *child in [element children]) {
 			[replacement addChild:[child copy]];
 		}
-		[(NSXMLElement *)[element parent] replaceChildAtIndex:[element index] withNode:replacement];
+		/* Inserted beside it and the old one detached: gnustep-base's
+		 * -replaceChildAtIndex:withNode: frees what libxml2 keeps in the
+		 * document's dictionary. */
+		[(NSXMLElement *)[element parent] insertChild:replacement atIndex:[element index]];
+		[element detach];
 		element = replacement;
 		type.element = element;
 		[self rebindChildrenOf:type];

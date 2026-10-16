@@ -80,16 +80,15 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 @end
 
 @interface ORMDiagramEditor ()
-- (NSXMLElement *)newShape:(NSString *)local subject:(NSString *)subjectId bounds:(NSRect)bounds;
-- (NSXMLElement *)shapesOf:(NSXMLElement *)diagram;
 /* Where a new shape for the element goes when no point is given: beside
  * the shapes it links to. */
 - (NSPoint)placeFor:(NSString *)elementId onDiagram:(NSString *)diagramId;
 /* Places what a new fact type needs on the diagram: the fact type, and
  * its players when not shown. */
 - (void)showFactType:(NSString *)factTypeId onDiagram:(NSString *)diagramId at:(NSPoint)point;
-/* Removes every shape of the elements, on every diagram. */
-- (void)removeShapesOfSubjects:(NSSet<NSString *> *)subjectIds;
+/* Takes the shapes off their diagrams, inside a model change, with the
+ * shapes placed on them. */
+- (void)removeShapes:(NSArray<ORMShape *> *)shapes;
 @end
 
 /* Builders the editors share: each changes the model, inside a model change. */

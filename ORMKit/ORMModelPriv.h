@@ -172,6 +172,11 @@
 @property (nonatomic, readwrite) double baseFontSize;
 /* Reads the diagram's shapes, registering each with the model. */
 - (void)readShapes;
+/* A new shape in the model, inside a model change: on the diagram, or on
+ * its parent (a reading on its fact type); and one taken away, with the
+ * shapes placed on it. */
+- (void)addShape:(ORMShape *)shape;
+- (void)removeShape:(ORMShape *)shape;
 @end
 
 @interface ORMModel ()
@@ -188,6 +193,10 @@
  * played roles, subtyping, internal constraints, a role's constraints and
  * flags, reference modes, link fact types, proxies' players. No XML. */
 - (void)derive;
+/* Whether the diagrams have been read: they are read when first asked for. */
+@property (nonatomic, readonly) BOOL diagramsRead;
+/* A new diagram in the model, after the others. */
+- (void)addDiagram:(ORMDiagram *)diagram;
 /* A new element taken into the model: registered, and listed where its
  * kind is (data types, object types, fact types, constraints, notes). */
 - (void)addElement:(ORMElement *)element;

@@ -200,19 +200,9 @@
 		return;
 	}
 	NSMutableSet *doomed = [self closureOf:rest];
-	[_editor group:@"Delete" with:^{
-		if ([doomed count] > 0) {
-			[_editor modelChange:@"Delete" with:^{
-				[self deleteFromModel:doomed];
-			}];
-		}
-		/* Shapes are still taken away in the XML. */
-		[_editor change:@"Delete" with:^{
-			for (ORMShape *shape in shapes) {
-				[shape.element detach];
-			}
-			[_editor.diagramEditor removeShapesOfSubjects:doomed];
-		}];
+	[_editor modelChange:@"Delete" with:^{
+		[_editor.diagramEditor removeShapes:shapes];
+		[self deleteFromModel:doomed];
 	}];
 }
 

@@ -1183,6 +1183,18 @@ ORMWithout(NSArray *array, id object)
 
 @synthesize diagrams = _diagrams;
 
+- (BOOL)diagramsRead
+{
+	return _diagramsRead;
+}
+
+- (void)addDiagram:(ORMDiagram *)diagram
+{
+	[self diagrams];
+	_diagrams = [_diagrams arrayByAddingObject:diagram];
+	[self registerElement:diagram];
+}
+
 - (NSArray<ORMDiagram *> *)diagrams
 {
 	if (!_diagramsRead) {

@@ -305,6 +305,18 @@ static BOOL ORMChecksAgreement;
 			}
 		}
 		change();
+		/* Shapes whose subject is gone go with it (the normalizer's rule). */
+		if (model.diagramsRead) {
+			for (ORMDiagram *diagram in model.diagrams) {
+				for (ORMShape *shape in [diagram allShapes]) {
+					if (shape.subjectId != nil && [model elementWithId:shape.subjectId] == nil
+					    && [model elementWithId:shape.identifier] == shape) {
+						[diagram removeShape:shape];
+						[self deleted:shape];
+					}
+				}
+			}
+		}
 		for (ORMFactType *fact in model.factTypes) {
 			NSString *was = [unaries objectForKey:fact.identifier];
 			if (was != nil) {

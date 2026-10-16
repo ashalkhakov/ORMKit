@@ -145,7 +145,45 @@ ORMShapeKindNamed(NSString *local)
 
 - (NSArray<ORMShape *> *)allShapes
 {
-	return _allShapes ?: @[];
+	if (_allShapes == nil) {
+		/* Each shape, then those placed on it, in the file's order. */
+		NSMutableArray *all = [NSMutableArray array];
+		NSMutableArray *pending = [NSMutableArray arrayWithArray:[[self.shapes reverseObjectEnumerator] allObjects]];
+		while ([pending count] > 0) {
+			ORMShape *shape = [pending lastObject];
+			[pending removeLastObject];
+			[all addObject:shape];
+			[pending addObjectsFromArray:[[shape.relativeShapes reverseObjectEnumerator] allObjects]];
+		}
+		_allShapes = all;
+	}
+	return _allShapes;
+}
+
+- (void)addShape:(ORMShape *)shape
+{
+	shape.diagram = self;
+	if (shape.parent != nil) {
+		shape.parent.relativeShapes = [shape.parent.relativeShapes ?: @[] arrayByAddingObject:shape];
+	} else {
+		self.shapes = [self.shapes ?: @[] arrayByAddingObject:shape];
+	}
+	[self.model registerElement:shape];
+	_allShapes = nil;
+}
+
+- (void)removeShape:(ORMShape *)shape
+{
+	for (ORMShape *child in [shape.relativeShapes copy]) {
+		[self removeShape:child];
+	}
+	if (shape.parent != nil) {
+		shape.parent.relativeShapes = ORMWithout(shape.parent.relativeShapes, shape);
+	} else {
+		self.shapes = ORMWithout(self.shapes, shape);
+	}
+	[self.model removeElement:shape];
+	_allShapes = nil;
 }
 
 - (NSArray<ORMShape *> *)shapesForSubject:(NSString *)subjectId
