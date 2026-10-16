@@ -92,7 +92,7 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 - (void)removeShapesOfSubjects:(NSSet<NSString *> *)subjectIds;
 @end
 
-/* Builders the editors share; each only makes XML, inside a change. */
+/* Builders the editors share: each changes the model, inside a model change. */
 @interface ORMObjectTypeEditor ()
 /* In the model, inside a model change: a new object type (a value type
  * with its data type, an entity type with no reference mode yet); a value
@@ -106,13 +106,7 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 @end
 
 @interface ORMFactTypeEditor ()
-/* A new <orm:Fact> over the players with one reading for its first roles;
- * the new roles' ids are added to roleIds. */
-- (NSXMLElement *)newFactWithPlayers:(NSArray<NSString *> *)playerIds
-                             reading:(NSString *)reading
-                               roles:(NSMutableArray *)roleIds;
-- (NSXMLElement *)appendReading:(NSString *)text to:(NSXMLElement *)fact roles:(NSArray<NSString *> *)roleIds;
-/* The same in the model, inside a model change: a new ordinary fact type
+/* Inside a model change: a new ordinary fact type
  * over the players, read as the reading says from its first roles (all,
  * or a unary's one). */
 - (ORMFactType *)addFactWithPlayers:(NSArray<ORMObjectType *> *)players reading:(NSString *)reading;
@@ -127,9 +121,8 @@ NSDictionary<NSString *, NSArray<NSString *> *> *ORMImpliedMandatoryRoles(ORMMod
 @end
 
 @interface ORMConstraintEditor ()
-- (NSXMLElement *)newInternalUniqueness:(NSArray<NSString *> *)roleIds;
-- (NSXMLElement *)newSimpleMandatory:(NSString *)roleId;
-/* The same in the model, inside a model change. */
+/* Inside a model change: an internal uniqueness constraint over the
+ * roles, a simple mandatory on the role. */
 - (ORMConstraint *)addInternalUniqueness:(NSArray<ORMRole *> *)roles;
 - (ORMConstraint *)addSimpleMandatory:(ORMRole *)role;
 /* NORMA's implied inclusive-or constraints kept up in the model, as the

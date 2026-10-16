@@ -395,34 +395,6 @@
 
 #pragma mark Building
 
-/* A new <orm:Fact> over the players with one reading, roles' ids out. */
-- (NSXMLElement *)newFactWithPlayers:(NSArray<NSString *> *)playerIds
-                             reading:(NSString *)reading
-                               roles:(NSMutableArray *)roleIds
-{
-	NSXMLElement *fact = ORMNewElementWithId(_editor.document, CORE, @"Fact", nil);
-	NSXMLElement *roles = ORMEnsureChild(_editor.document, fact, CORE, @"FactRoles");
-	for (NSString *playerId in playerIds) {
-		NSXMLElement *role = ORMNewElementWithId(_editor.document, CORE, @"Role", nil);
-		ORMSetAttribute(role, @"_IsMandatory", @"false");
-		ORMSetAttribute(role, @"_Multiplicity", @"Unspecified");
-		ORMSetAttribute(role, @"Name", @"");
-		[role addChild:ORMNewRef(_editor.document, CORE, @"RolePlayer", playerId)];
-		[roles addChild:role];
-		[roleIds addObject:ORMAttribute(role, @"id")];
-	}
-	[[_editor section:@"Facts"] addChild:fact];
-	if (reading != nil) {
-		NSUInteger readable = [playerIds count];
-		/* A unary's reading names its one role, not the implicit one. */
-		if (readable == 2 && [reading rangeOfString:@"{1}"].location == NSNotFound) {
-			readable = 1;
-		}
-		[self appendReading:reading to:fact roles:[roleIds subarrayWithRange:NSMakeRange(0, readable)]];
-	}
-	return fact;
-}
-
 - (ORMFactType *)addFactWithPlayers:(NSArray<ORMObjectType *> *)players reading:(NSString *)reading
 {
 	ORMModel *model = _editor.model;
@@ -476,39 +448,6 @@
 	[model registerElement:reading];
 	order.readings = [order.readings arrayByAddingObject:reading];
 	[_editor wrote:fact];
-	return reading;
-}
-
-/* A reading in the reading order for the roles, making the order. */
-- (NSXMLElement *)appendReading:(NSString *)text to:(NSXMLElement *)fact roles:(NSArray<NSString *> *)roleIds
-{
-	NSXMLElement *orders = ORMEnsureChild(_editor.document, fact, CORE, @"ReadingOrders");
-	NSXMLElement *order = nil;
-	for (NSXMLElement *existing in ORMChildren(orders, CORE, @"ReadingOrder")) {
-		NSMutableArray *refs = [NSMutableArray array];
-		for (NSXMLElement *ref in ORMChildren(ORMChild(existing, CORE, @"RoleSequence"), CORE, @"Role")) {
-			[refs addObject:ORMRef(ref) ?: @""];
-		}
-		if ([refs isEqualToArray:roleIds]) {
-			order = existing;
-			break;
-		}
-	}
-	if (order == nil) {
-		order = ORMNewElementWithId(_editor.document, CORE, @"ReadingOrder", nil);
-		[order addChild:ORMNewElement(_editor.document, CORE, @"Readings")];
-		NSXMLElement *sequence = ORMNewElement(_editor.document, CORE, @"RoleSequence");
-		for (NSString *roleId in roleIds) {
-			[sequence addChild:ORMNewRef(_editor.document, CORE, @"Role", roleId)];
-		}
-		[order addChild:sequence];
-		[orders addChild:order];
-	}
-	NSXMLElement *reading = ORMNewElementWithId(_editor.document, CORE, @"Reading", nil);
-	NSXMLElement *data = ORMNewElement(_editor.document, CORE, @"Data");
-	[data setStringValue:text];
-	[reading addChild:data];
-	[ORMChild(order, CORE, @"Readings") addChild:reading];
 	return reading;
 }
 

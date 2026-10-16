@@ -623,20 +623,4 @@ ORMIdentifiedBy(ORMConstraint *constraint)
 	return constraint;
 }
 
-- (NSXMLElement *)newInternalUniqueness:(NSArray<NSString *> *)roleIds
-{
-	NSXMLElement *constraint = [_editor newConstraint:@"UniquenessConstraint" named:@"InternalUniquenessConstraint"];
-	ORMSetAttribute(constraint, @"IsInternal", @"true");
-	[constraint addChild:[_editor newRoleSequence:roleIds withId:NO]];
-	return constraint;
-}
-
-- (NSXMLElement *)newSimpleMandatory:(NSString *)roleId
-{
-	NSXMLElement *constraint = [_editor newConstraint:@"MandatoryConstraint" named:@"SimpleMandatoryConstraint"];
-	ORMSetAttribute(constraint, @"IsSimple", @"true");
-	[constraint addChild:[_editor newRoleSequence:@[ roleId ] withId:NO]];
-	return constraint;
-}
-
 @end
