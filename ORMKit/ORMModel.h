@@ -95,6 +95,10 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
  * one its preferred identification path goes to (NORMA's
  * PreferredIdentificationPath), else its first. nil without supertypes. */
 - (ORMObjectType *)identifyingSupertype;
+/* The type whose preferred identifier identifies it: itself, or the
+ * supertype it is identified as, up the identifying supertypes until one
+ * has an identifier. Itself for a value type. */
+- (ORMObjectType *)identifiedType;
 
 /* Free text: NORMA's Definition and Note. */
 @property (nonatomic, readonly, copy) NSString *definitionText;
@@ -106,10 +110,14 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 - (BOOL)isSubtypeOf:(ORMObjectType *)supertype;
 /* Its supertypes, at any depth, nearest first. */
 - (NSArray<ORMObjectType *> *)allSupertypes;
-/* The names of its family, longest first: its own, and those of the types
- * subtyping relates it to at any depth, up and down (a sibling subtype
- * too). What a sentence may call one of its roles' players
- * (ORMConstraintSentence). Found once. */
+/* Whether it is the other, or one is the other's subtype at any depth:
+ * what set comparison and ring constraints ask of the players they span. */
+- (BOOL)isCompatibleWith:(ORMObjectType *)other;
+/* Its family: it, and the types subtyping relates it to at any depth, up
+ * and down, a sibling subtype too. Found once. */
+- (NSArray<ORMObjectType *> *)family;
+/* Their names, longest first: what a sentence may call one of its roles'
+ * players (ORMConstraintSentence). Found once. */
 - (NSArray<NSString *> *)familyNames;
 @end
 

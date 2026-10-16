@@ -163,27 +163,6 @@ ORMTrimmed(NSString *text)
  * role) or a supertype's (an exclusion's "that Employee is ceo" for a
  * Manager's), longest first, each optionally numbered. A reading naming
  * the player itself is preferred (see match:omit:). */
-/* Whether one is a subtype of the other, at any depth. */
-static BOOL
-ORMRelatedTypes(ORMObjectType *a, ORMObjectType *b)
-{
-	if (a == nil || b == nil) {
-		return NO;
-	}
-	for (NSArray *pair in @[ @[ a, b ], @[ b, a ] ]) {
-		NSMutableArray *up = [NSMutableArray arrayWithArray:[[pair firstObject] supertypes] ?: @[]];
-		while ([up count] > 0) {
-			ORMObjectType *type = [up lastObject];
-			[up removeLastObject];
-			if (type == [pair lastObject]) {
-				return YES;
-			}
-			[up addObjectsFromArray:type.supertypes];
-		}
-	}
-	return NO;
-}
-
 /* The start of a word ending the text, nothing but whitespace before it
  * from end on; NSNotFound where there is none. */
 static NSUInteger
@@ -870,7 +849,7 @@ ORMNamesOf(ORMObjectType *player)
 		for (ORMSentenceClause *clause in [self match:text omit:YES]) {
 			ORMSentenceTerm *first = [clause.terms firstObject];
 			ORMObjectType *player = first.role.role.player;
-			if (player == type || ORMRelatedTypes(player, type)) {
+			if ([player isCompatibleWith:type]) {
 				first.name = subject;
 				return clause;
 			}
@@ -910,7 +889,7 @@ ORMNamesOf(ORMObjectType *player)
 			for (ORMSentenceClause *clause in [self match:rest omit:YES]) {
 				ORMSentenceTerm *first = [clause.terms firstObject];
 				ORMObjectType *player = first.role.role.player;
-				if (player == type || ORMRelatedTypes(player, type)) {
+				if ([player isCompatibleWith:type]) {
 					first.name = subject;
 					[candidates addObject:clause];
 				}

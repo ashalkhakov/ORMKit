@@ -557,16 +557,6 @@ ORMDetachPruning(NSXMLElement *element)
 
 #pragma mark One at a time
 
-/* The type an instance of this one is identified as: itself, or the
- * supertype it is identified as, having no identifier of its own. */
-- (ORMObjectType *)identifiedTypeOf:(ORMObjectType *)type
-{
-	while (type.kind != ORMValueType && type.preferredIdentifier == nil && [type.supertypes count] > 0) {
-		type = [type identifyingSupertype];
-	}
-	return type;
-}
-
 /* Whether what identifies the type is the fact it objectifies. */
 - (BOOL)isTheFactItObjectifies:(ORMObjectType *)type
 {
@@ -581,7 +571,8 @@ ORMDetachPruning(NSXMLElement *element)
 
 - (NSArray<ORMRole *> *)compositeRolesOf:(NSString *)objectTypeId
 {
-	ORMObjectType *type = [self identifiedTypeOf:[_editor.model elementWithId:objectTypeId]];
+	id element = [_editor.model elementWithId:objectTypeId];
+	ORMObjectType *type = [element isKindOfClass:[ORMObjectType class]] ? [(ORMObjectType *)element identifiedType] : nil;
 	if (![type isKindOfClass:[ORMObjectType class]] || type.kind == ORMValueType || [self isTheFactItObjectifies:type]) {
 		return @[];
 	}
@@ -729,7 +720,7 @@ ORMWrapPart(NSString *name, BOOL composite)
                   reason:(NSString **)reason
 {
 	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
-	ORMObjectType *identified = [self identifiedTypeOf:type];
+	ORMObjectType *identified = [type identifiedType];
 	NSArray *roles = [self compositeRolesOf:objectTypeId];
 	if ([roles count] == 0) {
 		[self refuse:@"It is not identified by several values." reason:reason];

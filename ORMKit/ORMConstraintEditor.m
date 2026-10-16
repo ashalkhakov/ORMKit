@@ -131,7 +131,7 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	 * supertypes. */
 	ORMObjectType *player = [[roles firstObject] player];
 	for (ORMRole *role in roles) {
-		if (role.player != player && ![role.player isSubtypeOf:player] && ![player isSubtypeOf:role.player]) {
+		if (![role.player isCompatibleWith:player]) {
 			if (reason != NULL) {
 				*reason = @"An inclusive-or constraint spans roles played by the same object type.";
 			}
@@ -237,21 +237,13 @@ ORMRolesShareFactType(NSArray<ORMRole *> *roles)
 	return created;
 }
 
-/* Whether the two object types are compatible: the same, or one a
- * subtype of the other, as set comparison and ring constraints require. */
-static BOOL
-ORMCompatible(ORMObjectType *a, ORMObjectType *b)
-{
-	return a == b || [a isSubtypeOf:b] || [b isSubtypeOf:a];
-}
-
 - (NSString *)addRingConstraint:(ORMRingType)type overRoles:(NSArray<NSString *> *)roleIds reason:(NSString **)reason
 {
 	NSArray *roles = [_editor rolesWithIds:roleIds reason:reason];
 	if (roles == nil) {
 		return nil;
 	}
-	if ([roles count] != 2 || !ORMCompatible([[roles firstObject] player], [[roles lastObject] player])) {
+	if ([roles count] != 2 || ![[[roles firstObject] player] isCompatibleWith:[[roles lastObject] player]]) {
 		if (reason != NULL) {
 			*reason = @"A ring constraint spans two roles played by the same object type.";
 		}
@@ -301,7 +293,7 @@ ORMCompatible(ORMObjectType *a, ORMObjectType *b)
 			return NO;
 		}
 		for (NSUInteger i = 0; i < [roles count]; i++) {
-			if (!ORMCompatible([[roles objectAtIndex:i] player], [[first objectAtIndex:i] player])) {
+			if (![[[roles objectAtIndex:i] player] isCompatibleWith:[[first objectAtIndex:i] player]]) {
 				if (reason != NULL) {
 					*reason = [NSString stringWithFormat:@"The roles at place %lu are played by incompatible "
 					                                     @"object types.", (unsigned long)i + 1];

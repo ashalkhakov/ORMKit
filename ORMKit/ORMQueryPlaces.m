@@ -175,10 +175,7 @@
 	if (type == nil || entity == nil || [self identifierOf:type on:entity] != nil) {
 		return nil;
 	}
-	ORMObjectType *identified = type;
-	while (identified.preferredIdentifier == nil && [identified.supertypes count] > 0) {
-		identified = [identified identifyingSupertype];
-	}
+	ORMObjectType *identified = [type identifiedType];
 	NSArray *roles = [identified.preferredIdentifier allRoles];
 	if ([roles count] == 0) {
 		return nil;

@@ -47,27 +47,6 @@
 @implementation ORMPlannedJoin
 @end
 
-/* Whether two object types are related by subtyping, at any depth or
- * through a common supertype. */
-static BOOL
-ORMSameFamily(ORMObjectType *a, ORMObjectType *b)
-{
-	NSMutableSet *family = [NSMutableSet set];
-	NSMutableArray *pending = [NSMutableArray arrayWithObject:a];
-	while ([pending count] > 0) {
-		ORMObjectType *type = [pending lastObject];
-		[pending removeLastObject];
-		NSValue *key = [NSValue valueWithNonretainedObject:type];
-		if ([family containsObject:key]) {
-			continue;
-		}
-		[family addObject:key];
-		[pending addObjectsFromArray:type.subtypes];
-		[pending addObjectsFromArray:type.supertypes];
-	}
-	return [family containsObject:[NSValue valueWithNonretainedObject:b]];
-}
-
 @implementation ORMJoinPathBuilder
 
 @synthesize editor = _editor;
@@ -271,7 +250,7 @@ ORMSameFamily(ORMObjectType *a, ORMObjectType *b)
 		named = [named substringToIndex:[named length] - 1];
 	}
 	ORMObjectType *candidate = [_editor.model objectTypeNamed:named];
-	if (candidate != nil && candidate != rootType && ORMSameFamily(candidate, rootType)) {
+	if (candidate != nil && candidate != rootType && [[candidate family] indexOfObjectIdenticalTo:rootType] != NSNotFound) {
 		rootType = candidate;
 	}
 	ORMSetAttribute(root, @"ref", rootType.identifier);

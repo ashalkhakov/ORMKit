@@ -57,32 +57,57 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 
 @implementation ORMObjectType
 {
+	NSArray<ORMObjectType *> *_family;
 	NSArray<NSString *> *_familyNames;
+}
+
+- (BOOL)isCompatibleWith:(ORMObjectType *)other
+{
+	return other != nil && (other == self || [self isSubtypeOf:other] || [other isSubtypeOf:self]);
+}
+
+- (NSArray<ORMObjectType *> *)family
+{
+	if (_family != nil) {
+		return _family;
+	}
+	NSMutableArray *family = [NSMutableArray array];
+	NSMutableArray *pending = [NSMutableArray arrayWithObject:self];
+	while ([pending count] > 0) {
+		ORMObjectType *type = [pending lastObject];
+		[pending removeLastObject];
+		if ([family indexOfObjectIdenticalTo:type] != NSNotFound) {
+			continue;
+		}
+		[family addObject:type];
+		[pending addObjectsFromArray:type.subtypes];
+		[pending addObjectsFromArray:type.supertypes];
+	}
+	_family = family;
+	return _family;
 }
 
 - (NSArray<NSString *> *)familyNames
 {
-	if (_familyNames != nil) {
-		return _familyNames;
-	}
-	NSMutableArray *names = [NSMutableArray array];
-	NSMutableArray *pending = [NSMutableArray arrayWithObject:self];
-	NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
-	while ([pending count] > 0) {
-		ORMObjectType *type = [pending lastObject];
-		[pending removeLastObject];
-		if ([seen containsObject:type]) {
-			continue;
+	if (_familyNames == nil) {
+		NSMutableArray *names = [NSMutableArray array];
+		for (ORMObjectType *type in [self family]) {
+			if (type.name != nil && ![names containsObject:type.name]) {
+				[names addObject:type.name];
+			}
 		}
-		[seen addObject:type];
-		if (type.name != nil && ![names containsObject:type.name]) {
-			[names addObject:type.name];
-		}
-		[pending addObjectsFromArray:type.subtypes];
-		[pending addObjectsFromArray:type.supertypes];
+		_familyNames = [names sortedArrayUsingFunction:ORMLongerFirst context:NULL];
 	}
-	_familyNames = [names sortedArrayUsingFunction:ORMLongerFirst context:NULL];
 	return _familyNames;
+}
+
+- (ORMObjectType *)identifiedType
+{
+	ORMObjectType *type = self;
+	while (type.kind != ORMValueType && type.preferredIdentifier == nil && [type.supertypes count] > 0) {
+		type = [type identifyingSupertype];
+	}
+	return type;
 }
 
 - (ORMObjectType *)identifyingSupertype
@@ -698,6 +723,8 @@ ORMUnitReferenceModes(void)
 @implementation ORMModel
 {
 	NSMutableDictionary<NSString *, id> *_elements;
+	/* Object types by name, the first of a name: made when first asked. */
+	NSMutableDictionary<NSString *, ORMObjectType *> *_typesByName;
 	/* Diagrams are read when first asked for: an editor reads the model
 	 * after every step of a group, and most steps look at no shape. */
 	BOOL _diagramsRead;
@@ -781,12 +808,15 @@ ORMUnitReferenceModes(void)
 
 - (ORMObjectType *)objectTypeNamed:(NSString *)name
 {
-	for (ORMObjectType *type in self.objectTypes) {
-		if ([type.name isEqualToString:name]) {
-			return type;
+	if (_typesByName == nil) {
+		_typesByName = [NSMutableDictionary dictionary];
+		for (ORMObjectType *type in self.objectTypes) {
+			if (type.name != nil && [_typesByName objectForKey:type.name] == nil) {
+				[_typesByName setObject:type forKey:type.name];
+			}
 		}
 	}
-	return nil;
+	return name != nil ? [_typesByName objectForKey:name] : nil;
 }
 
 - (NSArray<ORMObjectType *> *)visibleObjectTypes
