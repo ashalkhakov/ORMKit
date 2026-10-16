@@ -119,6 +119,13 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 	return inclusion == ORMRangeOpen ? @"Open" : inclusion == ORMRangeClosed ? @"Closed" : @"NotSet";
 }
 
+/* NORMA's element for each kind of object type. */
+static NSString *
+ORMObjectTypeElementName(ORMObjectTypeKind kind)
+{
+	return kind == ORMValueType ? @"ValueType" : kind == ORMObjectifiedType ? @"ObjectifiedType" : @"EntityType";
+}
+
 @implementation ORMNormaWriter
 {
 	NSXMLDocument *_document;
@@ -196,6 +203,10 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 	if ([element isKindOfClass:[ORMDataType class]]) {
 		made = ORMNewElementWithId(_document, CORE, [(ORMDataType *)element typeName], element.identifier);
 		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"DataTypes") addChild:made];
+	} else if ([element isKindOfClass:[ORMObjectType class]]) {
+		made = ORMNewElementWithId(_document, CORE, ORMObjectTypeElementName([(ORMObjectType *)element kind]),
+		                           element.identifier);
+		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Objects") addChild:made];
 	} else {
 		[NSException raise:NSInternalInconsistencyException format:@"The writer makes no %@ yet.", [element class]];
 	}
@@ -404,13 +415,6 @@ ORMInclusionName(ORMRangeInclusion inclusion)
 }
 
 #pragma mark Object types
-
-/* NORMA's element for each kind of object type. */
-static NSString *
-ORMObjectTypeElementName(ORMObjectTypeKind kind)
-{
-	return kind == ORMValueType ? @"ValueType" : kind == ORMObjectifiedType ? @"ObjectifiedType" : @"EntityType";
-}
 
 - (void)writeObjectType:(ORMObjectType *)type
 {

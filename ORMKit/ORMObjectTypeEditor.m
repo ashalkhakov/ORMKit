@@ -86,6 +86,24 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	return made;
 }
 
+/* A new object type in the model: a value type with its data type, an
+ * entity type with no reference mode yet. */
+- (ORMObjectType *)newObjectTypeNamed:(NSString *)name kind:(ORMObjectTypeKind)kind dataType:(NSString *)typeName
+{
+	ORMModel *model = _editor.model;
+	ORMObjectType *type = [[ORMObjectType alloc] initWithModel:model];
+	type.name = name;
+	type.kind = kind;
+	if (kind == ORMValueType) {
+		type.dataType = [self dataTypeNamed:typeName ?: @"UnspecifiedDataType"];
+	} else {
+		type.savedReferenceMode = @"";
+	}
+	[model addElement:type];
+	[_editor wrote:type];
+	return type;
+}
+
 /* A new <orm:ValueType>, its data type set. */
 - (NSXMLElement *)newValueTypeNamed:(NSString *)name dataType:(NSString *)typeName
 {
@@ -177,17 +195,23 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	}
 	NSString *trimmed = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 	__block NSString *created = nil;
+	BOOL identified = [mode length] > 0 && kind != ORMReferenceModeNone;
 	[_editor group:@"Add Entity Type" with:^{
-		[_editor change:@"Add Entity Type" with:^{
-			NSXMLElement *entity = ORMNewElementWithId(_editor.document, CORE, @"EntityType", nil);
-			ORMSetAttribute(entity, @"Name", trimmed);
-			ORMSetAttribute(entity, @"_ReferenceMode", @"");
-			[[_editor section:@"Objects"] addChild:entity];
-			created = ORMAttribute(entity, @"id");
-			if ([mode length] > 0 && kind != ORMReferenceModeNone) {
+		if (!identified) {
+			[_editor modelChange:@"Add Entity Type" with:^{
+				created = [self newObjectTypeNamed:trimmed kind:ORMEntityType dataType:nil].identifier;
+			}];
+		} else {
+			/* Its reference mode is still built in the XML. */
+			[_editor change:@"Add Entity Type" with:^{
+				NSXMLElement *entity = ORMNewElementWithId(_editor.document, CORE, @"EntityType", nil);
+				ORMSetAttribute(entity, @"Name", trimmed);
+				ORMSetAttribute(entity, @"_ReferenceMode", @"");
+				[[_editor section:@"Objects"] addChild:entity];
+				created = ORMAttribute(entity, @"id");
 				[self buildReferenceMode:mode kind:kind forEntity:entity];
-			}
-		}];
+			}];
+		}
 		/* Placed once the projection knows the entity type. */
 		if (diagramId != nil) {
 			[_editor.diagramEditor placeElement:created onDiagram:diagramId at:point];
@@ -208,8 +232,8 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	NSString *trimmed = [name stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 	__block NSString *created = nil;
 	[_editor group:@"Add Value Type" with:^{
-		[_editor change:@"Add Value Type" with:^{
-			created = ORMAttribute([self newValueTypeNamed:trimmed dataType:typeName], @"id");
+		[_editor modelChange:@"Add Value Type" with:^{
+			created = [self newObjectTypeNamed:trimmed kind:ORMValueType dataType:typeName].identifier;
 		}];
 		if (diagramId != nil) {
 			[_editor.diagramEditor placeElement:created onDiagram:diagramId at:point];
