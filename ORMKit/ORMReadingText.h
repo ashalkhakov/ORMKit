@@ -24,6 +24,9 @@
 /* nil with why when the text is not a reading for so many roles: every
  * placeholder {0}..{arity-1} exactly once. */
 + (instancetype)readingTextWithString:(NSString *)text arity:(NSUInteger)arity reason:(NSString **)reason;
+/* The words of a reading, its placeholders left out: "{0} was born in {1}"
+ * is was, born, in. */
++ (NSArray<NSString *> *)wordsOf:(NSString *)text;
 
 /* The text before the first placeholder (and its pre-bound text). */
 @property (nonatomic, readonly, copy) NSString *frontText;

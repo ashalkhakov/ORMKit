@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMModelPriv.h"
 #import "ORMXML.h"
+#import "ORMReadingText.h"
 
 #define CORE ORMCoreNamespace
 
@@ -45,7 +46,44 @@ ORMNestedText(NSXMLElement *element, NSString *container, NSString *item)
 
 #pragma mark Object types
 
+/* Longer names first: one name that is the start of another (Person,
+ * PersonName) is tried after it. */
+static NSInteger
+ORMLongerFirst(NSString *a, NSString *b, void *context)
+{
+	(void)context;
+	return [a length] > [b length] ? NSOrderedAscending : [a length] < [b length] ? NSOrderedDescending : NSOrderedSame;
+}
+
 @implementation ORMObjectType
+{
+	NSArray<NSString *> *_familyNames;
+}
+
+- (NSArray<NSString *> *)familyNames
+{
+	if (_familyNames != nil) {
+		return _familyNames;
+	}
+	NSMutableArray *names = [NSMutableArray array];
+	NSMutableArray *pending = [NSMutableArray arrayWithObject:self];
+	NSHashTable *seen = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
+	while ([pending count] > 0) {
+		ORMObjectType *type = [pending lastObject];
+		[pending removeLastObject];
+		if ([seen containsObject:type]) {
+			continue;
+		}
+		[seen addObject:type];
+		if (type.name != nil && ![names containsObject:type.name]) {
+			[names addObject:type.name];
+		}
+		[pending addObjectsFromArray:type.subtypes];
+		[pending addObjectsFromArray:type.supertypes];
+	}
+	_familyNames = [names sortedArrayUsingFunction:ORMLongerFirst context:NULL];
+	return _familyNames;
+}
 
 - (ORMObjectType *)identifyingSupertype
 {
@@ -331,6 +369,17 @@ ORMCapitalizedWords(NSString *text)
 @end
 
 @implementation ORMReading
+{
+	NSArray<NSString *> *_words;
+}
+
+- (NSArray<NSString *> *)words
+{
+	if (_words == nil) {
+		_words = [ORMReadingText wordsOf:self.text ?: @""];
+	}
+	return _words;
+}
 
 - (NSString *)expandedText
 {

@@ -105,6 +105,11 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 - (BOOL)isSubtypeOf:(ORMObjectType *)supertype;
 /* Its supertypes, at any depth, nearest first. */
 - (NSArray<ORMObjectType *> *)allSupertypes;
+/* The names of its family, longest first: its own, and those of the types
+ * subtyping relates it to at any depth, up and down (a sibling subtype
+ * too). What a sentence may call one of its roles' players
+ * (ORMConstraintSentence). Found once. */
+- (NSArray<NSString *> *)familyNames;
 @end
 
 #pragma mark Fact types
@@ -207,6 +212,8 @@ typedef NS_ENUM(NSInteger, ORMMultiplicity) {
 @property (nonatomic, readonly, weak) ORMReadingOrder *readingOrder;
 /* As NORMA keeps it: "{0} was born in {1}". */
 @property (nonatomic, readonly, copy) NSString *text;
+/* Its own words, its placeholders left out: was, born, in. Found once. */
+- (NSArray<NSString *> *)words;
 /* The reading with each placeholder replaced by its role player's name:
  * "Person was born in Country". */
 - (NSString *)expandedText;

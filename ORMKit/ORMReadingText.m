@@ -138,6 +138,26 @@ ORMPlaceholdersOf(NSString *text)
 
 @implementation ORMReadingText
 
++ (NSArray<NSString *> *)wordsOf:(NSString *)text
+{
+	NSMutableArray *words = [NSMutableArray array];
+	NSUInteger at = 0;
+	NSMutableString *spaced = [NSMutableString string];
+	for (NSArray *placeholder in ORMPlaceholdersOf(text)) {
+		NSRange range = [[placeholder firstObject] rangeValue];
+		[spaced appendString:[text substringWithRange:NSMakeRange(at, range.location - at)]];
+		[spaced appendString:@" "];
+		at = NSMaxRange(range);
+	}
+	[spaced appendString:[text substringFromIndex:at]];
+	for (NSString *word in [spaced componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]) {
+		if ([word length] > 0) {
+			[words addObject:word];
+		}
+	}
+	return words;
+}
+
 + (instancetype)readingTextWithString:(NSString *)text arity:(NSUInteger)arity reason:(NSString **)reason
 {
 	NSArray<NSArray *> *matches = ORMPlaceholdersOf(text);

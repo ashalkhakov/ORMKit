@@ -5,7 +5,6 @@
 #import "ORMJoinPathBuilder.h"
 #import "ORMReadingText.h"
 #import "ORMXML.h"
-#import <objc/runtime.h>
 
 /* The quantifiers the verbalizer puts before a name, tried in this order:
  * '#' is a number, a space one space; letters in any case. */
@@ -185,44 +184,6 @@ ORMRelatedTypes(ORMObjectType *a, ORMObjectType *b)
 	return NO;
 }
 
-/* Longer names first: one name that is the start of another (Person,
- * PersonName) is tried after it. */
-static NSInteger
-ORMLongerFirst(NSString *a, NSString *b, void *context)
-{
-	(void)context;
-	return [a length] > [b length] ? NSOrderedAscending : [a length] < [b length] ? NSOrderedDescending : NSOrderedSame;
-}
-
-static NSArray<NSString *> *
-ORMNamesOf(ORMObjectType *player)
-{
-	/* Its whole family: what is compared with it may be a sibling
-	 * subtype (an exclusion's "that Driver" for a Witness's role). */
-	NSMutableArray *names = [NSMutableArray array];
-	NSMutableArray *pending = [NSMutableArray array];
-	NSMutableSet *seen = [NSMutableSet set];
-	if (player != nil) {
-		[pending addObject:player];
-	}
-	while ([pending count] > 0) {
-		ORMObjectType *type = [pending lastObject];
-		[pending removeLastObject];
-		NSValue *key = [NSValue valueWithNonretainedObject:type];
-		if ([seen containsObject:key]) {
-			continue;
-		}
-		[seen addObject:key];
-		if (type.name != nil && ![names containsObject:type.name]) {
-			[names addObject:type.name];
-		}
-		[pending addObjectsFromArray:type.subtypes];
-		[pending addObjectsFromArray:type.supertypes];
-	}
-	/* None: a placeholder of no player is written "?". */
-	return [names count] > 0 ? [names sortedArrayUsingFunction:ORMLongerFirst context:NULL] : @[ @"?" ];
-}
-
 /* The start of a word ending the text, nothing but whitespace before it
  * from end on; NSNotFound where there is none. */
 static NSUInteger
@@ -334,70 +295,6 @@ ORMSingleSpaced(NSString *text)
 	}
 	return out;
 }
-
-#pragma mark What matching asks of a model, kept with it
-
-/* Each player's names and each reading's words, found once for a model:
- * it does not change (an edit makes a new one), and every sentence read
- * against it asks them for every reading it tries. Kept with the model. */
-@interface ORMMatchingCache : NSObject
-+ (instancetype)cacheOf:(ORMModel *)model;
-- (NSArray<NSString *> *)namesOf:(ORMObjectType *)player;
-- (NSArray<NSString *> *)wordsOf:(NSString *)reading;
-@end
-
-static NSArray<NSString *> *ORMReadingWords(NSString *reading);
-
-@implementation ORMMatchingCache
-{
-	NSMapTable<ORMObjectType *, NSArray<NSString *> *> *_names;
-	NSMutableDictionary<NSString *, NSArray<NSString *> *> *_words;
-}
-
-static char ORMMatchingCacheKey;
-
-+ (instancetype)cacheOf:(ORMModel *)model
-{
-	@synchronized(model) {
-		ORMMatchingCache *cache = objc_getAssociatedObject(model, &ORMMatchingCacheKey);
-		if (cache == nil) {
-			cache = [[self alloc] init];
-			cache->_names = [NSMapTable strongToStrongObjectsMapTable];
-			cache->_words = [NSMutableDictionary dictionary];
-			objc_setAssociatedObject(model, &ORMMatchingCacheKey, cache, OBJC_ASSOCIATION_RETAIN);
-		}
-		return cache;
-	}
-}
-
-- (NSArray<NSString *> *)namesOf:(ORMObjectType *)player
-{
-	if (player == nil) {
-		return ORMNamesOf(nil);
-	}
-	@synchronized(self) {
-		NSArray *names = [_names objectForKey:player];
-		if (names == nil) {
-			names = ORMNamesOf(player);
-			[_names setObject:names forKey:player];
-		}
-		return names;
-	}
-}
-
-- (NSArray<NSString *> *)wordsOf:(NSString *)reading
-{
-	@synchronized(self) {
-		NSArray *words = [_words objectForKey:reading];
-		if (words == nil) {
-			words = ORMReadingWords(reading);
-			[_words setObject:words forKey:reading];
-		}
-		return words;
-	}
-}
-
-@end
 
 #pragma mark Matching a reading, in C
 
@@ -651,9 +548,6 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 {
 	/* Matching a clause at the start of a chain, not the whole text. */
 	BOOL _prefixMode;
-	/* What matching asks of the model again and again, found once for
-	 * it (ORMMatchingCache). */
-	ORMMatchingCache *_cache;
 	ORMModel *_model;
 	NSMutableArray<ORMSentenceFact *> *_facts;
 	NSMutableArray<ORMSentenceConstraint *> *_constraints;
@@ -662,18 +556,12 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 
 #pragma mark Clauses
 
-/* The names the player goes by, found once for the model. */
-- (NSArray<NSString *> *)namesOf:(ORMObjectType *)player
+/* The names the player may go by in a sentence: its family's
+ * (ORMObjectType's familyNames); "?" for a placeholder of no player. */
+static NSArray<NSString *> *
+ORMNamesOf(ORMObjectType *player)
 {
-	return [[self cache] namesOf:player];
-}
-
-- (ORMMatchingCache *)cache
-{
-	if (_cache == nil) {
-		_cache = [ORMMatchingCache cacheOf:_model];
-	}
-	return _cache;
+	return [[player familyNames] count] > 0 ? [player familyNames] : @[ @"?" ];
 }
 
 /* A reading's atoms: each placeholder an optionally quantified,
@@ -725,7 +613,7 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 	for (NSUInteger i = 0; i < parts; i++) {
 		ORMReadingPart *part = [reading.parts objectAtIndex:i];
 		ORMRole *role = part.roleIndex < [roles count] ? [roles objectAtIndex:part.roleIndex] : nil;
-		NSArray *each = [self namesOf:role.player];
+		NSArray *each = ORMNamesOf(role.player);
 		sets[i].count = [each count];
 		sets[i].names = calloc([each count], sizeof(unichar *));
 		sets[i].lengths = calloc([each count], sizeof(NSUInteger));
@@ -781,7 +669,7 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 		for (ORMReadingOrder *order in fact.readingOrders) {
 			for (ORMReading *reading in order.readings) {
 				if (reading.text != nil) {
-					[readings addObject:@[ fact, reading.text, order.roles ]];
+					[readings addObject:@[ fact, reading.text, order.roles, reading ]];
 				}
 			}
 		}
@@ -819,37 +707,6 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 	return clauses;
 }
 
-/* The words of a reading, its placeholders left out. */
-static NSArray<NSString *> *
-ORMReadingWords(NSString *reading)
-{
-	NSMutableArray *words = [NSMutableArray array];
-	NSMutableString *word = [NSMutableString string];
-	NSUInteger length = [reading length];
-	for (NSUInteger i = 0; i <= length; i++) {
-		unichar c = i < length ? [reading characterAtIndex:i] : ' ';
-		if (c == '{') {
-			NSUInteger close = i + 1;
-			while (close < length && ORMIsDigit([reading characterAtIndex:close])) {
-				close++;
-			}
-			if (close > i + 1 && close < length && [reading characterAtIndex:close] == '}') {
-				i = close;
-				c = ' ';
-			}
-		}
-		if (c == ' ' || c == '\t') {
-			if ([word length] > 0) {
-				[words addObject:[word copy]];
-				[word setString:@""];
-			}
-			continue;
-		}
-		[word appendFormat:@"%C", c];
-	}
-	return words;
-}
-
 - (NSArray<ORMSentenceClause *> *)allMatches:(NSString *)text omit:(BOOL)omit
 {
 	NSMutableArray *clauses = [NSMutableArray array];
@@ -862,7 +719,9 @@ ORMReadingWords(NSString *reading)
 		NSArray *roles = [candidate objectAtIndex:2];
 		/* A reading whose own words the clause lacks cannot match it. */
 		BOOL possible = YES;
-		for (NSString *word in [[self cache] wordsOf:reading]) {
+		NSArray *words = [candidate count] > 3 ? [(ORMReading *)[candidate objectAtIndex:3] words]
+		                                       : [ORMReadingText wordsOf:reading];
+		for (NSString *word in words) {
 			if ([word rangeOfString:@"-"].location == NSNotFound && [text rangeOfString:word].location == NSNotFound) {
 				possible = NO;
 				break;
