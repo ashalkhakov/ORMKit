@@ -242,9 +242,9 @@
 		NSXMLElement *path = ORMChild(rule, CORE, @"FactTypeDerivationPath");
 		NSXMLElement *informal = ORMChild(path, CORE, @"InformalRule");
 		if ([text length] == 0) {
-			[informal detach];
+			ORMDetach(informal);
 			if (path != nil && ORMChild(path, CORE, @"PathComponents") == nil && ORMChild(path, CORE, @"PathComponent") == nil) {
-				[rule detach];
+				ORMDetach(rule);
 			}
 			return;
 		}
@@ -254,16 +254,16 @@
 		}
 		if (path == nil) {
 			path = ORMNewElementWithId(_editor.document, CORE, @"FactTypeDerivationPath", nil);
-			[rule addChild:path];
+			ORMAddChild(rule, path);
 		}
 		if (informal == nil) {
 			informal = ORMNewElement(_editor.document, CORE, @"InformalRule");
-			[path addChild:informal];
+			ORMAddChild(path, informal);
 		}
 		NSXMLElement *note = ORMChild(informal, CORE, @"DerivationNote");
 		if (note == nil) {
 			note = ORMNewElementWithId(_editor.document, CORE, @"DerivationNote", nil);
-			[informal addChild:note];
+			ORMAddChild(informal, note);
 		}
 		ORMSetChildText(_editor.document, note, CORE, @"Body", text);
 	}];

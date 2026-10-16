@@ -40,7 +40,7 @@ ORMWriteRef(NSXMLDocument *document, NSXMLElement *parent, NSString *local, NSSt
 {
 	NSXMLElement *existing = ORMChild(parent, CORE, local);
 	if (target == nil) {
-		[existing detach];
+		ORMDetach(existing);
 	} else if (existing == nil) {
 		ORMInsertChild(parent, ORMNewRef(document, CORE, local, target));
 	} else if (![ORMRef(existing) isEqualToString:target]) {
@@ -59,13 +59,13 @@ ORMWriteNested(NSXMLDocument *document, NSXMLElement *owner, NSString *container
 		return;
 	}
 	if ([text length] == 0) {
-		[outer detach];
+		ORMDetach(outer);
 		return;
 	}
 	outer = outer ?: ORMEnsureChild(document, owner, CORE, container);
 	if (inner == nil) {
 		inner = ORMNewElementWithId(document, CORE, item, nil);
-		[outer addChild:inner];
+		ORMAddChild(outer, inner);
 	}
 	ORMSetChildText(document, inner, CORE, @"Text", text);
 }
@@ -95,7 +95,7 @@ ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRo
 	for (NSXMLElement *child in ORMChildren(container, CORE, @"Role")) {
 		if ([gone containsObject:ORMRef(child) ?: @""]) {
 			/* A role the model has just taken away. */
-			[child detach];
+			ORMDetach(child);
 		} else if ([[model elementWithId:ORMRef(child)] isKindOfClass:[ORMRole class]]) {
 			[children addObject:child];
 			[refs addObject:ORMRef(child)];
@@ -108,7 +108,7 @@ ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRo
 	NSMutableDictionary *kept = [NSMutableDictionary dictionary];
 	for (NSXMLElement *child in children) {
 		[kept setObject:child forKey:ORMRef(child) ?: @""];
-		[child detach];
+		ORMDetach(child);
 	}
 	for (NSString *identifier in wanted) {
 		NSXMLElement *child = [kept objectForKey:identifier];
@@ -117,7 +117,7 @@ ORMWriteRoleRefs(NSXMLDocument *document, NSXMLElement *container, NSArray<ORMRo
 			child = withIds ? ORMNewElementWithId(document, CORE, @"Role", nil) : ORMNewElement(document, CORE, @"Role");
 			ORMSetAttribute(child, @"ref", identifier);
 		}
-		[container addChild:child];
+		ORMAddChild(container, child);
 	}
 }
 
@@ -201,7 +201,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	NSArray *kept = [elements valueForKey:@"element"];
 	for (NSXMLElement *child in ORMChildren(container, CORE, local)) {
 		if ([kept indexOfObjectIdenticalTo:child] == NSNotFound) {
-			[child detach];
+			ORMDetach(child);
 		}
 	}
 }
@@ -284,13 +284,13 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			NSXMLElement *kind = ORMNewElementWithId(_document, CORE, @"ReferenceModeKind", nil);
 			ORMSetAttribute(kind, @"FormatString", [self.model.referenceModeFormats objectForKey:kindName]);
 			ORMSetAttribute(kind, @"ReferenceModeType", kindName);
-			[kinds addChild:kind];
+			ORMAddChild(kinds, kind);
 			kindId = ORMAttribute(kind, @"id");
 		}
 		NSXMLElement *custom = ORMNewElementWithId(_document, CORE, @"CustomReferenceMode", nil);
 		ORMSetAttribute(custom, @"Name", name);
-		[custom addChild:ORMNewRef(_document, CORE, @"Kind", kindId)];
-		[ORMEnsureChild(_document, modelElement, CORE, @"CustomReferenceModes") addChild:custom];
+		ORMAddChild(custom, ORMNewRef(_document, CORE, @"Kind", kindId));
+		ORMAddChild(ORMEnsureChild(_document, modelElement, CORE, @"CustomReferenceModes"), custom);
 	}
 }
 
@@ -365,16 +365,16 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 				NSXMLElement *expanded = ORMExpandedData(_document, reading.text, [order.roles count]);
 				NSXMLElement *existing = ORMChild(reading.element, CORE, @"ExpandedData");
 				if (expanded == nil) {
-					[existing detach];
+					ORMDetach(existing);
 				} else if (existing == nil) {
 					NSUInteger index = [ORMChild(reading.element, CORE, @"Data") index] + 1;
-					[reading.element insertChild:expanded atIndex:MIN(index, [reading.element childCount])];
+					ORMInsertChildAt(reading.element, expanded, MIN(index, [reading.element childCount]));
 				} else if (![ORMShapeOf(existing) isEqual:ORMShapeOf(expanded)]) {
 					/* Beside the old one, which goes: gnustep-base's
 					 * -replaceChildAtIndex:withNode: frees what libxml2 keeps
 					 * in a parsed document's dictionary. */
-					[reading.element insertChild:expanded atIndex:[existing index]];
-					[existing detach];
+					ORMInsertChildAt(reading.element, expanded, [existing index]);
+					ORMDetach(existing);
 				}
 			}
 		}
@@ -384,9 +384,9 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			NSString *target = constraint.preferredIdentifierFor.identifier;
 			NSXMLElement *existing = ORMChild(constraint.element, CORE, @"PreferredIdentifierFor");
 			if (target == nil) {
-				[existing detach];
+				ORMDetach(existing);
 			} else if (existing == nil) {
-				[constraint.element addChild:ORMNewRef(_document, CORE, @"PreferredIdentifierFor", target)];
+				ORMAddChild(constraint.element, ORMNewRef(_document, CORE, @"PreferredIdentifierFor", target));
 			} else if (![ORMRef(existing) isEqualToString:target]) {
 				ORMSetAttribute(existing, @"ref", target);
 			}
@@ -401,11 +401,11 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	NSXMLElement *made = nil;
 	if ([element isKindOfClass:[ORMDataType class]]) {
 		made = ORMNewElementWithId(_document, CORE, [(ORMDataType *)element typeName], element.identifier);
-		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"DataTypes") addChild:made];
+		ORMAddChild(ORMEnsureChild(_document, self.model.modelElement, CORE, @"DataTypes"), made);
 	} else if ([element isKindOfClass:[ORMObjectType class]]) {
 		made = ORMNewElementWithId(_document, CORE, ORMObjectTypeElementName([(ORMObjectType *)element kind]),
 		                           element.identifier);
-		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Objects") addChild:made];
+		ORMAddChild(ORMEnsureChild(_document, self.model.modelElement, CORE, @"Objects"), made);
 	} else if ([element isKindOfClass:[ORMFactType class]]) {
 		ORMFactTypeKind kind = [(ORMFactType *)element kind];
 		made = ORMNewElementWithId(_document, CORE,
@@ -417,11 +417,11 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		if (kind != ORMFactTypeOrdinary) {
 			ORMSetAttribute(made, @"_Name", [(ORMFactType *)element savedDerivedName]);
 		}
-		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Facts") addChild:made];
+		ORMAddChild(ORMEnsureChild(_document, self.model.modelElement, CORE, @"Facts"), made);
 	} else if ([element isKindOfClass:[ORMConstraint class]]) {
 		made = ORMNewElementWithId(_document, CORE, ORMConstraintElementName([(ORMConstraint *)element kind]),
 		                           element.identifier);
-		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"Constraints") addChild:made];
+		ORMAddChild(ORMEnsureChild(_document, self.model.modelElement, CORE, @"Constraints"), made);
 	} else if ([element isKindOfClass:[ORMDiagram class]]) {
 		/* As NORMA starts one: its base font spelled out, in inches. */
 		ORMDiagram *diagram = (ORMDiagram *)element;
@@ -433,12 +433,12 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		ORMSetAttribute(made, @"BaseFontSize", diagram.baseFontSize == [normaSize doubleValue] * ORMPointsPerInch
 		                                       ? normaSize
 		                                       : [NSString stringWithFormat:@"%g", diagram.baseFontSize / ORMPointsPerInch]);
-		[made addChild:ORMNewRef(_document, DIAGRAM, @"Subject", self.model.identifier)];
+		ORMAddChild(made, ORMNewRef(_document, DIAGRAM, @"Subject", self.model.identifier));
 		/* After the last diagram, before what NORMA's extensions keep. */
 		NSXMLElement *root = [_document rootElement];
 		NSArray *diagrams = ORMChildren(root, DIAGRAM, @"ORMDiagram");
 		NSUInteger index = [diagrams count] > 0 ? [[diagrams lastObject] index] + 1 : [root childCount];
-		[root insertChild:made atIndex:index];
+		ORMInsertChildAt(root, made, index);
 	} else if ([element isKindOfClass:[ORMShape class]]) {
 		ORMShape *shape = (ORMShape *)element;
 		made = ORMNewElementWithId(_document, DIAGRAM, ORMShapeElementName(shape.kind), element.identifier);
@@ -451,15 +451,15 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 				relative = ORMNewElement(_document, DIAGRAM, @"RelativeShapes");
 				ORMInsertChild(shape.parent.element, relative);
 			}
-			[relative addChild:made];
+			ORMAddChild(relative, made);
 		} else {
 			NSXMLElement *shapes = ORMChild(shape.diagram.element, DIAGRAM, @"Shapes");
 			if (shapes == nil) {
 				shapes = ORMNewElement(_document, DIAGRAM, @"Shapes");
 				/* Shapes come before the diagram's Subject. */
-				[shape.diagram.element insertChild:shapes atIndex:0];
+				ORMInsertChildAt(shape.diagram.element, shapes, 0);
 			}
-			[shapes addChild:made];
+			ORMAddChild(shapes, made);
 		}
 	} else if ([element isKindOfClass:[ORMInstance class]]) {
 		/* As NORMA writes a sample population's instance. */
@@ -469,38 +469,38 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			ORMSetChildText(_document, made, CORE, @"Value", instance.value);
 			if (instance.invariantValue != nil) {
 				NSXMLElement *invariant = ORMNewElement(_document, CORE, @"InvariantValue");
-				[invariant setStringValue:instance.invariantValue];
-				[made addChild:invariant];
+				ORMSetText(invariant, instance.invariantValue);
+				ORMAddChild(made, invariant);
 			}
 		}
 		if ([instance.identifyingRoleInstances count] > 0) {
 			NSXMLElement *refs = ORMNewElement(_document, CORE, @"RoleInstances");
 			for (NSString *roleInstance in instance.identifyingRoleInstances) {
-				[refs addChild:ORMNewRef(_document, CORE, @"EntityTypeRoleInstance", roleInstance)];
+				ORMAddChild(refs, ORMNewRef(_document, CORE, @"EntityTypeRoleInstance", roleInstance));
 			}
-			[made addChild:refs];
+			ORMAddChild(made, refs);
 		}
 		if (instance.supertypeInstanceId != nil) {
-			[made addChild:ORMNewRef(_document, CORE, @"SupertypeInstance", instance.supertypeInstanceId)];
+			ORMAddChild(made, ORMNewRef(_document, CORE, @"SupertypeInstance", instance.supertypeInstanceId));
 		}
 		if (instance.objectifiedInstanceId != nil) {
-			[made addChild:ORMNewRef(_document, CORE, @"ObjectifiedInstance", instance.objectifiedInstanceId)];
+			ORMAddChild(made, ORMNewRef(_document, CORE, @"ObjectifiedInstance", instance.objectifiedInstanceId));
 		}
-		[ORMEnsureChild(_document, instance.objectType.element, CORE, @"Instances") addChild:made];
+		ORMAddChild(ORMEnsureChild(_document, instance.objectType.element, CORE, @"Instances"), made);
 	} else if ([element isKindOfClass:[ORMRoleInstance class]]) {
 		ORMRoleInstance *roleInstance = (ORMRoleInstance *)element;
 		made = ORMNewElementWithId(_document, CORE, roleInstance.elementName, element.identifier);
 		ORMSetAttribute(made, @"ref", roleInstance.instanceId);
-		[ORMEnsureChild(_document, roleInstance.role.element, CORE, @"RoleInstances") addChild:made];
+		ORMAddChild(ORMEnsureChild(_document, roleInstance.role.element, CORE, @"RoleInstances"), made);
 	} else if ([element isKindOfClass:[ORMFactInstance class]]) {
 		ORMFactInstance *fact = (ORMFactInstance *)element;
 		made = ORMNewElementWithId(_document, CORE, @"FactTypeInstance", element.identifier);
 		NSXMLElement *refs = ORMNewElement(_document, CORE, @"RoleInstances");
 		for (NSString *roleInstance in fact.roleInstanceIds) {
-			[refs addChild:ORMNewRef(_document, CORE, @"FactTypeRoleInstance", roleInstance)];
+			ORMAddChild(refs, ORMNewRef(_document, CORE, @"FactTypeRoleInstance", roleInstance));
 		}
-		[made addChild:refs];
-		[ORMEnsureChild(_document, fact.factType.element, CORE, @"Instances") addChild:made];
+		ORMAddChild(made, refs);
+		ORMAddChild(ORMEnsureChild(_document, fact.factType.element, CORE, @"Instances"), made);
 	} else if ([element isKindOfClass:[ORMModelNote class]]) {
 		ORMModelNote *note = (ORMModelNote *)element;
 		made = ORMNewElementWithId(_document, CORE, @"ModelNote", element.identifier);
@@ -510,11 +510,11 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			for (ORMElement *referenced in note.referencedElements) {
 				NSString *local = [referenced isKindOfClass:[ORMObjectType class]] ? @"ObjectType"
 					: [referenced isKindOfClass:[ORMFactType class]] ? @"FactType" : @"Constraint";
-				[references addChild:ORMNewRef(_document, CORE, local, referenced.identifier)];
+				ORMAddChild(references, ORMNewRef(_document, CORE, local, referenced.identifier));
 			}
-			[made addChild:references];
+			ORMAddChild(made, references);
 		}
-		[ORMEnsureChild(_document, self.model.modelElement, CORE, @"ModelNotes") addChild:made];
+		ORMAddChild(ORMEnsureChild(_document, self.model.modelElement, CORE, @"ModelNotes"), made);
 	} else {
 		[NSException raise:NSInternalInconsistencyException format:@"The writer makes no %@ yet.", [element class]];
 	}
@@ -556,7 +556,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			NSXMLElement *child = ORMChild(element.element, CORE, [pair firstObject]);
 			NSString *text = [pair lastObject] == [NSNull null] ? nil : [pair lastObject];
 			if (child != nil && text != nil && ![[child stringValue] isEqualToString:text]) {
-				[child setStringValue:text];
+				ORMSetText(child, text);
 			}
 		}
 	} else if ([element isKindOfClass:[ORMRoleInstance class]]) {
@@ -588,9 +588,9 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		if (role.element == nil && role.proxiedRole != nil) {
 			/* A link fact type's proxy: the role it stands for, nothing more. */
 			NSXMLElement *made = ORMNewElementWithId(_document, CORE, @"RoleProxy", role.identifier);
-			[made addChild:ORMNewRef(_document, CORE, @"Role", role.proxiedRole.identifier)];
+			ORMAddChild(made, ORMNewRef(_document, CORE, @"Role", role.proxiedRole.identifier));
 			roles = roles ?: ORMEnsureChild(_document, element, CORE, @"FactRoles");
-			[roles addChild:made];
+			ORMAddChild(roles, made);
 			role.element = made;
 		} else if (role.element == nil) {
 			NSString *local = role.isSubtypeMetaRole ? @"SubtypeMetaRole"
@@ -600,7 +600,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			ORMSetAttribute(made, @"_Multiplicity", @"Unspecified");
 			ORMSetAttribute(made, @"Name", role.name ?: @"");
 			roles = roles ?: ORMEnsureChild(_document, element, CORE, @"FactRoles");
-			[roles addChild:made];
+			ORMAddChild(roles, made);
 			role.element = made;
 			[self writeRole:role];
 		}
@@ -610,10 +610,10 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	for (ORMReadingOrder *order in fact.readingOrders) {
 		if (order.element == nil) {
 			NSXMLElement *made = ORMNewElementWithId(_document, CORE, @"ReadingOrder", order.identifier);
-			[made addChild:ORMNewElement(_document, CORE, @"Readings")];
-			[made addChild:ORMNewElement(_document, CORE, @"RoleSequence")];
+			ORMAddChild(made, ORMNewElement(_document, CORE, @"Readings"));
+			ORMAddChild(made, ORMNewElement(_document, CORE, @"RoleSequence"));
 			orders = orders ?: ORMEnsureChild(_document, element, CORE, @"ReadingOrders");
-			[orders addChild:made];
+			ORMAddChild(orders, made);
 			order.element = made;
 			ORMWriteRoleRefs(_document, ORMChild(made, CORE, @"RoleSequence"), order.roles, self.model, NO, self.gone);
 		}
@@ -623,9 +623,9 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			if (reading.element == nil) {
 				NSXMLElement *made = ORMNewElementWithId(_document, CORE, @"Reading", reading.identifier);
 				NSXMLElement *data = ORMNewElement(_document, CORE, @"Data");
-				[data setStringValue:reading.text ?: @""];
-				[made addChild:data];
-				[readings addChild:made];
+				ORMSetText(data, reading.text ?: @"");
+				ORMAddChild(made, data);
+				ORMAddChild(readings, made);
 				reading.element = made;
 			}
 		}
@@ -645,7 +645,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			NSXMLElement *parent = sequence.identifier != nil
 				? ORMEnsureChild(_document, constraint.element, CORE, @"RoleSequences")
 				: constraint.element;
-			[parent addChild:made];
+			ORMAddChild(parent, made);
 			sequence.element = made;
 			ORMWriteRoleRefs(_document, made, sequence.roles, self.model, YES, self.gone);
 		}
@@ -692,14 +692,14 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 - (void)writeValueConstraint:(ORMValueConstraint *)values of:(NSXMLElement *)owner as:(NSString *)local
 {
 	if (values == nil) {
-		[ORMChild(owner, CORE, @"ValueRestriction") detach];
+		ORMDetach(ORMChild(owner, CORE, @"ValueRestriction"));
 		return;
 	}
 	if (values.element == nil) {
 		NSXMLElement *restriction = ORMEnsureChild(_document, owner, CORE, @"ValueRestriction");
 		NSXMLElement *made = ORMNewElementWithId(_document, CORE, local, values.identifier);
 		ORMSetAttribute(made, @"Name", values.name);
-		[restriction addChild:made];
+		ORMAddChild(restriction, made);
 		values.element = made;
 	}
 }
@@ -756,7 +756,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	NSArray *kept = [values.ranges valueForKey:@"element"];
 	for (NSXMLElement *child in ORMChildren(container, CORE, @"ValueRange")) {
 		if ([kept indexOfObjectIdenticalTo:child] == NSNotFound) {
-			[child detach];
+			ORMDetach(child);
 		}
 	}
 	for (ORMValueRange *range in values.ranges) {
@@ -767,12 +767,12 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 			ORMSetAttribute(made, @"MaxValue", range.maxValue ?: @"");
 			ORMSetAttribute(made, @"MinInclusion", ORMInclusionName(range.minInclusion));
 			ORMSetAttribute(made, @"MaxInclusion", ORMInclusionName(range.maxInclusion));
-			[container addChild:made];
+			ORMAddChild(container, made);
 			range.element = made;
 		}
 	}
 	if ([values.ranges count] == 0) {
-		[container detach];
+		ORMDetach(container);
 	}
 	for (ORMValueRange *range in values.ranges) {
 		NSXMLElement *element = range.element;
@@ -831,10 +831,10 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	if (order == nil && ![_made containsObject:shape.element] && [now isEqualToArray:shape.roleDisplayOrder]) {
 		return;
 	}
-	[order detach];
+	ORMDetach(order);
 	NSXMLElement *display = ORMNewElement(_document, DIAGRAM, @"RoleDisplayOrder");
 	for (ORMRole *role in shape.roleDisplayOrder) {
-		[display addChild:ORMNewRef(_document, DIAGRAM, @"Role", role.identifier)];
+		ORMAddChild(display, ORMNewRef(_document, DIAGRAM, @"Role", role.identifier));
 	}
 	ORMInsertChild(shape.element, display);
 }
@@ -883,12 +883,12 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		 * libxml2's dictionary for a parsed document) are freed when moved,
 		 * on GNUstep. */
 		NSString *prefix = [element prefix];
-		[element setName:[prefix length] > 0 ? [NSString stringWithFormat:@"%@:%@", prefix, local] : local];
+		ORMRename(element, [prefix length] > 0 ? [NSString stringWithFormat:@"%@:%@", prefix, local] : local);
 	}
 	ORMSetAttribute(element, @"Name", type.name);
 	[self writeValueConstraint:type.ownValueConstraint of:element as:@"ValueConstraint"];
 	if (type.kind != ORMValueType || type.dataType == nil) {
-		[ORMChild(element, CORE, @"ConceptualDataType") detach];
+		ORMDetach(ORMChild(element, CORE, @"ConceptualDataType"));
 	}
 	ORMWriteBool(element, @"IsIndependent", type.isIndependent, NO);
 	ORMWriteBool(element, @"IsExternal", type.isExternal, NO);

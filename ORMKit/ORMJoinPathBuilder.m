@@ -213,21 +213,21 @@
 			NSXMLElement *role = ORMNewElementWithId(document, CORE, @"PathedRole", nil);
 			ORMSetAttribute(role, @"ref", [pathed objectAtIndex:0]);
 			ORMSetAttribute(role, @"Purpose", [pathed objectAtIndex:1]);
-			[pathedRoles addChild:role];
+			ORMAddChild(pathedRoles, role);
 			if ([met objectForKey:[pathed objectAtIndex:2]] == nil) {
 				[met setObject:ORMAttribute(role, @"id") forKey:[pathed objectAtIndex:2]];
 			}
 		}
-		[element addChild:pathedRoles];
+		ORMAddChild(element, pathedRoles);
 	}
 	if ([path.subPaths count] > 0) {
 		NSXMLElement *subPaths = ORMNewElement(document, CORE, @"SubPaths");
 		for (ORMPlannedPath *sub in path.subPaths) {
 			NSXMLElement *subPath = ORMNewElementWithId(document, CORE, @"SubPath", nil);
 			[self write:sub into:subPath met:met];
-			[subPaths addChild:subPath];
+			ORMAddChild(subPaths, subPath);
 		}
-		[element addChild:subPaths];
+		ORMAddChild(element, subPaths);
 	}
 }
 
@@ -254,11 +254,11 @@
 		rootType = candidate;
 	}
 	ORMSetAttribute(root, @"ref", rootType.identifier);
-	[lead addChild:root];
+	ORMAddChild(lead, root);
 	NSMutableDictionary *met = [NSMutableDictionary dictionary];
 	[self write:join.lead into:lead met:met];
-	[components addChild:lead];
-	[joinPath addChild:components];
+	ORMAddChild(components, lead);
+	ORMAddChild(joinPath, components);
 
 	/* Each role use of the sequence, from where its column is met. */
 	NSXMLElement *projections = ORMNewElement(document, CORE, @"JoinPathProjections");
@@ -272,17 +272,17 @@
 		ORMSetAttribute(roleProjection, @"ref", ORMAttribute([uses objectAtIndex:i], @"id"));
 		NSXMLElement *from = ORMNewElement(document, CORE, @"ProjectedFrom");
 		if ([column isEqualToString:join.root]) {
-			[from addChild:ORMNewRef(document, CORE, @"PathRoot", ORMAttribute(root, @"id"))];
+			ORMAddChild(from, ORMNewRef(document, CORE, @"PathRoot", ORMAttribute(root, @"id")));
 		} else {
-			[from addChild:ORMNewRef(document, CORE, @"PathedRole", [met objectForKey:column])];
+			ORMAddChild(from, ORMNewRef(document, CORE, @"PathedRole", [met objectForKey:column]));
 		}
-		[roleProjection addChild:from];
-		[projection addChild:roleProjection];
+		ORMAddChild(roleProjection, from);
+		ORMAddChild(projection, roleProjection);
 	}
-	[projections addChild:projection];
-	[joinPath addChild:projections];
-	[rule addChild:joinPath];
-	[sequence addChild:rule];
+	ORMAddChild(projections, projection);
+	ORMAddChild(joinPath, projections);
+	ORMAddChild(rule, joinPath);
+	ORMAddChild(sequence, rule);
 }
 
 - (NSString *)addSetComparisonConstraint:(ORMConstraintKind)kind

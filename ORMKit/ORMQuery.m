@@ -138,17 +138,17 @@ ORMEnsureDerivationRule(NSXMLDocument *document, NSXMLElement *fact, NSString *t
 	NSXMLElement *path = ORMChild(rule, CORE, @"FactTypeDerivationPath");
 	if (path == nil) {
 		path = ORMNewElementWithId(document, CORE, @"FactTypeDerivationPath", nil);
-		[rule addChild:path];
+		ORMAddChild(rule, path);
 	}
 	NSXMLElement *informal = ORMChild(path, CORE, @"InformalRule");
 	if (informal == nil) {
 		informal = ORMNewElement(document, CORE, @"InformalRule");
-		[path addChild:informal];
+		ORMAddChild(path, informal);
 	}
 	NSXMLElement *note = ORMChild(informal, CORE, @"DerivationNote");
 	if (note == nil) {
 		note = ORMNewElementWithId(document, CORE, @"DerivationNote", nil);
-		[informal addChild:note];
+		ORMAddChild(informal, note);
 		ORMSetChildText(document, note, CORE, @"Body", text);
 	}
 }
@@ -158,7 +158,7 @@ static void
 ORMRemoveDerivationRule(NSXMLElement *fact)
 {
 	if (fact != nil && !ORMHasRolePath(fact)) {
-		[ORMChild(fact, CORE, @"DerivationRule") detach];
+		ORMDetach(ORMChild(fact, CORE, @"DerivationRule"));
 	}
 }
 
@@ -263,7 +263,7 @@ ORMRuleStep(ORMRole *entry, NSString *identifier)
 		}
 		NSXMLElement *node = ORMRuleQueryElement(@"Node", [NSString stringWithFormat:@"%@.%@", identifier, other.identifier]);
 		ORMSetAttribute(node, @"Role", other.identifier);
-		[step addChild:node];
+		ORMAddChild(step, node);
 	}
 	return step;
 }
@@ -304,7 +304,7 @@ ORMRuleElement(ORMFactType *fact, NSString **why)
 	ORMSetAttribute(query, @"Of", fact.identifier);
 	NSXMLElement *root = ORMRuleQueryElement(@"Node", path.rootId ?: [pathId stringByAppendingString:@".root"]);
 	ORMSetAttribute(root, @"ref", path.rootObjectType.identifier);
-	[query addChild:root];
+	ORMAddChild(query, root);
 	NSMutableDictionary<NSString *, NSXMLElement *> *at = [NSMutableDictionary dictionary];
 	NSXMLElement *current = root;
 	NSXMLElement *step = nil;
@@ -332,9 +332,9 @@ ORMRuleElement(ORMFactType *fact, NSString **why)
 			for (ORMRole *proxy in node == nil && current == [step parent] ? role.factType.roles : @[]) {
 				if (proxy.proxiedRole != nil && proxy.proxiedRole == entry) {
 					NSXMLElement *from = (NSXMLElement *)[step parent];
-					[step detach];
+					ORMDetach(step);
 					step = ORMRuleStep(proxy, ORMAttribute(step, @"id"));
-					[from addChild:step];
+					ORMAddChild(from, step);
 					node = ORMChildren(step, Q, @"Node").firstObject;
 				}
 			}
@@ -349,7 +349,7 @@ ORMRuleElement(ORMFactType *fact, NSString **why)
 				return nil;
 			}
 			step = ORMRuleStep(role, [ORMAttribute([pathed element], @"id") stringByAppendingString:@".step"]);
-			[current addChild:step];
+			ORMAddChild(current, step);
 		}
 		NSString *pathedId = ORMAttribute([pathed element], @"id");
 		if (pathedId != nil) {
@@ -502,20 +502,20 @@ ORMReroot(NSXMLElement *target, ORMModel *model, NSString **why)
 		NSXMLElement *above = [edge objectAtIndex:2];
 		NSString *nodeRole = [edge objectAtIndex:3];
 		NSString *aboveRole = [edge objectAtIndex:4];
-		[above detach];
-		[step detach];
+		ORMDetach(above);
+		ORMDetach(step);
 		/* Taken from its step; one turned around already stays where the
 		 * last turn put it. */
 		if ([node parent] == step) {
-			[node detach];
+			ORMDetach(node);
 		}
 		/* The same step the other way: entered by the node's role, the
 		 * node above reached by the step's. */
 		ORMSetAttribute(step, @"Role", nodeRole);
 		ORMSetAttribute(above, @"ref", nil);
 		ORMSetAttribute(above, @"Role", aboveRole);
-		[step addChild:above];
-		[node addChild:step];
+		ORMAddChild(step, above);
+		ORMAddChild(node, step);
 	}
 	if ([path count] > 0) {
 		ORMRole *role = [model elementWithId:[[path firstObject] objectAtIndex:3]];
@@ -716,8 +716,8 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 			ORMSetAttribute(column, @"Combine", ORMAttribute(node, @"Combine"));
 		}
 		for (NSXMLElement *each in more) {
-			[each detach];
-			[column addChild:each];
+			ORMDetach(each);
+			ORMAddChild(column, each);
 		}
 	}
 	/* The rule's steps from the entry column go under the node, where the
@@ -734,13 +734,13 @@ ORMExpandStep(NSXMLElement *step, ORMFactType *fact, ORMQuery *derivation, NSXML
 	}
 	NSUInteger at = [step index];
 	for (NSXMLElement *each in moved) {
-		[each detach];
+		ORMDetach(each);
 		for (NSString *name in qualified ? ORMStepQualifiers() : @[]) {
 			ORMSetAttribute(each, name, ORMAttribute(step, name));
 		}
-		[from insertChild:each atIndex:at++];
+		ORMInsertChildAt(from, each, at++);
 	}
-	[step detach];
+	ORMDetach(step);
 	return nil;
 }
 
@@ -1316,7 +1316,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	NSXMLElement *container = ORMChild(root, Q, @"Queries");
 	if (container == nil) {
 		container = ORMNewElement(_editor.document, Q, @"Queries");
-		[root addChild:container];
+		ORMAddChild(root, container);
 	}
 	return container;
 }
@@ -1351,8 +1351,8 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		NSXMLElement *root = ORMNewElementWithId(_editor.document, Q, @"Node", nil);
 		ORMSetAttribute(root, @"ref", type.identifier);
 		ORMSetBoolAttribute(root, @"Projected", YES, NO);
-		[query addChild:root];
-		[[self queriesContainer] addChild:query];
+		ORMAddChild(query, root);
+		ORMAddChild([self queriesContainer], query);
 		created = ORMAttribute(query, @"id");
 	}];
 	return created;
@@ -1368,7 +1368,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		? [_editor xml:ORMAttribute(query, @"Of")] : nil;
 	[_editor change:@"Remove Query" with:^{
 		NSXMLElement *container = (NSXMLElement *)[query parent];
-		[query detach];
+		ORMDetach(query);
 		ORMPruneIfEmpty(container);
 		/* What it derived is asserted again. */
 		ORMRemoveDerivationRule(derived);
@@ -1554,9 +1554,9 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		for (ORMRole *role in others) {
 			NSXMLElement *child = ORMNewElementWithId(_editor.document, Q, @"Node", nil);
 			ORMSetAttribute(child, @"Role", role.identifier);
-			[step addChild:child];
+			ORMAddChild(step, child);
 		}
-		[node addChild:step];
+		ORMAddChild(node, step);
 		created = ORMAttribute(step, @"id");
 	}];
 	return created;
@@ -1579,7 +1579,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		takesOf = takesOf || [ORMAttribute(node, @"id") isEqualToString:of];
 	}
 	[_editor documentChange:@"Remove Query Step" with:^{
-		[step detach];
+		ORMDetach(step);
 		if (takesOf) {
 			ORMSetAttribute(query, @"Of", nil);
 		}

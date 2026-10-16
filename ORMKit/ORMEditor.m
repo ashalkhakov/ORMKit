@@ -183,6 +183,22 @@ static BOOL ORMChecksAgreement;
 	}
 }
 
+/* Where two documents' bytes first differ, in words. */
+static NSString *
+ORMFirstDifference(NSData *one, NSData *other)
+{
+	NSArray *a = [[[NSString alloc] initWithData:one encoding:NSUTF8StringEncoding] componentsSeparatedByString:@"\n"];
+	NSArray *b = [[[NSString alloc] initWithData:other encoding:NSUTF8StringEncoding] componentsSeparatedByString:@"\n"];
+	for (NSUInteger i = 0; i < MAX([a count], [b count]); i++) {
+		NSString *l = i < [a count] ? [a objectAtIndex:i] : @"(none)";
+		NSString *r = i < [b count] ? [b objectAtIndex:i] : @"(none)";
+		if (![l isEqualToString:r]) {
+			return [NSString stringWithFormat:@"line %lu:\n  one   %@\n  other %@", (unsigned long)i + 1, l, r];
+		}
+	}
+	return @"the same";
+}
+
 /* In tests: after model changes, NORMA's data as the normalizer would
  * keep it is what the writer wrote. */
 - (void)checkNormalized
@@ -196,18 +212,8 @@ static BOOL ORMChecksAgreement;
 		[_normalizer normalize];
 		NSData *normalized = ORMDataOfDocument(_document);
 		if (![written isEqualToData:normalized]) {
-			NSArray *a = [[[NSString alloc] initWithData:written encoding:NSUTF8StringEncoding] componentsSeparatedByString:@"\n"];
-			NSArray *b = [[[NSString alloc] initWithData:normalized encoding:NSUTF8StringEncoding] componentsSeparatedByString:@"\n"];
-			NSString *difference = @"";
-			for (NSUInteger i = 0; i < MIN([a count], [b count]); i++) {
-				if (![[a objectAtIndex:i] isEqualToString:[b objectAtIndex:i]]) {
-					difference = [NSString stringWithFormat:@"line %lu:\n  written    %@\n  normalized %@", (unsigned long)i + 1,
-					              [a objectAtIndex:i], [b objectAtIndex:i]];
-					break;
-				}
-			}
 			[NSException raise:NSInternalInconsistencyException
-			            format:@"The writer left NORMA's data for the normalizer: %@", difference];
+			            format:@"The writer left NORMA's data for the normalizer: %@", ORMFirstDifference(written, normalized)];
 		}
 	}
 }
@@ -254,15 +260,23 @@ static BOOL ORMChecksAgreement;
 	/* A step of a group is read back for the next, and the group as a
 	 * whole normalized, from the readings it started with. */
 	if (_depth > 0) {
-		NSXMLDocument *before = rollback ? ORMCopyDocument(_document) : nil;
+		/* A step that may be refused keeps its own journal, inside the
+		 * change's: refused, it puts back its part. */
+		ORMXMLJournal *inner = rollback ? [[ORMXMLJournal alloc] initWithDocument:_document] : nil;
+		if (inner != nil) {
+			ORMOpenJournal(inner);
+		}
 		BOOL done;
 		/* What the step made is read when the next step, or the caller,
 		 * asks. */
 		@autoreleasepool {
 			done = change();
 		}
-		if (!done && before != nil) {
-			_document = before;
+		if (inner != nil) {
+			ORMCloseJournal(inner);
+		}
+		if (!done && inner != nil) {
+			[inner restore];
 			_stale = YES;
 		}
 		if (editsXML) {
@@ -272,14 +286,18 @@ static BOOL ORMChecksAgreement;
 		return done;
 	}
 	[_normalizer rememberUnaryReadings];
-	NSXMLDocument *before = ORMCopyDocument(_document);
+	/* Undo puts back the elements the change touched, each as it was. */
+	ORMXMLJournal *journal = [[ORMXMLJournal alloc] initWithDocument:_document];
+	ORMOpenJournal(journal);
+	NSData *was = ORMChecksAgreement ? ORMDataOfDocument(_document) : nil;
 	BOOL hadChanges = _hasChanges;
 	_editedXML = editsXML;
 	_depth++;
 	BOOL done = change();
 	if (!done && rollback) {
+		ORMCloseJournal(journal);
 		_depth--;
-		_document = before;
+		[journal restore];
 		_hasChanges = hadChanges;
 		[self reread];
 		return NO;
@@ -297,6 +315,7 @@ static BOOL ORMChecksAgreement;
 		}
 		[self checkNormalized];
 	}
+	ORMCloseJournal(journal);
 	_depth--;
 	/* A manager that does not group by event (a document's that edits
 	 * text in place, a test's) gets the step as a group of its own. */
@@ -304,8 +323,8 @@ static BOOL ORMChecksAgreement;
 	if (grouping) {
 		[_undoManager beginUndoGrouping];
 	}
-	[_undoManager registerUndoWithTarget:self selector:@selector(restore:)
-	                              object:@[ before, @(hadChanges) ]];
+	[_undoManager registerUndoWithTarget:self selector:@selector(restoreJournal:)
+	                              object:@[ journal, @(hadChanges), was ?: (id)[NSNull null] ]];
 	[_undoManager setActionName:name];
 	if (grouping) {
 		[_undoManager endUndoGrouping];
@@ -385,7 +404,7 @@ static BOOL ORMChecksAgreement;
 			/* With the container it leaves empty (a population's Instances,
 			 * RoleInstances): NORMA writes none empty. */
 			NSXMLElement *container = (NSXMLElement *)[element.element parent];
-			[element.element detach];
+			ORMDetach(element.element);
 			if ([container isKindOfClass:[NSXMLElement class]]
 			    && [@[ @"Instances", @"RoleInstances" ] containsObject:[container localName] ?: @""]) {
 				BOOL empty = YES;
@@ -393,7 +412,7 @@ static BOOL ORMChecksAgreement;
 					empty = empty && [child kind] != NSXMLElementKind;
 				}
 				if (empty) {
-					[container detach];
+					ORMDetach(container);
 				}
 			}
 		}
@@ -517,14 +536,22 @@ static BOOL ORMChecksAgreement;
 	return [self apply:name rollback:YES editsXML:NO with:operations];
 }
 
-/* Undo and redo alike: the document and whether it had changes, swapped
- * for the ones now. */
-- (void)restore:(NSArray *)state
+/* Undo and redo alike: the elements the change touched put back, and
+ * whether the document had changes; the journal that does it again kept
+ * for the other. In tests, the document is then the bytes it was. */
+- (void)restoreJournal:(NSArray *)state
 {
-	[_undoManager registerUndoWithTarget:self selector:@selector(restore:)
-	                              object:@[ ORMCopyDocument(_document), @(_hasChanges) ]];
-	_document = [state objectAtIndex:0];
+	NSData *now = ORMChecksAgreement ? ORMDataOfDocument(_document) : nil;
+	ORMXMLJournal *again = [[state objectAtIndex:0] restore];
+	[_undoManager registerUndoWithTarget:self selector:@selector(restoreJournal:)
+	                              object:@[ again, @(_hasChanges), now ?: (id)[NSNull null] ]];
 	_hasChanges = [[state objectAtIndex:1] boolValue];
+	id expected = [state objectAtIndex:2];
+	if (ORMChecksAgreement && expected != [NSNull null] && ![ORMDataOfDocument(_document) isEqualToData:expected]) {
+		[NSException raise:NSInternalInconsistencyException
+		            format:@"Undone or done again, the document is not what it was: %@",
+		                   ORMFirstDifference(expected, ORMDataOfDocument(_document))];
+	}
 	[self reread];
 	[self checkAgreement];
 	if (self.changed != nil) {
@@ -544,7 +571,7 @@ static BOOL ORMChecksAgreement;
 	NSXMLElement *root = [copy rootElement];
 	for (NSXMLNode *child in [[root children] copy]) {
 		if ([child kind] == NSXMLElementKind && [generated containsObject:[child URI]]) {
-			[child detach];
+			ORMDetach(child);
 		}
 	}
 	/* The settings that point at what was dropped. */
@@ -552,7 +579,7 @@ static BOOL ORMChecksAgreement;
 		for (NSXMLElement *settings in ORMChildren(state, CORE, @"GenerationSettings")) {
 			for (NSXMLNode *setting in [[settings children] copy]) {
 				if ([generated containsObject:[setting URI]]) {
-					[setting detach];
+					ORMDetach(setting);
 				}
 			}
 			ORMPruneIfEmpty(settings);
@@ -560,7 +587,7 @@ static BOOL ORMChecksAgreement;
 		ORMPruneIfEmpty(state);
 	}
 	/* NORMA checks the model as it opens it and lists what it finds. */
-	[ORMChild(ORMModelElementOfDocument(copy), CORE, @"ModelErrors") detach];
+	ORMDetach(ORMChild(ORMModelElementOfDocument(copy), CORE, @"ModelErrors"));
 	return copy;
 }
 
@@ -575,7 +602,7 @@ static BOOL ORMChecksAgreement;
 	NSXMLElement *root = [copy rootElement];
 	for (NSString *uri in ORMKitNamespaces()) {
 		for (NSXMLElement *element in ORMDescendants(root, uri, nil)) {
-			[element detach];
+			ORMDetach(element);
 		}
 	}
 	for (NSXMLNode *namespace in [[root namespaces] copy]) {
@@ -685,7 +712,7 @@ static BOOL ORMChecksAgreement;
 	for (NSString *roleId in roleIds) {
 		NSXMLElement *role = ORMNewElementWithId(_document, CORE, @"Role", nil);
 		ORMSetAttribute(role, @"ref", roleId);
-		[sequence addChild:role];
+		ORMAddChild(sequence, role);
 	}
 	return sequence;
 }
@@ -694,7 +721,7 @@ static BOOL ORMChecksAgreement;
 {
 	NSXMLElement *constraint = ORMNewElementWithId(_document, CORE, local, nil);
 	ORMSetAttribute(constraint, @"Name", [self nextName:prefix]);
-	[[self section:@"Constraints"] addChild:constraint];
+	ORMAddChild([self section:@"Constraints"], constraint);
 	return constraint;
 }
 

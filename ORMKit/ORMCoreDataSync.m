@@ -25,7 +25,7 @@
 	NSXMLElement *container = ORMChild(root, CD, @"CoreDataMappings");
 	if (container == nil) {
 		container = ORMNewElement(_editor.document, CD, @"CoreDataMappings");
-		[root addChild:container];
+		ORMAddChild(root, container);
 	}
 	return container;
 }
@@ -51,7 +51,7 @@
 		ORMSetAttribute(mapping, @"Path", [path length] > 0 ? path
 		                                                 : [mappingName stringByAppendingPathExtension:@"xcdatamodeld"]);
 		ORMSetAttribute(mapping, @"Scope", @"Model");
-		[[self mappingsContainer] addChild:mapping];
+		ORMAddChild([self mappingsContainer], mapping);
 		created = ORMAttribute(mapping, @"id");
 	}];
 	return created;
@@ -65,7 +65,7 @@
 	}
 	[_editor documentChange:@"Remove Core Data Mapping" with:^{
 		NSXMLElement *container = (NSXMLElement *)[mapping parent];
-		[mapping detach];
+		ORMDetach(mapping);
 		ORMPruneIfEmpty(container);
 	}];
 }
@@ -110,11 +110,11 @@
 		ORMSetAttribute(mapping, @"Scope", scope == ORMScopeDiagram ? @"Diagram"
 		                                   : scope == ORMScopeObjectTypes ? @"ObjectTypes" : @"Model");
 		for (NSXMLElement *include in ORMChildren(mapping, CD, @"Include")) {
-			[include detach];
+			ORMDetach(include);
 		}
 		NSUInteger index = 0;
 		for (NSString *identifier in scope == ORMScopeModel ? @[] : ids) {
-			[mapping insertChild:ORMNewRef(_editor.document, CD, @"Include", identifier) atIndex:index++];
+			ORMInsertChildAt(mapping, ORMNewRef(_editor.document, CD, @"Include", identifier), index++);
 		}
 	}];
 }
@@ -166,7 +166,7 @@
 	}
 	[_editor documentChange:action with:^{
 		if (!wanted) {
-			[existing detach];
+			ORMDetach(existing);
 			return;
 		}
 		NSXMLElement *child = existing;
@@ -179,7 +179,7 @@
 			}
 			/* Before the baseline, which stays last. */
 			NSXMLElement *baseline = ORMChild(mapping, CD, @"Baseline");
-			[mapping insertChild:child atIndex:baseline != nil ? [baseline index] : [mapping childCount]];
+			ORMInsertChildAt(mapping, child, baseline != nil ? [baseline index] : [mapping childCount]);
 		}
 		if (attribute != nil) {
 			ORMSetAttribute(child, attribute, value);
@@ -287,7 +287,7 @@
 			if (outer) {
 				ORMSetAttribute(member, @"Outer", @"true");
 			}
-			[option addChild:member];
+			ORMAddChild(option, member);
 			created = ORMAttribute(member, @"id");
 		}];
 	}];
@@ -301,7 +301,7 @@
 		return;
 	}
 	[_editor documentChange:@"Remove Joined Entity" with:^{
-		[member detach];
+		ORMDetach(member);
 	}];
 }
 
@@ -350,10 +350,10 @@
 	}
 	[_editor documentChange:held ? @"Keep in Joined Entity" : @"Keep in Hub" with:^{
 		for (NSXMLElement *holds in holding) {
-			[holds detach];
+			ORMDetach(holds);
 		}
 		if (held) {
-			[member addChild:ORMNewRef(_editor.document, CD, @"Holds", roleId)];
+			ORMAddChild(member, ORMNewRef(_editor.document, CD, @"Holds", roleId));
 		}
 	}];
 }
