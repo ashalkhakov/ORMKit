@@ -887,16 +887,6 @@ static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
 		for (NSArray *pair in entry.attributes) {
 			[element addAttribute:[NSXMLNode attributeWithName:[pair firstObject] stringValue:[pair lastObject]]];
 		}
-		/* Namespaces declared since (a namespace first used) go. */
-		NSMutableSet *declared = [NSMutableSet set];
-		for (NSArray *pair in entry.namespaces) {
-			[declared addObject:[pair firstObject]];
-		}
-		for (NSXMLNode *namespace in [[element namespaces] copy]) {
-			if (![declared containsObject:[namespace name] ?: @""]) {
-				[element removeNamespaceForPrefix:[namespace name]];
-			}
-		}
 	}
 	/* Every child let go of first: one may go back to another parent. */
 	for (ORMXMLJournalEntry *entry in _entries) {
@@ -910,6 +900,19 @@ static NSMutableArray<ORMXMLJournal *> *ORMOpenJournals;
 				[child detach];
 			}
 			[entry.element addChild:child];
+		}
+	}
+	/* Namespaces declared since (a namespace first used) go, once what
+	 * used them is gone. */
+	for (ORMXMLJournalEntry *entry in _entries) {
+		NSMutableSet *declared = [NSMutableSet set];
+		for (NSArray *pair in entry.namespaces) {
+			[declared addObject:[pair firstObject]];
+		}
+		for (NSXMLNode *namespace in [[entry.element namespaces] copy]) {
+			if (![declared containsObject:[namespace name] ?: @""]) {
+				[entry.element removeNamespaceForPrefix:[namespace name]];
+			}
 		}
 	}
 	return redo;
