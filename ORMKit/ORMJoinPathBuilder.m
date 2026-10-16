@@ -202,45 +202,43 @@
 	return roles;
 }
 
-/* <orm:PathedRoles> and <orm:SubPaths> of a planned path, recording the
- * pathed role element where each variable is first met. */
-- (void)write:(ORMPlannedPath *)path into:(NSXMLElement *)element met:(NSMutableDictionary *)met
+/* A planned path as the model's, recording the pathed role where each
+ * variable is first met. */
+- (ORMRolePath *)pathOf:(ORMPlannedPath *)planned parent:(ORMRolePath *)parent met:(NSMutableDictionary *)met
 {
-	NSXMLDocument *document = _editor.document;
-	if ([path.pathedRoles count] > 0) {
-		NSXMLElement *pathedRoles = ORMNewElement(document, CORE, @"PathedRoles");
-		for (NSArray *pathed in path.pathedRoles) {
-			NSXMLElement *role = ORMNewElementWithId(document, CORE, @"PathedRole", nil);
-			ORMSetAttribute(role, @"ref", [pathed objectAtIndex:0]);
-			ORMSetAttribute(role, @"Purpose", [pathed objectAtIndex:1]);
-			ORMAddChild(pathedRoles, role);
-			if ([met objectForKey:[pathed objectAtIndex:2]] == nil) {
-				[met setObject:ORMAttribute(role, @"id") forKey:[pathed objectAtIndex:2]];
-			}
+	ORMModel *model = _editor.model;
+	ORMRolePath *path = [[ORMRolePath alloc] initWithModel:model];
+	path.parent = parent;
+	NSMutableArray *pathedRoles = [NSMutableArray array];
+	for (NSArray *step in planned.pathedRoles) {
+		ORMPathedRole *pathed = [[ORMPathedRole alloc] initWithModel:model];
+		pathed.path = path;
+		pathed.role = [model elementWithId:[step objectAtIndex:0]];
+		pathed.purpose = [[step objectAtIndex:1] isEqualToString:@"SameFactType"] ? ORMPathSameFactType : ORMPathInnerJoin;
+		[pathedRoles addObject:pathed];
+		if ([met objectForKey:[step objectAtIndex:2]] == nil) {
+			[met setObject:pathed forKey:[step objectAtIndex:2]];
 		}
-		ORMAddChild(element, pathedRoles);
 	}
-	if ([path.subPaths count] > 0) {
-		NSXMLElement *subPaths = ORMNewElement(document, CORE, @"SubPaths");
-		for (ORMPlannedPath *sub in path.subPaths) {
-			NSXMLElement *subPath = ORMNewElementWithId(document, CORE, @"SubPath", nil);
-			[self write:sub into:subPath met:met];
-			ORMAddChild(subPaths, subPath);
-		}
-		ORMAddChild(element, subPaths);
+	path.pathedRoles = pathedRoles;
+	NSMutableArray *subPaths = [NSMutableArray array];
+	for (ORMPlannedPath *sub in planned.subPaths) {
+		[subPaths addObject:[self pathOf:sub parent:path met:met]];
 	}
+	path.subPaths = subPaths;
+	return path;
 }
 
-/* The <orm:JoinRule> for the sequence, as NORMA writes one. */
-- (void)attach:(ORMPlannedJoin *)join to:(NSXMLElement *)sequence
+/* The join path for the sequence, as NORMA keeps one: rooted where the
+ * first column is played, each role use projected from where its column
+ * is met. */
+- (ORMRolePathOwner *)joinPathOf:(ORMPlannedJoin *)join uses:(NSArray<NSString *> *)uses
 {
-	NSXMLDocument *document = _editor.document;
-	NSXMLElement *rule = ORMNewElement(document, CORE, @"JoinRule");
-	NSXMLElement *joinPath = ORMNewElementWithId(document, CORE, @"JoinPath", nil);
-	NSXMLElement *components = ORMNewElement(document, CORE, @"PathComponents");
-	NSXMLElement *lead = ORMNewElementWithId(document, CORE, @"RolePath", nil);
-	NSXMLElement *root = ORMNewElementWithId(document, CORE, @"RootObjectType", nil);
-	ORMRole *rootRole = [_editor.model elementWithId:[join.firstRoles objectForKey:join.root]];
+	ORMModel *model = _editor.model;
+	ORMRolePathOwner *owner = [[ORMRolePathOwner alloc] initWithModel:model];
+	NSMutableDictionary *met = [NSMutableDictionary dictionary];
+	ORMRolePath *lead = [self pathOf:join.lead parent:nil met:met];
+	ORMRole *rootRole = [model elementWithId:[join.firstRoles objectForKey:join.root]];
 	/* The root's own type when its name gives one of the player's
 	 * family ("some Mapping" for an Absorption's role): the path is of
 	 * those instances. */
@@ -249,40 +247,36 @@
 	while ([named length] > 1 && [[NSCharacterSet decimalDigitCharacterSet] characterIsMember:[named characterAtIndex:[named length] - 1]]) {
 		named = [named substringToIndex:[named length] - 1];
 	}
-	ORMObjectType *candidate = [_editor.model objectTypeNamed:named];
+	ORMObjectType *candidate = [model objectTypeNamed:named];
 	if (candidate != nil && candidate != rootType && [[candidate family] indexOfObjectIdenticalTo:rootType] != NSNotFound) {
 		rootType = candidate;
 	}
-	ORMSetAttribute(root, @"ref", rootType.identifier);
-	ORMAddChild(lead, root);
-	NSMutableDictionary *met = [NSMutableDictionary dictionary];
-	[self write:join.lead into:lead met:met];
-	ORMAddChild(components, lead);
-	ORMAddChild(joinPath, components);
-
-	/* Each role use of the sequence, from where its column is met. */
-	NSXMLElement *projections = ORMNewElement(document, CORE, @"JoinPathProjections");
-	NSXMLElement *projection = ORMNewElementWithId(document, CORE, @"JoinPathProjection", nil);
-	ORMSetAttribute(projection, @"ref", ORMAttribute(lead, @"id"));
-	NSArray *uses = ORMChildren(sequence, CORE, @"Role");
-	NSArray *columns = join.columns;
-	for (NSUInteger i = 0; i < [uses count] && i < [columns count]; i++) {
-		NSString *column = [columns objectAtIndex:i];
-		NSXMLElement *roleProjection = ORMNewElementWithId(document, CORE, @"ConstraintRoleProjection", nil);
-		ORMSetAttribute(roleProjection, @"ref", ORMAttribute([uses objectAtIndex:i], @"id"));
-		NSXMLElement *from = ORMNewElement(document, CORE, @"ProjectedFrom");
+	lead.rootObjectType = rootType;
+	lead.rootId = ORMNewId();
+	owner.paths = @[ lead ];
+	owner.calculations = @[];
+	owner.conditions = @[];
+	NSMutableDictionary *projections = [NSMutableDictionary dictionary];
+	NSMutableDictionary *projectionIds = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < [uses count] && i < [join.columns count]; i++) {
+		NSString *column = [join.columns objectAtIndex:i];
+		ORMPathSource *source = [[ORMPathSource alloc] init];
 		if ([column isEqualToString:join.root]) {
-			ORMAddChild(from, ORMNewRef(document, CORE, @"PathRoot", ORMAttribute(root, @"id")));
+			source.kind = ORMPathSourceRoot;
+			source.root = lead;
+			source.reference = lead.rootId;
 		} else {
-			ORMAddChild(from, ORMNewRef(document, CORE, @"PathedRole", [met objectForKey:column]));
+			source.kind = ORMPathSourcePathedRole;
+			source.pathedRole = [met objectForKey:column];
+			source.reference = source.pathedRole.identifier;
 		}
-		ORMAddChild(roleProjection, from);
-		ORMAddChild(projection, roleProjection);
+		[projections setObject:source forKey:[uses objectAtIndex:i]];
+		[projectionIds setObject:ORMNewId() forKey:[uses objectAtIndex:i]];
 	}
-	ORMAddChild(projections, projection);
-	ORMAddChild(joinPath, projections);
-	ORMAddChild(rule, joinPath);
-	ORMAddChild(sequence, rule);
+	owner.projections = projections;
+	owner.projectionIds = projectionIds;
+	owner.projectionId = ORMNewId();
+	return owner;
 }
 
 - (NSString *)addSetComparisonConstraint:(ORMConstraintKind)kind
@@ -311,14 +305,19 @@
 		if (created == nil) {
 			return;
 		}
-		[_editor change:@"Add Join Path" with:^{
-			NSXMLElement *constraint = [_editor xml:created];
-			NSArray *elements = ORMGrandchildren(constraint, CORE, @"RoleSequences", CORE, @"RoleSequence");
-			for (NSUInteger i = 0; i < [elements count] && i < [plans count]; i++) {
-				if ([plans objectAtIndex:i] != [NSNull null]) {
-					[self attach:[plans objectAtIndex:i] to:[elements objectAtIndex:i]];
+		[_editor modelChange:@"Add Join Path" with:^{
+			ORMConstraint *constraint = [_editor.model elementWithId:created];
+			for (NSUInteger i = 0; i < [constraint.roleSequences count] && i < [plans count]; i++) {
+				if ([plans objectAtIndex:i] == [NSNull null]) {
+					continue;
 				}
+				ORMRoleSequence *sequence = [constraint.roleSequences objectAtIndex:i];
+				/* The role uses' ids are the document's, the constraint
+				 * being written there already. */
+				[_editor.model setJoinPath:[self joinPathOf:[plans objectAtIndex:i] uses:[sequence roleUseIds]]
+				                ofSequence:sequence];
 			}
+			[_editor wrote:constraint];
 		}];
 	}];
 	if (created == nil && reason != NULL) {

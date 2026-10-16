@@ -290,11 +290,61 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 - (void)removePopulationElement:(ORMElement *)element;
 @end
 
+@interface ORMPathedRole ()
+@property (nonatomic, readwrite, weak) ORMRole *role;
+@property (nonatomic, readwrite) ORMPathedRolePurpose purpose;
+@property (nonatomic, readwrite) BOOL isNegated;
+@property (nonatomic, readwrite, strong) ORMValueConstraint *valueConstraint;
+@property (nonatomic, readwrite, weak) ORMPathedRole *correlatedWith;
+@property (nonatomic, readwrite, weak) ORMRolePath *path;
+@end
+
+@interface ORMRolePath ()
+@property (nonatomic, readwrite, weak) ORMObjectType *rootObjectType;
+@property (nonatomic, readwrite, copy) NSString *rootId;
+@property (nonatomic, readwrite) BOOL rootIsNegated;
+@property (nonatomic, readwrite, strong) ORMValueConstraint *rootValueConstraint;
+@property (nonatomic, readwrite, copy) NSArray<ORMPathedRole *> *pathedRoles;
+@property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *subPaths;
+@property (nonatomic, readwrite) ORMPathSplit split;
+@property (nonatomic, readwrite) BOOL splitIsNegated;
+@property (nonatomic, readwrite, weak) ORMRolePath *parent;
+@end
+
+@interface ORMPathSource ()
+@property (nonatomic, readwrite) ORMPathSourceKind kind;
+@property (nonatomic, readwrite, weak) ORMRolePath *root;
+@property (nonatomic, readwrite, weak) ORMPathedRole *pathedRole;
+@property (nonatomic, readwrite, weak) ORMCalculation *calculation;
+@property (nonatomic, readwrite, copy) NSString *constant;
+/* Resolved once every element is read: what the source element names. */
+@property (nonatomic, copy) NSString *reference;
+@end
+
+@interface ORMCalculation ()
+@property (nonatomic, readwrite, copy) NSString *functionName;
+@property (nonatomic, readwrite) BOOL isBoolean;
+@property (nonatomic, readwrite, copy) NSArray<ORMPathSource *> *inputs;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *parameterNames;
+@property (nonatomic, readwrite, copy) NSArray<ORMPathSource *> *aggregationContext;
+@property (nonatomic, readwrite) BOOL isAggregate;
+@end
+
 @interface ORMRolePathOwner ()
 @property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *paths;
 @property (nonatomic, readwrite, copy) NSArray<ORMCalculation *> *calculations;
 @property (nonatomic, readwrite, copy) NSArray<ORMCalculation *> *conditions;
 @property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMPathSource *> *projections;
+/* The ids of its projection element (JoinPathProjection,
+ * DerivationProjection) and of each target's (by the target's id). */
+@property (nonatomic, readwrite, copy) NSString *projectionId;
+@property (nonatomic, readwrite, copy) NSDictionary<NSString *, NSString *> *projectionIds;
+@end
+
+@interface ORMModel (ORMJoinPaths)
+/* A sequence's join path, inside a model change: registered with its role
+ * paths and pathed roles. */
+- (void)setJoinPath:(ORMRolePathOwner *)joinPath ofSequence:(ORMRoleSequence *)sequence;
 @end
 
 /* A derivation rule as the file has it: beside what it says, the ids of

@@ -632,9 +632,99 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 /* A constraint's role sequences: one of its own where it has one without
  * an id, else each in RoleSequences with its id; each role used with an id
  * of its own. */
+/* NORMA's purpose of a pathed role. */
+static NSString *
+ORMPurposeName(ORMPathedRolePurpose purpose)
+{
+	switch (purpose) {
+	case ORMPathStartRole:
+		return @"StartRole";
+	case ORMPathSameFactType:
+		return @"SameFactType";
+	case ORMPathOuterJoin:
+		return @"PostOuterJoin";
+	case ORMPathInnerJoin:
+		break;
+	}
+	return @"PostInnerJoin";
+}
+
+/* A role path made, as NORMA writes one: its root, its pathed roles and
+ * the paths that go on from its end. */
+- (NSXMLElement *)rolePath:(ORMRolePath *)path named:(NSString *)local
+{
+	NSXMLElement *element = ORMNewElementWithId(_document, CORE, local, path.identifier);
+	if (path.rootObjectType != nil) {
+		NSXMLElement *root = ORMNewElementWithId(_document, CORE, @"RootObjectType", path.rootId);
+		ORMSetAttribute(root, @"ref", path.rootObjectType.identifier);
+		ORMAddChild(element, root);
+	}
+	if ([path.pathedRoles count] > 0) {
+		NSXMLElement *pathedRoles = ORMNewElement(_document, CORE, @"PathedRoles");
+		for (ORMPathedRole *pathed in path.pathedRoles) {
+			NSXMLElement *role = ORMNewElementWithId(_document, CORE, @"PathedRole", pathed.identifier);
+			ORMSetAttribute(role, @"ref", pathed.role.identifier);
+			ORMSetAttribute(role, @"Purpose", ORMPurposeName(pathed.purpose));
+			ORMAddChild(pathedRoles, role);
+		}
+		ORMAddChild(element, pathedRoles);
+	}
+	if ([path.subPaths count] > 0) {
+		NSXMLElement *subPaths = ORMNewElement(_document, CORE, @"SubPaths");
+		for (ORMRolePath *sub in path.subPaths) {
+			ORMAddChild(subPaths, [self rolePath:sub named:@"SubPath"]);
+		}
+		ORMAddChild(element, subPaths);
+	}
+	return element;
+}
+
+/* A sequence's join path made, as NORMA writes one: its role paths, and
+ * where each of the sequence's role uses is projected from. */
+- (void)writeJoinPath:(ORMRolePathOwner *)owner into:(NSXMLElement *)sequence
+{
+	NSXMLElement *rule = ORMNewElement(_document, CORE, @"JoinRule");
+	NSXMLElement *joinPath = ORMNewElementWithId(_document, CORE, @"JoinPath", owner.identifier);
+	NSXMLElement *components = ORMNewElement(_document, CORE, @"PathComponents");
+	for (ORMRolePath *path in owner.paths) {
+		ORMAddChild(components, [self rolePath:path named:@"RolePath"]);
+	}
+	ORMAddChild(joinPath, components);
+	NSXMLElement *projections = ORMNewElement(_document, CORE, @"JoinPathProjections");
+	NSXMLElement *projection = ORMNewElementWithId(_document, CORE, @"JoinPathProjection", owner.projectionId);
+	ORMSetAttribute(projection, @"ref", [[owner.paths firstObject] identifier]);
+	for (NSXMLElement *use in ORMChildren(sequence, CORE, @"Role")) {
+		NSString *target = ORMAttribute(use, @"id");
+		ORMPathSource *source = target != nil ? [owner.projections objectForKey:target] : nil;
+		if (source == nil) {
+			continue;
+		}
+		NSXMLElement *roleProjection = ORMNewElementWithId(_document, CORE, @"ConstraintRoleProjection",
+		                                                  [owner.projectionIds objectForKey:target]);
+		ORMSetAttribute(roleProjection, @"ref", target);
+		NSXMLElement *from = ORMNewElement(_document, CORE, @"ProjectedFrom");
+		if (source.kind == ORMPathSourceRoot) {
+			ORMAddChild(from, ORMNewRef(_document, CORE, @"PathRoot", source.root.rootId));
+		} else {
+			ORMAddChild(from, ORMNewRef(_document, CORE, @"PathedRole", source.pathedRole.identifier));
+		}
+		ORMAddChild(roleProjection, from);
+		ORMAddChild(projection, roleProjection);
+	}
+	ORMAddChild(projections, projection);
+	ORMAddChild(joinPath, projections);
+	ORMAddChild(rule, joinPath);
+	ORMAddChild(sequence, rule);
+}
+
 - (void)writeSequencesOf:(ORMConstraint *)constraint
 {
+	NSDictionary *joinPaths = [self.model.extras objectForKey:@"joinPaths"];
 	for (ORMRoleSequence *sequence in constraint.roleSequences) {
+		ORMRolePathOwner *joinPath = sequence.identifier != nil ? [joinPaths objectForKey:sequence.identifier] : nil;
+		if (joinPath != nil && sequence.element != nil && ORMChild(sequence.element, CORE, @"JoinRule") == nil) {
+			[self writeJoinPath:joinPath into:sequence.element];
+		}
 		if (sequence.element == nil) {
 			NSXMLElement *made = sequence.identifier != nil
 				? ORMNewElementWithId(_document, CORE, @"RoleSequence", sequence.identifier)

@@ -5,47 +5,6 @@
 
 #define CORE ORMCoreNamespace
 
-@interface ORMPathedRole ()
-@property (nonatomic, readwrite, weak) ORMRole *role;
-@property (nonatomic, readwrite) ORMPathedRolePurpose purpose;
-@property (nonatomic, readwrite) BOOL isNegated;
-@property (nonatomic, readwrite, strong) ORMValueConstraint *valueConstraint;
-@property (nonatomic, readwrite, weak) ORMPathedRole *correlatedWith;
-@property (nonatomic, readwrite, weak) ORMRolePath *path;
-@end
-
-@interface ORMRolePath ()
-@property (nonatomic, readwrite, weak) ORMObjectType *rootObjectType;
-@property (nonatomic, readwrite, copy) NSString *rootId;
-@property (nonatomic, readwrite) BOOL rootIsNegated;
-@property (nonatomic, readwrite, strong) ORMValueConstraint *rootValueConstraint;
-@property (nonatomic, readwrite, copy) NSArray<ORMPathedRole *> *pathedRoles;
-@property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *subPaths;
-@property (nonatomic, readwrite) ORMPathSplit split;
-@property (nonatomic, readwrite) BOOL splitIsNegated;
-@property (nonatomic, readwrite, weak) ORMRolePath *parent;
-@end
-
-@interface ORMPathSource ()
-@property (nonatomic, readwrite) ORMPathSourceKind kind;
-@property (nonatomic, readwrite, weak) ORMRolePath *root;
-@property (nonatomic, readwrite, weak) ORMPathedRole *pathedRole;
-@property (nonatomic, readwrite, weak) ORMCalculation *calculation;
-@property (nonatomic, readwrite, copy) NSString *constant;
-/* Resolved once every element is read: what the source element names. */
-@property (nonatomic, copy) NSString *reference;
-@end
-
-@interface ORMCalculation ()
-@property (nonatomic, readwrite, copy) NSString *functionName;
-@property (nonatomic, readwrite) BOOL isBoolean;
-@property (nonatomic, readwrite, copy) NSArray<ORMPathSource *> *inputs;
-@property (nonatomic, readwrite, copy) NSArray<NSString *> *parameterNames;
-@property (nonatomic, readwrite, copy) NSArray<ORMPathSource *> *aggregationContext;
-@property (nonatomic, readwrite) BOOL isAggregate;
-@end
-
-
 @interface ORMCardinality ()
 @property (nonatomic, readwrite, copy) NSArray<NSArray<NSNumber *> *> *ranges;
 @end
@@ -451,16 +410,22 @@
 	if (container == nil && [element parent] != nil) {
 		container = ORMChild((NSXMLElement *)[element parent], CORE, [projectionPath objectAtIndex:0]);
 	}
+	NSMutableDictionary *projectionIds = [NSMutableDictionary dictionary];
 	for (NSXMLElement *projection in ORMChildren(container, CORE, [projectionPath objectAtIndex:1])) {
+		owner.projectionId = owner.projectionId ?: ORMAttribute(projection, @"id");
 		for (NSXMLElement *item in ORMChildren(projection, CORE, [projectionPath objectAtIndex:2])) {
 			ORMPathSource *source = [self sourceIn:ORMChild(item, CORE, [projectionPath objectAtIndex:3])];
 			NSString *target = ORMRef(item);
 			if (source != nil && target != nil && [projections objectForKey:target] == nil) {
 				[projections setObject:source forKey:target];
 				[sources addObject:source];
+				if (ORMAttribute(item, @"id") != nil) {
+					[projectionIds setObject:ORMAttribute(item, @"id") forKey:target];
+				}
 			}
 		}
 	}
+	owner.projectionIds = projectionIds;
 	for (ORMPathSource *source in sources) {
 		[self resolve:source];
 	}
@@ -807,6 +772,34 @@
 		[rules removeObjectForKey:fact.identifier];
 	}
 	fact.isDerived = rule != nil && (rule.pathId != nil || rule.hasExpression);
+}
+
+@end
+
+@implementation ORMModel (ORMJoinPaths)
+
+- (void)registerPath:(ORMRolePath *)path
+{
+	[self registerElement:path];
+	if (path.rootId != nil) {
+		[[self.extras objectForKey:@"roots"] setObject:path forKey:path.rootId];
+	}
+	for (ORMPathedRole *pathed in path.pathedRoles) {
+		[self registerElement:pathed];
+	}
+	for (ORMRolePath *sub in path.subPaths) {
+		[self registerPath:sub];
+	}
+}
+
+- (void)setJoinPath:(ORMRolePathOwner *)joinPath ofSequence:(ORMRoleSequence *)sequence
+{
+	for (ORMRolePath *path in joinPath.paths) {
+		[self registerPath:path];
+	}
+	[self registerElement:joinPath];
+	[[self.extras objectForKey:@"joinPaths"] setObject:joinPath forKey:sequence.identifier];
+	sequence.hasJoinPath = YES;
 }
 
 @end
