@@ -289,3 +289,34 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 - (void)addPopulationElement:(ORMElement *)element;
 - (void)removePopulationElement:(ORMElement *)element;
 @end
+
+@interface ORMRolePathOwner ()
+@property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *paths;
+@property (nonatomic, readwrite, copy) NSArray<ORMCalculation *> *calculations;
+@property (nonatomic, readwrite, copy) NSArray<ORMCalculation *> *conditions;
+@property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMPathSource *> *projections;
+@end
+
+/* A derivation rule as the file has it: beside what it says, the ids of
+ * its path (FactTypeDerivationPath) and its informal note, nil where it
+ * has none, and whether it has more than words: NORMA's role path, or an
+ * older DerivationExpression. */
+@interface ORMDerivationRule ()
+@property (nonatomic, readwrite) BOOL isPartial;
+@property (nonatomic, readwrite) BOOL isStored;
+@property (nonatomic, readwrite, copy) NSString *informalText;
+@property (nonatomic, readwrite) BOOL isSubtypeRule;
+@property (nonatomic, readwrite, copy) NSString *pathId;
+@property (nonatomic, readwrite, copy) NSString *noteId;
+@property (nonatomic, readwrite) BOOL hasRolePath;
+@property (nonatomic, readwrite) BOOL hasExpression;
+@end
+
+@interface ORMModel (ORMDerivationRules)
+/* Each fact type's and subtype's derivation rule, by its id. */
+- (NSDictionary<NSString *, ORMDerivationRule *> *)derivationRules;
+/* A fact type's rule set, or taken away (nil), inside a model change; the
+ * fact type derived while it has one with a path or an expression. */
+- (void)setDerivationRule:(ORMDerivationRule *)rule ofFactType:(ORMFactType *)fact;
+@end
+

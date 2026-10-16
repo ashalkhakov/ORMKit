@@ -2045,7 +2045,7 @@ ORMModelDisagreement(ORMModel *model, ORMModel *other)
 	[model diagrams];
 	[other diagrams];
 	NSDictionary *mine = [model valueForKey:@"elementsById"], *theirs = [other valueForKey:@"elementsById"];
-	for (NSString *key in @[ @"identifier", @"name", @"referenceModeFormats", @"customReferenceModes", @"objectTypes", @"factTypes", @"constraints", @"dataTypes",
+	for (NSString *key in @[ @"identifier", @"name", @"referenceModeFormats", @"customReferenceModes", @"derivationRules", @"objectTypes", @"factTypes", @"constraints", @"dataTypes",
 	                         @"notes", @"diagrams" ]) {
 		if (!ORMSameValue([model valueForKey:key], [other valueForKey:key])) {
 			return [NSString stringWithFormat:@"the model's %@ differ", key];

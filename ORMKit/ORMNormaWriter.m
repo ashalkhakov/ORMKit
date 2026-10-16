@@ -649,10 +649,71 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	}
 }
 
+/* A fact type's derivation rule, each part compared as it is read: made,
+ * its completeness, storage and words set, or taken away. What else it
+ * holds (NORMA's role path) stays as the file has it. */
+- (void)writeDerivationRuleOf:(ORMFactType *)fact
+{
+	ORMDerivationRule *rule = [self.model.derivationRules objectForKey:fact.identifier];
+	NSXMLElement *element = ORMChild(fact.element, CORE, @"DerivationRule");
+	if (rule == nil) {
+		ORMDetach(element);
+		return;
+	}
+	if (element == nil) {
+		element = ORMNewElement(_document, CORE, @"DerivationRule");
+		ORMInsertChild(fact.element, element);
+	}
+	NSXMLElement *path = ORMChild(element, CORE, @"FactTypeDerivationPath");
+	if (path == nil && rule.pathId != nil) {
+		path = ORMNewElementWithId(_document, CORE, @"FactTypeDerivationPath", rule.pathId);
+		ORMAddChild(element, path);
+	}
+	NSXMLElement *expression = ORMChild(element, CORE, @"DerivationExpression");
+	NSString *legacy = ORMAttribute(expression, @"DerivationStorage");
+	NSString *completeness = ORMAttribute(path, @"DerivationCompleteness") ?: ORMAttribute(element, @"DerivationCompleteness");
+	NSString *storage = ORMAttribute(path, @"DerivationStorage") ?: ORMAttribute(element, @"DerivationStorage");
+	BOOL partial = [completeness isEqualToString:@"PartiallyDerived"] || [legacy hasPrefix:@"PartiallyDerived"];
+	BOOL stored = [storage isEqualToString:@"Stored"] || [legacy hasSuffix:@"AndStored"];
+	/* NORMA leaves out its defaults: fully derived, not stored. */
+	if (partial != rule.isPartial) {
+		ORMSetAttribute(path, @"DerivationCompleteness", rule.isPartial ? @"PartiallyDerived" : nil);
+	}
+	if (stored != rule.isStored) {
+		ORMSetAttribute(path, @"DerivationStorage", rule.isStored ? @"Stored" : nil);
+	}
+	NSXMLElement *informal = ORMChild(path, CORE, @"InformalRule");
+	NSXMLElement *note = ORMChild(informal, CORE, @"DerivationNote");
+	NSString *text = ORMChildText(note, CORE, @"Body") ?: ORMChildText(expression, CORE, @"Body");
+	if ([text length] == 0) {
+		text = nil;
+	}
+	if ([text ?: @"" isEqualToString:rule.informalText ?: @""]) {
+		return;
+	}
+	if ([rule.informalText length] == 0) {
+		ORMDetach(informal);
+		return;
+	}
+	if (path == nil) {
+		return;
+	}
+	if (informal == nil) {
+		informal = ORMNewElement(_document, CORE, @"InformalRule");
+		ORMAddChild(path, informal);
+	}
+	if (note == nil) {
+		note = ORMNewElementWithId(_document, CORE, @"DerivationNote", rule.noteId);
+		ORMAddChild(informal, note);
+	}
+	ORMSetChildText(_document, note, CORE, @"Body", rule.informalText);
+}
+
 - (void)writeFactType:(ORMFactType *)fact
 {
 	NSXMLElement *element = fact.element;
 	[self writePartsOf:fact];
+	[self writeDerivationRuleOf:fact];
 	if (fact.impliedByFactType != nil) {
 		ORMWriteRef(_document, element, @"ImpliedByObjectification",
 		            fact.impliedByFactType.objectifyingType.objectificationId);

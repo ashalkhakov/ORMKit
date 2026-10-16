@@ -45,19 +45,6 @@
 @property (nonatomic, readwrite) BOOL isAggregate;
 @end
 
-@interface ORMRolePathOwner ()
-@property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *paths;
-@property (nonatomic, readwrite, copy) NSArray<ORMCalculation *> *calculations;
-@property (nonatomic, readwrite, copy) NSArray<ORMCalculation *> *conditions;
-@property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMPathSource *> *projections;
-@end
-
-@interface ORMDerivationRule ()
-@property (nonatomic, readwrite) BOOL isPartial;
-@property (nonatomic, readwrite) BOOL isStored;
-@property (nonatomic, readwrite, copy) NSString *informalText;
-@property (nonatomic, readwrite) BOOL isSubtypeRule;
-@end
 
 @interface ORMCardinality ()
 @property (nonatomic, readwrite, copy) NSArray<NSArray<NSNumber *> *> *ranges;
@@ -512,6 +499,10 @@
 	NSXMLElement *note = ORMChild(ORMChild(path, CORE, @"InformalRule"), CORE, @"DerivationNote");
 	NSString *text = ORMChildText(note, CORE, @"Body") ?: ORMChildText(expression, CORE, @"Body");
 	rule.informalText = [text length] > 0 ? text : nil;
+	rule.pathId = ORMAttribute(path, @"id");
+	rule.noteId = ORMAttribute(note, @"id");
+	rule.hasRolePath = ORMChild(path, CORE, @"PathComponents") != nil || ORMChild(path, CORE, @"PathComponent") != nil;
+	rule.hasExpression = expression != nil;
 	if (path != nil) {
 		[self readOwner:rule from:path
 		    projections:@[ @"DerivationProjections", @"DerivationProjection", @"RoleProjection", @"DerivationSource" ]];
@@ -799,3 +790,24 @@
 }
 
 @end
+
+@implementation ORMModel (ORMDerivationRules)
+
+- (NSDictionary<NSString *, ORMDerivationRule *> *)derivationRules
+{
+	return [self.extras objectForKey:@"derivations"] ?: @{};
+}
+
+- (void)setDerivationRule:(ORMDerivationRule *)rule ofFactType:(ORMFactType *)fact
+{
+	NSMutableDictionary *rules = [self.extras objectForKey:@"derivations"];
+	if (rule != nil) {
+		[rules setObject:rule forKey:fact.identifier];
+	} else {
+		[rules removeObjectForKey:fact.identifier];
+	}
+	fact.isDerived = rule != nil && (rule.pathId != nil || rule.hasExpression);
+}
+
+@end
+

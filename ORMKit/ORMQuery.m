@@ -107,61 +107,6 @@ ORMQueryKindNames(void)
 	return @[ @"List", @"Constraint", @"Calculation", @"Derivation" ];
 }
 
-/* A fact type's derivation rule as NORMA keeps it, which a derivation
- * query writes (docs/DERIVATION.md); nil when it has none. */
-static NSXMLElement *
-ORMDerivationPathOf(NSXMLElement *fact)
-{
-	return ORMChild(ORMChild(fact, CORE, @"DerivationRule"), CORE, @"FactTypeDerivationPath");
-}
-
-/* Whether the rule is NORMA's own, a role path, rather than only words. */
-static BOOL
-ORMHasRolePath(NSXMLElement *fact)
-{
-	NSXMLElement *path = ORMDerivationPathOf(fact);
-	return ORMChild(path, CORE, @"PathComponents") != nil || ORMChild(path, CORE, @"PathComponent") != nil
-		|| ORMChild(ORMChild(fact, CORE, @"DerivationRule"), CORE, @"DerivationExpression") != nil;
-}
-
-/* The fact type's rule, in words only, made where it has none: NORMA reads
- * the fact type as derived, and shows the words, which the normalizer
- * keeps as the query's verbalization. */
-static void
-ORMEnsureDerivationRule(NSXMLDocument *document, NSXMLElement *fact, NSString *text)
-{
-	NSXMLElement *rule = ORMChild(fact, CORE, @"DerivationRule");
-	if (rule == nil) {
-		rule = ORMNewElement(document, CORE, @"DerivationRule");
-		ORMInsertChild(fact, rule);
-	}
-	NSXMLElement *path = ORMChild(rule, CORE, @"FactTypeDerivationPath");
-	if (path == nil) {
-		path = ORMNewElementWithId(document, CORE, @"FactTypeDerivationPath", nil);
-		ORMAddChild(rule, path);
-	}
-	NSXMLElement *informal = ORMChild(path, CORE, @"InformalRule");
-	if (informal == nil) {
-		informal = ORMNewElement(document, CORE, @"InformalRule");
-		ORMAddChild(path, informal);
-	}
-	NSXMLElement *note = ORMChild(informal, CORE, @"DerivationNote");
-	if (note == nil) {
-		note = ORMNewElementWithId(document, CORE, @"DerivationNote", nil);
-		ORMAddChild(informal, note);
-		ORMSetChildText(document, note, CORE, @"Body", text);
-	}
-}
-
-/* The rule a derivation query wrote, gone with it; NORMA's own stays. */
-static void
-ORMRemoveDerivationRule(NSXMLElement *fact)
-{
-	if (fact != nil && !ORMHasRolePath(fact)) {
-		ORMDetach(ORMChild(fact, CORE, @"DerivationRule"));
-	}
-}
-
 static NSArray<NSString *> *
 ORMCalculationFunctionNames(void)
 {
@@ -1364,14 +1309,14 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	if (query == nil) {
 		return;
 	}
-	NSXMLElement *derived = [ORMAttribute(query, @"Kind") isEqualToString:@"Derivation"]
-		? [_editor xml:ORMAttribute(query, @"Of")] : nil;
-	[_editor change:@"Remove Query" with:^{
+	ORMFactType *derived = [ORMAttribute(query, @"Kind") isEqualToString:@"Derivation"]
+		? [_editor.model elementWithId:ORMAttribute(query, @"Of")] : nil;
+	[_editor modelChange:@"Remove Query" with:^{
 		NSXMLElement *container = (NSXMLElement *)[query parent];
 		ORMDetach(query);
 		ORMPruneIfEmpty(container);
 		/* What it derived is asserted again. */
-		ORMRemoveDerivationRule(derived);
+		[self->_editor.factTypeEditor removeQueryRuleOf:[derived isKindOfClass:[ORMFactType class]] ? derived : nil];
 	}];
 }
 
@@ -1407,9 +1352,9 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	}
 	NSArray *titles = @[ @"Make Query a List", @"Make Query a Constraint", @"Make Query a Calculation",
 		              @"Make Query a Derivation" ];
-	NSXMLElement *derived = [ORMAttribute(query, @"Kind") isEqualToString:@"Derivation"]
-		? [_editor xml:ORMAttribute(query, @"Of")] : nil;
-	[_editor change:[titles objectAtIndex:(NSUInteger)kind] with:^{
+	ORMFactType *derived = [ORMAttribute(query, @"Kind") isEqualToString:@"Derivation"]
+		? [_editor.model elementWithId:ORMAttribute(query, @"Of")] : nil;
+	[_editor modelChange:[titles objectAtIndex:(NSUInteger)kind] with:^{
 		ORMSetAttribute(query, @"Kind", name);
 		/* What only the kind it was had: a calculation's node and a
 		 * derivation's fact type are both Of. */
@@ -1419,7 +1364,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		ORMSetAttribute(query, @"Function", nil);
 		ORMSetAttribute(query, @"Of", nil);
 		/* No longer a derivation: the fact type is asserted again. */
-		ORMRemoveDerivationRule(derived);
+		[self->_editor.factTypeEditor removeQueryRuleOf:[derived isKindOfClass:[ORMFactType class]] ? derived : nil];
 	}];
 	return YES;
 }
@@ -1438,9 +1383,10 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		why = @"A derivation derives a fact type.";
 	} else if (other != nil && ![other.identifier isEqualToString:queryId]) {
 		why = [NSString stringWithFormat:@"%@ derives it already.", other.name];
-	} else if (ORMHasRolePath(fact.element)) {
+	} else if ([_editor.model.derivationRules objectForKey:fact.identifier].hasRolePath
+	           || [_editor.model.derivationRules objectForKey:fact.identifier].hasExpression) {
 		why = @"It has NORMA's own derivation rule.";
-	} else if (other == nil && ORMChild(fact.element, CORE, @"DerivationRule") != nil) {
+	} else if (other == nil && [_editor.model.derivationRules objectForKey:fact.identifier] != nil) {
 		/* A note of its own, which the query's words would replace. */
 		why = @"It has a derivation note of its own: clear it first.";
 	}
@@ -1453,12 +1399,12 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	if ([ORMAttribute(query, @"Of") isEqualToString:factTypeId]) {
 		return YES;
 	}
-	NSXMLElement *was = [_editor xml:ORMAttribute(query, @"Of")];
+	ORMFactType *was = [_editor.model elementWithId:ORMAttribute(query, @"Of")];
 	NSString *name = ORMAttribute(query, @"Name") ?: @"";
-	[_editor change:@"Set Derived Fact Type" with:^{
-		ORMRemoveDerivationRule(was);
+	[_editor modelChange:@"Set Derived Fact Type" with:^{
+		[self->_editor.factTypeEditor removeQueryRuleOf:[was isKindOfClass:[ORMFactType class]] ? was : nil];
 		ORMSetAttribute(query, @"Of", factTypeId);
-		ORMEnsureDerivationRule(self->_editor.document, fact.element, name);
+		[self->_editor.factTypeEditor setQueryRuleOf:fact words:name];
 	}];
 	return YES;
 }

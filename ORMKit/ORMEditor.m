@@ -2,6 +2,8 @@
 #import "ORMEditorPriv.h"
 #import "ORMPath.h"
 #import "ORMNormaWriter.h"
+#import "ORMQuery.h"
+#import "ORMVerbalizer.h"
 
 /* NORMA's role box: 0.16 by 0.11 inches, with 0.032 a side around them
  * inside a fact type shape. */
@@ -309,10 +311,8 @@ ORMFirstDifference(NSData *one, NSData *other)
 		}
 	} else {
 		/* Model changes wrote it as they went; a derivation rule's words
-		 * still come from its query. */
-		if ([_normalizer normalizeDerivations:_model]) {
-			_editedXML = YES;
-		}
+		 * come from its query. */
+		[self keepDerivationWords];
 		[self checkNormalized];
 	}
 	ORMCloseJournal(journal);
@@ -351,75 +351,112 @@ ORMFirstDifference(NSData *one, NSData *other)
 - (void)modelChange:(NSString *)name with:(void (^)(void))change
 {
 	[self apply:name rollback:NO editsXML:NO with:^BOOL {
-		/* The model as the steps before left it. */
-		ORMModel *model = self.model;
-		_wrote = [NSMutableArray array];
-		_deleted = [NSMutableArray array];
-		/* Each unary's reading as the change finds it: an implicit type is
-		 * named by its reading when that changes, its player renamed too. */
-		NSMutableDictionary *unaries = [NSMutableDictionary dictionary];
-		for (ORMFactType *fact in model.factTypes) {
-			NSString *reading = [self.factTypeEditor unaryReadingOf:fact];
-			if (reading != nil) {
-				[unaries setObject:reading forKey:fact.identifier];
-			}
-		}
-		change();
-		/* Shapes whose subject is gone go with it (the normalizer's rule). */
-		if (model.diagramsRead) {
-			for (ORMDiagram *diagram in model.diagrams) {
-				for (ORMShape *shape in [diagram allShapes]) {
-					if (shape.subjectId != nil && [model elementWithId:shape.subjectId] == nil
-					    && [model elementWithId:shape.identifier] == shape) {
-						[diagram removeShape:shape];
-						[self deleted:shape];
-					}
-				}
-			}
-		}
-		for (ORMFactType *fact in model.factTypes) {
-			NSString *was = [unaries objectForKey:fact.identifier];
-			if (was != nil) {
-				[self.factTypeEditor renameImplicitBooleanOf:fact was:was];
-			}
-		}
-		[model derive];
-		if ([self.constraintEditor keepImpliedMandatories]) {
-			[model derive];
-		}
-		ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
-		writer.gone = [NSSet setWithArray:[_deleted valueForKey:@"identifier"]];
-		writer.writesExpandedData = _normalizer.writesExpandedData;
-		for (ORMElement *element in _wrote) {
-			if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
-				[writer writeElement:element];
-			}
-		}
-		for (ORMElement *element in [self affectedBy:[_wrote arrayByAddingObjectsFromArray:_deleted]]) {
-			if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
-				[writer writeNormaDataOf:element];
-			}
-		}
-		for (ORMElement *element in _deleted) {
-			/* With the container it leaves empty (a population's Instances,
-			 * RoleInstances): NORMA writes none empty. */
-			NSXMLElement *container = (NSXMLElement *)[element.element parent];
-			ORMDetach(element.element);
-			if ([container isKindOfClass:[NSXMLElement class]]
-			    && [@[ @"Instances", @"RoleInstances" ] containsObject:[container localName] ?: @""]) {
-				BOOL empty = YES;
-				for (NSXMLNode *child in [container children]) {
-					empty = empty && [child kind] != NSXMLElementKind;
-				}
-				if (empty) {
-					ORMDetach(container);
-				}
-			}
-		}
-		[writer writeReferenceModes];
-		_wrote = nil;
-		_deleted = nil;
+		[self changeModel:change];
 		return YES;
+	}];
+}
+
+/* A change to the model's elements, and what follows from it: NORMA's
+ * rules kept, the model derived, what changed written. */
+- (void)changeModel:(void (^)(void))change
+{
+	/* The model as the steps before left it. */
+	ORMModel *model = self.model;
+	_wrote = [NSMutableArray array];
+	_deleted = [NSMutableArray array];
+	/* Each unary's reading as the change finds it: an implicit type is
+	 * named by its reading when that changes, its player renamed too. */
+	NSMutableDictionary *unaries = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in model.factTypes) {
+		NSString *reading = [self.factTypeEditor unaryReadingOf:fact];
+		if (reading != nil) {
+			[unaries setObject:reading forKey:fact.identifier];
+		}
+	}
+	change();
+	/* Shapes whose subject is gone go with it (the normalizer's rule). */
+	if (model.diagramsRead) {
+		for (ORMDiagram *diagram in model.diagrams) {
+			for (ORMShape *shape in [diagram allShapes]) {
+				if (shape.subjectId != nil && [model elementWithId:shape.subjectId] == nil
+				    && [model elementWithId:shape.identifier] == shape) {
+					[diagram removeShape:shape];
+					[self deleted:shape];
+				}
+			}
+		}
+	}
+	for (ORMFactType *fact in model.factTypes) {
+		NSString *was = [unaries objectForKey:fact.identifier];
+		if (was != nil) {
+			[self.factTypeEditor renameImplicitBooleanOf:fact was:was];
+		}
+	}
+	[model derive];
+	if ([self.constraintEditor keepImpliedMandatories]) {
+		[model derive];
+	}
+	ORMNormaWriter *writer = [[ORMNormaWriter alloc] initWithModel:model];
+	writer.gone = [NSSet setWithArray:[_deleted valueForKey:@"identifier"]];
+	writer.writesExpandedData = _normalizer.writesExpandedData;
+	for (ORMElement *element in _wrote) {
+		if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
+			[writer writeElement:element];
+		}
+	}
+	for (ORMElement *element in [self affectedBy:[_wrote arrayByAddingObjectsFromArray:_deleted]]) {
+		if ([_deleted indexOfObjectIdenticalTo:element] == NSNotFound) {
+			[writer writeNormaDataOf:element];
+		}
+	}
+	for (ORMElement *element in _deleted) {
+		/* With the container it leaves empty (a population's Instances,
+		 * RoleInstances): NORMA writes none empty. */
+		NSXMLElement *container = (NSXMLElement *)[element.element parent];
+		ORMDetach(element.element);
+		if ([container isKindOfClass:[NSXMLElement class]]
+		    && [@[ @"Instances", @"RoleInstances" ] containsObject:[container localName] ?: @""]) {
+			BOOL empty = YES;
+			for (NSXMLNode *child in [container children]) {
+				empty = empty && [child kind] != NSXMLElementKind;
+			}
+			if (empty) {
+				ORMDetach(container);
+			}
+		}
+	}
+	[writer writeReferenceModes];
+	_wrote = nil;
+	_deleted = nil;
+}
+
+/* A derivation query's fact type keeps the query's words as its rule's
+ * (docs/DERIVATION.md), where the rule has words: what NORMA shows. */
+- (void)keepDerivationWords
+{
+	ORMVerbalizer *verbalizer = nil;
+	NSMutableArray *changes = [NSMutableArray array];
+	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
+		ORMFactType *fact = query.kind == ORMQueryDerivation ? query.derivedFactType : nil;
+		ORMDerivationRule *rule = fact != nil ? [_model.derivationRules objectForKey:fact.identifier] : nil;
+		if (rule.noteId == nil) {
+			continue;
+		}
+		verbalizer = verbalizer ?: [[ORMVerbalizer alloc] initWithModel:_model];
+		NSString *text = [[ORMVerbalizer plainTextOfSentences:[verbalizer sentencesForQuery:query]]
+			stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+		if ([text length] > 0 && ![rule.informalText isEqualToString:text]) {
+			[changes addObject:@[ fact, rule, text ]];
+		}
+	}
+	if ([changes count] == 0) {
+		return;
+	}
+	[self changeModel:^{
+		for (NSArray *change in changes) {
+			[(ORMDerivationRule *)[change objectAtIndex:1] setInformalText:[change lastObject]];
+			[self wrote:[change firstObject]];
+		}
 	}];
 }
 

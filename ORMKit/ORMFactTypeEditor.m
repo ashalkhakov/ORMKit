@@ -237,35 +237,24 @@
 		}
 		return NO;
 	}
-	[_editor change:@"Set Derivation" with:^{
-		NSXMLElement *rule = ORMChild(fact.element, CORE, @"DerivationRule");
-		NSXMLElement *path = ORMChild(rule, CORE, @"FactTypeDerivationPath");
-		NSXMLElement *informal = ORMChild(path, CORE, @"InformalRule");
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:fact.identifier];
+	if ([text length] == 0 && (rule == nil || rule.pathId == nil)) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Derivation" with:^{
 		if ([text length] == 0) {
-			ORMDetach(informal);
-			if (path != nil && ORMChild(path, CORE, @"PathComponents") == nil && ORMChild(path, CORE, @"PathComponent") == nil) {
-				ORMDetach(rule);
+			/* Words only, the rule goes with them. */
+			if (!rule.hasRolePath) {
+				[_editor.model setDerivationRule:nil ofFactType:fact];
+			} else {
+				rule.informalText = nil;
 			}
-			return;
+		} else {
+			ORMDerivationRule *kept = [self ruleOf:fact];
+			kept.noteId = kept.noteId ?: ORMNewId();
+			kept.informalText = text;
 		}
-		if (rule == nil) {
-			rule = ORMNewElement(_editor.document, CORE, @"DerivationRule");
-			ORMInsertChild(fact.element, rule);
-		}
-		if (path == nil) {
-			path = ORMNewElementWithId(_editor.document, CORE, @"FactTypeDerivationPath", nil);
-			ORMAddChild(rule, path);
-		}
-		if (informal == nil) {
-			informal = ORMNewElement(_editor.document, CORE, @"InformalRule");
-			ORMAddChild(path, informal);
-		}
-		NSXMLElement *note = ORMChild(informal, CORE, @"DerivationNote");
-		if (note == nil) {
-			note = ORMNewElementWithId(_editor.document, CORE, @"DerivationNote", nil);
-			ORMAddChild(informal, note);
-		}
-		ORMSetChildText(_editor.document, note, CORE, @"Body", text);
+		[_editor wrote:fact];
 	}];
 	return YES;
 }
@@ -274,26 +263,60 @@
 - (BOOL)setDerivationPartial:(BOOL)partial stored:(BOOL)stored of:(NSString *)factTypeId reason:(NSString **)reason
 {
 	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
-	NSXMLElement *path = [fact isKindOfClass:[ORMFactType class]]
-		? ORMChild(ORMChild(fact.element, CORE, @"DerivationRule"), CORE, @"FactTypeDerivationPath") : nil;
-	if (path == nil) {
+	ORMDerivationRule *rule = [fact isKindOfClass:[ORMFactType class]]
+		? [_editor.model.derivationRules objectForKey:fact.identifier] : nil;
+	if (rule.pathId == nil) {
 		if (reason != NULL) {
 			*reason = fact.isDerived ? @"Its rule is an older one, which says this itself." : @"It is not derived.";
 		}
 		return NO;
 	}
-	/* NORMA leaves out its defaults: fully derived, not stored. */
-	NSString *completeness = partial ? @"PartiallyDerived" : nil;
-	NSString *storage = stored ? @"Stored" : nil;
-	if ([ORMAttribute(path, @"DerivationCompleteness") ?: @"" isEqualToString:completeness ?: @""]
-	    && [ORMAttribute(path, @"DerivationStorage") ?: @"" isEqualToString:storage ?: @""]) {
+	if (rule.isPartial == partial && rule.isStored == stored) {
 		return YES;
 	}
-	[_editor change:@"Set Derivation" with:^{
-		ORMSetAttribute(path, @"DerivationCompleteness", completeness);
-		ORMSetAttribute(path, @"DerivationStorage", storage);
+	[_editor modelChange:@"Set Derivation" with:^{
+		rule.isPartial = partial;
+		rule.isStored = stored;
+		[_editor wrote:fact];
 	}];
 	return YES;
+}
+
+/* The fact type's rule, made with a path (and so derived) where it has
+ * none; one without a path gets one. */
+- (ORMDerivationRule *)ruleOf:(ORMFactType *)fact
+{
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:fact.identifier];
+	if (rule == nil) {
+		rule = [[ORMDerivationRule alloc] initWithModel:_editor.model];
+		rule.identifier = nil;
+		rule.paths = @[];
+		rule.calculations = @[];
+		rule.conditions = @[];
+		rule.projections = @{};
+	}
+	rule.pathId = rule.pathId ?: ORMNewId();
+	[_editor.model setDerivationRule:rule ofFactType:fact];
+	return rule;
+}
+
+- (void)setQueryRuleOf:(ORMFactType *)fact words:(NSString *)text
+{
+	ORMDerivationRule *rule = [self ruleOf:fact];
+	if (rule.noteId == nil) {
+		rule.noteId = ORMNewId();
+		rule.informalText = text;
+	}
+	[_editor wrote:fact];
+}
+
+- (void)removeQueryRuleOf:(ORMFactType *)fact
+{
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:fact.identifier];
+	if (fact != nil && rule != nil && !rule.hasRolePath && !rule.hasExpression) {
+		[_editor.model setDerivationRule:nil ofFactType:fact];
+		[_editor wrote:fact];
+	}
 }
 
 #pragma mark Objectification
