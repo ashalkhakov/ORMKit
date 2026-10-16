@@ -623,11 +623,10 @@ ORMNamesOf(ORMObjectType *player)
 {
 	NSMutableArray *readings = [NSMutableArray array];
 	for (ORMFactType *fact in _model.factTypes) {
-		if (fact.kind == ORMFactTypeSubtype && [fact.roles count] == 2) {
-			ORMRole *sub = [fact.roles objectAtIndex:0];
-			ORMRole *sup = [fact.roles objectAtIndex:1];
-			[readings addObject:@[ fact, @"{0} is {1}", @[ sub, sup ] ]];
-			[readings addObject:@[ fact, @"{0} is {1}", @[ sup, sub ] ]];
+		if ([fact subtypeReadingRolesFrom:nil] != nil) {
+			for (ORMRole *role in fact.roles) {
+				[readings addObject:@[ fact, ORMSubtypeReadingText, [fact subtypeReadingRolesFrom:role] ]];
+			}
 			continue;
 		}
 		/* An objectification's link fact types read too ("...is involved

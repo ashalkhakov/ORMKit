@@ -82,8 +82,7 @@
 - (NSString *)displayText
 {
 	if (self.value != nil) {
-		BOOL quotes = self.objectType.dataType.family == ORMDataTypeText
-			|| self.objectType.dataType.family == ORMDataTypeUnspecified || self.objectType.dataType == nil;
+		BOOL quotes = self.objectType.dataType == nil || [self.objectType.dataType quotesValues];
 		NSScanner *scanner = [NSScanner scannerWithString:self.value];
 		double number;
 		if ([scanner scanDouble:&number] && [scanner isAtEnd]) {

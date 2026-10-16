@@ -286,10 +286,9 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
  * else its primary reading. Subtype facts read "{sub} is {super}". */
 - (ORMReadingUse *)readingOf:(ORMFactType *)fact from:(ORMRole *)role
 {
-	if (fact.kind == ORMFactTypeSubtype && [fact.roles count] == 2) {
-		ORMRole *sub = [fact.roles objectAtIndex:0];
-		ORMRole *sup = [fact.roles objectAtIndex:1];
-		ORMReadingUse *use = [self use:@"{0} is {1}" roles:role == sup ? @[ sup, sub ] : @[ sub, sup ]];
+	NSArray *subtyping = [fact subtypeReadingRolesFrom:role];
+	if (subtyping != nil) {
+		ORMReadingUse *use = [self use:ORMSubtypeReadingText roles:subtyping];
 		use.isSubtype = YES;
 		return use;
 	}
@@ -495,7 +494,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		[b keyword:@"The default value of "];
 		[b objectType:type.name id:type.identifier];
 		[b keyword:@" is "];
-		[b value:ORMQuoted([type defaultValue], type.valueConstraint == nil || [type.valueConstraint quotesValues])];
+		[b value:ORMQuoted([type defaultValue], type.dataType == nil || [type.dataType quotesValues])];
 		[self emit:b kind:ORMVerbalInformation];
 	}
 	ORMCardinality *cardinality = [type cardinality];

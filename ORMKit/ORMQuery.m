@@ -3,7 +3,6 @@
 #import "ORMEditorPriv.h"
 #import "ORMXML.h"
 #import "ORMModelPriv.h"
-#import <objc/runtime.h>
 
 #define Q ORMQueryNamespace
 
@@ -13,9 +12,10 @@ ORMQueryComparisons(void)
 	return @[ @"=", @"<>", @"<", @"<=", @">", @">=" ];
 }
 
-/* The text with each {n} given by the block: nil leaves it as it is. */
+/* The text with each {n} replaced by the nth replacement; one past them,
+ * or NSNull, leaves it as it is. */
 static NSString *
-ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
+ORMRewritePlaceholders(NSString *text, NSArray *replacements)
 {
 	NSMutableString *out = [NSMutableString string];
 	NSScanner *scanner = [NSScanner scannerWithString:text ?: @""];
@@ -32,8 +32,9 @@ ORMRewritePlaceholders(NSString *text, NSString * (^replace)(NSUInteger index))
 		NSInteger index = 0;
 		[scanner setScanLocation:at + 1];
 		if ([scanner scanInteger:&index] && [scanner scanString:@"}" intoString:NULL] && index >= 0) {
-			NSString *replacement = replace((NSUInteger)index);
-			[out appendString:replacement ?: [text substringWithRange:NSMakeRange(at, [scanner scanLocation] - at)]];
+			id replacement = (NSUInteger)index < [replacements count] ? [replacements objectAtIndex:(NSUInteger)index] : nil;
+			[out appendString:[replacement isKindOfClass:[NSString class]]
+			                      ? replacement : [text substringWithRange:NSMakeRange(at, [scanner scanLocation] - at)]];
 		} else {
 			[out appendString:@"{"];
 			[scanner setScanLocation:at + 1];
@@ -436,7 +437,7 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 - (BOOL)isNumeric
 {
 	ORMObjectType *type = [self.objectType valueType];
-	return type.dataType.family == ORMDataTypeNumeric;
+	return [type.dataType isNumeric];
 }
 
 - (NSString *)designation
@@ -1274,28 +1275,31 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 
 + (NSString *)readingFrom:(ORMRole *)entry nodeRoles:(NSArray<ORMRole *> *)nodeRoles
 {
-	NSString * (^place)(ORMRole *) = ^NSString *(ORMRole *role) {
-		if (role == entry) {
-			return @"{0}";
-		}
-		NSUInteger index = [nodeRoles indexOfObjectIdenticalTo:role];
-		return index != NSNotFound ? [NSString stringWithFormat:@"{%lu}", (unsigned long)index + 1] : @"";
-	};
-	if (entry.factType.kind == ORMFactTypeSubtype) {
-		return @"is {1}";
+	/* A subtype fact type reads as the model reads it, from the entry. */
+	NSArray *roles = [entry.factType subtypeReadingRolesFrom:entry];
+	NSString *text = roles != nil ? ORMSubtypeReadingText : nil;
+	BOOL fromEntry = roles != nil;
+	if (roles == nil) {
+		ORMReadingOrder *start = [entry.factType readingOrderStartingWithRole:entry];
+		ORMReadingOrder *chosen = [(ORMReading *)[start.readings firstObject] readsFromFirstRole] ? start : nil;
+		ORMReadingOrder *order = chosen ?: [entry.factType.readingOrders firstObject];
+		text = [[order.readings firstObject] text];
+		roles = order.roles;
+		fromEntry = chosen != nil;
 	}
-	ORMReadingOrder *start = [entry.factType readingOrderStartingWithRole:entry];
-	ORMReadingOrder *chosen = [(ORMReading *)[start.readings firstObject] readsFromFirstRole] ? start : nil;
-	ORMReadingOrder *order = chosen ?: [entry.factType.readingOrders firstObject];
-	NSString *text = [[order.readings firstObject] text];
 	if (text == nil) {
 		return @"";
 	}
-	NSString *rewritten = ORMRewritePlaceholders(text, ^NSString *(NSUInteger index) {
-		return index < [order.roles count] ? place([order.roles objectAtIndex:index]) : nil;
-	});
+	/* The entry is {0}, the nodes {1} on. */
+	NSMutableArray *places = [NSMutableArray array];
+	for (ORMRole *role in roles) {
+		NSUInteger index = [nodeRoles indexOfObjectIdenticalTo:role];
+		[places addObject:role == entry ? @"{0}"
+		                  : index != NSNotFound ? [NSString stringWithFormat:@"{%lu}", (unsigned long)index + 1] : @""];
+	}
+	NSString *rewritten = ORMRewritePlaceholders(text, places);
 	/* Read from the entry role: the node above is the subject. */
-	if (chosen != nil && [rewritten hasPrefix:@"{0}"]) {
+	if (fromEntry && [rewritten hasPrefix:@"{0}"]) {
 		rewritten = [[rewritten substringFromIndex:3]
 			stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
 	}
@@ -1378,12 +1382,11 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	NSString *pad = [@"" stringByPaddingToLength:indent * 2 withString:@" " startingAtIndex:0];
 	BOOL first = YES;
 	for (ORMQueryStep *step in node.steps) {
-		NSString *reading = ORMRewritePlaceholders([ORMQuery readingOfStep:step], ^NSString *(NSUInteger index) {
-			if (index == 0) {
-				return [NSString stringWithFormat:@"that %@", node.objectType.name];
-			}
-			return index <= [step.nodes count] ? [self nodeText:[step.nodes objectAtIndex:index - 1]] : nil;
-		});
+		NSMutableArray *places = [NSMutableArray arrayWithObject:[NSString stringWithFormat:@"that %@", node.objectType.name]];
+		for (ORMQueryNode *each in step.nodes) {
+			[places addObject:[self nodeText:each]];
+		}
+		NSString *reading = ORMRewritePlaceholders([ORMQuery readingOfStep:step], places);
 		NSString *operator = step.operatorKind == ORMQueryNot ? @"not " : step.operatorKind == ORMQueryMaybe ? @"maybe "
 		                                                                                                       : @"";
 		[out appendFormat:@"%@+ %@%@%@\n", pad, node.combinesWithOr && !first ? @"or " : @"", operator, reading];
@@ -1434,14 +1437,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	if ([columns count] == 0) {
 		[columns addObject:[variables objectForKey:self.root.identifier]];
 	}
-	ORMRelation *relation = [ORMRelation relationWithFormula:formula columns:columns];
-	objc_setAssociatedObject(relation, @selector(variablesOfRelation:), variables, OBJC_ASSOCIATION_RETAIN);
-	return relation;
-}
-
-- (NSDictionary<NSString *, ORMVariable *> *)variablesOfRelation:(ORMRelation *)relation
-{
-	return objc_getAssociatedObject(relation, @selector(variablesOfRelation:));
+	return [ORMRelation relationWithFormula:formula columns:columns variables:variables];
 }
 
 - (ORMFormula *)conditionOf:(ORMQueryNode *)node variables:(NSDictionary *)variables
@@ -1996,7 +1992,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	ORMObjectType *type = node != nil ? [self typeOfQueryNode:node] : nil;
 	ORMObjectType *valued = [type valueType];
 	if ((aggregate == ORMQueryTotal || aggregate == ORMQueryAverage) && type != nil
-	    && valued.dataType.family != ORMDataTypeNumeric) {
+	    && ![valued.dataType isNumeric]) {
 		if (reason != NULL) {
 			*reason = [NSString stringWithFormat:@"A total or an average is of numbers; %@ is not one.", type.name];
 		}

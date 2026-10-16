@@ -727,7 +727,7 @@ ORMValueAllowed(NSString *value, ORMValueConstraint *constraint, BOOL numeric)
 		if (constraint == nil || [type isEntity]) {
 			continue;
 		}
-		BOOL numeric = type.dataType.family == ORMDataTypeNumeric;
+		BOOL numeric = [type.dataType isNumeric];
 		for (ORMInstance *instance in [type instances]) {
 			if (instance.value != nil && !ORMValueAllowed(instance.value, constraint, numeric)) {
 				[self violate:nil fact:nil
@@ -742,7 +742,7 @@ ORMValueAllowed(NSString *value, ORMValueConstraint *constraint, BOOL numeric)
 			if (constraint == nil) {
 				continue;
 			}
-			BOOL numeric = constraint.valueType.dataType.family == ORMDataTypeNumeric;
+			BOOL numeric = [constraint.valueType.dataType isNumeric];
 			for (NSDictionary *each in [self factsOf:fact]) {
 				NSString *value = [_values objectForKey:[each objectForKey:role.identifier] ?: @""];
 				if (value != nil && !ORMValueAllowed(value, constraint, numeric)) {

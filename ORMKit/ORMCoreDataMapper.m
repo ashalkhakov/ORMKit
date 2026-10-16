@@ -364,7 +364,7 @@ ORMReservedNames(void)
 - (BOOL)isIdentifierOnly:(ORMObjectType *)type
 {
 	if (type.referenceModeValueType == nil || type.nestedFactType != nil || type.isIndependent
-	    || [type.subtypes count] > 0 || [type.supertypes count] > 0) {
+	    || [type isInSubtypeHierarchy]) {
 		return NO;
 	}
 	/* A generated identifier (an auto counter, a row id) is made where
@@ -425,8 +425,7 @@ ORMReservedNames(void)
 - (BOOL)isCompositeValue:(ORMObjectType *)type
 {
 	NSArray *identifying = [self compositeIdentificationOf:type];
-	if (identifying == nil || type.nestedFactType != nil || type.isIndependent || [type.subtypes count] > 0
-	    || [type.supertypes count] > 0) {
+	if (identifying == nil || type.nestedFactType != nil || type.isIndependent || [type isInSubtypeHierarchy]) {
 		return NO;
 	}
 	NSMutableSet *identifyingFacts = [NSMutableSet set];
@@ -466,7 +465,7 @@ ORMReservedNames(void)
 - (ORMRole *)foldRoleOf:(ORMObjectType *)type
 {
 	ORMFactType *fact = type.nestedFactType;
-	if (fact == nil || type.isIndependent || [type.subtypes count] > 0 || [type.supertypes count] > 0) {
+	if (fact == nil || type.isIndependent || [type isInSubtypeHierarchy]) {
 		return nil;
 	}
 	NSArray *roles = [fact visibleRoles];
@@ -507,7 +506,7 @@ ORMReservedNames(void)
 	 * others' functional binary fact types. A thing with an id or a code
 	 * (UnitOfMeasure(.Id)) stays an entity even with nothing else to say. */
 	if (type.referenceModeKind != ORMReferenceModeUnitBased || type.nestedFactType != nil || type.isIndependent
-	    || [type.subtypes count] > 0 || [type.supertypes count] > 0) {
+	    || [type isInSubtypeHierarchy]) {
 		return ORMMapAsEntity;
 	}
 	NSUInteger uses = 0;
@@ -724,7 +723,7 @@ ORMReservedNames(void)
 - (NSArray<ORMJoinMember *> *)membersOf:(ORMObjectType *)type
 {
 	if ([self.mapping mappingOfObjectType:type.identifier] != ORMMapJoined || !type.isEntity
-	    || [type.supertypes count] > 0 || [type.subtypes count] > 0) {
+	    || [type isInSubtypeHierarchy]) {
 		return nil;
 	}
 	NSArray *members = [self.mapping.joins objectForKey:type.identifier];
@@ -1083,7 +1082,6 @@ ORMRegexEscape(NSString *value)
 		if (entity == nil || ![entity.source isEqualToString:type.identifier] || type.referenceModeValueType == nil) {
 			continue;
 		}
-		ORMFactType *fact = type.referenceModeFactType;
 		ORMRole *valueRole = type.referenceModeRole;
 		ORMRole *ownRole = [valueRole oppositeRole];
 		NSString *base = type.referenceModeKind == ORMReferenceModePopular

@@ -201,11 +201,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 - (NSArray<ORMQueryNode *> *)projectedNodes;
 /* ConQuer's outline, as above. */
 - (NSString *)outlineText;
-/* The query as a relation: its formula over a variable for each node, its
- * columns the ticked nodes', in outline order. */
+/* The query as a relation: its formula over a variable for each node (its
+ * variables, by node id), its columns the ticked nodes', in outline order. */
 - (ORMRelation *)relation;
-/* The variable of each node in -relation, by node id. */
-- (NSDictionary<NSString *, ORMVariable *> *)variablesOfRelation:(ORMRelation *)relation;
 /* ConQuer's names for them: "count", "total", "avg", "max", "min". */
 + (NSString *)nameOfAggregate:(ORMQueryAggregate)aggregate;
 /* What a step reads as from the node above: "was awarded {1} in {2}",

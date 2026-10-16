@@ -323,7 +323,7 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	if ((type.kind == ORMValueType) == value) {
 		return YES;
 	}
-	if (value && (type.preferredIdentifier != nil || [type.subtypes count] > 0 || [type.supertypes count] > 0)) {
+	if (value && (type.preferredIdentifier != nil || [type isInSubtypeHierarchy])) {
 		if (reason != NULL) {
 			*reason = @"An entity type with an identifier or subtypes cannot become a value type; remove them first.";
 		}

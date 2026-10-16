@@ -279,6 +279,11 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	return [[names array] sortedArrayUsingFunction:ORMLongerFirst context:NULL];
 }
 
+- (BOOL)isInSubtypeHierarchy
+{
+	return [self.supertypes count] > 0 || [self.subtypes count] > 0;
+}
+
 - (BOOL)isCompatibleWith:(ORMObjectType *)other
 {
 	return other != nil && (other == self || [self isSubtypeOf:other] || [other isSubtypeOf:self]);
@@ -359,6 +364,8 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 @end
 
 #pragma mark Fact types
+
+NSString *const ORMSubtypeReadingText = @"{0} is {1}";
 
 /* By where each is in the list given. */
 static NSInteger
@@ -505,6 +512,16 @@ ORMByPlace(id a, id b, void *list)
 - (NSUInteger)arity
 {
 	return [[self visibleRoles] count];
+}
+
+- (NSArray<ORMRole *> *)subtypeReadingRolesFrom:(ORMRole *)role
+{
+	if (self.kind != ORMFactTypeSubtype || [self.roles count] != 2) {
+		return nil;
+	}
+	ORMRole *sub = [self.roles objectAtIndex:0];
+	ORMRole *sup = [self.roles objectAtIndex:1];
+	return role == sup ? @[ sup, sub ] : @[ sub, sup ];
 }
 
 - (NSString *)unaryReading
@@ -937,6 +954,17 @@ ORMCapitalizedWords(NSString *text)
 	}
 }
 
+- (ORMFactType *)factType
+{
+	ORMFactType *fact = [[self.roles firstObject] factType];
+	for (ORMRole *role in self.roles) {
+		if (role.factType != fact) {
+			return nil;
+		}
+	}
+	return fact;
+}
+
 - (void)setRoles:(NSArray<ORMRole *> *)roles useIds:(NSArray<NSString *> *)useIds
 {
 	_roles = [roles copy];
@@ -1199,14 +1227,7 @@ ORMQuoteValue(NSString *value, BOOL quotes)
 
 - (BOOL)quotesValues
 {
-	switch (self.valueType.dataType.family) {
-	case ORMDataTypeNumeric:
-	case ORMDataTypeTemporal:
-	case ORMDataTypeLogical:
-		return NO;
-	default:
-		return YES;
-	}
+	return self.valueType.dataType == nil || [self.valueType.dataType quotesValues];
 }
 
 - (NSString *)displayText
@@ -1287,6 +1308,23 @@ ORMDataTypeTable(void)
 - (NSString *)displayName
 {
 	return [ORMDataType displayNameOfTypeNamed:self.typeName];
+}
+
+- (BOOL)isNumeric
+{
+	return self.family == ORMDataTypeNumeric;
+}
+
+- (BOOL)quotesValues
+{
+	switch (self.family) {
+	case ORMDataTypeNumeric:
+	case ORMDataTypeTemporal:
+	case ORMDataTypeLogical:
+		return NO;
+	default:
+		return YES;
+	}
 }
 
 - (ORMDataTypeFamily)family
