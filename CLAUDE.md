@@ -10,18 +10,27 @@ queries; [docs/CURSORS.md](docs/CURSORS.md) how a plan is read, as a tree of cur
 [docs/DERIVATION.md](docs/DERIVATION.md) derived fact types, and keeping stored ones up to date;
 [docs/RUNTIME.md](docs/RUNTIME.md) what apps run: plans as tables in resources, read by a small
 driver library, with generated code kept to declarations;
-[docs/POPULATIONS.md](docs/POPULATIONS.md) the sample populations they run on.
+[docs/POPULATIONS.md](docs/POPULATIONS.md) the sample populations they run on;
+[docs/MODEL.md](docs/MODEL.md) the model as objects, and the XML as NORMA's.
 
-## The XML document is the model
+## The objects are the model; the XML is for NORMA
 
-Never regenerate a `.orm` from objects. `ORMModel` is a read-only
-projection rebuilt after each change; every change goes through `ORMEditor`,
-which also keeps up NORMA's denormalized data. Two invariants hold and are
-tested: an unchanged NORMA file is written back byte for byte, and
-normalizing one changes nothing. A change to `-[ORMNormalizer normalize]` that
-breaks the second is a change to what NORMA would write: check it against
-the files in `ORMKitTests/Fixtures` (StockMate is NORMA's own;
-PreventiveMaintenance was written by another tool and is not authoritative).
+`ORMModel` and its elements are the model: every change goes through
+`ORMEditor` and its editors, which change the objects and record the undo.
+The `.orm` XML is NORMA interop: read once when a file is opened, and
+written from the model when it is saved, into the document read (the
+carrier), so that what ORMKit does not model survives. Nothing else reads
+or writes the XML; apps built from a model use neither
+([docs/MODEL.md](docs/MODEL.md), moving there step by step: until then
+operations not yet moved edit the XML and the model is read again).
+
+Two invariants hold and are tested: an unchanged NORMA file is written back
+byte for byte, and one read and written again with every element written
+from the model is the same bytes. A change to what the writer (today
+`-[ORMNormalizer normalize]`) writes is a change to what NORMA would write:
+check it against the files in `ORMKitTests/Fixtures` (StockMate is NORMA's
+own; PreventiveMaintenance was written by another tool and is not
+authoritative).
 
 ORMKit is Foundation only; CI rejects AppKit in it.
 

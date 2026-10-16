@@ -29,20 +29,20 @@ The other documents:
 - [WINDOW.md](WINDOW.md): the designer's document window;
 - [VERBALIZATION.md](VERBALIZATION.md): the FORML templates.
 
-## The XML document is the model
+## The model, and NORMA's XML
 
-A `.orm` file is parsed into an `NSXMLDocument` and stays one. Nothing
-regenerates it: an edit changes the nodes it touches and leaves the rest,
-which is how a model goes back to NORMA with everything NORMA keeps beside it
-(its relational bridges, name generators, join paths, extension data) and
-how an unchanged file is written back byte for byte (`ORMXML` writes NORMA's
-layout: BOM, CRLF, tabs, `" />"`).
+The model is objects: `ORMModel` and its object types, fact types, roles,
+readings, constraints, value constraints, data types, notes, diagrams and
+shapes, edited through `ORMEditor`. The `.orm` XML is how NORMA keeps it:
+read once into the objects, and written from them on saving, into the
+document read, so that what NORMA keeps beside the model (its relational
+bridges, name generators, join paths, extension data) goes back with it,
+and an unchanged file is written back byte for byte (`ORMXML` writes
+NORMA's layout: BOM, CRLF, tabs, `" />"`). [MODEL.md](MODEL.md) has the
+design, and the steps that bring ORMKit there.
 
-`ORMModel` is a read-only projection of the document into objects (object
-types, fact types, roles, readings, constraints, value constraints, data
-types, notes, diagrams and shapes), rebuilt after every change. Its objects
-hold the element they were read from; their links to one another are weak
-and the model holds them all.
+Until those are done, the operations not yet moved edit the XML, and the
+model is read again from it afterwards: what follows describes that.
 
 `ORMEditor` is the editing session over one document: every change goes
 through it, as one undoable step (undo restores a snapshot of the document).

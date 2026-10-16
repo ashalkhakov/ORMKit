@@ -1,0 +1,110 @@
+# The model first: objects edited, XML for NORMA
+
+Until now the `.orm` XML document was the model. Every change edited the
+XML, and `ORMModel` was a read-only projection of it, rebuilt after each
+change. Each top-level edit did three passes over the whole model:
+- a copy of the whole document, kept for undo;
+- the normalizer, which built a projection of its own to keep NORMA's
+  denormalized data up;
+- the rebuilt projection.
+
+So every edit cost the size of the model, and a run of edits was
+quadratic: an import from Core Data, the query tests' setUp, the Fact
+Editor's sentences. The projection's objects also lost their identity on
+each change, and their weak links went nil under callers that held one
+across an edit.
+
+Now the objects are the model. Editors change them, and undo restores them.
+The XML is what NORMA reads and writes: it is read once when a file is
+opened, and written when it is saved. ORMKit's own data (queries, Core Data
+mappings) is saved in the same file, as now. Apps built from a model never
+see either ([RUNTIME.md](RUNTIME.md)).
+
+## What stays
+
+- **An unchanged NORMA file is written back byte for byte.**
+- **NORMA reads what ORMKit writes.** Everything NORMA keeps that ORMKit
+  does not model (the relational and abstraction bridges, name generators,
+  extension data, model errors) survives, as it does now.
+- **Normalizing a NORMA file changes nothing.** This becomes: a NORMA file
+  read and written again, every element written from the model, is the
+  same bytes.
+- **Every change goes through an editor**, as one undoable step that
+  refuses with a reason in words.
+
+## The parts
+
+- **`ORMModel` and its elements**, made mutable inside ORMKit. Read-only
+  properties outside ORMKit, as now; the editors set them through a
+  private interface. The model holds its elements; links up and across
+  are weak, as now, but the model lives as long as the document, so they
+  stay valid. Each element keeps its identifier for ever. A derived value
+  cached on an element (`familyNames`, `words`) is cleared when what it is
+  made of changes.
+- **The NORMA reader** (`ORMNormaReader`): the XML into a model, what
+  `-[ORMModel readDocument:]` does now. Each element remembers the XML
+  element it came from. The document is kept as the **carrier**: what
+  ORMKit does not model is found there when writing.
+- **The NORMA writer** (`ORMNormaWriter`): the model into the carrier. For
+  each element changed, made or deleted since the last write, it updates,
+  inserts or detaches its XML element. It then writes the denormalized
+  data NORMA keeps beside the model, from the model rather than from a
+  second projection: played roles, internal constraints, `_IsMandatory`,
+  `_Multiplicity`, `_Name`, `_ReferenceMode`, expanded readings, implied
+  mandatories. That is what `ORMNormalizer` does now, with what it reads
+  turned around. An unchanged model writes nothing, so the file is the same
+  bytes.
+- **Change tracking.** An element set through the private interface is
+  marked changed. The model keeps the elements made, changed and deleted
+  since the last write, for the writer.
+- **Undo.** Each editor operation records what it changed: an element's
+  values before, an element made, an element deleted with where it was.
+  Undo puts those back, and redo does them again. An operation touches a
+  few elements, so neither the step nor its undo costs the size of the
+  model. Groups (`group:with:`, `group:trying:`) collect their steps' records
+  into one, and roll back by undoing them.
+- **ORMKit's own data** (queries, Core Data mappings, sample populations,
+  diagrams' shapes) is model too. Its objects are edited the same way and
+  written to their namespaces by the writer. `ORMQuery`, which today reads
+  and edits XML directly, gets a query model of its own.
+
+## The checks
+
+- **Byte for byte**: every NORMA fixture read and written unchanged gives
+  the same bytes (as now).
+- **Full rewrite**: every fixture read, every element marked changed, and
+  written, gives the same bytes. This proves the writer says everything
+  the model holds as NORMA does, not merely that it writes nothing.
+- **Agreement**: during the migration, after every edit in every test, the
+  model is compared with one read afresh from the written XML. They must
+  agree element for element. This catches a change the writer does not
+  carry, or one the editor makes to the XML and not to the model.
+- **Undo**: in the editor tests, every operation undone gives a model, and
+  its written XML, equal to before it.
+
+## Steps
+
+Each step keeps every test passing.
+
+1. **The writer, and the full-rewrite check.** `ORMNormaWriter` writes each
+   kind of element from the model. Every fixture rewrites to the same
+   bytes. Nothing uses it yet.
+2. **A model that lasts, with change tracking and undo records.** The
+   editor keeps one model. An operation not yet moved over still edits the
+   XML: the model is first written to the carrier, and the model read
+   again after the operation, as now. The agreement check runs in tests.
+3. **The editors, one domain at a time**: object types, fact types and
+   readings, constraints, element names and deletion, diagrams and shapes,
+   populations, Core Data mappings, queries. Each operation changes the
+   model and records its undo. Saving writes through the writer.
+4. **The normalizer goes**, its rules now the writer's.
+5. **The XML leaves the rest of ORMKit.** `ORMElement.element` becomes the
+   writer's private business. Code that reads XML outside the reader and the
+   writer moves to the model (the audit of such places is in the PR).
+6. **Measure**: the Core Data import round trip, the query tests' setUp, the
+   Fact Editor.
+
+## Not here
+
+- Concurrent editing, and saving while editing.
+- An undo history kept across documents being closed and opened again.
