@@ -136,12 +136,16 @@ Each step keeps every test passing.
    diagrams and shapes. A document built by all of them is the same
    bytes as the XML editors wrote; the agreement check runs on each.
 
-   Core Data mappings are edited in the document still, but the model
-   does not read them, so they leave it as it is
-   (`-documentChange:with:`). Still edited in the XML, and read again
-   after: sample populations, queries, derivation rules and join paths,
-   all ORMKit's own data or ORMPath's, which need model classes first
-   (role instances, for populations; a query model, for queries).
+   Sample populations are model too: role instances are elements of
+   their own on their roles, and what instances and facts come to is
+   derived; adding, renaming and removing change the model. Core Data
+   mappings and queries are edited in the document still, but the model
+   does not read them, so they leave it as it is (`-documentChange:with:`);
+   the normalizer says when it rewrote what the model reads from them (a
+   derivation rule's words), and the model is read again then. Still
+   edited in the XML, and read again after: derivation rules and join
+   paths (ORMPath's, which needs a writer of its own), from queries, the
+   fact type editor and the join path builder.
 
    The Core Data import round trip takes 6.6 s on macOS, from 16.3: it
    reads the model once.
