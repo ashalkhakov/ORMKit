@@ -150,10 +150,18 @@ Each step keeps every test passing.
    The Core Data import round trip takes 6.6 s on macOS, from 16.3: it
    reads the model once.
 
-   Undo still restores the document as it was, and the model is read
-   again: the normalizer still edits the XML after each operation. Undo
-   records replace that when the normalizer goes (step 4).
-4. **The normalizer goes**, its rules now the writer's.
+4. **The normalizer goes**, its rules now the writer's (done, but for
+   the XML edits left). After a model change the writer writes what NORMA
+   keeps beside the model for the elements touched and those they affect
+   (`-[ORMEditor affectedBy:]`, `-[ORMNormaWriter writeNormaDataOf:]`);
+   the normalizer runs only after XML edits, and in tests after model
+   changes as a check that it finds nothing to do. Undo no longer copies
+   the document: a journal (`ORMXMLJournal`) keeps each element a change
+   touches as it was, every edit of the document going through ORMXML's
+   journaled helpers, and in tests an undone or redone change gives back
+   the document's bytes exactly. Undo reads the model again: it is not
+   the path an edit takes. A single edit of OrmMetaModel (163 object
+   types) takes 1.9 ms on macOS, from 30.
 5. **The XML leaves the rest of ORMKit.** `ORMElement.element` becomes the
    writer's private business. Code that reads XML outside the reader and the
    writer moves to the model (the audit of such places is in the PR).
