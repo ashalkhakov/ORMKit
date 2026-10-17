@@ -64,12 +64,12 @@
 {
 	ORMEditor *editor = [self fleet];
 	XCTAssertEqualObjects([self outlinesOf:ORMSubsetConstraint in:editor],
-	                      (@[ @"It is impossible that:\n✓User\n  + Trip had driver that User\n    + is of Vehicle1\n"
-	                          @"  + not drives Vehicle1\n" ]));
+	                      (@[ @"It is impossible that:\n✓Trip\n  + is of Vehicle1\n  + had driver User\n"
+	                          @"    + not drives Vehicle1\n" ]));
 	XCTAssertEqualObjects([self outlinesOf:ORMExclusionConstraint in:editor],
 	                      (@[ @"It is impossible that:\n✓User1\n  + owns Vehicle\n    + User1 drives that Vehicle\n" ]));
 	XCTAssertEqualObjects([self outlinesOf:ORMValueComparisonConstraint in:editor],
-	                      (@[ @"It is impossible that:\n✓Trip\n  + started at Moment1 > Moment2\n  + ended at Moment2\n" ]));
+	                      (@[ @"It is impossible that:\n✓Trip\n  + started at Moment1\n  + ended at Moment2 < Moment1\n" ]));
 	NSString *reason = nil;
 	ORMConstraint *inclusiveOr = nil;
 	for (ORMConstraint *constraint in editor.model.constraints) {
@@ -112,7 +112,7 @@
 		}
 	}
 	XCTAssertEqual([ofSubset count], (NSUInteger)1, @"%@", [violations valueForKey:@"text"]);
-	XCTAssertTrue([[ofSubset firstObject] hasSuffix:@"User 2."], @"%@", ofSubset);
+	XCTAssertEqualObjects([ofSubset firstObject], @"SubsetConstraint1: Trip 100.");
 	XCTAssertFalse([[checker unchecked] containsObject:@"SubsetConstraint1: a sequence over more than one fact type is not checked."]);
 }
 

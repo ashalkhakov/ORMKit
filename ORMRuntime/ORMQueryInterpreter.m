@@ -654,7 +654,8 @@ ORMBagKey(ORMPlanValue *value)
 		/* The entity itself, not its name: a SQLite store asks its entity
 		 * column, in a SUBQUERY too, and cannot follow entity.name. */
 		NSString *entity = [path isEqualToString:@"SELF"] ? @"entity" : [path stringByAppendingString:@".entity"];
-		[arguments addObject:entities];
+		/* Said, the entities by name. */
+		[arguments addObject:[self describing] ? names : entities];
 		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %%@", entity] arguments:arguments inStore:YES];
 	}
 	case ORMPlanSame: {

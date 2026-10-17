@@ -160,11 +160,18 @@ If some Trip had driver some User and that Trip is of some Vehicle then
 that User drives that Vehicle.
 
 It is impossible that:
-✓User
-  + Trip had driver that User
-    + is of Vehicle1
-  + not drives Vehicle1
+✓Trip
+  + had driver User1
+  + is of Vehicle
+    + not User1 drives that Vehicle
 ```
+
+It reads from what the first sequence's facts are about (the trip), so
+that each column is a step from it, and says what must not be from the
+column nested deepest, where the others are in scope: one fetch,
+`driver != nil AND NOT (SUBQUERY(vehicle.vehicleDrivers, $x1, $x1.user ==
+driver).@count > 0)`. A label met again across a to-many would be one
+among many, which says less.
 
 A subset is its first sequence's facts and not its second's, an equality a
 subset each way, an exclusion two sequences' facts at once, an inclusive-or

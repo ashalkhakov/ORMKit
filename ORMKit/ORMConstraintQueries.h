@@ -13,10 +13,14 @@
  * is the rule
  *
  *   It is impossible that:
- *   ✓User1
- *     + Event had driver that User
- *       + is of Vehicle1
- *     + not drives Vehicle1
+ *   ✓Event
+ *     + had driver User1
+ *     + is of Vehicle
+ *       + not User1 drives that Vehicle
+ *
+ * It reads from what the first sequence is about (the Event), so that each
+ * column is a step away, and says what must not be from the column nested
+ * deepest, in the others' scope.
  *
  * - a subset: its first sequence's facts, and not its second's, their
  *   columns the same objects;

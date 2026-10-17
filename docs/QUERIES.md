@@ -74,7 +74,8 @@ comparison with the first: `x1.city is city`.
 ```
 read Employee
 where city is set and country is set
-  and some employees as x1 has (x1.city is city and not (x1.country is country)
+  and some employees as x1 has (x1.city is city and x1.country is set
+                                and not (x1.country is country)
                                 and x1.employeeName is set)
   and employeeName is set
 list self (nr), x1 (nr), x1.employeeName, employeeName
@@ -85,7 +86,8 @@ is one fetch; a plan can take several:
 
 ```
 fetch Employee where (city != nil) AND (country != nil)
-  AND (SUBQUERY(employees, $x1, ($x1.city == city) AND (NOT ($x1.country == country))
+  AND (SUBQUERY(employees, $x1, ($x1.city == city) AND ($x1.country != nil)
+                                AND (NOT ($x1.country == country))
                                 AND ($x1.employeeName != nil)).@count > 0)
   AND (employeeName != nil)
 ```
@@ -94,7 +96,8 @@ fetch Employee where (city != nil) AND (country != nil)
 
 ```
 GET Employees?$filter=City ne null and Country ne null
-  and Employees/any(x1:x1/City/Id eq $it/City/Id and not (x1/Country/Name eq $it/Country/Name)
+  and Employees/any(x1:x1/City/Id eq $it/City/Id and x1/Country ne null
+                    and not (x1/Country/Name eq $it/Country/Name)
                     and x1/EmployeeName ne null) and EmployeeName ne null
   &$select=Nr,EmployeeName&$expand=Employees($select=Nr,EmployeeName)
 ```
@@ -316,7 +319,7 @@ Its text (`-[ORMQueryPlan text]`):
 | a label met again, in scope | `x1.city is city` |
 | a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read, and meeting the conditions the earlier occurrence had: `x2 is among ownsCars and x2.regnr = 'B'` |
 | a label on an absorbed object type, met again | its parts compared: `x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and ...` |
-| a node compared with another | `not (x1.country is country)` |
+| a node compared with another | `not (x1.country is country)`, beside `x1.country is set`: a condition that holds of nothing (a not) does not say the step is taken |
 | a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname` |
 | a step through an absorbed object type to an entity that absorbs it too | `... in join1`, a set the plan defines: `let join1 = read Branch where nr = 52` (below) |
 | the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier; one identified by several values by those, in its reference scheme's order, as a list in the row: `x1.degree (degreecode, university.code)` gives `BSc, UQ` |

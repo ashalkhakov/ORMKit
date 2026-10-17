@@ -5,6 +5,7 @@
 #import "ORMDeriver.h"
 #import "ORMPath.h"
 #import "ORMConstraintQueries.h"
+#import "ORMCoreDataMapper.h"
 #import "ORMXML.h"
 #import <CoreData/CoreData.h>
 
@@ -349,6 +350,16 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	if ([_asRules count] > 0) {
 		ORMEditor *scratch = [[ORMEditor alloc] initWithDocument:ORMCopyDocument(_model.document) undoManager:nil];
 		ORMConstraintQueries *builder = [[ORMConstraintQueries alloc] initWithEditor:scratch];
+		/* Read from what has an entity of its own in the store. */
+		NSMutableSet *readable = [NSMutableSet set];
+		ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:_model
+		                                                          mapping:[_model.coreDataMappings firstObject]] map];
+		for (ORMCDEntity *entity in coreData.entities) {
+			if (entity.source != nil) {
+				[readable addObject:entity.source];
+			}
+		}
+		builder.readable = readable;
 		for (ORMConstraint *constraint in _asRules) {
 			NSString *why = nil;
 			NSArray *made = [builder queriesFor:[scratch.model elementWithId:constraint.identifier] reason:&why];

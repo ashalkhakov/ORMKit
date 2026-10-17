@@ -86,6 +86,45 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 	return [parts count] == 0 ? nil : ([parts count] == 1 ? [parts firstObject] : [ORMPlanCondition any:parts]);
 }
 
+/* Whether the condition holds of nothing: a not, and what is made of nots.
+ * Through a to-one that is not set, it would hold, though the step is
+ * not taken. */
+static BOOL
+ORMHoldsOfNothing(ORMPlanCondition *condition)
+{
+	switch (condition.kind) {
+	case ORMPlanNot:
+		return YES;
+	case ORMPlanAnd:
+		for (ORMPlanCondition *operand in condition.operands) {
+			if (!ORMHoldsOfNothing(operand)) {
+				return NO;
+			}
+		}
+		return YES;
+	case ORMPlanOr:
+		for (ORMPlanCondition *operand in condition.operands) {
+			if (ORMHoldsOfNothing(operand)) {
+				return YES;
+			}
+		}
+		return NO;
+	default:
+		return NO;
+	}
+}
+
+/* A to-one step taken, with what is said beyond it: set, where that alone
+ * would not say so. */
+static ORMPlanCondition *
+ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
+{
+	if (beyond == nil) {
+		return [ORMPlanCondition notNull:path];
+	}
+	return ORMHoldsOfNothing(beyond) ? ORMAllOf(@[ [ORMPlanCondition notNull:path], beyond ]) : beyond;
+}
+
 @implementation ORMQueryPlanner
 {
 	ORMQueryPlaces *_places;
@@ -884,8 +923,9 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		if (step != nil && step.countComparison != nil && ![self tallies:step]) {
 			[self note:[NSString stringWithFormat:@"%@ is one at most: it is not counted.", node.objectType.name]];
 		}
-		/* Through nothing, no condition holds: the condition says it is set. */
-		return [self conditionFor:node entity:destination at:reached columns:columns] ?: [ORMPlanCondition notNull:reached.path];
+		/* Through nothing, no condition holds: the condition says it is set,
+		 * or it is said beside one that holds of nothing (a not). */
+		return ORMThrough(reached.path, [self conditionFor:node entity:destination at:reached columns:columns]);
 	}
 	NSString *variable = [self nextVariable];
 	[_scope addObject:variable];
@@ -950,7 +990,7 @@ ORMAnyOf(NSArray<ORMPlanCondition *> *parts)
 		return [ORMPlanCondition maybe:reached.path variable:variable where:body];
 	}
 	if (variable == nil) {
-		return body ?: [ORMPlanCondition notNull:reached.path];
+		return ORMThrough(reached.path, body);
 	}
 	ORMQueryNode *start = nil;
 	ORMCDProperty *firstHop = nil;

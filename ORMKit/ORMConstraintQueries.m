@@ -22,6 +22,12 @@
 @property (nonatomic, strong) NSMutableDictionary<NSString *, ORMObjectType *> *types;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *nodes;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *labels;
+/* How many steps below the root each variable's first node is. */
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *depths;
+/* The facts on the way to where what must not be is said from: taken
+ * last at each node, so that every label it meets is defined before it,
+ * in outline order, as the planner reads labels. */
+@property (nonatomic, strong) NSSet<NSNumber *> *toAttach;
 @property (nonatomic, copy) NSString *queryId;
 @end
 
@@ -118,6 +124,9 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 {
 	ORMRelation *relation = [ORMLogic relationForSequence:sequence];
 	NSMutableArray<ORMFormula *> *facts = [NSMutableArray array];
+	if (relation.isIncomplete && [sequence joinPath] == nil) {
+		return [self addBinaries:sequence columns:columns negated:negated draft:draft];
+	}
 	if (relation == nil || relation.isIncomplete || !ORMCollectFacts(relation.formula, facts)) {
 		return nil;
 	}
@@ -183,6 +192,42 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 		[draft.atoms addObject:atom];
 	}
 	return columnKeys;
+}
+
+/* A sequence of roles in binaries with no join path, whose other roles'
+ * players are one object type or a subtype of another (a Trip's end, an
+ * Event's start): one object, of the most specific of them, plays each
+ * other role. The keys of its columns; nil where it is not so. */
+- (NSArray<NSString *> *)addBinaries:(ORMRoleSequence *)sequence
+                             columns:(NSArray<NSString *> *)columns
+                             negated:(BOOL)negated
+                               draft:(ORMRuleDraft *)draft
+{
+	ORMObjectType *common = nil;
+	for (ORMRole *role in sequence.roles) {
+		ORMObjectType *other = [role oppositeRole].player;
+		if (![role.factType isBinary] || other == nil || (common != nil && ![other isCompatibleWith:common])) {
+			return nil;
+		}
+		common = common == nil || [other isSubtypeOf:common] ? other : common;
+	}
+	NSString *object = [NSString stringWithFormat:@"v%lu", (unsigned long)++_variableCount];
+	[self note:common as:object in:draft];
+	NSMutableArray *keys = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [sequence.roles count]; i++) {
+		ORMRole *role = [sequence.roles objectAtIndex:i];
+		NSString *key = i < [columns count] ? [columns objectAtIndex:i]
+		                                    : [NSString stringWithFormat:@"v%lu", (unsigned long)++_variableCount];
+		[self note:role.player as:key in:draft];
+		[keys addObject:key];
+		ORMRuleAtom *atom = [[ORMRuleAtom alloc] init];
+		atom.factType = role.factType;
+		atom.negated = negated;
+		atom.variables = @{ role.identifier: key, [role oppositeRole].identifier: object };
+		atom.constants = @{};
+		[draft.atoms addObject:atom];
+	}
+	return keys;
 }
 
 /* The variable's type: the most specific it is met as. */
@@ -253,7 +298,12 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
           reason:(NSString **)reason
 {
 	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:_editor];
-	for (ORMRuleAtom *atom in draft.atoms) {
+	NSMutableArray *order = [NSMutableArray array];
+	NSMutableArray *later = [NSMutableArray array];
+	for (NSUInteger a = 0; a < [draft.atoms count]; a++) {
+		[[draft.toAttach containsObject:@(a)] ? later : order addObject:[draft.atoms objectAtIndex:a]];
+	}
+	for (ORMRuleAtom *atom in [order arrayByAddingObjectsFromArray:later]) {
 		if (atom.used || atom.negated != negated) {
 			continue;
 		}
@@ -289,6 +339,9 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 				continue;
 			}
 			BOOL seen = [draft.nodes objectForKey:variable] != nil;
+			if (!seen) {
+				[draft.depths setObject:@([[draft.depths objectForKey:key] unsignedIntegerValue] + 1) forKey:variable];
+			}
 			/* A subtype's variable at its supertype's role: down to it. */
 			ORMObjectType *type = [draft.types objectForKey:variable];
 			for (ORMFactType *fact in ORMSubtypePath(node.objectType, type) ?: @[]) {
@@ -318,6 +371,7 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
  * under not from the root. Its id; nil where it cannot be made so. */
 - (NSString *)queryNamed:(NSString *)name
                     root:(NSString *)root
+                  attach:(NSString *)attach
                    draft:(ORMRuleDraft *)draft
                  deontic:(BOOL)deontic
                   reason:(NSString **)reason
@@ -330,11 +384,17 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 	}
 	NSString *rootNode = [self queryOf:draft].root.identifier;
 	[draft.nodes setObject:rootNode forKey:root];
+	[draft.depths setObject:@0 forKey:root];
 	[queries setProjected:YES ofNode:rootNode];
 	if (![queries setKind:ORMQueryConstraint ofQuery:draft.queryId reason:reason]
 	    || (deontic && ![queries setDeontic:YES ofQuery:draft.queryId reason:reason])
-	    || ![self stepFrom:rootNode variable:root negated:NO first:YES draft:draft reason:reason]
-	    || ![self stepFrom:rootNode variable:root negated:YES first:YES draft:draft reason:reason]) {
+	    || ![self stepFrom:rootNode variable:root negated:NO first:YES draft:draft reason:reason]) {
+		return nil;
+	}
+	/* What must not be, from the column chosen (ORMScopes), in the scope
+	 * of the others. */
+	if (attach != nil && ![self stepFrom:[draft.nodes objectForKey:attach] variable:attach negated:YES first:YES
+	                                draft:draft reason:reason]) {
 		return nil;
 	}
 	for (ORMRuleAtom *atom in draft.atoms) {
@@ -347,28 +407,139 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 	return draft.queryId;
 }
 
-/* The variable to read from: a column under not only through one fact,
- * so that one not step holds them; else the first entity's column. */
+- (BOOL)readable:(ORMObjectType *)type
+{
+	return type.isEntity && (_readable == nil || [_readable containsObject:type.identifier ?: @""]);
+}
+
+/* The variable to read from: what the first sequence's facts are about
+ * that is no column (a fill-up, of its vehicle and its fuel), so that each
+ * column is a step away from it, not among many; else a column. One with
+ * an entity of its own. */
 - (NSString *)rootOf:(ORMRuleDraft *)draft columns:(NSArray<NSString *> *)columns
 {
-	BOOL negated = NO;
 	for (ORMRuleAtom *atom in draft.atoms) {
-		negated = negated || atom.negated;
-	}
-	NSString *fallback = nil;
-	for (NSString *key in columns) {
-		NSUInteger under = 0;
-		for (ORMRuleAtom *atom in draft.atoms) {
-			under += atom.negated && [[atom.variables allValues] containsObject:key] ? 1 : 0;
+		for (NSString *key in [[atom.variables allValues] sortedArrayUsingSelector:@selector(compare:)]) {
+			if (!atom.negated && ![columns containsObject:key] && [self readable:[draft.types objectForKey:key]]) {
+				return key;
+			}
 		}
-		ORMObjectType *type = [draft.types objectForKey:key];
-		BOOL readable = _readable == nil || [_readable containsObject:type.identifier ?: @""];
-		if (readable && (negated ? under == 1 : type.isEntity)) {
+	}
+	for (NSString *key in columns) {
+		if ([self readable:[draft.types objectForKey:key]]) {
 			return key;
 		}
-		fallback = fallback ?: (negated || !readable ? nil : key);
 	}
-	return fallback;
+	return nil;
+}
+
+#pragma mark Scopes
+
+/* The steps from the root to each variable, as the query would take them
+ * (the facts in order, each new variable stepped on from): each step
+ * "atom:role", ending "*" where it is to many, which opens a scope. */
+- (NSDictionary<NSString *, NSArray<NSString *> *> *)pathsFrom:(NSString *)root draft:(ORMRuleDraft *)draft
+{
+	NSMutableDictionary *paths = [NSMutableDictionary dictionaryWithObject:@[] forKey:root];
+	NSMutableSet *used = [NSMutableSet set];
+	NSMutableArray *pending = [NSMutableArray arrayWithObject:root];
+	while ([pending count] > 0) {
+		NSString *key = [pending objectAtIndex:0];
+		[pending removeObjectAtIndex:0];
+		for (NSUInteger a = 0; a < [draft.atoms count]; a++) {
+			ORMRuleAtom *atom = [draft.atoms objectAtIndex:a];
+			if (atom.negated || [used containsObject:@(a)]) {
+				continue;
+			}
+			NSString *entry = nil;
+			for (NSString *roleId in atom.variables) {
+				entry = entry ?: ([[atom.variables objectForKey:roleId] isEqualToString:key] ? roleId : nil);
+			}
+			if (entry == nil) {
+				continue;
+			}
+			[used addObject:@(a)];
+			/* One of the others for each: the entry role unique, in a binary. */
+			ORMRole *role = [_editor.model elementWithId:entry];
+			BOOL toOne = [atom.factType isBinary] && role.isAlethicUnique;
+			NSString *step = [NSString stringWithFormat:@"%lu:%@%@", (unsigned long)a, entry, toOne ? @"" : @"*"];
+			for (NSString *roleId in atom.variables) {
+				NSString *other = [atom.variables objectForKey:roleId];
+				if (![roleId isEqualToString:entry] && [paths objectForKey:other] == nil) {
+					[paths setObject:[[paths objectForKey:key] arrayByAddingObject:step] forKey:other];
+					[pending addObject:other];
+				}
+			}
+		}
+	}
+	return paths;
+}
+
+/* The path up to its last step to many: the scope its end is in. */
+static NSArray<NSString *> *
+ORMScopeOf(NSArray<NSString *> *path)
+{
+	NSUInteger end = 0;
+	for (NSUInteger i = 0; i < [path count]; i++) {
+		end = [[path objectAtIndex:i] hasSuffix:@"*"] ? i + 1 : end;
+	}
+	return [path subarrayWithRange:NSMakeRange(0, end)];
+}
+
+static BOOL
+ORMStartsWith(NSArray *path, NSArray *prefix)
+{
+	return [prefix count] <= [path count] && [[path subarrayWithRange:NSMakeRange(0, [prefix count])] isEqualToArray:prefix];
+}
+
+/* For what must not be: a root, and the column to say it from, where each
+ * other column is in that column's scope, the same object there and not
+ * one among many. What the first sequence is about first (a fill-up, of
+ * its vehicle and fuel), then the columns; from each, the deepest column
+ * that will do. nil where none will. */
+- (NSString *)rootOf:(ORMRuleDraft *)draft columns:(NSArray<NSString *> *)columns attach:(NSString **)attach
+{
+	NSMutableOrderedSet *candidates = [NSMutableOrderedSet orderedSet];
+	for (ORMRuleAtom *atom in draft.atoms) {
+		for (NSString *key in [[atom.variables allValues] sortedArrayUsingSelector:@selector(compare:)]) {
+			if (!atom.negated && ![columns containsObject:key]) {
+				[candidates addObject:key];
+			}
+		}
+	}
+	[candidates addObjectsFromArray:columns];
+	for (NSString *root in candidates) {
+		if (![self readable:[draft.types objectForKey:root]]) {
+			continue;
+		}
+		NSDictionary *paths = [self pathsFrom:root draft:draft];
+		NSString *best = nil;
+		for (NSString *key in columns) {
+			NSArray *path = [paths objectForKey:key];
+			NSUInteger under = 0;
+			for (ORMRuleAtom *atom in draft.atoms) {
+				under += atom.negated && [[atom.variables allValues] containsObject:key] ? 1 : 0;
+			}
+			BOOL inScope = path != nil && under == 1 && [self readable:[draft.types objectForKey:key]];
+			for (NSString *other in columns) {
+				NSArray *otherPath = [paths objectForKey:other];
+				inScope = inScope && otherPath != nil && ORMStartsWith(path, ORMScopeOf(otherPath));
+			}
+			if (inScope && (best == nil || [path count] > [[paths objectForKey:best] count])) {
+				best = key;
+			}
+		}
+		if (best != nil) {
+			*attach = best;
+			NSMutableSet *toAttach = [NSMutableSet set];
+			for (NSString *step in [paths objectForKey:best]) {
+				[toAttach addObject:@([step integerValue])];
+			}
+			draft.toAttach = toAttach;
+			return root;
+		}
+	}
+	return nil;
 }
 
 - (ORMRuleDraft *)newDraft
@@ -378,6 +549,7 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 	draft.types = [NSMutableDictionary dictionary];
 	draft.nodes = [NSMutableDictionary dictionary];
 	draft.labels = [NSMutableDictionary dictionary];
+	draft.depths = [NSMutableDictionary dictionary];
 	return draft;
 }
 
@@ -398,12 +570,13 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 		*reason = @"a sequence is not its facts alone";
 		return nil;
 	}
-	NSString *root = [self rootOf:draft columns:columns];
+	NSString *attach = nil;
+	NSString *root = negated ? [self rootOf:draft columns:columns attach:&attach] : [self rootOf:draft columns:columns];
 	if (root == nil) {
-		*reason = @"no column reaches the second sequence's facts by one of them";
+		*reason = negated ? @"no way through its facts has its columns in one scope" : @"no column has an entity of its own";
 		return nil;
 	}
-	return [self queryNamed:name root:root draft:draft deontic:deontic reason:reason];
+	return [self queryNamed:name root:root attach:attach draft:draft deontic:deontic reason:reason];
 }
 
 /* The two values and what they are of, compared the way that breaks it. */
@@ -424,7 +597,8 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 			root = root ?: ([columns containsObject:key] ? nil : key);
 		}
 	}
-	NSString *made = [self queryNamed:constraint.name ?: @"Comparison" root:root ?: [columns firstObject] draft:draft
+	NSString *made = [self queryNamed:constraint.name ?: @"Comparison" root:root ?: [columns firstObject] attach:nil
+	                            draft:draft
 	                          deontic:constraint.modality == ORMDeontic
 	                           reason:reason];
 	if (made == nil) {
@@ -439,8 +613,11 @@ ORMStandIn(NSMapTable *same, ORMVariable *variable)
 			[queries setLabel:label ofNode:[draft.nodes objectForKey:key]];
 		}
 	}
-	if (![queries setCondition:broken toNode:[draft.nodes objectForKey:[columns lastObject]]
-	                    ofNode:[draft.nodes objectForKey:[columns firstObject]] reason:reason]) {
+	/* Said on the second value, which the query reaches after the first:
+	 * "Date2 < Date1" for "Date1 > Date2". */
+	NSDictionary *turned = @{ @"<": @">", @">": @"<", @"<=": @">=", @">=": @"<=", @"=": @"=", @"<>": @"<>" };
+	if (![queries setCondition:[turned objectForKey:broken] toNode:[draft.nodes objectForKey:[columns firstObject]]
+	                    ofNode:[draft.nodes objectForKey:[columns lastObject]] reason:reason]) {
 		return nil;
 	}
 	return made;

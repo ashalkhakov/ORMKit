@@ -662,15 +662,15 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	 * a key path in the subquery is the fetched object's. */
 	XCTAssertEqualObjects([[self plan:q] text], @"read Employee\n"
 	                                              @"where city is set and country is set and some employees as x1 has "
-	                                              @"(x1.city is city and not (x1.country is country))\n"
+	                                              @"(x1.city is city and x1.country is set and not (x1.country is country))\n"
 	                                              @"list self (nr)");
 	/* In the lambda, the supervisor is $it; a city, a surrogate's, by its key. */
 	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=City ne null and Country ne null and "
-	                                                   @"Employees/any(x1:x1/City/Id eq $it/City/Id and not "
+	                                                   @"Employees/any(x1:x1/City/Id eq $it/City/Id and x1/Country ne null and not "
 	                                                   @"(x1/Country/Name eq $it/Country/Name))&$select=Nr");
 	XCTAssertEqualObjects([self program:q], @"fetch Employee where (city != nil) AND (country != nil) AND "
-	                                        @"(SUBQUERY(employees, $x1, ($x1.city == city) AND (NOT ($x1.country == "
-	                                        @"country))).@count > 0)\n"
+	                                        @"(SUBQUERY(employees, $x1, ($x1.city == city) AND ($x1.country != nil) AND "
+	                                        @"(NOT ($x1.country == country))).@count > 0)\n"
 	                                        @"sorted by nr; each batch after the last one's");
 }
 
@@ -1760,7 +1760,8 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	XCTAssertEqualObjects([plan text], @"read Employee\n"
 	                                   @"where cityCityname is set and country is set and some employees as x1 has "
 	                                   @"(x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and "
-	                                   @"x1.cityStateStatecode = cityStateStatecode and not (x1.country is country))\n"
+	                                   @"x1.cityStateStatecode = cityStateStatecode and x1.country is set and "
+	                                   @"not (x1.country is country))\n"
 	                                   @"list self (nr)");
 	/* The paper's company, its cities absorbed: Bea's employee Fay lives in
 	 * Sydney too, born elsewhere; Ann's Gus in Perth, not Brisbane. */
