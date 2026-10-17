@@ -61,6 +61,9 @@
 				[(ORMElement *)element setName:trimmed];
 			}
 			[_editor wrote:element];
+			if ([element isKindOfClass:[ORMRole class]]) {
+				[_editor.diagramEditor showNameOfRole:element];
+			}
 		}];
 		return YES;
 	}

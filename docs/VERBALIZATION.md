@@ -149,7 +149,10 @@ a statement a line, with lines that go on from the one before: "# Name"
 starts a diagram, "Reference Mode:" and "Portable data type:" are of the
 object type just named, and a line starting `*`, `**`, `+` or `++` is the
 derivation rule of the fact type just made, in the marks of the table
-above.
+above. A role is named as CQL names it, after its player: "Vehicle was
+acquired on Date (as PurchaseDate)"; a named role is shown on the diagram
+above its box, as NORMA shows it, and its name is what Core Data calls its
+attribute or relationship.
 The tests read back every statement the verbalizer makes of the NORMA
 models in `Fixtures` without joins, some 1,700, as the constraint it came
 from; and of the twenty over join paths, eighteen made again from their

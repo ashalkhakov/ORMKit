@@ -149,6 +149,17 @@ ORMSaidWithoutJoins(id element)
 	return YES;
 }
 
+/* The role names shown on a fact type's shape. */
+static NSUInteger
+ORMRoleNameShapes(ORMShape *factShape)
+{
+	NSUInteger count = 0;
+	for (ORMShape *child in factShape.relativeShapes) {
+		count += child.kind == ORMShapeRoleName ? 1 : 0;
+	}
+	return count;
+}
+
 @implementation ORMConstraintSentenceTests
 
 /* Every statement the verbalizer makes of a constraint it can read
@@ -484,6 +495,39 @@ ORMSaidWithoutJoins(id element)
 	/* One step to undo. */
 	[self.undoManager undo];
 	XCTAssertNil([editor.model objectTypeNamed:@"Amount"]);
+}
+
+/* A role named as CQL names it: shown on the diagram as NORMA shows it,
+ * and the attribute Core Data gets is called so. */
+- (void)testARoleNamedInASentence
+{
+	ORMEditor *editor = [self editorWith:@[ @"Vehicle(.id) was acquired on Date() (as PurchaseDate)",
+	                                        @"Each Vehicle was acquired on at most one Date." ]];
+	ORMModel *model = editor.model;
+	ORMFactType *acquired = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] text] isEqualToString:@"{0} was acquired on {1}"]) {
+			acquired = fact;
+		}
+	}
+	XCTAssertNotNil(acquired);
+	ORMRole *date = [[acquired visibleRoles] lastObject];
+	XCTAssertEqualObjects(date.name, @"PurchaseDate");
+	ORMDiagram *diagram = [model.diagrams firstObject];
+	ORMShape *factShape = [diagram shapeForSubject:acquired.identifier];
+	XCTAssertEqual(ORMRoleNameShapes(factShape), (NSUInteger)1);
+	ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:model mapping:nil] map];
+	NSMutableArray *names = [NSMutableArray array];
+	for (ORMCDEntity *entity in coreData.entities) {
+		if ([entity.name isEqualToString:@"Vehicle"]) {
+			[names addObjectsFromArray:[entity.attributes valueForKey:@"name"]];
+		}
+	}
+	XCTAssertTrue([names containsObject:@"purchaseDate"], @"%@", names);
+	/* Its name taken away, so is its shape. */
+	XCTAssertTrue([editor.elementEditor rename:date.identifier to:@"" reason:NULL]);
+	factShape = [[editor.model.diagrams firstObject] shapeForSubject:acquired.identifier];
+	XCTAssertEqual(ORMRoleNameShapes(factShape), (NSUInteger)0);
 }
 
 - (void)testWhatIsNotUnderstoodSaysWhy

@@ -78,6 +78,10 @@ NSArray<NSString *> *ORMImpliedMandatoryRolesOf(ORMObjectType *type);
 /* Takes the shapes off their diagrams, inside a model change, with the
  * shapes placed on them. */
 - (void)removeShapes:(NSArray<ORMShape *> *)shapes;
+/* Inside a model change: the role's name shown on each fact type shape
+ * of its fact type, above its box, as NORMA shows it; taken off when the
+ * role has no name. */
+- (void)showNameOfRole:(ORMRole *)role;
 @end
 
 /* Builders the editors share: each changes the model, inside a model change. */

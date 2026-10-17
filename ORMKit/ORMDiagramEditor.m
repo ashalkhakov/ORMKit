@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMEditorPriv.h"
+#import "ORMDiagramPainter.h"
 #import <float.h>
 #import <math.h>
 #import <stdlib.h>
@@ -55,6 +56,43 @@ static const double ORMSpacing = 0.5 * 72.0;
 	[diagram addShape:shape];
 	[_editor wrote:shape];
 	return shape;
+}
+
+/* NORMA's role name shape: a point above the role's box. */
+static const double ORMRoleNameSize = 0.05 * 72.0;
+static const double ORMRoleNameRise = 0.17 * 72.0;
+
+- (void)showNameOfRole:(ORMRole *)role onShape:(ORMShape *)factShape
+{
+	ORMShape *shown = nil;
+	for (ORMShape *child in factShape.relativeShapes) {
+		if (child.kind == ORMShapeRoleName && child.subject == role) {
+			shown = child;
+		}
+	}
+	if ([role.name length] == 0) {
+		if (shown != nil) {
+			[self removeShapes:@[ shown ]];
+		}
+		return;
+	}
+	if (shown == nil) {
+		NSRect box = ORMRoleBox(factShape, role);
+		NSRect bounds = NSMakeRect(NSMinX(box) + 0.25 * NSWidth(box), NSMinY(box) - ORMRoleNameRise, ORMRoleNameSize,
+		                           ORMRoleNameSize);
+		[self addShape:ORMShapeRoleName of:role bounds:bounds parent:factShape on:factShape.diagram];
+	}
+}
+
+- (void)showNameOfRole:(ORMRole *)role
+{
+	for (ORMDiagram *diagram in _editor.model.diagrams) {
+		for (ORMShape *shape in [diagram allShapes]) {
+			if (shape.kind == ORMShapeFactType && shape.subject == role.factType) {
+				[self showNameOfRole:role onShape:shape];
+			}
+		}
+	}
 }
 
 - (ORMDiagram *)diagramWithId:(NSString *)diagramId
@@ -254,6 +292,9 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 				NSRect readingBounds = NSMakeRect(NSMinX(bounds), NSMaxY(bounds) + ORMReadingGap,
 				                                  MAX(0.2, 0.05 * [text length]) * 72.0, ORMReadingShapeHeight);
 				[self addShape:ORMShapeReading of:order bounds:readingBounds parent:shape on:diagram];
+			}
+			for (ORMRole *role in fact.roles) {
+				[self showNameOfRole:role onShape:shape];
 			}
 		}
 		created = shape.identifier;
