@@ -489,6 +489,15 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	if (type.valueConstraint != nil) {
 		[self verbalizeValues:type.valueConstraint of:type role:nil];
 	}
+	if ([valueType.valuePattern length] > 0) {
+		/* "The possible values of VIN match the pattern '[A-HJ-NPR-Z0-9]{17}'." */
+		b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"The possible values of "];
+		[b objectType:type.name id:type.identifier];
+		[b keyword:@" match the pattern "];
+		[b value:[NSString stringWithFormat:@"'%@'", valueType.valuePattern]];
+		[self emit:b];
+	}
 	if ([[type defaultValue] length] > 0) {
 		b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"The default value of "];

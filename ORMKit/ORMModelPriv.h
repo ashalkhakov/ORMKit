@@ -43,6 +43,7 @@
 @property (nonatomic, readwrite, weak) ORMDataType *dataType;
 @property (nonatomic, readwrite) NSInteger dataTypeLength;
 @property (nonatomic, readwrite) NSInteger dataTypeScale;
+@property (nonatomic, readwrite, copy) NSString *valuePattern;
 /* What the file says, as against what is derived: its own value
  * constraint (valueConstraint is an entity type's reference mode's too),
  * and NORMA's _ReferenceMode, which settles how a value type's name reads. */

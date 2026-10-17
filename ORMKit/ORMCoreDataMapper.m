@@ -986,6 +986,18 @@ ORMRegexEscape(NSString *value)
 	return out;
 }
 
+/* The value type's pattern, matched whole: with a list of values beside
+ * it, both must hold, the pattern as a lookahead. */
+- (void)constrain:(ORMCDAttribute *)attribute byPattern:(NSString *)pattern
+{
+	if ([pattern length] == 0 || ![attribute.attributeType isEqualToString:@"String"]) {
+		return;
+	}
+	attribute.regularExpression = attribute.regularExpression != nil
+		? [NSString stringWithFormat:@"^(?=(?:%@)$)%@", pattern, [attribute.regularExpression substringFromIndex:1]]
+		: [NSString stringWithFormat:@"^(?:%@)$", pattern];
+}
+
 /* The value constraint's bounds, as Core Data can hold them. */
 - (void)constrain:(ORMCDAttribute *)attribute by:(ORMValueConstraint *)constraint element:(NSString *)elementId
 {
@@ -1078,6 +1090,7 @@ ORMRegexEscape(NSString *value)
 		attribute.maxValue = [NSString stringWithFormat:@"%ld", (long)valueType.dataTypeLength];
 	}
 	[self constrain:attribute by:roleConstraint ?: valueType.valueConstraint element:valueType.identifier];
+	[self constrain:attribute byPattern:valueType.valuePattern];
 	return attribute;
 }
 

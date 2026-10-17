@@ -30,6 +30,7 @@
  *   Enrolment is where Student enrolled in Course.
  *   This association with Amount and Currency provides the preferred
  *     identification scheme for Money.
+ *   The possible values of VIN match the pattern '[A-HJ-NPR-Z0-9]{17}'.
  *
  * What it names that the model lacks is made as an entity type. An object
  * type the model has already is not made again: its id. nil, with no
@@ -51,6 +52,10 @@
  *                                  derived by the rule the text says;
  *                                  ** derived and stored, + partly
  *                                  derived, ++ partly and stored
+ *   Query Name:                    a query: its outline, as ormtool query
+ *   It is impossible that:         prints it, on the lines after, up to a
+ *   ✓Branch                        blank line (ORMOutlineReader)
+ *     + ...
  *   // ...                         a comment
  *
  * Each diagram is arranged at the end, as one step. NO when a line could

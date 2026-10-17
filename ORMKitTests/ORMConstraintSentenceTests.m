@@ -51,6 +51,11 @@ ORMSpecIs(ORMSentenceConstraint *spec, id element)
 		return NO;
 	}
 	switch (constraint.kind) {
+	case ORMFrequencyConstraint:
+		if (spec.minFrequency != constraint.minFrequency || spec.maxFrequency != constraint.maxFrequency) {
+			return NO;
+		}
+		break;
 	case ORMValueComparisonConstraint:
 		if (![spec.comparisonOperator isEqualToString:constraint.comparisonOperator]) {
 			return NO;
@@ -108,7 +113,7 @@ ORMSpecIs(ORMSentenceConstraint *spec, id element)
 }
 
 /* What the parser reads now: constraints over the fact types their roles
- * are in, not over join paths, and not frequency. */
+ * are in, not over join paths. */
 static BOOL
 ORMSaidWithoutJoins(id element)
 {
@@ -116,9 +121,6 @@ ORMSaidWithoutJoins(id element)
 		return YES;
 	}
 	ORMConstraint *constraint = element;
-	if (constraint.kind == ORMFrequencyConstraint) {
-		return NO;
-	}
 	for (ORMRoleSequence *sequence in constraint.roleSequences) {
 		if ([sequence joinPath] != nil) {
 			return NO;
@@ -530,6 +532,67 @@ ORMRoleNameShapes(ORMShape *factShape)
 	XCTAssertTrue([editor.elementEditor rename:date.identifier to:@"" reason:NULL]);
 	factShape = [[editor.model.diagrams firstObject] shapeForSubject:acquired.identifier];
 	XCTAssertEqual(ORMRoleNameShapes(factShape), (NSUInteger)0);
+}
+
+/* Frequency, in both of the verbalizer's forms, said back as written. */
+- (void)testFrequencyFromSentences
+{
+	NSString *phones = @"Each Person that has some PhoneNr has at least 2 and at most 5 PhoneNr.";
+	NSString *speaks = (@"Each Person, Language combination that occurs in the population of Person speaks Language occurs "
+	                    @"there exactly 2 times.");
+	ORMEditor *editor = [self editorWith:@[ @"Person(.nr) has PhoneNr()", @"Person speaks Language(.code)", phones, speaks ]];
+	NSMutableArray *frequencies = [NSMutableArray array];
+	for (ORMConstraint *constraint in editor.model.constraints) {
+		if (constraint.kind == ORMFrequencyConstraint) {
+			[frequencies addObject:constraint];
+		}
+	}
+	XCTAssertEqual([frequencies count], (NSUInteger)2);
+	ORMConstraint *first = [frequencies firstObject];
+	XCTAssertEqual(first.minFrequency, (NSUInteger)2);
+	XCTAssertEqual(first.maxFrequency, (NSUInteger)5);
+	XCTAssertTrue([[self textsOf:first.identifier in:editor.model] containsObject:phones]);
+	XCTAssertTrue([[self textsOf:[[frequencies lastObject] identifier] in:editor.model] containsObject:speaks],
+	              @"%@", [self textsOf:[[frequencies lastObject] identifier] in:editor.model]);
+}
+
+/* Queries in a schema's text: each its outline under a "Query" line, up
+ * to a blank one, read back as -outlineText writes it. */
+- (void)testQueriesInASchemaText
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Salary is a value type.\n"
+	                 @"Employee(.nr) works for Branch(.nr) / Branch employs Employee\n"
+	                 @"Each Employee works for exactly one Branch.\n"
+	                 @"Branch is headed by Employee\n"
+	                 @"Each Branch is headed by at most one Employee.\n"
+	                 @"Employee earns Salary\n"
+	                 @"Each Employee earns at most one Salary.\n"
+	                 @"\n"
+	                 @"Query Headless:\n"
+	                 @"It is impossible that:\n"
+	                 @"✓Branch\n"
+	                 @"  + not is headed by Employee\n"
+	                 @"\n"
+	                 @"Query Payroll:\n"
+	                 @"Payroll of each Branch is total(Salary) of:\n"
+	                 @"✓Branch\n"
+	                 @"  + employs Employee\n"
+	                 @"    + earns Salary\n"
+	                 @"\n"
+	                 @"Query Martian:\n"
+	                 @"✓Employee\n"
+	                 @"  + flies to Mars\n";
+	NSArray *failures = nil;
+	XCTAssertFalse([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures]);
+	XCTAssertEqual([failures count], (NSUInteger)1, @"%@", failures);
+	XCTAssertTrue([[failures firstObject] hasPrefix:@"20: Line 2"], @"%@", failures);
+	NSArray *queries = [ORMQuery queriesInModel:editor.model];
+	XCTAssertEqualObjects([queries valueForKey:@"name"], (@[ @"Headless", @"Payroll" ]));
+	ORMQuery *headless = [queries firstObject];
+	XCTAssertEqual(headless.kind, ORMQueryConstraint);
+	XCTAssertEqualObjects([headless outlineText], @"It is impossible that:\n✓Branch\n  + not is headed by Employee\n");
+	XCTAssertEqual(((ORMQuery *)[queries lastObject]).kind, ORMQueryCalculation);
 }
 
 - (void)testWhatIsNotUnderstoodSaysWhy

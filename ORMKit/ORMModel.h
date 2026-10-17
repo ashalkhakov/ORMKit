@@ -97,6 +97,11 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 @property (nonatomic, readonly, weak) ORMDataType *dataType;
 @property (nonatomic, readonly) NSInteger dataTypeLength;
 @property (nonatomic, readonly) NSInteger dataTypeScale;
+/* For a value type: a regular expression (ICU's) each of its values
+ * matches whole, "[A-Z]{3}"; nil for none. NORMA has no such constraint:
+ * ORMKit keeps it in the value type's element, in its own namespace, which
+ * a copy for NORMA leaves out. */
+@property (nonatomic, readonly, copy) NSString *valuePattern;
 /* For a value type, or an entity type through its reference mode's. */
 @property (nonatomic, readonly, strong) ORMValueConstraint *valueConstraint;
 

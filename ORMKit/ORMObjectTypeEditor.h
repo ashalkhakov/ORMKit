@@ -29,6 +29,10 @@
                     kind:(ORMReferenceModeKind)kind
                 ofEntity:(NSString *)entityId
                   reason:(NSString **)reason;
+/* For a value type, or an entity type's reference mode value type: the
+ * regular expression its values match whole ("[A-Z]{3}"); nil or empty
+ * takes it away. Refused where it is no regular expression. */
+- (BOOL)setValuePattern:(NSString *)pattern of:(NSString *)objectTypeId reason:(NSString **)reason;
 /* For a value type, or an entity type's reference mode value type. */
 - (BOOL)setDataType:(NSString *)typeName
              length:(NSInteger)length

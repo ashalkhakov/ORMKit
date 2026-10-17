@@ -275,6 +275,36 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	return YES;
 }
 
+- (BOOL)setValuePattern:(NSString *)pattern of:(NSString *)objectTypeId reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	if ([type isKindOfClass:[ORMObjectType class]] && type.isEntity) {
+		type = type.referenceModeValueType;
+	}
+	if (![type isKindOfClass:[ORMObjectType class]] || type.kind != ORMValueType) {
+		if (reason != NULL) {
+			*reason = @"Only a value type, or an entity type with a reference mode, has a pattern.";
+		}
+		return NO;
+	}
+	NSString *kept = [pattern length] > 0 ? pattern : nil;
+	NSError *error = nil;
+	if (kept != nil && [NSRegularExpression regularExpressionWithPattern:kept options:0 error:&error] == nil) {
+		if (reason != NULL) {
+			*reason = [NSString stringWithFormat:@"'%@' is no regular expression.", kept];
+		}
+		return NO;
+	}
+	if ((kept == nil && type.valuePattern == nil) || [kept isEqualToString:type.valuePattern]) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Pattern" with:^{
+		type.valuePattern = kept;
+		[_editor wrote:type];
+	}];
+	return YES;
+}
+
 /* One of an object type's flags, by its property's key. */
 - (BOOL)setFlag:(NSString *)key to:(BOOL)flag of:(NSString *)objectTypeId named:(NSString *)action
          reason:(NSString **)reason

@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMSentenceEditor.h"
+#import "ORMOutlineReader.h"
 #import "ORMXML.h"
 
 static NSString *
@@ -222,6 +223,29 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 	return nil;
 }
 
+/* "The possible values of VIN match the pattern '[A-HJ-NPR-Z0-9]{17}'". */
+- (NSArray<NSString *> *)addPattern:(NSString *)text reason:(NSString **)reason
+{
+	NSRange match = [text rangeOfString:@" match the pattern '"];
+	NSString *name = ORMStatementName([text substringWithRange:NSMakeRange([@"The possible values of " length],
+	                                                                       match.location - [@"The possible values of " length])]);
+	NSString *quoted = [text substringFromIndex:NSMaxRange(match)];
+	if (![quoted hasSuffix:@"'"]) {
+		*reason = @"Quote the pattern: '...'.";
+		return nil;
+	}
+	ORMObjectType *type = name != nil ? [self.editor.model objectTypeNamed:name] : nil;
+	if (type == nil) {
+		*reason = [NSString stringWithFormat:@"No object type is named %@.", name];
+		return nil;
+	}
+	if (![self.editor.objectTypeEditor setValuePattern:[quoted substringToIndex:[quoted length] - 1] of:type.identifier
+	                                            reason:reason]) {
+		return nil;
+	}
+	return @[ type.identifier ];
+}
+
 - (NSArray<NSString *> *)addStatement:(NSString *)input
                             onDiagram:(NSString *)diagramId
                                    at:(NSPoint)point
@@ -237,6 +261,8 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 		made = [self addObjectType:text onDiagram:diagramId reason:&why];
 	} else if ([text hasPrefix:@"Each "]) {
 		made = [self addSubtype:text onDiagram:diagramId reason:&why];
+	} else if ([text hasPrefix:@"The possible values of "] && [text rangeOfString:@" match the pattern '"].location != NSNotFound) {
+		made = [self addPattern:text reason:&why];
 	} else if ([text hasPrefix:@"This association with "]) {
 		made = [self addIdentification:text reason:&why];
 	} else if ([text rangeOfString:@" is where "].location != NSNotFound) {
@@ -327,6 +353,7 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 			}
 			NSString *why = nil;
 			BOOL read = YES;
+			NSUInteger number = n + 1;
 			NSRange space = [line rangeOfString:@" "];
 			if ([line hasPrefix:@"# "]) {
 				diagram = [self diagramNamed:ORMStatementTrimmed([line substringFromIndex:2]) first:diagram == nil];
@@ -337,7 +364,20 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 				diagram = [self diagramNamed:self.editor.model.name first:YES];
 				[diagrams addObject:diagram];
 			}
-			if ([line hasPrefix:@"Reference Mode: "] || [line hasPrefix:@"Portable data type: "]) {
+			if ([line hasPrefix:@"Query "] && [line hasSuffix:@":"]) {
+				/* A query: its outline, the lines up to a blank one, as
+				 * -[ORMQuery outlineText] writes it. */
+				NSString *name = ORMStatementTrimmed([line substringWithRange:NSMakeRange([@"Query " length],
+				                                                                          [line length] - [@"Query " length] - 1)]);
+				NSMutableArray *outline = [NSMutableArray array];
+				while (n + 1 < [lines count] && [ORMStatementTrimmed([lines objectAtIndex:n + 1]) length] > 0) {
+					[outline addObject:[lines objectAtIndex:++n]];
+				}
+				NSString *made = [[[ORMOutlineReader alloc] initWithEditor:self.editor]
+					addQueryNamed:[name length] > 0 ? name : nil outline:[outline componentsJoinedByString:@"\n"] reason:&why];
+				read = made != nil;
+				lastFact = nil;
+			} else if ([line hasPrefix:@"Reference Mode: "] || [line hasPrefix:@"Portable data type: "]) {
 				read = [self setDetail:line of:lastType reason:&why];
 			} else if ([line hasPrefix:@"Fact Type Name: "]) {
 				why = lastFact == nil ? @"A fact type's name goes after the fact type." : nil;
@@ -362,7 +402,7 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 				}
 			}
 			if (!read) {
-				[failed addObject:[NSString stringWithFormat:@"%lu: %@", (unsigned long)n + 1,
+				[failed addObject:[NSString stringWithFormat:@"%lu: %@", (unsigned long)number,
 				                                             why ?: @"The sentence says nothing the model can take."]];
 			}
 		}

@@ -1061,6 +1061,12 @@ ORMPurposeName(ORMPathedRolePurpose purpose)
 	}
 	ORMSetAttribute(element, @"Name", type.name);
 	[self writeValueConstraint:type.ownValueConstraint of:element as:@"ValueConstraint"];
+	if (type.valuePattern == nil) {
+		ORMDetach(ORMChild(element, ORMValuesNamespace, @"Pattern"));
+	} else if (ORMChild(element, ORMValuesNamespace, @"Pattern") == nil
+	           || ![ORMChildText(element, ORMValuesNamespace, @"Pattern") isEqualToString:type.valuePattern]) {
+		ORMSetChildText(_document, element, ORMValuesNamespace, @"Pattern", type.valuePattern);
+	}
 	if (type.kind != ORMValueType || type.dataType == nil) {
 		ORMDetach(ORMChild(element, CORE, @"ConceptualDataType"));
 	}

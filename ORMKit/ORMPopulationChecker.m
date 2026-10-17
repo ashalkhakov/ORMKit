@@ -723,6 +723,21 @@ ORMValueAllowed(NSString *value, ORMValueConstraint *constraint, BOOL numeric)
 - (void)checkValues
 {
 	for (ORMObjectType *type in _model.objectTypes) {
+		if (type.kind != ORMValueType || [type.valuePattern length] == 0) {
+			continue;
+		}
+		NSRegularExpression *pattern = [NSRegularExpression
+			regularExpressionWithPattern:[NSString stringWithFormat:@"^(?:%@)$", type.valuePattern] options:0 error:NULL];
+		for (ORMInstance *instance in [type instances]) {
+			NSString *value = instance.value;
+			if (value != nil && [pattern numberOfMatchesInString:value options:0 range:NSMakeRange(0, [value length])] == 0) {
+				[self violate:nil fact:nil
+				         text:[NSString stringWithFormat:@"%@ does not match %@'s pattern '%@'.", [instance displayText],
+				                                         type.name, type.valuePattern]];
+			}
+		}
+	}
+	for (ORMObjectType *type in _model.objectTypes) {
 		ORMValueConstraint *constraint = type.valueConstraint;
 		if (constraint == nil || [type isEntity]) {
 			continue;

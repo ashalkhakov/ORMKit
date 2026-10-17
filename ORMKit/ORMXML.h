@@ -16,6 +16,9 @@ extern NSString * const ORMDiagramDisplayNamespace;
 extern NSString * const ORMCoreDataNamespace;
 /* ORMKit's own: conceptual queries (ORMQuery). */
 extern NSString * const ORMQueryNamespace;
+/* ORMKit's own: what NORMA has no constraint for, of a value type's values
+ * (a pattern they match). */
+extern NSString * const ORMValuesNamespace;
 /* ORMKit's own namespaces, which NORMA does not know. */
 NSArray<NSString *> *ORMKitNamespaces(void);
 

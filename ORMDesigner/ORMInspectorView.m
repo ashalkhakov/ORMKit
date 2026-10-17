@@ -235,6 +235,11 @@ ORMRow(ORMRowKind kind, NSString *title, id (^value)(void), BOOL (^set)(id, NSSt
 		}, ^BOOL(id value, NSString **reason) {
 			return [editor.objectTypeEditor setValueConstraint:value of:valueId reason:reason];
 		})];
+		[rows addObject:ORMRow(ORMRowText, @"Pattern", ^id {
+			return [(ORMObjectType *)[editor.model elementWithId:valueId] valuePattern] ?: @"";
+		}, ^BOOL(id value, NSString **reason) {
+			return [editor.objectTypeEditor setValuePattern:value of:valueId reason:reason];
+		})];
 	}
 	[rows addObject:ORMRow(ORMRowCheck, @"Independent", ^id {
 		return @([(ORMObjectType *)[editor.model elementWithId:identifier] isIndependent]);
