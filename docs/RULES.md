@@ -148,6 +148,32 @@ Neither needs a new kind of plan.
 | **ormtool** | `ormtool check model.orm` checks the sample population against the constraints too, and says which are violated. | `ormtool query` prints the values |
 | **the designer** | **Kind** in the Queries window. A constraint's Results tab lists its violations in the sample population, and the window's list marks a violated constraint. | the Results tab lists each object and its value |
 
+**A graphical constraint is a rule too** where the tables have no check
+of their own for it: a subset, equality, exclusion, inclusive-or or value
+comparison whose roles are no properties of one entity, over a join path
+or across fact types. `ORMConstraintQueries` says it as the queries whose
+rows break it, made in a copy of the document (they are not the model's),
+and both the validation code and the population checker run those:
+
+```
+If some Trip had driver some User and that Trip is of some Vehicle then
+that User drives that Vehicle.
+
+It is impossible that:
+✓User
+  + Trip had driver that User
+    + is of Vehicle1
+  + not drives Vehicle1
+```
+
+A subset is its first sequence's facts and not its second's, an equality a
+subset each way, an exclusion two sequences' facts at once, an inclusive-or
+none of its roles, a value comparison the values compared the other way.
+A variable of a subtype met at its supertype's role is stepped down to it
+("is Event", "is FillUp"). Read from an object type with an entity of its
+own. One through a derived fact type that is not stored stays unchecked,
+with why.
+
 **Validation code checks from one object,** when that object is inserted or
 updated. A change to another object on the join path (the head's salary
 rising) is not seen there. Dataphor checks database-wide constraints at

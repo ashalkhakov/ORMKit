@@ -61,8 +61,10 @@ store of the document's first mapping, each row a violation
 population meets the graphical constraints, not necessarily the rules.
 
 The structural constraints of subtype and link fact types are not checked.
-Value comparisons, and sequences that span fact types, are listed as
-unchecked.
+Value comparisons, and subsets, equalities, exclusions and inclusive-ors
+whose sequences span fact types, are checked as the rule queries that say
+them ([RULES.md](RULES.md), `ORMConstraintQueries`); one that goes through
+a derived fact type that is not stored is listed as unchecked.
 
 ## Making one up
 
@@ -91,7 +93,7 @@ model:
 
 What it cannot make keep a constraint is in its `notes`. Every model it is
 tested on gets a population that is written, read back and put in a store,
-and most break nothing: the samples, StockMate, WorkMate, and 24 of the 29
+and most break nothing: the samples, StockMate, WorkMate, and 23 of the 29
 ActiveFacts models. The rest are listed under [Not done yet](#not-done-yet).
 
 ## In a store
@@ -227,12 +229,14 @@ The generator sizes and shapes the population for what must be played:
     instances, grown for what one subtype needs but not balanced among
     several (the ActiveFacts Metamodel's eight kinds of Shape);
   - external uniqueness over more than binaries;
-  - value comparisons;
+  - value comparisons, and subsets, equalities and exclusions over join
+    paths (VenueSeating's ticket at the venue of its event), which it
+    notes and does not make up to;
   - derived fact types, which it leaves out.
 - **Unary facts kept on their player** (`EntityTypeUnaryRoleInstance`, as
   newer NORMA versions write them) are read, but not written or removed
   one by one: ORMKit writes a unary fact as a fact instance.
-- **The checker's limits:** value comparisons, and sequences that need a
-  join path.
+- **The checker's limits:** constraints through a derived fact type that
+  is not stored.
 - **Populations in OData:** posting a population to a running ODataKit
   service, so the OData request can be tried against it as well.

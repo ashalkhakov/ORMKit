@@ -35,6 +35,7 @@
 #import "ORMFactSentence.h"
 #import "ORMConstraintSentence.h"
 #import "ORMJoinPathBuilder.h"
+#import "ORMConstraintQueries.h"
 #import "ORMCDModel.h"
 #import "ORMCoreDataMapping.h"
 #import "ORMCoreDataMapper.h"

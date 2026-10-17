@@ -689,6 +689,23 @@ ORMBagKey(ORMPlanValue *value)
  * bound outside the fetch is no subquery the SQLite store reads, and an
  * aggregate of some members none it computes: those are checked on the
  * objects fetched. */
+/* Whether the path goes on past a cast: "objectType.(EntityType).factType"
+ * is a property of the subentity, which a SQLite store cannot find from
+ * the relationship's own entity. Asked in memory, of the object itself. */
+static BOOL
+ORMGoesOnPastACast(ORMPlanPath *path)
+{
+	BOOL cast = NO;
+	for (ORMPlanStep *step in path.steps) {
+		if (step.key == nil) {
+			cast = YES;
+		} else if (cast) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 - (ORMPredicatePart *)collection:(ORMPlanCondition *)condition
 {
 	NSMutableArray *arguments = [NSMutableArray array];
@@ -720,7 +737,7 @@ ORMBagKey(ORMPlanValue *value)
 		over = [NSString stringWithFormat:@"SUBQUERY(%@, $%@, TRUEPREDICATE)", collection,
 		                                  condition.variable ?: [NSString stringWithFormat:@"c%lu", (unsigned long)_depth]];
 	}
-	BOOL inStore = !bound && (body == nil || body.inStore);
+	BOOL inStore = !bound && (body == nil || body.inStore) && !ORMGoesOnPastACast(condition.path);
 	if (condition.kind == ORMPlanAggregate) {
 		NSString *function = [@{ @"sum": @"@sum", @"average": @"@avg", @"max": @"@max", @"min": @"@min" }
 			objectForKey:condition.function];

@@ -42,6 +42,7 @@ ORMKit_HEADER_FILES = \
   ORMConstraintSentence.h \
   ORMSentenceEditor.h \
   ORMJoinPathBuilder.h \
+  ORMConstraintQueries.h \
   ORMCDModel.h \
   ORMCoreDataMapping.h \
   ORMCoreDataMapper.h \
@@ -87,6 +88,7 @@ ORMKit_OBJC_FILES = \
   ORMConstraintSentence.m \
   ORMStatementSentence.m \
   ORMJoinPathBuilder.m \
+  ORMConstraintQueries.m \
   ORMCDModel.m \
   ORMCoreDataMapping.m \
   ORMCoreDataMapper.m \

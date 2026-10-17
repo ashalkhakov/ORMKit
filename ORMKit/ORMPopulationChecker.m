@@ -4,6 +4,8 @@
 #import "ORMRuleChecker.h"
 #import "ORMDeriver.h"
 #import "ORMPath.h"
+#import "ORMConstraintQueries.h"
+#import "ORMXML.h"
 #import <CoreData/CoreData.h>
 
 @interface ORMPopulationViolation ()
@@ -33,6 +35,9 @@
 	NSMutableDictionary<NSString *, NSString *> *_values;
 	NSMutableArray<ORMPopulationViolation *> *_violations;
 	NSMutableArray<NSString *> *_unchecked;
+	/* The constraints checked as rules (ORMConstraintQueries): over facts
+	 * of more than one fact type, or comparing values. */
+	NSMutableArray<ORMConstraint *> *_asRules;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model
@@ -293,6 +298,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 {
 	_violations = [NSMutableArray array];
 	_unchecked = [NSMutableArray array];
+	_asRules = [NSMutableArray array];
 	[self gather];
 	[self gatherDerived];
 	for (ORMConstraint *constraint in _model.constraints) {
@@ -324,7 +330,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 			[self checkSetComparison:constraint];
 			break;
 		case ORMValueComparisonConstraint:
-			[_unchecked addObject:[NSString stringWithFormat:@"%@: value comparisons are not checked.", constraint.name]];
+			[_asRules addObject:constraint];
 			break;
 		}
 	}
@@ -336,12 +342,31 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 /* The constraint queries, run against the population in a store. */
 - (void)checkRules
 {
-	ORMCoreDataMapping *mapping = [_model.coreDataMappings firstObject];
-	ORMRuleChecker *rules = [[ORMRuleChecker alloc] initWithModel:_model mapping:mapping];
+	/* The constraints said as rules, beside the model's own: in a copy of
+	 * the document, as they are not the model's. */
+	ORMModel *model = _model;
+	NSMutableDictionary<NSString *, ORMConstraint *> *constraintOf = [NSMutableDictionary dictionary];
+	if ([_asRules count] > 0) {
+		ORMEditor *scratch = [[ORMEditor alloc] initWithDocument:ORMCopyDocument(_model.document) undoManager:nil];
+		ORMConstraintQueries *builder = [[ORMConstraintQueries alloc] initWithEditor:scratch];
+		for (ORMConstraint *constraint in _asRules) {
+			NSString *why = nil;
+			NSArray *made = [builder queriesFor:[scratch.model elementWithId:constraint.identifier] reason:&why];
+			if (made == nil) {
+				[_unchecked addObject:[NSString stringWithFormat:@"%@: %@.", constraint.name, why]];
+			}
+			for (NSString *identifier in made) {
+				[constraintOf setObject:constraint forKey:identifier];
+			}
+		}
+		model = scratch.model;
+	}
+	ORMCoreDataMapping *mapping = [model.coreDataMappings firstObject];
+	ORMRuleChecker *rules = [[ORMRuleChecker alloc] initWithModel:model mapping:mapping];
 	if ([rules.rules count] == 0 && [rules.valueCalculations count] == 0) {
 		return;
 	}
-	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_model coreData:rules.coreData];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:rules.coreData];
 	NSError *error = nil;
 	NSManagedObjectContext *context = [store newContextWithError:&error];
 	NSArray *found = context != nil ? [rules violationsInContext:context limit:100 error:&error] : nil;
@@ -351,7 +376,10 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	}
 	for (ORMRuleViolation *each in found) {
 		ORMPopulationViolation *violation = [[ORMPopulationViolation alloc] init];
-		violation.rule = each.rule;
+		ORMConstraint *constraint = [constraintOf objectForKey:each.rule.identifier];
+		/* A constraint's as the constraint's, the model's own. */
+		violation.constraint = constraint;
+		violation.rule = constraint == nil ? [ORMQuery queryWithId:each.rule.identifier inModel:_model] ?: each.rule : nil;
 		violation.text = each.text;
 		[_violations addObject:violation];
 	}
@@ -629,8 +657,7 @@ ORMSequenceReading(ORMConstraint *constraint, NSUInteger i)
 	for (ORMRoleSequence *sequence in constraint.roleSequences) {
 		ORMFactType *fact = ORMOneFactType(sequence.roles);
 		if (fact == nil) {
-			[_unchecked addObject:[NSString stringWithFormat:@"%@: a sequence over more than one fact type is not "
-			                                                 @"checked.", constraint.name]];
+			[_asRules addObject:constraint];
 			return;
 		}
 		NSMutableSet *set = [NSMutableSet set];

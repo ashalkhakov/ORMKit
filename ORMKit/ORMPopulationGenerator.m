@@ -1190,6 +1190,17 @@
 		if (constraint.kind == ORMValueComparisonConstraint) {
 			[self note:@"%@ is not kept: value comparisons are not made up to.", constraint.name];
 		}
+		/* A sequence over a join: its facts are not made up to it. */
+		BOOL joined = NO;
+		if (!constraint.isImplied && (constraint.kind == ORMSubsetConstraint || constraint.kind == ORMEqualityConstraint
+		                              || constraint.kind == ORMExclusionConstraint)) {
+			for (ORMRoleSequence *sequence in constraint.roleSequences) {
+				joined = joined || [sequence factType] == nil;
+			}
+		}
+		if (joined) {
+			[self note:@"%@ is not kept: a sequence over more than one fact type is not made up to.", constraint.name];
+		}
 	}
 	for (ORMFactType *fact in _model.factTypes) {
 		NSArray *ids = [_factIds objectForKey:fact.identifier];
