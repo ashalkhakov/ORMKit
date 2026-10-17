@@ -360,10 +360,6 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 				[diagrams addObject:diagram];
 				continue;
 			}
-			if (diagram == nil) {
-				diagram = [self diagramNamed:self.editor.model.name first:YES];
-				[diagrams addObject:diagram];
-			}
 			if ([line hasPrefix:@"Query "] && [line hasSuffix:@":"]) {
 				/* A query: its outline, the lines up to a blank one, as
 				 * -[ORMQuery outlineText] writes it. */
@@ -387,6 +383,11 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 			} else if (space.location != NSNotFound && [marks containsObject:[line substringToIndex:space.location]]) {
 				read = [self setDerivation:line of:lastFact reason:&why];
 			} else {
+				/* A diagram for what the sentence makes, when no heading gave one. */
+				if (diagram == nil) {
+					diagram = [self diagramNamed:self.editor.model.name first:YES];
+					[diagrams addObject:diagram];
+				}
 				NSArray *made = [self addFromSentence:line onDiagram:diagram at:ORMAutomaticPlacement reason:&why];
 				read = made != nil;
 				/* What the next lines go on from: the object type a

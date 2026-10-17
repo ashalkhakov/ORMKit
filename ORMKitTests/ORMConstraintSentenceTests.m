@@ -556,6 +556,71 @@ ORMRoleNameShapes(ORMShape *factShape)
 	              @"%@", [self textsOf:[[frequencies lastObject] identifier] in:editor.model]);
 }
 
+/* The fact type that reads so, and its role played by the named type. */
+static ORMRole *
+ORMRoleOf(ORMModel *model, NSString *reading, NSString *player)
+{
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:reading]) {
+			for (ORMRole *role in [fact visibleRoles]) {
+				if ([role.player.name isEqualToString:player]) {
+					return role;
+				}
+			}
+		}
+	}
+	return nil;
+}
+
+/* A rule stepping to a subtype through a to-many, from schema text, run
+ * against a sample population in a SQLite store: the subtype asked of
+ * each object's entity inside the subquery. */
+- (void)testARuleThroughASubtypeRunsAgainstAPopulation
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Reading is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Record(.id) is of Vehicle(.id)\n"
+	                 @"Each Record is of exactly one Vehicle.\n"
+	                 @"Each Event is a Record.\n"
+	                 @"Each Document is a Record.\n"
+	                 @"Event shows Reading\n"
+	                 @"Each Event shows at most one Reading.\n"
+	                 @"\n"
+	                 @"Query HighReading:\n"
+	                 @"It is impossible that:\n"
+	                 @"✓Vehicle\n"
+	                 @"  + Record is of that Vehicle\n"
+	                 @"    + is Event\n"
+	                 @"      + shows Reading > 100\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMPopulationEditor *population = editor.populationEditor;
+	ORMRole *record = ORMRoleOf(model, @"Record is of Vehicle", @"Record");
+	ORMRole *vehicle = ORMRoleOf(model, @"Record is of Vehicle", @"Vehicle");
+	ORMRole *event = ORMRoleOf(model, @"Event shows Reading", @"Event");
+	ORMRole *reading = ORMRoleOf(model, @"Event shows Reading", @"Reading");
+	NSString *reason = nil;
+	/* Ids are counters (.id with no data type): numbers. */
+	for (NSArray *each in @[ @[ @"Event", @"11", @"1", @"150" ], @[ @"Event", @"12", @"2", @"90" ],
+	                         @[ @"Document", @"13", @"3", @"" ] ]) {
+		XCTAssertNotNil([population addInstanceOf:[[model objectTypeNamed:each[0]] identifier] named:each[1] reason:&reason],
+		                @"%@", reason);
+		XCTAssertNotNil(([population addFactOf:record.factType.identifier
+		                                 named:@{ record.identifier: each[1], vehicle.identifier: each[2] } reason:&reason]),
+		                @"%@", reason);
+		if ([each[3] length] > 0) {
+			XCTAssertNotNil(([population addFactOf:event.factType.identifier
+			                                 named:@{ event.identifier: each[1], reading.identifier: each[3] } reason:&reason]),
+			                @"%@", reason);
+		}
+	}
+	NSArray *violations = [[[ORMPopulationChecker alloc] initWithModel:editor.model] violations];
+	XCTAssertEqual([violations count], (NSUInteger)1, @"%@", [violations valueForKey:@"text"]);
+	XCTAssertEqualObjects([[violations firstObject] text], @"HighReading: Vehicle 1.");
+}
+
 /* Queries in a schema's text: each its outline under a "Query" line, up
  * to a blank one, read back as -outlineText writes it. */
 - (void)testQueriesInASchemaText
@@ -593,6 +658,11 @@ ORMRoleNameShapes(ORMShape *factShape)
 	XCTAssertEqual(headless.kind, ORMQueryConstraint);
 	XCTAssertEqualObjects([headless outlineText], @"It is impossible that:\n✓Branch\n  + not is headed by Employee\n");
 	XCTAssertEqual(((ORMQuery *)[queries lastObject]).kind, ORMQueryCalculation);
+	/* Queries alone make no diagram. */
+	NSUInteger diagrams = [editor.model.diagrams count];
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor]
+		addFromText:@"Query Headed:\nIt is impossible that:\n✓Branch\n  + is headed by Employee\n" failures:NULL]);
+	XCTAssertEqual([editor.model.diagrams count], diagrams);
 }
 
 - (void)testWhatIsNotUnderstoodSaysWhy
