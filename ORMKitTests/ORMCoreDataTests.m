@@ -408,6 +408,29 @@ ORMSquashed(NSString *name)
 	XCTAssertEqualObjects([[[mapped entityNamed:@"Vehicle"] relationshipNamed:@"owner"] inverseName], @"ownedVehicles");
 }
 
+/* Entities side by side may share a property's name; one and what it
+ * inherits from may not. */
+- (void)testSiblingsShareNamesAndLinesDoNot
+{
+	ORMEditor *editor = [self newEditor];
+	ORMSentenceEditor *sentences = [[ORMSentenceEditor alloc] initWithEditor:editor];
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	for (NSString *text in @[ @"Label is a value type.", @"Mileage is a value type.", @"Record(.id) has Label",
+	                          @"Each Record has at most one Label.", @"Each Trip is a Record.", @"Each FillUp is a Record.",
+	                          @"Each Trip is at at most one Mileage.", @"Each FillUp is at at most one Mileage.",
+	                          @"Trip has Label", @"Each Trip has at most one Label." ]) {
+		NSString *reason = nil;
+		XCTAssertNotNil([sentences addFromSentence:text onDiagram:diagram at:ORMAutomaticPlacement reason:&reason], @"%@", reason);
+	}
+	ORMCDModel *mapped = [self map:editor.model];
+	XCTAssertNil([self momcRejects:mapped]);
+	NSArray *trip = [[[mapped entityNamed:@"Trip"] attributes] valueForKey:@"name"];
+	NSArray *fillUp = [[[mapped entityNamed:@"FillUp"] attributes] valueForKey:@"name"];
+	XCTAssertTrue([trip containsObject:@"mileage"] && [fillUp containsObject:@"mileage"], @"%@ %@", trip, fillUp);
+	XCTAssertTrue([[[[mapped entityNamed:@"Record"] attributes] valueForKey:@"name"] containsObject:@"label"]);
+	XCTAssertFalse([trip containsObject:@"label"], @"%@", trip);
+}
+
 - (void)testCollidingNamesComeFromTheReadings
 {
 	ORMEditor *editor = [self newEditor];

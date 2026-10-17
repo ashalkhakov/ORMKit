@@ -184,31 +184,42 @@ ORMReservedNames(void)
 	return reserved;
 }
 
-/* The root of an entity's inheritance tree, whose name set it shares. */
-- (NSString *)rootOf:(ORMCDEntity *)entity
+/* The entity and those it inherits from, nearest first. */
+- (NSArray<ORMCDEntity *> *)lineOf:(ORMCDEntity *)entity
 {
-	ORMCDEntity *at = entity;
-	NSMutableSet *seen = [NSMutableSet set];
-	while (at.parentName != nil && ![seen containsObject:at.name]) {
-		[seen addObject:at.name];
-		ORMCDEntity *parent = [_out entityNamed:at.parentName];
-		if (parent == nil) {
-			break;
-		}
-		at = parent;
+	NSMutableArray *line = [NSMutableArray array];
+	for (ORMCDEntity *at = entity; at != nil && [line indexOfObjectIdenticalTo:at] == NSNotFound;
+	     at = at.parentName != nil ? [_out entityNamed:at.parentName] : nil) {
+		[line addObject:at];
 	}
-	return at.name;
+	return line;
 }
 
+/* The names the entity's properties have. */
 - (NSMutableSet *)namesOf:(ORMCDEntity *)entity
 {
-	NSString *root = [self rootOf:entity];
-	NSMutableSet *names = [_names objectForKey:root];
+	NSMutableSet *names = [_names objectForKey:entity.name];
 	if (names == nil) {
 		names = [NSMutableSet set];
-		[_names setObject:names forKey:root];
+		[_names setObject:names forKey:entity.name];
 	}
 	return names;
+}
+
+/* Whether a property of the entity could not be called so: a name it,
+ * an entity it inherits from or one inheriting from it has. Entities side
+ * by side may share a name, as Core Data allows. */
+- (BOOL)isName:(NSString *)name takenFor:(ORMCDEntity *)entity
+{
+	for (ORMCDEntity *each in _out.entities) {
+		NSArray *line = [self lineOf:each];
+		BOOL related = [line indexOfObjectIdenticalTo:entity] != NSNotFound
+			|| [[self lineOf:entity] indexOfObjectIdenticalTo:each] != NSNotFound;
+		if (related && [[self namesOf:each] containsObject:name]) {
+			return YES;
+		}
+	}
+	return NO;
 }
 
 /* The user's name for the source, if it can be a Core Data name: a letter
@@ -249,7 +260,7 @@ ORMReservedNames(void)
 		}
 	}
 	for (NSString *name in tries) {
-		if (![names containsObject:name]) {
+		if (![self isName:name takenFor:entity]) {
 			[names addObject:name];
 			return name;
 		}
@@ -257,7 +268,7 @@ ORMReservedNames(void)
 	NSString *base = [tries lastObject] ?: @"property";
 	for (NSUInteger i = 2;; i++) {
 		NSString *name = [NSString stringWithFormat:@"%@%lu", base, (unsigned long)i];
-		if (![names containsObject:name]) {
+		if (![self isName:name takenFor:entity]) {
 			[names addObject:name];
 			return name;
 		}

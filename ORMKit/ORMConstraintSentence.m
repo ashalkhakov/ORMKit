@@ -537,7 +537,9 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 #pragma mark Clauses
 
 /* The names the player may go by in a sentence: its family's
- * (ORMObjectType's familyNames); "?" for a placeholder of no player. */
+ * (ORMObjectType's familyNames); "?" for a placeholder of no player. A
+ * sibling's ("that Driver" for a Witness's role, both Persons) is only for
+ * one named before (ORMSiblingNamed). */
 static NSArray<NSString *> *
 ORMNamesOf(ORMObjectType *player)
 {
@@ -686,6 +688,22 @@ ORMNamesOf(ORMObjectType *player)
 	return clauses;
 }
 
+/* Whether a term goes by a sibling of its role's player, and is no
+ * "that": "Each FillUp is at ..." is not a Trip's reading, though both are
+ * Records; "that Driver" may stand for a Witness, as NORMA lets a set
+ * comparison join roles of one family. */
+- (BOOL)namesSiblingAfresh:(NSArray<ORMSentenceTerm *> *)terms
+{
+	for (ORMSentenceTerm *term in terms) {
+		ORMObjectType *named = term.omitted ? nil : [_model objectTypeNamed:[term typeName]];
+		ORMObjectType *player = term.role.role.player;
+		if (named != nil && player != nil && ![named isCompatibleWith:player] && ![term.quantifier isEqualToString:@"that"]) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 - (NSArray<ORMSentenceClause *> *)allMatches:(NSString *)text omit:(BOOL)omit
 {
 	NSMutableArray *clauses = [NSMutableArray array];
@@ -735,6 +753,11 @@ ORMNamesOf(ORMObjectType *player)
 					term.name = [text substringWithRange:names[i]];
 				}
 				[terms addObject:term];
+			}
+			if ([self namesSiblingAfresh:terms]) {
+				free(quantifiers);
+				free(names);
+				continue;
 			}
 			ORMSentenceClause *clause = [[ORMSentenceClause alloc] init];
 			clause.factType = fact;
