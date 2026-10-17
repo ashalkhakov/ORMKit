@@ -393,6 +393,21 @@ ORMSquashed(NSString *name)
 	XCTAssertTrue([[mapped entityNamed:@"Meter"].uniquenessConstraints containsObject:(@[ @"meterGroup", @"meterName" ])]);
 }
 
+/* A role's name is one of them: on the many side, its plural. */
+- (void)testANamedRoleOnTheManySideIsPlural
+{
+	ORMEditor *editor = [self newEditor];
+	ORMSentenceEditor *sentences = [[ORMSentenceEditor alloc] initWithEditor:editor];
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	for (NSString *text in @[ @"Vehicle(.id) (as OwnedVehicle) is owned by User(.email) (as Owner)",
+	                          @"Each Vehicle is owned by exactly one User." ]) {
+		NSString *reason = nil;
+		XCTAssertNotNil([sentences addFromSentence:text onDiagram:diagram at:ORMAutomaticPlacement reason:&reason], @"%@", reason);
+	}
+	ORMCDModel *mapped = [self map:editor.model];
+	XCTAssertEqualObjects([[[mapped entityNamed:@"Vehicle"] relationshipNamed:@"owner"] inverseName], @"ownedVehicles");
+}
+
 - (void)testCollidingNamesComeFromTheReadings
 {
 	ORMEditor *editor = [self newEditor];

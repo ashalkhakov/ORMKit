@@ -1256,8 +1256,11 @@ ORMCapitalized(NSString *name)
 	NSString *base = [ORMCoreDataMapper propertyNameFor:player];
 	NSString *phrase = [ORMCoreDataMapper propertyNameFor:[self phraseOf:far.factType from:near]];
 	NSMutableArray *candidates = [NSMutableArray array];
+	/* A role's name says one of them ("OwnedVehicle"); many are its
+	 * plural. */
 	if ([far.name length] > 0) {
-		[candidates addObject:[ORMCoreDataMapper propertyNameFor:far.name]];
+		NSString *named = [ORMCoreDataMapper propertyNameFor:far.name];
+		[candidates addObject:toMany ? [ORMCoreDataMapper pluralOf:named] : named];
 	}
 	/* A name the reading binds to the player ("first StreetLine"). */
 	NSString *bound = [self boundNameOf:far from:near];
