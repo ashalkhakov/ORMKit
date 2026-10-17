@@ -629,11 +629,13 @@ ORMBagKey(ORMPlanValue *value)
 	case ORMPlanIsOf: {
 		NSEntityDescription *target = [self entityNamed:condition.entityName];
 		NSMutableArray *names = [NSMutableArray array];
+		NSMutableArray *entities = [NSMutableArray array];
 		for (NSMutableArray *pending = target != nil ? [NSMutableArray arrayWithObject:target] : [NSMutableArray array];
 		     [pending count] > 0;) {
 			NSEntityDescription *at = [pending objectAtIndex:0];
 			[pending removeObjectAtIndex:0];
 			[names addObject:at.name];
+			[entities addObject:at];
 			[pending addObjectsFromArray:at.subentities ?: @[]];
 		}
 		NSMutableArray *arguments = [NSMutableArray array];
@@ -649,8 +651,10 @@ ORMBagKey(ORMPlanValue *value)
 			BOOL is = [object isKindOfClass:[NSManagedObject class]] && [names containsObject:object.entity.name];
 			return [ORMPredicatePart format:is ? @"TRUEPREDICATE" : @"FALSEPREDICATE" arguments:nil inStore:YES];
 		}
-		NSString *entity = [path isEqualToString:@"SELF"] ? @"entity.name" : [path stringByAppendingString:@".entity.name"];
-		[arguments addObject:names];
+		/* The entity itself, not its name: a SQLite store asks its entity
+		 * column, in a SUBQUERY too, and cannot follow entity.name. */
+		NSString *entity = [path isEqualToString:@"SELF"] ? @"entity" : [path stringByAppendingString:@".entity"];
+		[arguments addObject:entities];
 		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %%@", entity] arguments:arguments inStore:YES];
 	}
 	case ORMPlanSame: {

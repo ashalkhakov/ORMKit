@@ -798,7 +798,7 @@ ORMDerivationMark(ORMDerivationRule *rule)
 	if (relation == nil) {
 		return;
 	}
-	NSDictionary *variables = [query variablesOfRelation:relation];
+	NSDictionary *variables = relation.variables;
 	ORMVariable *root = [variables objectForKey:query.root.identifier];
 	ORMPhrase *phrase = [self phrase];
 	[phrase numberFormulas:@[ relation.formula ] columns:relation.columns];

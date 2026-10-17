@@ -85,6 +85,7 @@ ORMKit_OBJC_FILES = \
   ORMVerbalizer+Logic.m \
   ORMFactSentence.m \
   ORMConstraintSentence.m \
+  ORMStatementSentence.m \
   ORMJoinPathBuilder.m \
   ORMCDModel.m \
   ORMCoreDataMapping.m \

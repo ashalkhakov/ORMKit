@@ -9,6 +9,7 @@
 @property (nonatomic, readwrite, copy) NSString *referenceMode;
 @property (nonatomic, readwrite) ORMReferenceModeKind referenceModeKind;
 @property (nonatomic, readwrite) BOOL isValueType;
+@property (nonatomic, readwrite, copy) NSString *roleName;
 @end
 
 @implementation ORMFactSentencePlayer
@@ -65,6 +66,27 @@ ORMReadMode(NSString *text, NSUInteger *at, ORMFactSentencePlayer *player)
 	}
 }
 
+/* "(as PurchaseDate)" after a name, spaces before it: its role's name. */
+static void
+ORMReadRoleName(NSString *text, NSUInteger *at, ORMFactSentencePlayer *player)
+{
+	NSUInteger i = *at;
+	while (i < [text length] && [text characterAtIndex:i] == ' ') {
+		i++;
+	}
+	if (![[text substringFromIndex:i] hasPrefix:@"(as "]) {
+		return;
+	}
+	NSRange close = [text rangeOfString:@")" options:0 range:NSMakeRange(i, [text length] - i)];
+	if (close.location == NSNotFound) {
+		return;
+	}
+	NSUInteger start = i + [@"(as " length];
+	player.roleName = [[text substringWithRange:NSMakeRange(start, close.location - start)]
+		stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+	*at = NSMaxRange(close);
+}
+
 static ORMParsedReading *
 ORMParseReading(NSString *text, NSArray<NSString *> *known)
 {
@@ -113,6 +135,7 @@ ORMParseReading(NSString *text, NSArray<NSString *> *known)
 		}
 		if (player != nil) {
 			ORMReadMode(text, &i, player);
+			ORMReadRoleName(text, &i, player);
 			[parsed.text appendFormat:@"{%lu}", (unsigned long)[parsed.players count]];
 			[parsed.players addObject:player];
 			continue;
@@ -279,6 +302,14 @@ ORMParseReading(NSString *text, NSArray<NSString *> *known)
 				[order addObject:[[roles objectAtIndex:[index unsignedIntegerValue]] identifier]];
 			}
 			[self.editor.factTypeEditor addReading:[sentence.readings objectAtIndex:r] forRoles:order reason:NULL];
+		}
+		for (NSUInteger p = 0; p < [sentence.players count]; p++) {
+			NSString *roleName = [[sentence.players objectAtIndex:p] roleName];
+			if ([roleName length] > 0 && ![self.editor.elementEditor rename:[[roles objectAtIndex:p] identifier]
+			                                                             to:roleName reason:&why]) {
+				failure = why;
+				return;
+			}
 		}
 	}];
 	if (failure != nil) {

@@ -35,6 +35,7 @@ mapping's treatment of identity and of many-to-many fact types.
 | Frequency on a single role | `minCount` / `maxCount` |
 | Value constraint (numbers, dates) | `minValueString` / `maxValueString` |
 | Value constraint (a list of text values) | `regularExpressionString` (`^(?:M|F)$`) |
+| A value type's pattern (ORMKit's own, `-[ORMObjectType valuePattern]`) | `regularExpressionString` (`^(?:[A-Z]{3})$`); beside a list of values, as a lookahead (`^(?=(?:[A-Z]{3})$)(?:EUR|USD)$`). ODataKit serves it as `Validation.Pattern` |
 | Text data type length | `maxValueString` (Core Data's string bounds are lengths) |
 | Ring, exclusion, subset, equality, value comparison, frequency over several roles, deontic rules | not expressible: kept on the entity as `userInfo` entries holding their FORML verbalization, and listed in the mapping's report as unenforced |
 

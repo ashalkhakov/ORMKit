@@ -45,6 +45,7 @@ ORMContains(NSArray *list, id object)
 - (NSArray *)list:(NSArray *)list adding:(ORMElement *)element;
 - (NSArray *)referenceModeOf:(ORMObjectType *)type;
 - (ORMObjectType *)impliedOwnerOf:(ORMConstraint *)constraint;
+- (void)noteName:(NSString *)name;
 @end
 
 @interface ORMRole ()
@@ -78,6 +79,12 @@ ORMContains(NSArray *list, id object)
 		_name = @"";
 	}
 	return self;
+}
+
+- (void)setName:(NSString *)name
+{
+	_name = [name copy];
+	[_model noteName:_name];
 }
 
 - (void)reset
@@ -127,6 +134,7 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	_dataType = nil;
 	_dataTypeLength = _dataTypeScale = 0;
 	_ownValueConstraint = nil;
+	_valuePattern = nil;
 	_savedReferenceMode = nil;
 	_objectificationId = nil;
 }
@@ -272,6 +280,11 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	return [[names array] sortedArrayUsingFunction:ORMLongerFirst context:NULL];
 }
 
+- (BOOL)isInSubtypeHierarchy
+{
+	return [self.supertypes count] > 0 || [self.subtypes count] > 0;
+}
+
 - (BOOL)isCompatibleWith:(ORMObjectType *)other
 {
 	return other != nil && (other == self || [self isSubtypeOf:other] || [other isSubtypeOf:self]);
@@ -352,6 +365,8 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 @end
 
 #pragma mark Fact types
+
+NSString *const ORMSubtypeReadingText = @"{0} is {1}";
 
 /* By where each is in the list given. */
 static NSInteger
@@ -498,6 +513,16 @@ ORMByPlace(id a, id b, void *list)
 - (NSUInteger)arity
 {
 	return [[self visibleRoles] count];
+}
+
+- (NSArray<ORMRole *> *)subtypeReadingRolesFrom:(ORMRole *)role
+{
+	if (self.kind != ORMFactTypeSubtype || [self.roles count] != 2) {
+		return nil;
+	}
+	ORMRole *sub = [self.roles objectAtIndex:0];
+	ORMRole *sup = [self.roles objectAtIndex:1];
+	return role == sup ? @[ sup, sub ] : @[ sub, sup ];
 }
 
 - (NSString *)unaryReading
@@ -930,6 +955,17 @@ ORMCapitalizedWords(NSString *text)
 	}
 }
 
+- (ORMFactType *)factType
+{
+	ORMFactType *fact = [[self.roles firstObject] factType];
+	for (ORMRole *role in self.roles) {
+		if (role.factType != fact) {
+			return nil;
+		}
+	}
+	return fact;
+}
+
 - (void)setRoles:(NSArray<ORMRole *> *)roles useIds:(NSArray<NSString *> *)useIds
 {
 	_roles = [roles copy];
@@ -1192,14 +1228,7 @@ ORMQuoteValue(NSString *value, BOOL quotes)
 
 - (BOOL)quotesValues
 {
-	switch (self.valueType.dataType.family) {
-	case ORMDataTypeNumeric:
-	case ORMDataTypeTemporal:
-	case ORMDataTypeLogical:
-		return NO;
-	default:
-		return YES;
-	}
+	return self.valueType.dataType == nil || [self.valueType.dataType quotesValues];
 }
 
 - (NSString *)displayText
@@ -1282,6 +1311,23 @@ ORMDataTypeTable(void)
 	return [ORMDataType displayNameOfTypeNamed:self.typeName];
 }
 
+- (BOOL)isNumeric
+{
+	return self.family == ORMDataTypeNumeric;
+}
+
+- (BOOL)quotesValues
+{
+	switch (self.family) {
+	case ORMDataTypeNumeric:
+	case ORMDataTypeTemporal:
+	case ORMDataTypeLogical:
+		return NO;
+	default:
+		return YES;
+	}
+}
+
 - (ORMDataTypeFamily)family
 {
 	NSString *type = self.typeName;
@@ -1350,6 +1396,9 @@ ORMWithout(NSArray *array, id object)
 	NSMutableDictionary<NSString *, ORMElement *> *_reusable;
 	/* While the model is read: no link is kept up until all is read. */
 	BOOL _reading;
+	/* The highest number each name stem has gone with
+	 * ("InternalUniquenessConstraint" 7): what the next name takes. */
+	NSMutableDictionary<NSString *, NSNumber *> *_highestNumbers;
 	/* The reference modes it knows of by kind, from its custom ones. */
 	NSSet<NSString *> *_unitModes;
 	NSSet<NSString *> *_generalModes;
@@ -1499,9 +1548,6 @@ ORMWithout(NSArray *array, id object)
 	if (element.identifier != nil && [_elements objectForKey:element.identifier] == element) {
 		[_elements removeObjectForKey:element.identifier];
 	}
-	if (element.name != nil) {
-		[self.removedNames addObject:element.name];
-	}
 	if (element.identifier != nil) {
 		[self.removedIds addObject:element.identifier];
 	}
@@ -1610,6 +1656,7 @@ ORMWithout(NSArray *array, id object)
 - (void)readDocument:(NSXMLDocument *)document model:(NSXMLElement *)modelElement
 {
 	_elements = [NSMutableDictionary dictionary];
+	_highestNumbers = [NSMutableDictionary dictionary];
 	_reading = YES;
 	_document = document;
 	_modelElement = modelElement;
@@ -1632,7 +1679,35 @@ ORMWithout(NSArray *array, id object)
 	[self readDiagrams];
 	_reusable = nil;
 	[self linkAll];
+	for (ORMElement *element in [_elements allValues]) {
+		[self noteName:element.name];
+	}
 	_reading = NO;
+}
+
+/* A name that ends in a number (no leading zero) noted for its stem. */
+- (void)noteName:(NSString *)name
+{
+	NSUInteger end = [name length];
+	NSUInteger start = end;
+	while (start > 0 && [name characterAtIndex:start - 1] >= '0' && [name characterAtIndex:start - 1] <= '9') {
+		start--;
+	}
+	if (start == 0 || start == end || [name characterAtIndex:start] == '0') {
+		return;
+	}
+	NSString *stem = [name substringToIndex:start];
+	NSInteger number = [[name substringFromIndex:start] integerValue];
+	if (number > [[_highestNumbers objectForKey:stem] integerValue]) {
+		[_highestNumbers setObject:@(number) forKey:stem];
+	}
+}
+
+- (NSString *)nextNameWithPrefix:(NSString *)prefix
+{
+	NSInteger number = [[_highestNumbers objectForKey:prefix] integerValue] + 1;
+	[_highestNumbers setObject:@(number) forKey:prefix];
+	return [NSString stringWithFormat:@"%@%ld", prefix, (long)number];
 }
 
 - (void)readDataTypes
@@ -1712,6 +1787,8 @@ ORMWithout(NSArray *array, id object)
 			type.dataTypeScale = [ORMAttribute(dataType, @"Scale") integerValue];
 		}
 		type.ownValueConstraint = [self valueConstraintIn:ORMChild(element, CORE, @"ValueRestriction")];
+		type.valuePattern = ORMChild(element, ORMValuesNamespace, @"Pattern") != nil
+			? ORMChildText(element, ORMValuesNamespace, @"Pattern") : nil;
 		type.savedReferenceMode = ORMAttribute(element, @"_ReferenceMode");
 		[types addObject:type];
 		[self registerElement:type];

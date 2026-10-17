@@ -286,10 +286,9 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
  * else its primary reading. Subtype facts read "{sub} is {super}". */
 - (ORMReadingUse *)readingOf:(ORMFactType *)fact from:(ORMRole *)role
 {
-	if (fact.kind == ORMFactTypeSubtype && [fact.roles count] == 2) {
-		ORMRole *sub = [fact.roles objectAtIndex:0];
-		ORMRole *sup = [fact.roles objectAtIndex:1];
-		ORMReadingUse *use = [self use:@"{0} is {1}" roles:role == sup ? @[ sup, sub ] : @[ sub, sup ]];
+	NSArray *subtyping = [fact subtypeReadingRolesFrom:role];
+	if (subtyping != nil) {
+		ORMReadingUse *use = [self use:ORMSubtypeReadingText roles:subtyping];
 		use.isSubtype = YES;
 		return use;
 	}
@@ -490,12 +489,21 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	if (type.valueConstraint != nil) {
 		[self verbalizeValues:type.valueConstraint of:type role:nil];
 	}
+	if ([valueType.valuePattern length] > 0) {
+		/* "The possible values of VIN match the pattern '[A-HJ-NPR-Z0-9]{17}'." */
+		b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"The possible values of "];
+		[b objectType:type.name id:type.identifier];
+		[b keyword:@" match the pattern "];
+		[b value:[NSString stringWithFormat:@"'%@'", valueType.valuePattern]];
+		[self emit:b];
+	}
 	if ([[type defaultValue] length] > 0) {
 		b = [[ORMSentenceBuilder alloc] init];
 		[b keyword:@"The default value of "];
 		[b objectType:type.name id:type.identifier];
 		[b keyword:@" is "];
-		[b value:ORMQuoted([type defaultValue], type.valueConstraint == nil || [type.valueConstraint quotesValues])];
+		[b value:ORMQuoted([type defaultValue], type.dataType == nil || [type.dataType quotesValues])];
 		[self emit:b kind:ORMVerbalInformation];
 	}
 	ORMCardinality *cardinality = [type cardinality];
@@ -1057,6 +1065,22 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	return common;
 }
 
+/* The object type a value comparison is of: its roles' opposite
+ * players, where one is the other's subtype the subtype ("For each Trip"
+ * over Event's start and Trip's end); nil when they are not so related. */
+- (ORMObjectType *)comparedPlayer:(NSArray<ORMRole *> *)roles
+{
+	ORMObjectType *compared = nil;
+	for (ORMRole *role in roles) {
+		ORMObjectType *player = [role oppositeRole].player;
+		if (player == nil || (compared != nil && ![player isCompatibleWith:compared])) {
+			return nil;
+		}
+		compared = compared == nil || [player isSubtypeOf:compared] ? player : compared;
+	}
+	return compared;
+}
+
 - (void)verbalizeIdentification:(ORMConstraint *)constraint
 {
 	ORMObjectType *identified = constraint.preferredIdentifierFor;
@@ -1375,7 +1399,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	                         @"GreaterThanOrEqual": @"is greater than or equal to" };
 	ORMRole *a = [roles firstObject];
 	ORMRole *c = [roles lastObject];
-	ORMObjectType *joined = [self commonOppositePlayer:roles];
+	ORMObjectType *joined = [self comparedPlayer:roles];
 	NSMapTable *names = [self namesFor:roles];
 	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 	if (joined != nil) {
@@ -1393,7 +1417,8 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 			if (r == role) {
 				return ORMMakeTerm(@"some", [names objectForKey:r], r.player.identifier);
 			}
-			return ORMMakeTerm(@"that", r.player.name, r.player.identifier);
+			ORMObjectType *named = joined ?: r.player;
+			return ORMMakeTerm(@"that", named.name, named.identifier);
 		}]];
 	}
 	[b keyword:@" then "];
@@ -1420,7 +1445,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 				if (r == role) {
 					return ORMMakeTerm(@"some", [names objectForKey:r], r.player.identifier);
 				}
-				return starts ? ORMMakeTerm(nil, nil, nil) : ORMMakeTerm(@"that", r.player.name, r.player.identifier);
+				return starts ? ORMMakeTerm(nil, nil, nil) : ORMMakeTerm(@"that", joined.name, joined.identifier);
 			}]];
 		}
 		[b keyword:@" and "];

@@ -96,7 +96,13 @@ typedef NS_ENUM(NSInteger, ORMFormulaKind) {
 /* Built from a join path that could not be followed, or a sequence that
  * needs one and has none: the formula says what it can. */
 @property (nonatomic, readonly) BOOL isIncomplete;
+/* The variable of each thing it is over, by its id (a query's: each
+ * node's); nil where it was not built so. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMVariable *> *variables;
 + (instancetype)relationWithFormula:(ORMFormula *)formula columns:(NSArray<ORMVariable *> *)columns;
++ (instancetype)relationWithFormula:(ORMFormula *)formula
+                            columns:(NSArray<ORMVariable *> *)columns
+                          variables:(NSDictionary<NSString *, ORMVariable *> *)variables;
 @end
 
 @interface ORMLogic : NSObject

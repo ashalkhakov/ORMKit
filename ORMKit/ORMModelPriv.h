@@ -43,6 +43,7 @@
 @property (nonatomic, readwrite, weak) ORMDataType *dataType;
 @property (nonatomic, readwrite) NSInteger dataTypeLength;
 @property (nonatomic, readwrite) NSInteger dataTypeScale;
+@property (nonatomic, readwrite, copy) NSString *valuePattern;
 /* What the file says, as against what is derived: its own value
  * constraint (valueConstraint is an entity type's reference mode's too),
  * and NORMA's _ReferenceMode, which settles how a value type's name reads. */
@@ -201,6 +202,9 @@
 - (void)readDocumentAgain:(NSXMLDocument *)document;
 /* Whether the element is in the model: the links to it are kept up. */
 - (BOOL)holds:(ORMElement *)element;
+/* "InternalUniquenessConstraint8": the prefix and a number above every
+ * one a name of the model has had with it since it was read. */
+- (NSString *)nextNameWithPrefix:(NSString *)prefix;
 /* A new diagram in the model, after the others. */
 - (void)addDiagram:(ORMDiagram *)diagram;
 /* A new element taken into the model: registered, and listed where its
@@ -220,10 +224,9 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMCoreDataMapping *> *coreDataMappings;
 /* The queries the document keeps, in order. */
 @property (nonatomic, copy) NSArray<ORMStoredQuery *> *storedQueries;
-/* While a change is made: the names of the elements it took out, the
- * document's until it is written; their ids; and the object types whose
- * links it changed (the roles they play, those roles' constraints). */
-@property (nonatomic, strong) NSMutableSet<NSString *> *removedNames;
+/* While a change is made: the ids of the elements it took out, and the
+ * object types whose links it changed (the roles they play, those roles'
+ * constraints). */
 @property (nonatomic, strong) NSMutableSet<NSString *> *removedIds;
 @property (nonatomic, strong) NSHashTable<ORMObjectType *> *relinkedTypes;
 /* Whether a reading of the file has NORMA's <orm:ExpandedData>. */

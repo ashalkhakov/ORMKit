@@ -251,15 +251,24 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 @property (nonatomic, readwrite, strong) ORMFormula *formula;
 @property (nonatomic, readwrite, copy) NSArray<ORMVariable *> *columns;
 @property (nonatomic, readwrite) BOOL isIncomplete;
+@property (nonatomic, readwrite, copy) NSDictionary<NSString *, ORMVariable *> *variables;
 @end
 
 @implementation ORMRelation
 
 + (instancetype)relationWithFormula:(ORMFormula *)formula columns:(NSArray<ORMVariable *> *)columns
 {
+	return [self relationWithFormula:formula columns:columns variables:nil];
+}
+
++ (instancetype)relationWithFormula:(ORMFormula *)formula
+                            columns:(NSArray<ORMVariable *> *)columns
+                          variables:(NSDictionary<NSString *, ORMVariable *> *)variables
+{
 	ORMRelation *relation = [[self alloc] init];
 	relation.formula = formula;
 	relation.columns = columns;
+	relation.variables = variables;
 	return relation;
 }
 

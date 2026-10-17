@@ -10,6 +10,9 @@
  * all, so keep the model alive while you use what it gave you. */
 
 @class ORMReadingText;
+
+/* What a subtype fact type reads as: "{0} is {1}". */
+extern NSString *const ORMSubtypeReadingText;
 @class ORMModel, ORMObjectType, ORMFactType, ORMRole, ORMReadingOrder, ORMReading, ORMConstraint, ORMRoleSequence,
 	ORMValueConstraint, ORMDataType, ORMModelNote, ORMDiagram, ORMCoreDataMapping;
 
@@ -94,6 +97,11 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 @property (nonatomic, readonly, weak) ORMDataType *dataType;
 @property (nonatomic, readonly) NSInteger dataTypeLength;
 @property (nonatomic, readonly) NSInteger dataTypeScale;
+/* For a value type: a regular expression (ICU's) each of its values
+ * matches whole, "[A-Z]{3}"; nil for none. NORMA has no such constraint:
+ * ORMKit keeps it in the value type's element, in its own namespace, which
+ * a copy for NORMA leaves out. */
+@property (nonatomic, readonly, copy) NSString *valuePattern;
 /* For a value type, or an entity type through its reference mode's. */
 @property (nonatomic, readonly, strong) ORMValueConstraint *valueConstraint;
 
@@ -121,6 +129,8 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
 /* Whether it is the other, or one is the other's subtype at any depth:
  * what set comparison and ring constraints ask of the players they span. */
 - (BOOL)isCompatibleWith:(ORMObjectType *)other;
+/* Whether it has a supertype or a subtype. */
+- (BOOL)isInSubtypeHierarchy;
 /* Its family: it, and the types subtyping relates it to at any depth, up
  * and down, a sibling subtype too, in the model's order. */
 @property (nonatomic, readonly, copy) NSArray<ORMObjectType *> *family;
@@ -181,6 +191,10 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
  * players); nil for any other fact type. */
 - (ORMObjectType *)subtype;
 - (ORMObjectType *)supertype;
+/* A subtype fact type's reading, which NORMA keeps none of: "{0} is {1}",
+ * read from either role (ORMSubtypeReadingText); its roles in that order,
+ * from the role. */
+- (NSArray<ORMRole *> *)subtypeReadingRolesFrom:(ORMRole *)role;
 /* The first reading of the first reading order: what NORMA shows. */
 - (ORMReading *)primaryReading;
 /* "Person was born in Country": its primary reading with the players'
@@ -201,6 +215,9 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 - (BOOL)hasUniquenessOverRoles:(NSArray<ORMRole *> *)roles;
 /* "PersonHasName": NORMA's derived name, from the primary reading. */
 - (NSString *)derivedName;
+/* The modeller's own name for it ("ExchangeRate"); nil when it has none
+ * and NORMA's derived name stands. */
+@property (nonatomic, readonly, copy) NSString *explicitName;
 @end
 
 /* How many of the other roles' players one instance of a binary fact
@@ -317,6 +334,8 @@ typedef NS_ENUM(NSInteger, ORMModality) {
  * with the join path NORMA may keep for it left in the XML. */
 @interface ORMRoleSequence : ORMElement
 @property (nonatomic, readonly, copy) NSArray<ORMRole *> *roles;
+/* The fact type its roles are all of; nil where they span several. */
+- (ORMFactType *)factType;
 /* The ids of the sequence's role uses (<orm:Role id ref/>), one a role:
  * what a join path's projections name. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *roleUseIds;
@@ -412,6 +431,10 @@ typedef NS_ENUM(NSInteger, ORMDataTypeFamily) {
 /* The element's local name: "VariableLengthTextDataType". */
 @property (nonatomic, readonly, copy) NSString *typeName;
 @property (nonatomic, readonly) ORMDataTypeFamily family;
+/* Whether its values are numbers; whether they are quoted when said
+ * (all but numbers, moments and truth values: 'Smith', 30, 2026-10-17). */
+- (BOOL)isNumeric;
+- (BOOL)quotesValues;
 /* "Text: Variable Length", as NORMA's property grid lists it. */
 - (NSString *)displayName;
 /* Every data type NORMA has, by element name, in its menu order. */

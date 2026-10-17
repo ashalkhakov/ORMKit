@@ -10,6 +10,8 @@
  *   Person smokes                              a unary
  *   Person was born in Country / Country is birthplace of Person
  *                                              a second reading, roles by name
+ *   Vehicle was acquired on Date (as PurchaseDate)
+ *                                              a role's name, as CQL gives it
  *
  * An object type is a name the model already has, a bracketed name, a name
  * followed by parentheses, or a capitalized word; the rest is the reading.
@@ -23,6 +25,8 @@
 @property (nonatomic, readonly) ORMReferenceModeKind referenceModeKind;
 /* Name(): a value type. */
 @property (nonatomic, readonly) BOOL isValueType;
+/* "PurchaseDate" for Date (as PurchaseDate): the name of its role. */
+@property (nonatomic, readonly, copy) NSString *roleName;
 @end
 
 @interface ORMFactSentence : NSObject

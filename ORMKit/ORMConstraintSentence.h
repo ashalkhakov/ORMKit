@@ -23,6 +23,11 @@
  *     Person is parent of Person.
  *   If Person1 is parent of Person2 then Person2 is parent of Person1.
  *   The possible values of Gender are 'M', 'F'.
+ *   Each Person that has some PhoneNr has at least 2 and at most 5 PhoneNr.
+ *   Each Person, Language combination that occurs in the population of
+ *     Person speaks Language occurs there exactly 2 times.
+ *   For each Project, if that Project starts on some Date1 and that Project
+ *     ends on some Date2 then Date1 is less than or equal to Date2.
  *   It is obligatory that each Person was born in some Country.
  *
  * Each clause is matched against the model's readings, an object type's
@@ -74,6 +79,12 @@
 @property (nonatomic, readonly, copy) NSString *values;
 @property (nonatomic, readonly, copy) NSString *valuesOfObjectType;
 @property (nonatomic, readonly, strong) ORMSentenceRole *valuesOfRole;
+/* A frequency constraint's bounds: at least min, at most max (0 for no
+ * most). */
+@property (nonatomic, readonly) NSUInteger minFrequency;
+@property (nonatomic, readonly) NSUInteger maxFrequency;
+/* A value comparison's operator, as NORMA names it: "LessThanOrEqual". */
+@property (nonatomic, readonly, copy) NSString *comparisonOperator;
 @end
 
 @interface ORMConstraintSentence : NSObject

@@ -426,7 +426,7 @@ sorted by nr descending
 | `some C as x1 has ...` | `SUBQUERY(C, $x1, ...).@count > 0` |
 | `number of C ... > n` | `C.@count > n`, `SUBQUERY(...).@count > n` |
 | `sum of x1.v over C` | `C.@sum.v`; with `having`, on the objects fetched (`keep those where ...`) |
-| `is a Professor` | `entity.name IN {Professor and its subentities}` |
+| `is a Professor` | `entity IN {Professor and its subentities}`: the entities themselves, which a SQLite store asks of its entity column, inside a SUBQUERY too |
 | `is` | `==` |
 | `is among` a trail | `ANY $x2.isOwnedByEmployees == SELF`: back along the inverses, which the SQLite store says in SQL |
 | `... in join1` | the set fetched first: `join1: fetch Branch where nr == 52` |
