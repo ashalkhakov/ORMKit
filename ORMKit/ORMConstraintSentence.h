@@ -23,6 +23,8 @@
  *     Person is parent of Person.
  *   If Person1 is parent of Person2 then Person2 is parent of Person1.
  *   The possible values of Gender are 'M', 'F'.
+ *   For each Project, if that Project starts on some Date1 and that Project
+ *     ends on some Date2 then Date1 is less than or equal to Date2.
  *   It is obligatory that each Person was born in some Country.
  *
  * Each clause is matched against the model's readings, an object type's
@@ -74,6 +76,8 @@
 @property (nonatomic, readonly, copy) NSString *values;
 @property (nonatomic, readonly, copy) NSString *valuesOfObjectType;
 @property (nonatomic, readonly, strong) ORMSentenceRole *valuesOfRole;
+/* A value comparison's operator, as NORMA names it: "LessThanOrEqual". */
+@property (nonatomic, readonly, copy) NSString *comparisonOperator;
 @end
 
 @interface ORMConstraintSentence : NSObject

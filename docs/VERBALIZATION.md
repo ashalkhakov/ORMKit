@@ -129,7 +129,27 @@ NORMA keeps one (`ORMJoinPathBuilder`), a root, PostInnerJoin and
 SameFactType pathed roles, sub-paths where it branches, and the
 projection of each role of the sequence.
 
-Read now: every template above except frequency and value comparison.
+Read now: every template above except frequency, object cardinality,
+role cardinality and default values. A value comparison is read in the
+form the verbalizer gives it with "For each"; over a supertype's fact type
+and a subtype's (a Trip's end and an Event's start), it is "For each" the
+subtype.
+
+Of an object type, read back (`-[ORMSentenceEditor addStatement:...]`):
+"Person is an entity type.", "Rating is a value type.", "Each Male is a
+Person.", "Enrolment is where Student enrolled in Course." and "This
+association with ... provides the preferred identification scheme for
+...", the uniqueness constraint over those players' roles said before it.
+"Each Male is by definition a Person who ..." makes the subtype, with the
+rule kept as its informal definition until ORMKit writes NORMA's subtype
+derivation rules.
+
+A whole schema reads as text (`-addFromText:failures:`, `ormtool build`),
+a statement a line, with lines that go on from the one before: "# Name"
+starts a diagram, "Reference Mode:" and "Portable data type:" are of the
+object type just named, and a line starting `*`, `**`, `+` or `++` is the
+derivation rule of the fact type just made, in the marks of the table
+above.
 The tests read back every statement the verbalizer makes of the NORMA
 models in `Fixtures` without joins, some 1,700, as the constraint it came
 from; and of the twenty over join paths, eighteen made again from their

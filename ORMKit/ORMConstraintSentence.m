@@ -63,6 +63,7 @@ static const char *const ORMQuantifiers[] = {
 @property (nonatomic, readwrite, copy) NSString *values;
 @property (nonatomic, readwrite, copy) NSString *valuesOfObjectType;
 @property (nonatomic, readwrite, strong) ORMSentenceRole *valuesOfRole;
+@property (nonatomic, readwrite, copy) NSString *comparisonOperator;
 @end
 
 @implementation ORMSentenceConstraint
@@ -1373,6 +1374,9 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 		return [self fail:@"\"For each\" needs a comma after what it lists."];
 	}
 	NSArray *names = [[head stringByReplacingOccurrencesOfString:@" and " withString:@", "] componentsSeparatedByString:@", "];
+	if (ORMHasPrefix(rest, @"if ")) {
+		return [self comparison:[rest substringFromIndex:[@"if " length]]];
+	}
 	BOOL exactlyOneHolds = ORMHasPrefix(rest, @"exactly one of the following holds: ");
 	if (exactlyOneHolds || ORMHasPrefix(rest, @"at most one of the following holds: ")) {
 		NSString *list = [rest substringFromIndex:[exactlyOneHolds ? @"exactly one of the following holds: "
@@ -1491,6 +1495,65 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 		return [self fail:@"An external uniqueness constraint spans two roles or more."];
 	}
 	[self add:ORMMakeConstraint(ORMUniquenessConstraint, @[ roles ])];
+	return YES;
+}
+
+/* A value comparison, after "For each Project, if ": "that Project starts
+ * on some Date1 and that Project ends on some Date2 then Date1 is less than
+ * or equal to Date2". The values compared are the roles named "some". */
+- (BOOL)comparison:(NSString *)text
+{
+	NSRange then = [text rangeOfString:@" then " options:NSBackwardsSearch];
+	if (then.location == NSNotFound) {
+		return [self fail:@"An \"if\" needs a \"then\"."];
+	}
+	NSString *condition = [text substringToIndex:then.location];
+	NSString *comparison = [text substringFromIndex:NSMaxRange(then)];
+	/* Longest first: "is less than or equal to" before "is less than". */
+	NSArray *operators = @[ @[ @"is less than or equal to", @"LessThanOrEqual" ],
+	                        @[ @"is greater than or equal to", @"GreaterThanOrEqual" ],
+	                        @[ @"is not equal to", @"NotEqual" ], @[ @"is equal to", @"Equal" ],
+	                        @[ @"is less than", @"LessThan" ], @[ @"is greater than", @"GreaterThan" ] ];
+	NSString *operator = nil;
+	NSArray *compared = nil;
+	for (NSArray *pair in operators) {
+		NSRange at = [comparison rangeOfString:[NSString stringWithFormat:@" %@ ", [pair firstObject]]];
+		if (at.location != NSNotFound) {
+			operator = [pair lastObject];
+			compared = @[ ORMTrimmed([comparison substringToIndex:at.location]),
+			              ORMTrimmed([comparison substringFromIndex:NSMaxRange(at)]) ];
+			break;
+		}
+	}
+	if (operator == nil) {
+		return [self fail:@"Compare with \"is less than\", \"is equal to\", \"is greater than or equal to\", ..."];
+	}
+	NSMutableArray *clauses = [NSMutableArray array];
+	for (NSString *part in [condition componentsSeparatedByString:@" and "]) {
+		ORMSentenceClause *clause = [[self match:ORMTrimmed(part) omit:NO] firstObject];
+		if (clause == nil) {
+			return [self fail:[NSString stringWithFormat:@"\"%@\" is not a fact type the model has.", part]];
+		}
+		[clauses addObject:clause];
+	}
+	NSMutableArray *roles = [NSMutableArray array];
+	for (NSString *name in compared) {
+		ORMSentenceRole *role = nil;
+		for (ORMSentenceClause *clause in clauses) {
+			for (ORMSentenceTerm *term in clause.terms) {
+				if ([term.quantifier isEqualToString:@"some"] && [term.name isEqualToString:name]) {
+					role = term.role;
+				}
+			}
+		}
+		if (role == nil) {
+			return [self fail:[NSString stringWithFormat:@"No \"some %@\" before the \"then\".", name]];
+		}
+		[roles addObject:role];
+	}
+	ORMSentenceConstraint *constraint = ORMMakeConstraint(ORMValueComparisonConstraint, @[ roles ]);
+	constraint.comparisonOperator = operator;
+	[self add:constraint];
 	return YES;
 }
 
@@ -1673,6 +1736,13 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
                                   reason:(NSString **)reason
 {
 	NSString *why = nil;
+	NSArray *statement = [self addStatement:text onDiagram:diagramId at:point reason:&why];
+	if (statement != nil || why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return statement;
+	}
 	ORMConstraintSentence *sentence = [ORMConstraintSentence sentenceWithString:text model:_editor.model reason:&why];
 	NSString *trimmed = ORMTrimmed(text ?: @"");
 	BOOL constraintLike = NO;
@@ -1788,6 +1858,10 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 				break;
 			case ORMRingConstraint:
 				created = [_editor.constraintEditor addRingConstraint:constraint.ringType overRoles:first reason:&failure];
+				break;
+			case ORMValueComparisonConstraint:
+				created = [_editor.constraintEditor addValueComparisonConstraint:constraint.comparisonOperator overRoles:first
+				                                                          reason:&failure];
 				break;
 			case ORMSubsetConstraint:
 			case ORMEqualityConstraint:

@@ -51,6 +51,11 @@ ORMSpecIs(ORMSentenceConstraint *spec, id element)
 		return NO;
 	}
 	switch (constraint.kind) {
+	case ORMValueComparisonConstraint:
+		if (![spec.comparisonOperator isEqualToString:constraint.comparisonOperator]) {
+			return NO;
+		}
+		break;
 	case ORMMandatoryConstraint:
 		if (spec.isExclusiveOr != (constraint.exclusiveOrPartner != nil)) {
 			return NO;
@@ -119,9 +124,10 @@ ORMSaidWithoutJoins(id element)
 			return NO;
 		}
 		BOOL spans = [[NSSet setWithArray:[sequence.roles valueForKey:@"factType"]] count] > 1;
-		/* An external uniqueness or inclusive-or spans fact types by
-		 * nature; the others over several are joins. */
-		BOOL byNature = constraint.kind == ORMUniquenessConstraint || constraint.kind == ORMMandatoryConstraint;
+		/* An external uniqueness, an inclusive-or or a value comparison
+		 * spans fact types by nature; the others over several are joins. */
+		BOOL byNature = constraint.kind == ORMUniquenessConstraint || constraint.kind == ORMMandatoryConstraint
+			|| constraint.kind == ORMValueComparisonConstraint;
 		if (spans && !byNature) {
 			return NO;
 		}
@@ -356,6 +362,128 @@ ORMSaidWithoutJoins(id element)
 	ORMObjectType *person = [model objectTypeNamed:@"Person"];
 	XCTAssertEqual([[[model objectTypeNamed:@"Gender"] valueConstraint].ranges count], (NSUInteger)2);
 	XCTAssertNotNil(person);
+}
+
+/* A value comparison, and over a supertype's fact type and a subtype's,
+ * said "For each" the subtype. */
+- (void)testAValueComparisonFromASentence
+{
+	NSString *dates = @"For each Project, if that Project starts on some Date1 and that Project ends on some Date2 then "
+	                  @"Date1 is less than or equal to Date2.";
+	ORMEditor *editor = [self editorWith:@[ @"Each Project starts on exactly one Date.", @"Each Project ends on at most one Date.",
+	                                        dates, @"Each Event is at exactly one Moment.", @"Each Trip is an Event.",
+	                                        @"Each Trip ended at at most one Moment." ]];
+	NSString *moments = @"For each Trip, if that Trip is at some Moment1 and that Trip ended at some Moment2 then "
+	                    @"Moment1 is less than Moment2.";
+	NSString *reason = nil;
+	NSArray *made = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:moments onDiagram:nil
+	                                                                                  at:ORMAutomaticPlacement
+	                                                                              reason:&reason];
+	XCTAssertEqual([made count], (NSUInteger)1, @"%@", reason);
+	NSMutableArray *comparisons = [NSMutableArray array];
+	for (ORMConstraint *constraint in editor.model.constraints) {
+		if (constraint.kind == ORMValueComparisonConstraint) {
+			[comparisons addObject:constraint];
+		}
+	}
+	XCTAssertEqual([comparisons count], (NSUInteger)2);
+	XCTAssertEqualObjects([[comparisons firstObject] comparisonOperator], @"LessThanOrEqual");
+	XCTAssertEqualObjects([[comparisons lastObject] comparisonOperator], @"LessThan");
+	XCTAssertTrue([[self textsOf:[[comparisons firstObject] identifier] in:editor.model] containsObject:dates]);
+	XCTAssertTrue([[self textsOf:[[comparisons lastObject] identifier] in:editor.model] containsObject:moments]);
+	/* No "some" to compare. */
+	XCTAssertNil(([[[ORMSentenceEditor alloc] initWithEditor:editor]
+		addFromSentence:@"For each Project, if that Project starts on some Date1 then Date1 is less than Date3."
+		      onDiagram:nil at:ORMAutomaticPlacement reason:&reason]));
+	XCTAssertTrue([reason rangeOfString:@"Date3"].location != NSNotFound, @"%@", reason);
+}
+
+/* What the verbalizer says of object types reads back as them. */
+- (void)testObjectTypesFromStatements
+{
+	ORMEditor *editor = [self editorWith:@[ @"Amount is a value type.", @"Currency is an entity type.",
+	                                        @"Each Money has exactly one Amount.", @"Each Money is in exactly one Currency.",
+	                                        (@"For each Amount and Currency, at most one Money has that Amount and is in that "
+	                                         @"Currency."),
+	                                        (@"This association with Amount and Currency provides the preferred "
+	                                         @"identification scheme for Money."),
+	                                        @"Each Male is a Person.",
+	                                        @"Each Adult is by definition a Person who is of some Age.",
+	                                        @"Enrolment is where Student enrolled in Course." ]];
+	ORMModel *model = editor.model;
+	XCTAssertFalse([[model objectTypeNamed:@"Amount"] isEntity]);
+	XCTAssertTrue([[model objectTypeNamed:@"Currency"] isEntity]);
+	ORMObjectType *money = [model objectTypeNamed:@"Money"];
+	XCTAssertEqual([[[money preferredIdentifier] allRoles] count], (NSUInteger)2);
+	ORMObjectType *person = [model objectTypeNamed:@"Person"];
+	XCTAssertTrue([[model objectTypeNamed:@"Male"] isSubtypeOf:person]);
+	ORMObjectType *adult = [model objectTypeNamed:@"Adult"];
+	XCTAssertTrue([adult isSubtypeOf:person]);
+	XCTAssertEqualObjects(adult.definitionText, @"Each Adult is by definition a Person who is of some Age.");
+	ORMObjectType *enrolment = [model objectTypeNamed:@"Enrolment"];
+	XCTAssertEqualObjects([[enrolment.nestedFactType primaryReading] text], @"{0} enrolled in {1}");
+	XCTAssertTrue([[self textsOf:money.identifier in:model]
+		containsObject:@"Reference Scheme: Money has Amount; Money is in Currency."]);
+	/* Said again of one the model has: nothing new. */
+	NSUInteger count = [model.objectTypes count];
+	NSString *reason = nil;
+	NSArray *made = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:@"Currency is an entity type."
+	                                                                         onDiagram:nil at:ORMAutomaticPlacement
+	                                                                            reason:&reason];
+	XCTAssertEqualObjects(made, @[ [[model objectTypeNamed:@"Currency"] identifier] ]);
+	XCTAssertEqual([editor.model.objectTypes count], count);
+	XCTAssertNil(([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:@"Amount is an entity type."
+	                                                                       onDiagram:nil at:ORMAutomaticPlacement
+	                                                                          reason:&reason]));
+	XCTAssertTrue([reason length] > 0);
+}
+
+/* A schema as text: diagrams by heading, details and derivations going on
+ * from the line before, every line not read said with its number. */
+- (void)testASchemaFromText
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"// Money and records\n"
+	                 @"# Money\n"
+	                 @"Amount is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                 @"Currency is an entity type.\n"
+	                 @"Reference Mode: .code\n"
+	                 @"Each Money has exactly one Amount.\n"
+	                 @"\n"
+	                 @"# Records\n"
+	                 @"Record(.id) cost Money\n"
+	                 @"** the sum of its items' costs\n"
+	                 @"is late, and lazy.\n"
+	                 @"Portable data type: Numeric: Whatever\n";
+	NSArray *failures = nil;
+	XCTAssertFalse([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures]);
+	XCTAssertEqual([failures count], (NSUInteger)2, @"%@", failures);
+	XCTAssertTrue([[failures firstObject] hasPrefix:@"12: "], @"%@", failures);
+	XCTAssertTrue([[failures lastObject] hasPrefix:@"13: "], @"%@", failures);
+	ORMModel *model = editor.model;
+	XCTAssertEqualObjects([model.diagrams valueForKey:@"name"], (@[ @"Money", @"Records" ]));
+	ORMObjectType *amount = [model objectTypeNamed:@"Amount"];
+	XCTAssertEqualObjects(amount.dataType.typeName, @"DecimalNumericDataType");
+	XCTAssertEqual(amount.dataTypeLength, (NSInteger)19);
+	XCTAssertEqual(amount.dataTypeScale, (NSInteger)4);
+	XCTAssertEqualObjects([[model objectTypeNamed:@"Currency"] referenceMode], @"code");
+	ORMFactType *cost = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] text] isEqualToString:@"{0} cost {1}"]) {
+			cost = fact;
+		}
+	}
+	XCTAssertTrue(cost.isDerived);
+	XCTAssertTrue([[self textsOf:cost.identifier in:model] containsObject:@"** the sum of its items' costs."],
+	              @"%@", [self textsOf:cost.identifier in:model]);
+	/* Each diagram has what its lines named. */
+	ORMDiagram *records = [model.diagrams lastObject];
+	XCTAssertNotNil([records shapeForSubject:cost.identifier]);
+	XCTAssertNotNil([records shapeForSubject:[[model objectTypeNamed:@"Money"] identifier]]);
+	/* One step to undo. */
+	[self.undoManager undo];
+	XCTAssertNil([editor.model objectTypeNamed:@"Amount"]);
 }
 
 - (void)testWhatIsNotUnderstoodSaysWhy

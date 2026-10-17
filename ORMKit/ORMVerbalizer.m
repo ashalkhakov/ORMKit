@@ -1056,6 +1056,22 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	return common;
 }
 
+/* The object type a value comparison is of: its roles' opposite
+ * players, where one is the other's subtype the subtype ("For each Trip"
+ * over Event's start and Trip's end); nil when they are not so related. */
+- (ORMObjectType *)comparedPlayer:(NSArray<ORMRole *> *)roles
+{
+	ORMObjectType *compared = nil;
+	for (ORMRole *role in roles) {
+		ORMObjectType *player = [role oppositeRole].player;
+		if (player == nil || (compared != nil && ![player isCompatibleWith:compared])) {
+			return nil;
+		}
+		compared = compared == nil || [player isSubtypeOf:compared] ? player : compared;
+	}
+	return compared;
+}
+
 - (void)verbalizeIdentification:(ORMConstraint *)constraint
 {
 	ORMObjectType *identified = constraint.preferredIdentifierFor;
@@ -1374,7 +1390,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 	                         @"GreaterThanOrEqual": @"is greater than or equal to" };
 	ORMRole *a = [roles firstObject];
 	ORMRole *c = [roles lastObject];
-	ORMObjectType *joined = [self commonOppositePlayer:roles];
+	ORMObjectType *joined = [self comparedPlayer:roles];
 	NSMapTable *names = [self namesFor:roles];
 	ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
 	if (joined != nil) {
@@ -1392,7 +1408,8 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 			if (r == role) {
 				return ORMMakeTerm(@"some", [names objectForKey:r], r.player.identifier);
 			}
-			return ORMMakeTerm(@"that", r.player.name, r.player.identifier);
+			ORMObjectType *named = joined ?: r.player;
+			return ORMMakeTerm(@"that", named.name, named.identifier);
 		}]];
 	}
 	[b keyword:@" then "];
@@ -1419,7 +1436,7 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 				if (r == role) {
 					return ORMMakeTerm(@"some", [names objectForKey:r], r.player.identifier);
 				}
-				return starts ? ORMMakeTerm(nil, nil, nil) : ORMMakeTerm(@"that", r.player.name, r.player.identifier);
+				return starts ? ORMMakeTerm(nil, nil, nil) : ORMMakeTerm(@"that", joined.name, joined.identifier);
 			}]];
 		}
 		[b keyword:@" and "];

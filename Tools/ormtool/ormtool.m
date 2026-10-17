@@ -34,7 +34,10 @@
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
- *                                            output, with what ORM cannot say on standard error */
+ *                                            output, with what ORM cannot say on standard error
+ *   ormtool build schema.txt model.orm      a new model from its sentences, as the verbalizer says
+ *                                            them, a line each (-[ORMSentenceEditor addFromText:]);
+ *                                            each line not read, with why, on standard error (1) */
 
 static void
 ORMPrint(NSString *text)
@@ -52,7 +55,8 @@ ORMUsage(void)
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
-	      "       ormtool import Model.xcdatamodeld [model.orm]\n", stderr);
+	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
+	      "       ormtool build schema.txt model.orm\n", stderr);
 	return 2;
 }
 
@@ -109,6 +113,31 @@ ORMImport(NSArray<NSString *> *args)
 	}
 	fwrite([data bytes], 1, [data length], stdout);
 	return 0;
+}
+
+static int
+ORMBuild(NSArray<NSString *> *args)
+{
+	NSString *source = [args objectAtIndex:1];
+	NSString *out = [args objectAtIndex:2];
+	NSError *error = nil;
+	NSString *text = [NSString stringWithContentsOfFile:source encoding:NSUTF8StringEncoding error:&error];
+	if (text == nil) {
+		fprintf(stderr, "ormtool: cannot read %s\n", [source UTF8String]);
+		return 1;
+	}
+	NSString *name = [[out lastPathComponent] stringByDeletingPathExtension];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:name] undoManager:nil];
+	NSArray *failures = nil;
+	BOOL read = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures];
+	for (NSString *failure in failures) {
+		fprintf(stderr, "%s:%s\n", [source UTF8String], [failure UTF8String]);
+	}
+	if (![ORMDataOfDocument([editor documentForSaving]) writeToFile:out atomically:YES]) {
+		fprintf(stderr, "ormtool: cannot write %s\n", [out UTF8String]);
+		return 1;
+	}
+	return read ? 0 : 1;
 }
 
 /* The rows the plan finds in the model's sample population, as a table;
@@ -172,6 +201,9 @@ main(int argc, const char *argv[])
 		[args removeObject:@"--dark"];
 		if ([command isEqualToString:@"import"]) {
 			return ORMImport(args);
+		}
+		if ([command isEqualToString:@"build"]) {
+			return [args count] >= 3 ? ORMBuild(args) : ORMUsage();
 		}
 		ORMEditor *editor = ORMOpen([args objectAtIndex:1]);
 		if (editor == nil) {

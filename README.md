@@ -104,7 +104,12 @@ ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]
 ormtool import Model.xcdatamodeld [model.orm]
 ormtool validation model.orm dir/ [mapping name]
 ormtool query model.orm [query name] [mapping name]
+ormtool build schema.forml model.orm
 ```
+
+`build` makes a new model from its sentences, a line each, as the
+verbalizer says them ([docs/VERBALIZATION.md](docs/VERBALIZATION.md)), with
+each line it cannot read, and why, on standard error.
 
 `svg` draws a diagram as the editor does: the first (or the named one) to
 standard output or a file, or every diagram into a directory, a file each.
