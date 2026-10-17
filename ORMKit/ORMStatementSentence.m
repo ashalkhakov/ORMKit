@@ -339,6 +339,11 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 			}
 			if ([line hasPrefix:@"Reference Mode: "] || [line hasPrefix:@"Portable data type: "]) {
 				read = [self setDetail:line of:lastType reason:&why];
+			} else if ([line hasPrefix:@"Fact Type Name: "]) {
+				why = lastFact == nil ? @"A fact type's name goes after the fact type." : nil;
+				read = lastFact != nil
+					&& [self.editor.elementEditor rename:lastFact.identifier
+					                                  to:[line substringFromIndex:[@"Fact Type Name: " length]] reason:&why];
 			} else if (space.location != NSNotFound && [marks containsObject:[line substringToIndex:space.location]]) {
 				read = [self setDerivation:line of:lastFact reason:&why];
 			} else {

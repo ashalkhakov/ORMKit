@@ -431,6 +431,22 @@ ORMSquashed(NSString *name)
 	XCTAssertFalse([trip containsObject:@"label"], @"%@", trip);
 }
 
+/* A fact type mapped as an entity of its own is called what the modeller
+ * named it, not what its reading says. */
+- (void)testANamedFactTypeNamesItsEntity
+{
+	ORMEditor *editor = [self newEditor];
+	ORMSentenceEditor *sentences = [[ORMSentenceEditor alloc] initWithEditor:editor];
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *reason = nil;
+	NSString *rate = [[sentences addFromSentence:@"Currency(.code) was worth Factor() in Currency on Date()" onDiagram:diagram
+	                                          at:ORMAutomaticPlacement reason:&reason] firstObject];
+	XCTAssertNotNil(rate, @"%@", reason);
+	XCTAssertTrue([editor.elementEditor rename:rate to:@"ExchangeRate" reason:&reason], @"%@", reason);
+	ORMCDModel *mapped = [self map:editor.model];
+	XCTAssertNotNil([mapped entityNamed:@"ExchangeRate"]);
+}
+
 - (void)testCollidingNamesComeFromTheReadings
 {
 	ORMEditor *editor = [self newEditor];

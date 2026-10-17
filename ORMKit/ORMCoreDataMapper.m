@@ -1465,7 +1465,8 @@ ORMDeletionRule(ORMRole *far)
 		}
 	} else {
 		entity = [[ORMCDEntity alloc] init];
-		entity.name = [self claimEntityName:[fact derivedName] source:fact.identifier];
+		entity.name = [self claimEntityName:[fact.explicitName length] > 0 ? fact.explicitName : [fact derivedName]
+		                             source:fact.identifier];
 		entity.source = fact.identifier;
 		entity.codeGenerationType = self.mapping.codeGenerationType;
 		[_out.entities addObject:entity];

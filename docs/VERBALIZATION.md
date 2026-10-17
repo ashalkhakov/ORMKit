@@ -147,8 +147,9 @@ derivation rules.
 A whole schema reads as text (`-addFromText:failures:`, `ormtool build`),
 a statement a line, with lines that go on from the one before: "# Name"
 starts a diagram, "Reference Mode:" and "Portable data type:" are of the
-object type just named, and a line starting `*`, `**`, `+` or `++` is the
-derivation rule of the fact type just made, in the marks of the table
+object type just named, "Fact Type Name:" names the fact type just made,
+and a line starting `*`, `**`, `+` or `++` is the derivation rule of the
+fact type just made, in the marks of the table
 above. A role is named as CQL names it, after its player: "Vehicle was
 acquired on Date (as PurchaseDate)"; a named role is shown on the diagram
 above its box, as NORMA shows it, and its name is what Core Data calls its

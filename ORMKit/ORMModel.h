@@ -210,6 +210,9 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 - (BOOL)hasUniquenessOverRoles:(NSArray<ORMRole *> *)roles;
 /* "PersonHasName": NORMA's derived name, from the primary reading. */
 - (NSString *)derivedName;
+/* The modeller's own name for it ("ExchangeRate"); nil when it has none
+ * and NORMA's derived name stands. */
+@property (nonatomic, readonly, copy) NSString *explicitName;
 @end
 
 /* How many of the other roles' players one instance of a binary fact

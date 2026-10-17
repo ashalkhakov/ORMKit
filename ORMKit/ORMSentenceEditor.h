@@ -46,6 +46,7 @@
  *   Reference Mode: .id            the object type the line before named
  *   Portable data type: Numeric: Decimal(10, 2)
  *                                  the same
+ *   Fact Type Name: ExchangeRate   the fact type the line before made
  *   * text                         the fact type the line before made is
  *                                  derived by the rule the text says;
  *                                  ** derived and stored, + partly

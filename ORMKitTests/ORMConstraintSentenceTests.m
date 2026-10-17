@@ -464,14 +464,15 @@ ORMRoleNameShapes(ORMShape *factShape)
 	                 @"\n"
 	                 @"# Records\n"
 	                 @"Record(.id) cost Money\n"
+	                 @"Fact Type Name: RecordCost\n"
 	                 @"** the sum of its items' costs\n"
 	                 @"is late, and lazy.\n"
 	                 @"Portable data type: Numeric: Whatever\n";
 	NSArray *failures = nil;
 	XCTAssertFalse([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures]);
 	XCTAssertEqual([failures count], (NSUInteger)2, @"%@", failures);
-	XCTAssertTrue([[failures firstObject] hasPrefix:@"12: "], @"%@", failures);
-	XCTAssertTrue([[failures lastObject] hasPrefix:@"13: "], @"%@", failures);
+	XCTAssertTrue([[failures firstObject] hasPrefix:@"13: "], @"%@", failures);
+	XCTAssertTrue([[failures lastObject] hasPrefix:@"14: "], @"%@", failures);
 	ORMModel *model = editor.model;
 	XCTAssertEqualObjects([model.diagrams valueForKey:@"name"], (@[ @"Money", @"Records" ]));
 	ORMObjectType *amount = [model objectTypeNamed:@"Amount"];
@@ -486,6 +487,7 @@ ORMRoleNameShapes(ORMShape *factShape)
 		}
 	}
 	XCTAssertTrue(cost.isDerived);
+	XCTAssertEqualObjects(cost.explicitName, @"RecordCost");
 	XCTAssertTrue([[self textsOf:cost.identifier in:model] containsObject:@"** the sum of its items' costs."],
 	              @"%@", [self textsOf:cost.identifier in:model]);
 	/* Each diagram has what its lines named. */
