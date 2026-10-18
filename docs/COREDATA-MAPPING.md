@@ -21,7 +21,7 @@ mapping's treatment of identity and of many-to-many fact types.
 | Entity type | Entity |
 | Entity type identified by a reference mode and playing nothing else of its own (`Weight(kg:)`, played only in "Product has Weight") | absorbed: an attribute where it is used (`Product.weight`, Decimal) |
 | Value type | the type of the attributes it is the value of |
-| Reference mode (`Product(.Id)`) | an attribute (`id`), mandatory, in a uniqueness constraint |
+| Reference mode (`Product(.Id)`) | an attribute (`id`), mandatory, in a uniqueness constraint, and indexed (a fetch index, `byIdIndex`; a subentity's named after it, as its tree is one table) |
 | Binary fact type, functional on an entity type `A`, other role played by a value type | attribute of `A`; optional unless `A`'s role is mandatory |
 | Binary fact type between two entity types | a relationship and its inverse; to-one on the side whose role is unique |
 | Many-to-many binary fact type between entity types | to-many relationships both ways |

@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMConstraintQueries.h"
+#import "ORMEditorPriv.h"
 #import "ORMLogic.h"
 
 /* A fact of a sequence's relation: its fact type, each role's variable
@@ -653,7 +654,22 @@ ORMStartsWith(NSArray *path, NSArray *prefix)
 	return queryId;
 }
 
+/* One change, however many edits make the queries: what follows a change
+ * (the model derived, and in tests read again from the document) once. */
 - (NSArray<NSString *> *)queriesFor:(ORMConstraint *)constraint reason:(NSString **)reason
+{
+	__block NSArray *made = nil;
+	__block NSString *why = nil;
+	[_editor modelChange:@"Constraint Queries" with:^{
+		made = [self makeQueriesFor:constraint reason:&why];
+	}];
+	if (made == nil && reason != NULL) {
+		*reason = why;
+	}
+	return made;
+}
+
+- (NSArray<NSString *> *)makeQueriesFor:(ORMConstraint *)constraint reason:(NSString **)reason
 {
 	NSString *why = nil;
 	NSMutableArray *made = [NSMutableArray array];

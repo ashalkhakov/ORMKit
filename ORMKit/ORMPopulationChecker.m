@@ -5,6 +5,7 @@
 #import "ORMDeriver.h"
 #import "ORMPath.h"
 #import "ORMConstraintQueries.h"
+#import "ORMEditorPriv.h"
 #import "ORMCoreDataMapper.h"
 #import "ORMXML.h"
 #import <CoreData/CoreData.h>
@@ -340,6 +341,23 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	return _violations;
 }
 
+/* Each constraint checked as rules, its queries made: the constraint of
+ * each query, by its id. */
+- (void)makeRulesWith:(ORMConstraintQueries *)builder in:(ORMEditor *)scratch
+         constraintOf:(NSMutableDictionary<NSString *, ORMConstraint *> *)constraintOf
+{
+	for (ORMConstraint *constraint in _asRules) {
+		NSString *why = nil;
+		NSArray *made = [builder queriesFor:[scratch.model elementWithId:constraint.identifier] reason:&why];
+		if (made == nil) {
+			[_unchecked addObject:[NSString stringWithFormat:@"%@: %@.", constraint.name, why]];
+		}
+		for (NSString *identifier in made) {
+			[constraintOf setObject:constraint forKey:identifier];
+		}
+	}
+}
+
 /* The constraint queries, run against the population in a store. */
 - (void)checkRules
 {
@@ -360,16 +378,10 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 			}
 		}
 		builder.readable = readable;
-		for (ORMConstraint *constraint in _asRules) {
-			NSString *why = nil;
-			NSArray *made = [builder queriesFor:[scratch.model elementWithId:constraint.identifier] reason:&why];
-			if (made == nil) {
-				[_unchecked addObject:[NSString stringWithFormat:@"%@: %@.", constraint.name, why]];
-			}
-			for (NSString *identifier in made) {
-				[constraintOf setObject:constraint forKey:identifier];
-			}
-		}
+		/* All of them one change, not one for each edit. */
+		[scratch modelChange:@"Constraint Queries" with:^{
+			[self makeRulesWith:builder in:scratch constraintOf:constraintOf];
+		}];
 		model = scratch.model;
 	}
 	ORMCoreDataMapping *mapping = [model.coreDataMappings firstObject];

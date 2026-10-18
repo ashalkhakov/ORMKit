@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <Foundation/Foundation.h>
+#import "ORMTuple.h"
 
 @class ORMQueryResult, NSEntityDescription;
 
@@ -35,7 +36,7 @@
 /* Whether the object meets what the read could not ask. */
 - (BOOL)keeps:(id)object;
 /* Its rows: a tuple for each way it meets the conditions. */
-- (NSArray<NSArray *> *)rowsOf:(id)object;
+- (NSArray<ORMTuple *> *)rowsOf:(id)object;
 @end
 
 /* The input's objects the evaluator keeps. */

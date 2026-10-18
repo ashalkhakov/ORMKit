@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryInterpreter.h"
+#import "ORMTuple.h"
 #import "ORMCursor.h"
 #import <ODataKit/ODataPropertyMapper.h>
 #import <CoreData/CoreData.h>
@@ -231,6 +232,84 @@ static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
 @property (nonatomic, weak) ORMPlanRun *run;
 @end
 
+/* Each variable the condition names, as many times as it names it. */
+static void
+ORMCountVariables(ORMPlanCondition *condition, NSCountedSet *counts)
+{
+	if (condition == nil) {
+		return;
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMCountVariables(operand, counts);
+	}
+	ORMCountVariables(condition.operand, counts);
+	ORMCountVariables(condition.plan.condition, counts);
+	NSMutableArray *paths = [NSMutableArray array];
+	for (ORMPlanPath *path in @[ condition.path ?: (id)[NSNull null], condition.otherPath ?: (id)[NSNull null],
+	                             condition.valuePath ?: (id)[NSNull null] ]) {
+		if (path != (id)[NSNull null]) {
+			[paths addObject:path];
+		}
+	}
+	[paths addObjectsFromArray:[condition.left paths] ?: @[]];
+	[paths addObjectsFromArray:[condition.right paths] ?: @[]];
+	for (NSArray *pair in condition.pairs) {
+		[paths addObjectsFromArray:pair];
+	}
+	for (ORMPlanPath *path in paths) {
+		if (path.variable != nil) {
+			[counts addObject:path.variable];
+		}
+	}
+}
+
+/* The variables bound in the condition. */
+static void
+ORMBoundVariables(ORMPlanCondition *condition, NSMutableSet *bound)
+{
+	if (condition == nil) {
+		return;
+	}
+	if ((condition.kind == ORMPlanExists || condition.kind == ORMPlanMaybe) && condition.variable != nil) {
+		[bound addObject:condition.variable];
+	}
+	if (condition.kind == ORMPlanMatches && condition.boundVariable != nil) {
+		[bound addObject:condition.boundVariable];
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMBoundVariables(operand, bound);
+	}
+	ORMBoundVariables(condition.operand, bound);
+}
+
+/* The exists under the condition that are semi-joins: what they bind is
+ * named nowhere but in them, and listed by no column. */
+static void
+ORMFindSemiJoins(ORMPlanCondition *condition, NSCountedSet *all, NSSet *listed, NSHashTable *found)
+{
+	if (condition == nil) {
+		return;
+	}
+	if (condition.kind == ORMPlanExists && condition.variable != nil) {
+		NSMutableSet *bound = [NSMutableSet set];
+		ORMBoundVariables(condition, bound);
+		NSCountedSet *inside = [NSCountedSet set];
+		ORMCountVariables(condition.operand, inside);
+		BOOL semi = YES;
+		for (NSString *variable in bound) {
+			semi = semi && ![listed containsObject:variable] && [all countForObject:variable] == [inside countForObject:variable];
+		}
+		if (semi) {
+			[found addObject:condition];
+			return;
+		}
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMFindSemiJoins(operand, all, listed, found);
+	}
+	ORMFindSemiJoins(condition.operand, all, listed, found);
+}
+
 @implementation ORMPlanRun
 {
 	NSMutableSet<NSString *> *_subqueryVariables;
@@ -240,6 +319,13 @@ static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
 	 * no batch answers them. */
 	NSMutableDictionary<NSString *, NSMapTable *> *_bags;
 	NSArray<ORMPlanValue *> *_bagValues;
+	/* Each aggregate's value for each group, made all at once from the
+	 * groups it was made of: @[ the groups, value by group ], by
+	 * aggregate. */
+	NSMapTable<ORMPlanValue *, NSArray *> *_aggregated;
+	/* The exists that bind nothing the rows or other conditions use: one
+	 * member that holds is enough (a semi-join). */
+	NSHashTable<ORMPlanCondition *> *_semiJoins;
 	/* The joins (matches) the checks probe. */
 	NSArray<ORMPlanCondition *> *_probes;
 	id<ORMCursor> _cursor;
@@ -940,6 +1026,31 @@ ORMGoesOnPastACast(ORMPlanPath *path)
 
 /* A value of the object read: a path's, a constant, or an aggregate of a
  * bag over the ways it holds. */
+/* An aggregate of the values: count, value (the one), distinct, sum,
+ * average, max, min. */
+static id
+ORMAggregate(NSString *function, NSArray *values)
+{
+	if ([function isEqualToString:@"count"]) {
+		return @([values count]);
+	}
+	if ([function isEqualToString:@"value"]) {
+		/* The one value; none where there is none, or more than one. */
+		NSSet *distinct = [NSSet setWithArray:values];
+		return [distinct count] == 1 ? [distinct anyObject] : nil;
+	}
+	if ([function isEqualToString:@"distinct"]) {
+		/* How many values: a value calculation checked. */
+		return @([[NSSet setWithArray:values] count]);
+	}
+	if ([values count] == 0) {
+		return [function isEqualToString:@"sum"] ? @0 : nil;
+	}
+	NSString *keyPath = [@{ @"sum": @"@sum.self", @"average": @"@avg.self", @"max": @"@max.self",
+	                         @"min": @"@min.self" } objectForKey:function];
+	return [values valueForKeyPath:keyPath];
+}
+
 /* Whether each @[ column index, value ] is the tuple's: equal, and not
  * nothing. */
 static BOOL
@@ -983,6 +1094,11 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		id wanted = [self value:[value.alsoValues objectAtIndex:i] object:object bindings:bindings] ?: [NSNull null];
 		[also addObject:@[ @([nodeIds indexOfObject:[value.alsoColumns objectAtIndex:i]]), wanted ]];
 	}
+	/* Of one group: each group's, made once for all of them. */
+	if ([also count] == 0) {
+		id made = group != nil ? [[self aggregatesOf:value groups:groups column:column] objectForKey:group] : nil;
+		return made != nil ? (made == [NSNull null] ? nil : made) : ORMAggregate(value.function, @[]);
+	}
 	NSMutableArray *values = [NSMutableArray array];
 	for (NSArray *tuple in group != nil ? [groups objectForKey:group] : nil) {
 		if (!ORMTupleIsAlso(tuple, also)) {
@@ -993,24 +1109,33 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 			[values addObject:each];
 		}
 	}
-	if ([value.function isEqualToString:@"count"]) {
-		return @([values count]);
+	return ORMAggregate(value.function, values);
+}
+
+/* The aggregate's value for each group, from the groups given: made for
+ * all of them the first time it is asked of these groups. */
+- (NSMapTable *)aggregatesOf:(ORMPlanValue *)value groups:(NSMapTable *)groups column:(NSUInteger)column
+{
+	NSArray *had = [_aggregated objectForKey:value];
+	if ([had firstObject] == groups) {
+		return [had lastObject];
 	}
-	if ([value.function isEqualToString:@"value"]) {
-		/* The one value; none where there is none, or more than one. */
-		NSSet *distinct = [NSSet setWithArray:values];
-		return [distinct count] == 1 ? [distinct anyObject] : nil;
+	NSMapTable *made = [NSMapTable strongToStrongObjectsMapTable];
+	for (id group in groups) {
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSArray *tuple in [groups objectForKey:group]) {
+			id each = column != NSNotFound ? [tuple objectAtIndex:column] : nil;
+			if (each != nil && each != [NSNull null]) {
+				[values addObject:each];
+			}
+		}
+		[made setObject:ORMAggregate(value.function, values) ?: [NSNull null] forKey:group];
 	}
-	if ([value.function isEqualToString:@"distinct"]) {
-		/* How many values: a value calculation checked. */
-		return @([[NSSet setWithArray:values] count]);
+	if (_aggregated == nil) {
+		_aggregated = [NSMapTable strongToStrongObjectsMapTable];
 	}
-	if ([values count] == 0) {
-		return [value.function isEqualToString:@"sum"] ? @0 : nil;
-	}
-	NSString *function = [@{ @"sum": @"@sum.self", @"average": @"@avg.self", @"max": @"@max.self",
-	                         @"min": @"@min.self" } objectForKey:value.function];
-	return [values valueForKeyPath:function];
+	[_aggregated setObject:@[ groups, made ] forKey:value];
+	return made;
 }
 
 /* The aggregate's bag's tuples by its group: the batch's answer; where
@@ -1058,7 +1183,7 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 			break;
 		}
 		for (id object in objects) {
-			for (NSArray *tuple in [run rowsOf:object]) {
+			for (ORMTuple *tuple in [run rowsOf:object]) {
 				if ([given containsObject:tuple]) {
 					continue;
 				}
@@ -1311,6 +1436,18 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		return ways;
 	}
 	case ORMPlanExists: {
+		/* A semi-join binds nothing: the object holds, once, where one
+		 * member does. */
+		if ([_semiJoins containsObject:condition]) {
+			for (id member in ORMMembers([self valueOf:condition.path object:object bindings:bindings])) {
+				NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+				[inner setObject:member forKey:condition.variable];
+				if (condition.operand == nil || [[self bindingsOf:condition.operand object:object bindings:inner] count] > 0) {
+					return @[ bindings ];
+				}
+			}
+			return @[];
+		}
 		NSMutableArray *ways = [NSMutableArray array];
 		for (id member in ORMMembers([self valueOf:condition.path object:object bindings:bindings])) {
 			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
@@ -1382,7 +1519,7 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	return [values count] > 0 ? values : @[ [NSNull null] ];
 }
 
-- (NSArray<NSArray *> *)rowsOf:(id)object
+- (NSArray<ORMTuple *> *)rowsOf:(id)object
 {
 	NSArray *ways = self.plan.condition != nil ? [self bindingsOf:self.plan.condition object:object bindings:self.bindings]
 	                                           : @[ self.bindings ];
@@ -1408,7 +1545,10 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 			}
 			tuples = next;
 		}
-		[rows addObjectsFromArray:tuples];
+		/* Each row a tuple, made once it has its values. */
+		for (NSArray *tuple in tuples) {
+			[rows addObject:[ORMTuple tupleWithValues:tuple]];
+		}
 	}
 	return rows;
 }
@@ -1418,6 +1558,25 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 - (BOOL)prepare
 {
 	_subqueryVariables = [NSMutableSet set];
+	/* What the rows list, by variable: the columns', the sorts'. */
+	NSMutableSet *listed = [NSMutableSet set];
+	NSMutableArray *listedPaths = [NSMutableArray array];
+	for (ORMPlanColumn *column in self.plan.columns) {
+		[listedPaths addObjectsFromArray:column.path != nil ? @[ column.path ] : @[]];
+		[listedPaths addObjectsFromArray:[column.value paths] ?: @[]];
+	}
+	for (ORMPlanSort *sort in self.plan.sorts) {
+		[listedPaths addObjectsFromArray:sort.path != nil ? @[ sort.path ] : @[]];
+	}
+	for (ORMPlanPath *path in listedPaths) {
+		if (path.variable != nil) {
+			[listed addObject:path.variable];
+		}
+	}
+	NSCountedSet *named = [NSCountedSet set];
+	ORMCountVariables(self.plan.condition, named);
+	_semiJoins = [NSHashTable hashTableWithOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality];
+	ORMFindSemiJoins(self.plan.condition, named, listed, _semiJoins);
 	self.joinLines = [NSMutableArray array];
 	self.read = [self entityNamed:self.plan.entityName];
 	if (self.read == nil) {
@@ -1808,7 +1967,7 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.groupColumn ?: @""];
 		NSMapTable *groups = [NSMapTable strongToStrongObjectsMapTable];
 		NSMutableSet *given = [NSMutableSet set];
-		for (NSArray *tuple in bag.rows) {
+		for (ORMTuple *tuple in bag.rows) {
 			if ([given containsObject:tuple] || column >= [tuple count]) {
 				continue;
 			}

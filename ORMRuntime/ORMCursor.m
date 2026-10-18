@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <CoreData/CoreData.h>
+#import "ORMTuple.h"
 #import "ORMCursor.h"
 #import "ORMQueryInterpreter.h"
 #import "ORMQueryPlan.h"
@@ -142,9 +143,9 @@
 	id<ORMCursor> _input;
 	id<ORMBatchEvaluator> _evaluator;
 	NSArray<NSString *> *_titles;
-	NSMutableSet<NSArray *> *_given;
+	NSMutableSet<ORMTuple *> *_given;
 	/* In order: the last object's rows. */
-	NSMutableSet<NSArray *> *_previous;
+	NSMutableSet<ORMTuple *> *_previous;
 	/* Sorting: each row read, @[ its object, the row ], until all are;
 	 * then in order, and how many are given. */
 	NSMutableArray<NSArray *> *_owned;
@@ -185,9 +186,10 @@
 	for (id object in batch.objects) {
 		BOOL own = _objectsApart || _rowsInOrder;
 		NSMutableSet *given = own ? [NSMutableSet set] : _given;
-		for (NSArray *tuple in [_evaluator rowsOf:object]) {
+		for (ORMTuple *tuple in [_evaluator rowsOf:object]) {
 			if (![given containsObject:tuple] && !(_rowsInOrder && !_objectsApart && [_previous containsObject:tuple])) {
-				[rows addObject:tuple];
+				/* The row given: its values, a plain array. */
+				[rows addObject:[tuple values]];
 				[_owned addObject:@[ object, tuple ]];
 			}
 			[given addObject:tuple];
@@ -287,7 +289,7 @@ ORMCompareOwnedRows(NSArray *a, NSArray *b, void *context)
 		if ([objects indexOfObjectIdenticalTo:[owned firstObject]] == NSNotFound) {
 			[objects addObject:[owned firstObject]];
 		}
-		[rows addObject:[owned lastObject]];
+		[rows addObject:[(ORMTuple *)[owned lastObject] values]];
 	}
 	_taken = end;
 	return [ORMQueryResult resultWithObjects:objects columnTitles:_titles rows:rows];

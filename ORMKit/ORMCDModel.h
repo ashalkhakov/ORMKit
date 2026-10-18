@@ -14,6 +14,13 @@
 /* The key in an element's userInfo naming the ORM element it maps. */
 extern NSString * const ORMCDSourceKey;
 
+@class ORMCDEntity;
+
+/* The name of the entity's fetch index of the properties: "byIdIndex", as
+ * Xcode names one; a subentity's after it too ("moonByNameIndex"), as an
+ * inheritance tree is one table, whose indexes are named apart. */
+NSString *ORMCDIndexName(ORMCDEntity *entity, NSArray<NSString *> *names);
+
 @interface ORMCDProperty : NSObject <NSCopying>
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) BOOL optional;

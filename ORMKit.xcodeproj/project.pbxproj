@@ -389,6 +389,10 @@
 			fileRef = EADD500C2C0FE46F0F58FD1B /* ORMQueryOData+ORMKit.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		605984CD66B32B407417F8E0 /* ORMTuple.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 26AEE745C0107D3A2537BE13 /* ORMTuple.m */;
+		};
 		605CDD2C648E7D649ACB13BB /* ORMFileTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 1FEE443031897F3DF350AAF5 /* ORMFileTests.m */;
@@ -779,6 +783,11 @@
 		BDAC91D0B29FE474368C5F7F /* ORMQueryOData.m */ = {
 			isa = PBXBuildFile;
 			fileRef = AA6E89C05EA402AED02AAFC2 /* ORMQueryOData.m */;
+		};
+		BED20DC0B095CC5AFBD0DFE7 /* ORMTuple.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 2AA7B06DE931D65FF1B712C3 /* ORMTuple.h */;
+			settings = {ATTRIBUTES = (Public, ); };
 		};
 		C01EB16F8547DB01BCAA73D3 /* ORMQueryExpression.m */ = {
 			isa = PBXBuildFile;
@@ -1283,6 +1292,12 @@
 			path = ORMCoreDataImport.m;
 			sourceTree = "<group>";
 		};
+		26AEE745C0107D3A2537BE13 /* ORMTuple.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMTuple.m;
+			sourceTree = "<group>";
+		};
 		2817731B583E545CAE0F75EB /* ORMFactTypeEditor.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -1299,6 +1314,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = "ORMQueryOData+ORMKit.m";
+			sourceTree = "<group>";
+		};
+		2AA7B06DE931D65FF1B712C3 /* ORMTuple.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMTuple.h;
 			sourceTree = "<group>";
 		};
 		2AB66C65BE330D1517DF768E /* CoreData.framework */ = {
@@ -2517,6 +2538,8 @@
 				35B947FF1308232DEB74D77C /* ORMSaveHook.m */,
 				62B9AA5A53B21A8FE08D12C0 /* ORMTables.h */,
 				1D8B30B1C1392AE50C6F7E15 /* ORMTables.m */,
+				2AA7B06DE931D65FF1B712C3 /* ORMTuple.h */,
+				26AEE745C0107D3A2537BE13 /* ORMTuple.m */,
 				A12999F62C1AEC6336AF8D78 /* ORMValidator.h */,
 				E4DA127DFA66CE73DA9FDC44 /* ORMValidator.m */,
 			);
@@ -2714,6 +2737,7 @@
 				D56DC56E0085096E7C3C51D8 /* ORMRuntime.h */,
 				3B864043033EA6D038FE3ABB /* ORMQueryPlan.h */,
 				8388339255EA6691DFA06F47 /* ORMQueryInterpreter.h */,
+				BED20DC0B095CC5AFBD0DFE7 /* ORMTuple.h */,
 				54707845230900C47086D8BC /* ORMCursor.h */,
 				AC482BC65D31DAC2093E7429 /* ORMQueryOData.h */,
 				5B8283E1E684E5471A49FB2D /* ORMTables.h */,
@@ -3022,6 +3046,7 @@
 				475E569D1B0B58FE7A2076C1 /* ORMQueryPlan.m */,
 				99831D34C642FD3CFA4CD5BE /* ORMQueryInterpreter.m */,
 				F15FE67197E1ED375B7D951F /* ORMCursor.m */,
+				605984CD66B32B407417F8E0 /* ORMTuple.m */,
 				BDAC91D0B29FE474368C5F7F /* ORMQueryOData.m */,
 				A20FC48761C1C37839E917F9 /* ORMTables.m */,
 				865877A8C4AA1D2231E76213 /* ORMSaveHook.m */,

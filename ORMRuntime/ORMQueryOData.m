@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryOData.h"
+#import "ORMTuple.h"
 #import "ORMCursor.h"
 #import <CoreData/CoreData.h>
 #import <ODataKit/ODataApply.h>
@@ -150,7 +151,7 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 /* The key paths the condition reads, from what bound says each variable
  * is; at the top, only what binds a listed variable. */
 - (void)collect:(ORMPlanCondition *)condition bound:(NSDictionary *)bound into:(NSMutableArray *)paths top:(BOOL)top;
-- (NSArray<NSArray *> *)rowsOf:(NSDictionary *)json;
+- (NSArray<ORMTuple *> *)rowsOf:(NSDictionary *)json;
 /* Whether the condition holds of the object, the variables bound. */
 - (BOOL)holds:(ORMPlanCondition *)condition object:(ORMODataObject *)read bindings:(NSDictionary *)bindings;
 /* The key paths from the object read that the condition looks at, asked
@@ -930,7 +931,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	}
 }
 
-- (NSArray<NSArray *> *)rowsOf:(NSDictionary *)json
+- (NSArray<ORMTuple *> *)rowsOf:(NSDictionary *)json
 {
 	ORMODataObject *read = ORMODataObjectOf(json, _read);
 	NSArray *ways = _plan.condition != nil ? [self bindingsOf:_plan.condition object:read bindings:@{} top:YES] : @[ @{} ];
@@ -958,7 +959,10 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			}
 			tuples = next;
 		}
-		[rows addObjectsFromArray:tuples];
+		/* Each row a tuple, made once it has its values. */
+		for (NSArray *tuple in tuples) {
+			[rows addObject:[ORMTuple tupleWithValues:tuple]];
+		}
 	}
 	return rows;
 }
@@ -969,7 +973,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 @interface ORMQueryOData () <ORMBatchEvaluator>
 - (NSArray<NSArray<NSString *> *> *)columnWire;
 - (ODataPropertyMapper *)mapper;
-- (NSArray<NSArray *> *)rowsOf:(NSDictionary *)json;
+- (NSArray<ORMTuple *> *)rowsOf:(NSDictionary *)json;
 - (NSEntityDescription *)readEntity;
 - (BOOL)keeps:(NSDictionary *)json;
 /* Whether the bag is read for each page's groups. */
@@ -2880,7 +2884,7 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	return [_filter expressionReplacing:values];
 }
 
-- (NSArray<NSArray *> *)rowsOf:(NSDictionary *)json
+- (NSArray<ORMTuple *> *)rowsOf:(NSDictionary *)json
 {
 	return [_rows rowsOf:json];
 }
@@ -3402,7 +3406,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 			for (NSArray *pair in join.pairs) {
 				[tuple addObject:[ORMJSONValues(row, [pair lastObject]) firstObject]];
 			}
-			[theirs addObject:tuple];
+			[theirs addObject:[ORMTuple tupleWithValues:tuple]];
 		}
 		NSMutableArray *kept = [NSMutableArray array];
 		for (NSDictionary *row in rows) {
@@ -3410,7 +3414,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 			for (NSArray *pair in join.pairs) {
 				[tuple addObject:[ORMJSONValues(row, [pair firstObject]) firstObject]];
 			}
-			if ([theirs containsObject:tuple]) {
+			if ([theirs containsObject:[ORMTuple tupleWithValues:tuple]]) {
 				[kept addObject:row];
 			}
 		}

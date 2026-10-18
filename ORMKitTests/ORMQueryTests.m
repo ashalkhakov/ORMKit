@@ -58,9 +58,13 @@
 	(void)object;
 	return YES;
 }
-- (NSArray<NSArray *> *)rowsOf:(id)object
+- (NSArray<ORMTuple *> *)rowsOf:(id)object
 {
-	return [self.rows objectForKey:object];
+	NSMutableArray *tuples = [NSMutableArray array];
+	for (NSArray *row in [self.rows objectForKey:object]) {
+		[tuples addObject:[ORMTuple tupleWithValues:row]];
+	}
+	return tuples;
 }
 @end
 

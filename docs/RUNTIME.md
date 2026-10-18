@@ -184,10 +184,47 @@ Declarations, and calls into the driver:
   interpreter does, so it is the runtime's. ORMKit's ways to make one of
   an `ORMCDModel`, or of a query, planned first, are a category of its own
   (`ORMQueryOData+ORMKit.h`).
-- **Speed:** a plan interpreted, not compiled. It costs its fetches. If a
-  plan ever shows up in a profile, it can be compiled to code behind the
-  same interface (re2c's answer for a hot lexer), but nothing asks for
-  that now.
+- **Speed:** a plan interpreted, not compiled; what it costs is measured
+  (below), and must stay linear in what it reads.
+
+### What it costs
+
+A benchmark (vehicles and their fill-ups, populations growing tenfold,
+each query in a fresh context on SQLite) times each shape of plan. What
+the first runs found, and what fixed it:
+- **Rows are tuples** (`ORMTuple`), made once where a row is made (a run's
+  `-rowsOf:`, a service's rows) with a hash of their values, and used as
+  they are where rows are kept apart (Distinct, a bag's groups). An
+  NSArray's hash is its count: a set of rows of one width compared each
+  new row with all before it. A page gives the app plain arrays.
+- **An aggregate is made once for each group** of its bag, not once for
+  each row that asks for it.
+- **An exists that binds nothing used is a semi-join:** one member that
+  holds is enough. A bag's existential step had multiplied its ways by
+  every member.
+- **Each identifier is indexed** ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)):
+  a page seeks on the key, which without an index made the store sort the
+  rest of the table for every page.
+
+With these, plain reads, joins, computed columns, sorts and per-object
+aggregates take about ten times as long for ten times the objects (100,000
+fill-ups: 0.6 s to list each with its vehicle, 2.4 s computing a column,
+1.3 s for a total per vehicle). "The one before" (an aggregate of the
+earlier ones of the same vehicle) went from 146 s to 1 s for 1,000, but is
+still a bag for each object, quadratic in a vehicle's fill-ups.
+
+Not yet:
+- **Decorrelation.** An aggregate over what an inequality relates ("the
+  greatest odometer below this one") is a running aggregate over each
+  group in order (a window, as SQL's), not a bag for each object; and a
+  correlated subquery the store runs for each row is one it can run once
+  (Kim; Neumann and Kemper, "Unnesting arbitrary queries").
+- **Flat typed values.** Values boxed as objects (NSNumber, NSDecimalNumber,
+  key-value coding for each path) are most of what a row costs now. Column
+  kinds are known when a plan is made: a tuple can be a flat array of
+  typed values, compared, hashed, computed and aggregated in C, boxed only
+  where rows reach the app. Dataphor's interpreter boxes every value and
+  row, and is the cautionary tale.
 
 ## Steps
 

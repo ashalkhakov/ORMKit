@@ -221,7 +221,9 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 	NSXMLDocument *_document;
 	/* The XML elements this writer made: written whole, as the editors
 	 * made them, defaults spelled out where they did. */
-	NSMutableSet<NSXMLElement *> *_made;
+	/* The elements made, by identity: NSXMLElement's -isEqual: compares
+	 * contents, which a set of thousands asks of each other. */
+	NSHashTable<NSXMLElement *> *_made;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model
@@ -537,7 +539,7 @@ ORMDetachOthers(NSXMLElement *container, NSString *local, NSArray<ORMElement *> 
 		[NSException raise:NSInternalInconsistencyException format:@"The writer makes no %@ yet.", [element class]];
 	}
 	element.element = made;
-	_made = _made ?: [NSMutableSet set];
+	_made = _made ?: [NSHashTable hashTableWithOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality];
 	[_made addObject:made];
 }
 

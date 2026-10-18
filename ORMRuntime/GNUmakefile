@@ -21,6 +21,7 @@ ORMRuntime_HEADER_FILES = \
   ORMRuntime.h \
   ORMQueryPlan.h \
   ORMQueryInterpreter.h \
+  ORMTuple.h \
   ORMCursor.h \
   ORMQueryOData.h \
   ORMTables.h \
@@ -31,6 +32,7 @@ ORMRuntime_OBJC_FILES = \
   ORMQueryPlan.m \
   ORMQueryInterpreter.m \
   ORMCursor.m \
+  ORMTuple.m \
   ORMQueryOData.m \
   ORMTables.m \
   ORMSaveHook.m \

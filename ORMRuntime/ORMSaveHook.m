@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMSaveHook.h"
+#import "ORMTuple.h"
 #import "ORMQueryInterpreter.h"
 #import "ORMValidator.h"
 #import "ORMJoinedObject.h"
@@ -67,7 +68,7 @@ ORMDerivedTuple(NSArray<NSArray *> *rows)
 	for (NSArray *row in rows) {
 		NSArray *tuple = [row subarrayWithRange:NSMakeRange(1, [row count] - 1)];
 		if (![tuple containsObject:[NSNull null]]) {
-			[tuples addObject:tuple];
+			[tuples addObject:[ORMTuple tupleWithValues:tuple]];
 		}
 	}
 	return [tuples count] == 1 ? [tuples anyObject] : nil;
