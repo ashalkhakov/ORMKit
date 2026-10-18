@@ -923,6 +923,21 @@ ORMGoesOnPastACast(ORMPlanPath *path)
 
 /* A value of the object read: a path's, a constant, or an aggregate of a
  * bag over the ways it holds. */
+/* Whether each @[ column index, value ] is the tuple's: equal, and not
+ * nothing. */
+static BOOL
+ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
+{
+	for (NSArray *each in also) {
+		NSUInteger index = [[each firstObject] unsignedIntegerValue];
+		id theirs = index < [tuple count] ? [tuple objectAtIndex:index] : [NSNull null];
+		if ([each lastObject] == [NSNull null] || ![theirs isEqual:[each lastObject]]) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
 - (id)value:(ORMPlanValue *)value object:(id)object bindings:(NSDictionary *)bindings
 {
 	if (value.path != nil) {
@@ -943,9 +958,19 @@ ORMGoesOnPastACast(ORMPlanPath *path)
 		return nil;
 	}
 	id group = [self valueOf:value.groupPath object:object bindings:bindings];
-	NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.column ?: @""];
+	NSArray *nodeIds = [value.bag.plan.columns valueForKey:@"nodeId"];
+	NSUInteger column = [nodeIds indexOfObject:value.column ?: @""];
+	/* For several nodes: the tuples whose other group columns are theirs. */
+	NSMutableArray *also = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [value.alsoColumns count]; i++) {
+		id wanted = [self value:[value.alsoValues objectAtIndex:i] object:object bindings:bindings] ?: [NSNull null];
+		[also addObject:@[ @([nodeIds indexOfObject:[value.alsoColumns objectAtIndex:i]]), wanted ]];
+	}
 	NSMutableArray *values = [NSMutableArray array];
 	for (NSArray *tuple in group != nil ? [groups objectForKey:group] : nil) {
+		if (!ORMTupleIsAlso(tuple, also)) {
+			continue;
+		}
 		id each = column != NSNotFound ? [tuple objectAtIndex:column] : nil;
 		if (each != nil && each != [NSNull null]) {
 			[values addObject:each];
@@ -1635,7 +1660,7 @@ ORMGoesOnPastACast(ORMPlanPath *path)
 
 - (BOOL)atEnd
 {
-	return self.run.atEnd;
+	return self.reader != nil ? self.reader.atEnd : self.run.atEnd;
 }
 
 - (ORMQueryResult *)nextPage:(NSUInteger)size error:(NSError **)error
@@ -1645,6 +1670,7 @@ ORMGoesOnPastACast(ORMPlanPath *path)
 		                                      columnTitles:[self.run.plan.columns valueForKey:@"title"]];
 		self.reader.objectsApart = [self.run.plan listsTheObjectRead];
 		self.reader.rowsInOrder = [self.run rowsInOrder];
+		self.reader.sortColumns = [self.run.plan rowSortColumns];
 	}
 	__block ORMQueryResult *page = nil;
 	__block NSError *failed = nil;

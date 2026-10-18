@@ -74,6 +74,11 @@ typedef void (^ORMBindRead)(NSArray *values, void (^done)(id answer, NSError *er
 @property (nonatomic) BOOL rowsInOrder;
 /* How many rows are kept to give none twice. */
 @property (nonatomic, readonly) NSUInteger rowsKept;
+/* The rows' order where the input is not in it (-[ORMQueryPlan
+ * rowSortColumns]): @[ a column's index, @(ascending) ] each. Then the
+ * whole input is read at the first page, its rows sorted, and each page is
+ * size of them, with their objects. Empty by default. */
+@property (nonatomic, copy) NSArray<NSArray *> *sortColumns;
 @end
 
 /* The order a Scan reads in, made total by the entity's key, and where its

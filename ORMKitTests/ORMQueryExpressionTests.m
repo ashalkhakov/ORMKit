@@ -659,8 +659,94 @@
 	XCTAssertEqualObjects(invalid, @[ @2 ]);
 }
 
+#pragma mark Grouping
+
+/* Costs by vehicle and month: an aggregate for a node and a value node,
+ * the rows one for each, sorted by the total, which is computed. */
+- (void)testGroupingByMonth
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Moment is a value type.\n"
+	                 @"Portable data type: Temporal: Date & Time\n"
+	                 @"Amount is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Vehicle(.id) is an entity type.\n"
+	                 @"Cost(.id) is of Vehicle\n"
+	                 @"Each Cost is of exactly one Vehicle.\n"
+	                 @"Cost was at Moment\n"
+	                 @"Each Cost was at exactly one Moment.\n"
+	                 @"Cost cost Amount\n"
+	                 @"Each Cost cost exactly one Amount.\n"
+	                 @"\n"
+	                 @"Query ByMonth:\n"
+	                 @"✓Vehicle\n"
+	                 @"  + Cost is of that Vehicle\n"
+	                 @"    + was at Moment\n"
+	                 @"    + cost Amount\n"
+	                 @"    ✓Month = month(Moment)\n"
+	                 @"    ✓Total = total(Amount) for Vehicle, Month ↓\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMQuery *query = [self query:@"ByMonth" in:model];
+	XCTAssertTrue([[query outlineText] hasSuffix:@"    ✓Total = total(Amount) for Vehicle, Month ↓\n"], @"%@", [query outlineText]);
+	NSArray *said = [[[[ORMVerbalizer alloc] initWithModel:model] sentencesForQuery:query] valueForKey:@"text"];
+	XCTAssertTrue([[said firstObject] rangeOfString:@"Total is the total of that Amount for that Vehicle and Month"].location != NSNotFound,
+	              @"%@", said);
+	/* A value node alone is nothing to group by. */
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *reason = nil;
+	NSString *cost = [self node:@"Cost" of:query].identifier;
+	XCTAssertNil([queries addValueNamed:@"Odd" to:cost expression:@"total(Amount) for Month" type:nil reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"besides any value nodes"].location != NSNotFound, @"%@", reason);
+
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	for (NSArray *each in @[ @[ @"1", @"1", @"2026-01-05T10:00:00", @"10" ], @[ @"2", @"1", @"2026-01-20T10:00:00", @"15" ],
+	                         @[ @"3", @"1", @"2026-02-03T10:00:00", @"7" ], @[ @"4", @"2", @"2026-01-10T10:00:00", @"100" ] ]) {
+		for (NSArray *fact in @[ @[ @"Cost is of Vehicle", each[1] ], @[ @"Cost was at Moment", each[2] ],
+		                         @[ @"Cost cost Amount", each[3] ] ]) {
+			NSArray *roles = [[facts objectForKey:fact[0]] visibleRoles];
+			XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:fact[0]] identifier]
+			                                              named:@{ [roles[0] identifier]: each[0], [roles[1] identifier]: fact[1] }
+			                                             reason:&reason]), @"%@", reason);
+		}
+	}
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:query];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertEqualObjects(plan.sorts, @[]);
+	XCTAssertTrue([[plan text] hasSuffix:@"rows sorted by Total descending"], @"%@", [plan text]);
+	XCTAssertEqualObjects([[self archived:plan] text], [plan text]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	NSArray *expected = @[ @"2 2026-01-01T00:00:00Z 100", @"1 2026-01-01T00:00:00Z 25", @"1 2026-02-01T00:00:00Z 7" ];
+	XCTAssertEqualObjects([self datedRows:result.rows sorted:NO], expected, @"%@", [plan text]);
+	/* A page at a time, in that order still. */
+	ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:context error:&error];
+	NSMutableArray *paged = [NSMutableArray array];
+	while (![cursor atEnd]) {
+		[paged addObjectsFromArray:[cursor nextPage:1 error:&error].rows];
+	}
+	XCTAssertEqualObjects([self datedRows:paged sorted:NO], expected);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqualObjects([self datedRows:[self rowsOf:odata over:context] sorted:NO], expected, @"%@", [odata requestText]);
+}
+
 /* Rows as text, a moment as UTC ISO 8601 text, in order. */
 - (NSArray *)datedRows:(NSArray *)rows
+{
+	return [self datedRows:rows sorted:YES];
+}
+
+- (NSArray *)datedRows:(NSArray *)rows sorted:(BOOL)sorted
 {
 	NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
 	formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
@@ -674,7 +760,7 @@
 		}
 		[texts addObject:[values componentsJoinedByString:@" "]];
 	}
-	return [texts sortedArrayUsingSelector:@selector(compare:)];
+	return sorted ? [texts sortedArrayUsingSelector:@selector(compare:)] : texts;
 }
 
 /* Rows as text, each its values by spaces, in order. */

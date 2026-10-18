@@ -106,6 +106,18 @@
 @property (nonatomic, readonly, copy) NSString *column;
 @property (nonatomic, readonly, copy) NSString *groupColumn;
 @property (nonatomic, readonly, strong) ORMPlanPath *groupPath;
+/* An aggregate for several nodes (docs/EXPRESSIONS.md, grouping): of the
+ * group's tuples, those whose other columns are the values given too
+ * ("where Vehicle is id, Month is month(x1.timestamp)"). */
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
+                     also:(NSArray<NSString *> *)columns
+                      are:(NSArray<ORMPlanValue *> *)values;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *alsoColumns;
+@property (nonatomic, readonly, copy) NSArray<ORMPlanValue *> *alsoValues;
 @end
 
 typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
@@ -262,7 +274,11 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 
 @interface ORMPlanSort : NSObject <NSCopying>
 + (instancetype)sortBy:(ORMPlanPath *)path ascending:(BOOL)ascending;
+/* By a column's value, its node's id: the rows sorted once read
+ * (-[ORMQueryPlan rowSorts]). */
++ (instancetype)sortByColumnOf:(NSString *)nodeId ascending:(BOOL)ascending;
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
+@property (nonatomic, readonly, copy) NSString *nodeId;
 @property (nonatomic, readonly) BOOL ascending;
 @end
 
@@ -309,6 +325,13 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* The same for its sorts, no key. */
 - (BOOL)ordersItsRows;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanSort *> *sorts;
+/* The order of the rows by their columns, where the store cannot sort by
+ * what they are sorted by (a value computed): each read, then the rows
+ * sorted, in memory. Set once, as the planner makes the plan; empty for
+ * none, and then sorts is the order. */
+@property (nonatomic, copy) NSArray<ORMPlanSort *> *rowSorts;
+/* For each row sort, @[ its column's index, @(ascending) ]. */
+- (NSArray<NSArray *> *)rowSortColumns;
 /* What the query says that the plan leaves out. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
 

@@ -6,8 +6,8 @@ derivation says what facts follow ([RULES.md](RULES.md),
 [DERIVATION.md](DERIVATION.md)). None of them can compute a value from
 others: a trip's length from where it started and ended, a service's cost
 less its discount, the litres per hundred kilometres between two fill-ups.
-This is the design for that, in [steps](#steps); steps 1 to 3, value
-nodes with arithmetic, aggregates and dates, are built.
+This is the design for that, in [steps](#steps); steps 1 to 4, value
+nodes with arithmetic, aggregates, dates and grouping, are built.
 
 ## What needs it
 
@@ -177,6 +177,36 @@ the other listed nodes, as SQL's `GROUP BY` is:
 `for Vehicle, Month`: an aggregate's group may now be several nodes,
 value nodes among them. This is ConQuer-II's for-clause, widened by one.
 
+As built, the aggregate goes where each of its groups is one value: under
+the cost, beside `Month`, not under the vehicle, where a vehicle's costs
+are many:
+
+```
+✓Vehicle
+  + Cost is of that Vehicle
+    + was at Moment
+    + cost Amount
+    ✓Month = month(Moment)
+    ✓Total = total(Amount) for Vehicle, Month ↓
+```
+
+- **Grouped by its first node that is not computed** (the node it is
+  under or one above, over what it aggregates), as an aggregate for one
+  node is, its bag run for each slice of that node's objects; of the
+  tuples for it, those whose columns for the other nodes are what those
+  are here ("where Vehicle is id, Month is month(x1.moment)").
+- **The rows** are one for each vehicle and month: a row is a tuple of
+  what is listed, and equal ones are given once, as always.
+- **Planned once its groups are reached**: an aggregate for nodes reached
+  already before the node's steps, one for a value node after it.
+- **Through OData**, the bag read and the tuples matched on the answers,
+  as for one node; `$apply` (`groupby`, `aggregate`) is not used yet.
+
+**Sorting by a value node** sorts the rows once all are read: no store
+sorts by a value computed. Where any node sorted by is computed, each
+sorted node is by its column, in memory (`-[ORMQueryPlan rowSorts]`),
+paged from there; else the store sorts, and pages by seek, as before.
+
 ### Conversion is reference data and arithmetic
 
 Fixed factors (1 mi = 1.609344 km) are facts of the model's, not code: a
@@ -267,9 +297,8 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
   answers. A listed value node is computed from what is read, as a
   calculation's column is, rather than by `$compute`; a grouped list by
   `$apply` (`groupby`, `aggregate`), with step 4.
-- **Sorting by a value node** is noted, not done: the cursors page by
-  key paths the store sorts by, which a computed value is not. It needs
-  rows sorted in memory, with step 4's grouping.
+- **Sorting by a value node** sorts the rows in memory, once read
+  ([Grouping](#grouping)).
 - **Validation code:** a rule with a computed value is no one predicate;
   where it needs no store (no bag, no join), the driver asks its plan of
   the object in memory, with the evaluator the interpreter checks fetched
@@ -294,8 +323,7 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
 
 1. **Value nodes with arithmetic** (A), done: the node in the model, the
    outline, the editor, the file; the logic and the words; planned and run
-   (Core Data, OData `$filter`); listed and compared. Sorting by one is
-   left for step 4. In Logbook: a trip's length and a fill-up's price per
+   (Core Data, OData `$filter`); listed and compared; sorted (step 4). In Logbook: a trip's length and a fill-up's price per
    unit of volume (`TripLength`, `PricePerVolume`); the trip-ends-no-
    nearer rule within a unit (`TripEndsNoNearer`) turned out to need only
    a comparison of two nodes.
@@ -310,8 +338,10 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
    Logbook: a trip's duration (`TripDuration`), when a reminder is next due
    by date (`ReminderNextDue`), events while the vehicle is kept
    (`EventsWhileKept`, checked by the generated validation in memory).
-4. **Grouping** (D): aggregates for several nodes; grouped lists; OData
-   `$apply`. In Logbook: the reports by month.
+4. **Grouping** (D), done: aggregates for several nodes; grouped lists;
+   sorting by a value node. OData `$apply` is for later: the bag's tuples
+   are matched on the answers. In Logbook: costs by vehicle, month and
+   currency (`CostsByMonth`).
 5. **Reference data** (E): a population an app is seeded with; the unit
    factors. Conversion is then steps and arithmetic. In Logbook: the meter
    rule across units, every report in the user's units and currency.
@@ -330,3 +360,6 @@ Logbook's model, as the earlier items did.
 - Units checked across joins, so that adding kilometres to miles is caught
   when the query is made.
 - Window functions (a running total, a rank).
+- OData `$apply` for grouped lists, and `$compute` for listed value nodes,
+  where the service has them; computing in the store where FreeCoreData's
+  SQLite store can, as Apple's does.

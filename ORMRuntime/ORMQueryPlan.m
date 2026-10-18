@@ -180,6 +180,20 @@ ORMPlanKindNames(void)
 	return value;
 }
 
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
+                     also:(NSArray<NSString *> *)columns
+                      are:(NSArray<ORMPlanValue *> *)values
+{
+	ORMPlanValue *value = [self aggregate:function of:column in:bag where:groupColumn is:groupPath];
+	value->_alsoColumns = [columns count] > 0 ? [columns copy] : nil;
+	value->_alsoValues = [columns count] > 0 ? [values copy] : nil;
+	return value;
+}
+
 + (instancetype)apply:(NSString *)function to:(NSArray<ORMPlanValue *> *)operands
 {
 	ORMPlanValue *value = [[self alloc] init];
@@ -197,7 +211,7 @@ ORMPlanKindNames(void)
 	if (_groupPath != nil) {
 		[paths addObject:_groupPath];
 	}
-	for (ORMPlanValue *operand in _operands) {
+	for (ORMPlanValue *operand in [(_operands ?: @[]) arrayByAddingObjectsFromArray:_alsoValues ?: @[]]) {
 		[paths addObjectsFromArray:[operand paths]];
 	}
 	return paths;
@@ -245,8 +259,11 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 	if (_bag != nil) {
 		NSString *of = _column != nil ? [NSString stringWithFormat:@"%@ of %@", _function, ORMColumnTitle(_bag, _column)]
 		                              : _function;
-		return [NSString stringWithFormat:@"%@ in %@ where %@ is %@", of, _bag.name, ORMColumnTitle(_bag, _groupColumn),
-		                                  _groupPath];
+		NSMutableString *where = [NSMutableString stringWithFormat:@"%@ is %@", ORMColumnTitle(_bag, _groupColumn), _groupPath];
+		for (NSUInteger i = 0; i < [_alsoColumns count]; i++) {
+			[where appendFormat:@", %@ is %@", ORMColumnTitle(_bag, [_alsoColumns objectAtIndex:i]), [_alsoValues objectAtIndex:i]];
+		}
+		return [NSString stringWithFormat:@"%@ in %@ where %@", of, _bag.name, where];
 	}
 	BOOL quoted = [_attributeType isEqualToString:@"String"] || [_attributeType isEqualToString:@"Date"];
 	return quoted ? [NSString stringWithFormat:@"'%@'", [_text stringByReplacingOccurrencesOfString:@"'" withString:@"''"]]
@@ -724,6 +741,14 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	return sort;
 }
 
++ (instancetype)sortByColumnOf:(NSString *)nodeId ascending:(BOOL)ascending
+{
+	ORMPlanSort *sort = [[self alloc] init];
+	sort->_nodeId = [nodeId copy];
+	sort->_ascending = ascending;
+	return sort;
+}
+
 - (id)copyWithZone:(NSZone *)zone
 {
 	(void)zone;
@@ -732,7 +757,8 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 
 - (NSString *)description
 {
-	return [NSString stringWithFormat:@"%@ %@", _path, _ascending ? @"ascending" : @"descending"];
+	return [NSString stringWithFormat:@"%@ %@", _path ?: (id)[@"column of " stringByAppendingString:_nodeId ?: @"?"],
+	                                  _ascending ? @"ascending" : @"descending"];
 }
 
 @end
@@ -1060,7 +1086,30 @@ ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionar
 	if ([_sorts count] > 0) {
 		[lines addObject:[@"order by " stringByAppendingString:[[_sorts valueForKey:@"description"] componentsJoinedByString:@", "]]];
 	}
+	if ([_rowSorts count] > 0) {
+		/* By each column, its title. */
+		NSMutableArray *by = [NSMutableArray array];
+		for (NSArray *each in [self rowSortColumns]) {
+			ORMPlanColumn *column = [_columns objectAtIndex:[[each firstObject] unsignedIntegerValue]];
+			[by addObject:[NSString stringWithFormat:@"%@ %@", column.title, [[each lastObject] boolValue] ? @"ascending" : @"descending"]];
+		}
+		[lines addObject:[@"rows sorted by " stringByAppendingString:[by componentsJoinedByString:@", "]]];
+	}
 	return [lines componentsJoinedByString:@"\n"];
+}
+
+- (NSArray<NSArray *> *)rowSortColumns
+{
+	NSMutableArray *columns = [NSMutableArray array];
+	for (ORMPlanSort *sort in _rowSorts) {
+		for (NSUInteger i = 0; i < [_columns count]; i++) {
+			if ([[[_columns objectAtIndex:i] nodeId] isEqualToString:sort.nodeId ?: @""]) {
+				[columns addObject:@[ @(i), @(sort.ascending) ]];
+				break;
+			}
+		}
+	}
+	return columns;
 }
 
 - (NSString *)description
@@ -1102,6 +1151,14 @@ ORMValueList(ORMPlanValue *value)
 		                                                 ORMPathList(value.groupPath), @"is", nil];
 		if (value.column != nil) {
 			[list setObject:value.column forKey:@"of"];
+		}
+		if ([value.alsoColumns count] > 0) {
+			NSMutableArray *values = [NSMutableArray array];
+			for (ORMPlanValue *each in value.alsoValues) {
+				[values addObject:ORMValueList(each)];
+			}
+			[list setObject:value.alsoColumns forKey:@"alsoWhere"];
+			[list setObject:values forKey:@"alsoAre"];
 		}
 		return list;
 	}
@@ -1221,6 +1278,13 @@ ORMConditionList(ORMPlanCondition *condition)
 		[sorts addObject:@{ @"path": ORMPathList(sort.path), @"ascending": @(sort.ascending) }];
 	}
 	[list setObject:sorts forKey:@"sorts"];
+	if ([_rowSorts count] > 0) {
+		NSMutableArray *rowSorts = [NSMutableArray array];
+		for (ORMPlanSort *sort in _rowSorts) {
+			[rowSorts addObject:@{ @"column": sort.nodeId ?: @"", @"ascending": @(sort.ascending) }];
+		}
+		[list setObject:rowSorts forKey:@"rowSorts"];
+	}
 	[list setObject:_notes forKey:@"notes"];
 	return list;
 }
@@ -1532,7 +1596,22 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 			}
 			return nil;
 		}
-		return [ORMPlanValue aggregate:function of:of in:bag where:where is:is];
+		id alsoWhere = [list objectForKey:@"alsoWhere"] ?: @[];
+		id alsoAre = [list objectForKey:@"alsoAre"] ?: @[];
+		if (![alsoWhere isKindOfClass:[NSArray class]] || ![alsoAre isKindOfClass:[NSArray class]]
+		    || [alsoWhere count] != [alsoAre count]) {
+			*error = ORMPlanError(@"an aggregate's other groups are columns and their values, as many of each.");
+			return nil;
+		}
+		NSMutableArray *values = [NSMutableArray array];
+		for (id each in alsoAre) {
+			ORMPlanValue *also = ORMReadValueIn(each, defined, error);
+			if (also == nil) {
+				return nil;
+			}
+			[values addObject:also];
+		}
+		return [ORMPlanValue aggregate:function of:of in:bag where:where is:is also:alsoWhere are:values];
 	}
 	return ORMReadValue(list, error);
 }
@@ -1786,8 +1865,19 @@ ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined
 		}
 		[sorts addObject:[ORMPlanSort sortBy:path ascending:[[item objectForKey:@"ascending"] boolValue]]];
 	}
-	return [self planReading:entity where:condition columns:columns sorts:sorts notes:[list objectForKey:@"notes"] ?: @[]
-	             definitions:definitions];
+	NSMutableArray *rowSorts = [NSMutableArray array];
+	for (id item in [list objectForKey:@"rowSorts"] ?: @[]) {
+		id column = [item isKindOfClass:[NSDictionary class]] ? [item objectForKey:@"column"] : nil;
+		if (![column isKindOfClass:[NSString class]]) {
+			*reason = ORMPlanError(@"a row sort names its column's node.");
+			return nil;
+		}
+		[rowSorts addObject:[ORMPlanSort sortByColumnOf:column ascending:[[item objectForKey:@"ascending"] boolValue]]];
+	}
+	ORMQueryPlan *plan = [self planReading:entity where:condition columns:columns sorts:sorts
+	                                 notes:[list objectForKey:@"notes"] ?: @[] definitions:definitions];
+	plan.rowSorts = rowSorts;
+	return plan;
 }
 
 @end

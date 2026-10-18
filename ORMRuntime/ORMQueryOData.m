@@ -292,6 +292,12 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 			if (column.path.variable != nil) {
 				[listed addObject:column.path.variable];
 			}
+			/* A computed column's, what it is computed from. */
+			for (ORMPlanPath *path in [column.value paths]) {
+				if (path.variable != nil) {
+					[listed addObject:path.variable];
+				}
+			}
 		}
 		_listed = listed;
 	}
@@ -653,11 +659,27 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	if (value.bag != nil) {
 		/* An aggregate of the bag's rows of the group. */
 		id group = [[self valuesAt:value.groupPath object:read bindings:bindings] firstObject];
-		NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.column ?: @""];
+		NSArray *nodeIds = [value.bag.plan.columns valueForKey:@"nodeId"];
+		NSUInteger column = [nodeIds indexOfObject:value.column ?: @""];
+		/* For several nodes: the rows whose other group columns are theirs. */
+		NSMutableArray *also = [NSMutableArray array];
+		for (NSUInteger i = 0; i < [value.alsoColumns count]; i++) {
+			[also addObject:@[ @([nodeIds indexOfObject:[value.alsoColumns objectAtIndex:i]]),
+				               [self firstAt:[value.alsoValues objectAtIndex:i] object:read bindings:bindings] ?: [NSNull null] ]];
+		}
 		NSMutableArray *values = [NSMutableArray array];
 		NSMutableSet *distinct = [NSMutableSet set];
 		NSUInteger set = 0;
 		for (NSArray *row in [self rowsOf:value group:group]) {
+			BOOL theirs = YES;
+			for (NSArray *each in also) {
+				NSUInteger index = [[each firstObject] unsignedIntegerValue];
+				theirs = theirs && index < [row count] && [each lastObject] != [NSNull null]
+					&& ORMJSONCompare([row objectAtIndex:index], @"=", [each lastObject]);
+			}
+			if (!theirs) {
+				continue;
+			}
 			id each = column != NSNotFound ? [row objectAtIndex:column] : [NSNull null];
 			set += each != [NSNull null];
 			if (each != [NSNull null]) {
@@ -2234,12 +2256,14 @@ ORMJoinedVariables(ORMPlanCondition *condition, BOOL inside, NSMutableSet *varia
 	ORMJoinedVariables(_plan.condition, NO, joinedVariables);
 	ORMODataLevel *top = [ORMODataLevel levelOf:_read];
 	NSMutableArray *computed = [NSMutableArray array];
+	/* What each variable a column may use stands for, from the object read. */
+	NSMutableDictionary *variables = [NSMutableDictionary dictionary];
+	ORMVariableKeys(_plan.condition, variables);
 	for (ORMPlanColumn *column in _plan.columns) {
 		if (column.value != nil) {
-			/* Computed: what its group is, read. */
-			[computed addObjectsFromArray:[_rows pathsOf:[ORMPlanCondition compare:column.value comparison:@"="
-			                                                                   with:column.value]
-			                                         from:nil]];
+			/* Computed: what it is computed from, its group, read. */
+			[_rows collect:[ORMPlanCondition compare:column.value comparison:@"=" with:column.value] bound:variables
+			          into:computed top:NO];
 			[_columnWire addObject:@[]];
 			continue;
 		}
@@ -3094,6 +3118,7 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 		                                  columnTitles:[_request.plan.columns valueForKey:@"title"]];
 		_reader.objectsApart = [_request.plan listsTheObjectRead];
 		_reader.rowsInOrder = [_request rowsInOrder];
+		_reader.sortColumns = [_request.plan rowSortColumns];
 	}
 	/* Held until the page is given: its scans hold it weakly, and a caller
 	 * need not keep it while the requests are out. */

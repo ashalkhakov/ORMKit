@@ -326,8 +326,42 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		/* The sets it uses are the query's, defined before it. */
 		return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:@[] notes:@[]];
 	}
-	return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:[self sorts] notes:_notes
-	                     definitions:_definitions];
+	NSArray *rowSorts = [self rowSorts];
+	ORMQueryPlan *plan = [ORMQueryPlan planReading:_read.name where:condition columns:columns
+	                                         sorts:rowSorts != nil ? @[] : [self sorts] notes:_notes
+	                                   definitions:_definitions];
+	plan.rowSorts = rowSorts;
+	return plan;
+}
+
+/* Where a node sorted by is computed, which no store sorts by: each sorted
+ * node by its column, the rows sorted once read. nil where none is. */
+- (NSArray<ORMPlanSort *> *)rowSorts
+{
+	NSMutableArray *sorted = [NSMutableArray array];
+	BOOL computed = NO;
+	for (ORMQueryNode *node in [_query nodes]) {
+		if (node.sortOrder != ORMQueryUnsorted) {
+			[sorted addObject:node];
+			computed = computed || node.isValue;
+		}
+	}
+	if (!computed) {
+		return nil;
+	}
+	NSMutableArray *sorts = [NSMutableArray array];
+	for (ORMQueryNode *node in sorted) {
+		BOOL listed = NO;
+		for (NSArray *column in _columns) {
+			listed = listed || [[[column firstObject] identifier] isEqualToString:node.identifier];
+		}
+		if (!listed) {
+			[self note:[NSString stringWithFormat:@"%@ is sorted by, but not listed.", [node designation]]];
+			continue;
+		}
+		[sorts addObject:[ORMPlanSort sortByColumnOf:node.identifier ascending:node.sortOrder == ORMQueryAscending]];
+	}
+	return sorts;
 }
 
 /* A calculation (docs/RULES.md): every object of the root's type, and its
@@ -385,11 +419,6 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		}
 		ORMPlannerPlace *place = [column objectAtIndex:1];
 		id identifier = [column objectAtIndex:2];
-		if (place.value != nil) {
-			[self note:[NSString stringWithFormat:@"%@ is sorted by, but it is computed, which a fetch does not sort by yet.",
-			                                      [node designation]]];
-			continue;
-		}
 		BOOL one = column != nil && (place.entity == nil || identifier != [NSNull null]);
 		for (ORMCDProperty *property in place.trail) {
 			one = one && !([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany);
@@ -650,13 +679,18 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			                                      node.objectType.name, node.value ?: @""]];
 		}
 	}
-	/* Its aggregates first: of the whole query, for this object, so that
-	 * what its steps reach may be compared with them ("the one before"). */
+	/* Its aggregates for what is reached already first: of the whole
+	 * query, for this object, so that what its steps reach may be compared
+	 * with them ("the one before"). */
+	NSMutableArray *pending = [NSMutableArray array];
 	for (ORMQueryNode *value in node.values) {
-		ORMPlanCondition *condition = value.expression.kind == ORMQueryExpressionAggregate
-			? [self conditionForValue:value columns:columns] : nil;
-		if (condition != nil) {
-			[parts addObject:condition];
+		if (value.expression.kind == ORMQueryExpressionAggregate && [self canPlan:value]) {
+			ORMPlanCondition *condition = [self conditionForValue:value columns:columns];
+			if (condition != nil) {
+				[parts addObject:condition];
+			}
+		} else {
+			[pending addObject:value];
 		}
 	}
 	NSMutableArray *steps = [NSMutableArray array];
@@ -672,15 +706,37 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	if (combined != nil) {
 		[parts addObject:combined];
 	}
-	/* Its other value nodes, computed from what its steps reached. */
-	for (ORMQueryNode *value in node.values) {
-		ORMPlanCondition *condition = value.expression.kind != ORMQueryExpressionAggregate
-			? [self conditionForValue:value columns:columns] : nil;
+	/* Its other value nodes, computed from what its steps reached, each
+	 * once what it uses is ("Total = total(Amount) for Vehicle, Month",
+	 * after Month); what never is, last, noted. */
+	while ([pending count] > 0) {
+		ORMQueryNode *next = [pending firstObject];
+		for (ORMQueryNode *value in pending) {
+			if ([self canPlan:value]) {
+				next = value;
+				break;
+			}
+		}
+		[pending removeObjectIdenticalTo:next];
+		ORMPlanCondition *condition = [self conditionForValue:next columns:columns];
 		if (condition != nil) {
 			[parts addObject:condition];
 		}
 	}
 	return ORMAllOf(parts);
+}
+
+/* Whether what a value node uses is reached: an aggregate's groups (what
+ * it aggregates is its bag's), arithmetic's every node. */
+- (BOOL)canPlan:(ORMQueryNode *)value
+{
+	NSArray *used = value.expression.kind == ORMQueryExpressionAggregate ? value.expression.groups : [value.expression nodeIds];
+	for (NSString *nodeId in used) {
+		if ([_reached objectForKey:nodeId] == nil) {
+			return NO;
+		}
+	}
+	return YES;
 }
 
 #pragma mark Value nodes
@@ -770,23 +826,35 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	}
 	case ORMQueryExpressionAggregate: {
 		ORMQueryNode *of = nil;
-		ORMQueryNode *group = nil;
+		NSMutableDictionary *byId = [NSMutableDictionary dictionary];
 		for (ORMQueryNode *each in [_query nodes]) {
 			of = [each.identifier isEqualToString:[[expression.arguments firstObject] nodeId]] ? each : of;
-			group = [each.identifier isEqualToString:[expression.groups firstObject]] ? each : group;
+			[byId setObject:each forKey:each.identifier ?: @""];
 		}
-		/* A bag's rows leave out the aggregates being made of them; others
-		 * they may be compared with are theirs ("since the one before"). */
-		if ([_bagging containsObject:[NSString stringWithFormat:@"%@/%@", group.identifier, of.identifier]]) {
-			return nil;
+		/* Grouped by the first node it is for that is no value node; the
+		 * others matched ("for Vehicle, Month"). */
+		ORMQueryNode *group = nil;
+		NSMutableArray *others = [NSMutableArray array];
+		for (NSString *groupId in expression.groups) {
+			ORMQueryNode *each = [byId objectForKey:groupId];
+			if (group == nil && each != nil && !each.isValue) {
+				group = each;
+			} else if (each != nil) {
+				[others addObject:each];
+			}
 		}
-		if ([expression.groups count] != 1) {
-			[self note:[NSString stringWithFormat:@"%@ is for more than one node, which is not planned yet.",
+		if (of == nil || group == nil) {
+			[self note:[NSString stringWithFormat:@"%@ is for no node that is not computed, which it is grouped by.",
 			                                      [value designation]]];
 			return nil;
 		}
+		/* A bag's rows leave out the aggregates being made of them; others
+		 * they may be compared with are theirs ("since the one before"). */
+		if ([_bagging containsObject:[self bagKeyOf:of for:group also:others]]) {
+			return nil;
+		}
 		NSDictionary *functions = @{ @"count": @"count", @"total": @"sum", @"avg": @"average", @"max": @"max", @"min": @"min" };
-		return of != nil && group != nil ? [self aggregate:[functions objectForKey:expression.function] of:of for:group] : nil;
+		return [self aggregate:[functions objectForKey:expression.function] of:of for:group also:others];
 	}
 	case ORMQueryExpressionFunction:
 		break;
@@ -860,6 +928,26 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
  * not to be said. */
 - (ORMPlanValue *)aggregate:(NSString *)function of:(ORMQueryNode *)node for:(ORMQueryNode *)group
 {
+	return [self aggregate:function of:node for:group also:@[]];
+}
+
+/* A bag's key: what it is for, and of. */
+- (NSString *)bagKeyOf:(ORMQueryNode *)node for:(ORMQueryNode *)group also:(NSArray<ORMQueryNode *> *)others
+{
+	NSMutableArray *groups = [NSMutableArray arrayWithObject:group.identifier ?: @""];
+	for (ORMQueryNode *other in others) {
+		[groups addObject:other.identifier ?: @""];
+	}
+	return [NSString stringWithFormat:@"%@/%@", [groups componentsJoinedByString:@","], node.identifier];
+}
+
+/* The same for several nodes: of the group's tuples, those whose columns
+ * for the others are what those are here. */
+- (ORMPlanValue *)aggregate:(NSString *)function
+                         of:(ORMQueryNode *)node
+                        for:(ORMQueryNode *)group
+                       also:(NSArray<ORMQueryNode *> *)others
+{
 	NSMutableSet *nodes = [NSMutableSet setWithObject:group.identifier];
 	ORMQueryNode *at = node;
 	for (; at != nil && at != group; at = at.step.parent ?: at.valueOf) {
@@ -872,7 +960,24 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		                                      at == nil ? @"above it" : @"one object reached where it is asked"]];
 		return nil;
 	}
-	NSString *key = [NSString stringWithFormat:@"%@/%@", group.identifier, node.identifier];
+	/* Each other node's value here; listed by the bag. */
+	NSMutableArray *alsoColumns = [NSMutableArray array];
+	NSMutableArray *alsoValues = [NSMutableArray array];
+	for (ORMQueryNode *other in others) {
+		ORMPlannerPlace *there = [_reached objectForKey:other.identifier];
+		if (there == nil || ![self inScope:there] || there.parts != nil) {
+			[self note:[NSString stringWithFormat:@"%@(%@) for %@: %@ is not one value where it is asked.", function,
+			                                      [node designation], [other designation], [other designation]]];
+			return nil;
+		}
+		ORMCDAttribute *otherKey = there.entity != nil ? [_places identifierOf:other.objectType on:there.entity] : nil;
+		ORMPlanValue *its = there.value ?: [ORMPlanValue valueAtPath:otherKey != nil ? [[self pathOf:there] pathByAddingKey:otherKey.name]
+		                                                                             : [self pathOf:there]];
+		[nodes addObject:other.identifier];
+		[alsoColumns addObject:other.identifier];
+		[alsoValues addObject:its];
+	}
+	NSString *key = [self bagKeyOf:node for:group also:others];
 	ORMPlanDefinition *bag = [_bags objectForKey:key];
 	if (bag == nil) {
 		ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
@@ -901,7 +1006,8 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	if (identifier != nil) {
 		groupPath = [groupPath pathByAddingKey:identifier.name];
 	}
-	return [ORMPlanValue aggregate:function of:node.identifier in:bag where:group.identifier is:groupPath];
+	return [ORMPlanValue aggregate:function of:node.identifier in:bag where:group.identifier is:groupPath also:alsoColumns
+	                           are:alsoValues];
 }
 
 /* What the step's property is traced by, on the entity it starts from: a

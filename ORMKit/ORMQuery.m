@@ -1708,11 +1708,20 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		 * FillUp1". */
 		NSDictionary *functions = @{ @"count": @"count", @"total": @"total", @"avg": @"average", @"max": @"maximum",
 			                         @"min": @"minimum" };
-		ORMVariable *group = [variables objectForKey:[expression.groups firstObject] ?: @""];
+		/* For several, "for that Vehicle and Month". */
+		NSMutableArray *groups = [NSMutableArray array];
+		for (NSString *groupId in expression.groups) {
+			ORMVariable *group = [variables objectForKey:groupId];
+			if (group != nil) {
+				[groups addObject:[ORMTerm termWithVariable:group]];
+			}
+		}
+		ORMTerm *group = [groups count] > 1 ? [ORMTerm termWithFunction:@"groups" arguments:groups aggregate:NO]
+		                                    : [groups firstObject];
 		return [ORMTerm termWithFunction:[functions objectForKey:expression.function] ?: expression.function
 		                       arguments:@[ ORMTermOfExpression([expression.arguments firstObject], variables) ]
 		                       aggregate:YES
-		                           group:group != nil ? [ORMTerm termWithVariable:group] : nil];
+		                           group:group];
 	}
 	case ORMQueryExpressionFunction:
 		break;
@@ -2568,15 +2577,26 @@ ORMAggregateRefusal(ORMQueryExpression *aggregate, ORMQueryNode *under, NSDictio
                     ORMObjectType *given)
 {
 	ORMQueryNode *of = [byId objectForKey:[[aggregate.arguments firstObject] nodeId] ?: @""];
+	/* Grouped by the first node it is for that is not computed: the node
+	 * it is under or one above, over what it aggregates. The others it is
+	 * also for may be any before it ("for Vehicle, Month, Currency"). */
+	ORMQueryNode *grouped = nil;
 	for (NSString *groupId in aggregate.groups) {
 		ORMQueryNode *group = [byId objectForKey:groupId];
-		if (group == nil || !ORMIsAtOrAbove(group, under)) {
-			return [NSString stringWithFormat:@"An aggregate is for the node it is under, or one above: %@ is not.",
-			                                  [group designation] ?: @"that"];
+		if (group != nil && !group.isValue) {
+			grouped = group;
+			break;
 		}
-		if (of == nil || of == group || !ORMIsAtOrAbove(group, of)) {
-			return [NSString stringWithFormat:@"An aggregate for %@ is of a node below it.", [group designation]];
-		}
+	}
+	if (grouped == nil) {
+		return @"An aggregate is for a node a step reaches, or the root, besides any value nodes.";
+	}
+	if (!ORMIsAtOrAbove(grouped, under)) {
+		return [NSString stringWithFormat:@"An aggregate is for the node it is under, or one above: %@ is not.",
+		                                  [grouped designation]];
+	}
+	if (of == nil || of == grouped || !ORMIsAtOrAbove(grouped, of)) {
+		return [NSString stringWithFormat:@"An aggregate for %@ is of a node below it.", [grouped designation]];
 	}
 	if ([@[ @"total", @"avg" ] containsObject:aggregate.function] && ![numeric containsObject:of.identifier ?: @""]) {
 		return [NSString stringWithFormat:@"A total or an average is of numbers; %@ is not one.", [of designation]];

@@ -360,7 +360,15 @@ ORMArithmeticPrecedence(ORMTerm *term)
 		}
 		if (term.group != nil) {
 			[b keyword:@" for "];
-			[self sayTerm:term.group into:b];
+			/* Several: "for that Vehicle and Month". */
+			BOOL several = [term.group.functionName isEqualToString:@"groups"];
+			NSArray *groups = several ? term.group.arguments : @[ term.group ];
+			for (NSUInteger i = 0; i < [groups count]; i++) {
+				if (i > 0) {
+					[b keyword:i + 1 == [groups count] ? @" and " : @", "];
+				}
+				[self sayTerm:[groups objectAtIndex:i] into:b];
+			}
 		}
 	}
 }
