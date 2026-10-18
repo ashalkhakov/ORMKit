@@ -401,6 +401,16 @@ planned and run otherwise, as databases unnest a correlated subquery
   attributes, with conditions on values; and one of them compared (<, <=,
   >, >=) with an attribute reached from the group through to-ones. Any
   other is the whole query's bag, as before.
+- **An existence with an inequality is a window's count.** A step to
+  such a member ("some earlier fill-up of the vehicle"), whose nodes are
+  listed nowhere and used by nothing computed, is the window's count
+  above none (none under a not), planned for the nearest node above that
+  reaches the partition and the attribute compared through to-ones:
+  `count of FillUp2 in bag1 where Vehicle is vehicle.id, Odometer2 <
+  odometer > 0`. Not a subquery the store runs for each row.
+- **A window is made once in a run.** Its partition is the same for every
+  batch (every page) whose objects are of it: a batch reads only the
+  partitions not yet made.
 - **An equality is a lookup.** An exists (a count, an aggregate) over a
   collection, with a conjunct `x.key = v` whose v names nothing the
   condition binds, takes its members from an index of the collection by
@@ -409,10 +419,8 @@ planned and run otherwise, as databases unnest a correlated subquery
   index finds is still asked the whole condition.
 
 "The one before" at 100,000 fill-ups (100 to a vehicle) went from 480 s to
-6.5 s with these, and is linear in the vehicles. Within one partition an
-existence with an inequality is still asked of the store as a correlated
-subquery (`some vehicle.fillUps as x1 has x1.odometer < odometer`); as a
-window count above none, it would not be.
+5 s with these, and one vehicle of 3,000 fill-ups from 76 s to 0.17 s:
+linear both in the vehicles and in a vehicle's fill-ups.
 
 ## The interpreter: running a plan against Core Data
 

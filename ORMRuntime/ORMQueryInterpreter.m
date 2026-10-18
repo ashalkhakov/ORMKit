@@ -224,6 +224,8 @@ static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
 - (NSArray<ORMPlanValue *> *)bagValues;
 /* A bag's tuples, by group, worked out elsewhere (in memory). */
 - (void)keepGroups:(NSMapTable *)groups ofBag:(ORMPlanValue *)value;
+/* A window value's windows made so far, by partition. */
+- (NSMapTable *)windowsMadeOf:(ORMPlanValue *)value;
 /* Whether it reads a bag, or a join it probes or fetches. */
 - (BOOL)needsAStore;
 @end
@@ -395,6 +397,8 @@ ORMProbeKey(id value)
 	 * groups it was made of: @[ the groups, value by group ], by
 	 * aggregate. */
 	NSMapTable<ORMPlanValue *, NSArray *> *_aggregated;
+	/* Each window value's windows, by partition, made once in the run. */
+	NSMapTable<ORMPlanValue *, NSMapTable *> *_windows;
 	/* The exists that bind nothing the rows or other conditions use: one
 	 * member that holds is enough (a semi-join). */
 	NSHashTable<ORMPlanCondition *> *_semiJoins;
@@ -551,9 +555,12 @@ ORMBagKey(ORMPlanValue *value)
 			scope = ^NSArray *(ORMBatch *batch) {
 				ORMPlanRun *run = weakSelf;
 				NSMutableOrderedSet *groups = [NSMutableOrderedSet orderedSet];
+				/* A window's partition, once in a run: it is the same
+				 * for every batch whose objects are of it. */
+				NSMapTable *made = value.windowColumn != nil ? [run windowsMadeOf:value] : nil;
 				for (id object in batch.objects) {
 					id group = [run valueOf:value.groupPath object:object bindings:run.bindings];
-					if (group != nil && group != [NSNull null]) {
+					if (group != nil && group != [NSNull null] && [made objectForKey:group] == nil) {
 						[groups addObject:group];
 					}
 				}
@@ -1196,27 +1203,36 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	return ORMAggregate(value.function, values);
 }
 
-/* The window of each group, from the groups given: made for all of them
- * the first time it is asked of these groups. */
+/* The windows made in this run, by partition: each made once, from the
+ * first groups that have it. */
+- (NSMapTable *)windowsMadeOf:(ORMPlanValue *)value
+{
+	if (_windows == nil) {
+		_windows = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality
+		                                 valueOptions:NSPointerFunctionsStrongMemory];
+	}
+	NSMapTable *made = [_windows objectForKey:value];
+	if (made == nil) {
+		made = [NSMapTable strongToStrongObjectsMapTable];
+		[_windows setObject:made forKey:value];
+	}
+	return made;
+}
+
+/* The window of each partition, those of the groups given made. */
 - (NSMapTable *)windowsOf:(ORMPlanValue *)value groups:(NSMapTable *)groups
 {
-	NSArray *had = [_aggregated objectForKey:value];
-	if ([had firstObject] == groups) {
-		return [had lastObject];
-	}
+	NSMapTable *made = [self windowsMadeOf:value];
 	NSArray *nodeIds = [value.bag.plan.columns valueForKey:@"nodeId"];
 	NSUInteger key = [nodeIds indexOfObject:value.windowColumn ?: @""];
 	NSUInteger column = [nodeIds indexOfObject:value.column ?: @""];
-	NSMapTable *made = [NSMapTable strongToStrongObjectsMapTable];
 	for (id group in groups) {
-		[made setObject:[ORMWindow windowOf:[groups objectForKey:group] key:key value:column != NSNotFound ? column : key
-		                           function:value.function order:ORMWindowCompare]
-		         forKey:group];
+		if ([made objectForKey:group] == nil) {
+			[made setObject:[ORMWindow windowOf:[groups objectForKey:group] key:key value:column != NSNotFound ? column : key
+			                           function:value.function order:ORMWindowCompare]
+			         forKey:group];
+		}
 	}
-	if (_aggregated == nil) {
-		_aggregated = [NSMapTable strongToStrongObjectsMapTable];
-	}
-	[_aggregated setObject:@[ groups, made ] forKey:value];
 	return made;
 }
 

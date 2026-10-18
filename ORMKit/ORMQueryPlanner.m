@@ -728,11 +728,13 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	NSMutableArray *steps = [NSMutableArray array];
 	for (ORMQueryStep *step in node.steps) {
 		BOOL listed = columns && step.operatorKind != ORMQueryNot;
-		ORMPlanCondition *condition = [self conditionForStep:step entity:entity at:at columns:listed];
+		/* An existence over a window: how many, compared with none. */
+		ORMPlanCondition *counted = [self windowCountOfStep:step];
+		ORMPlanCondition *condition = counted ?: [self conditionForStep:step entity:entity at:at columns:listed];
 		if (condition == nil) {
 			continue;
 		}
-		[steps addObject:step.operatorKind == ORMQueryNot ? [ORMPlanCondition not:condition] : condition];
+		[steps addObject:step.operatorKind == ORMQueryNot && counted == nil ? [ORMPlanCondition not:condition] : condition];
 		/* Each value node as soon as what it uses is reached, so that the
 		 * steps after may be compared with it; not among alternatives. */
 		for (BOOL more = !node.combinesWithOr; more;) {
@@ -1116,6 +1118,17 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
  * whole query's. */
 - (ORMPlanValue *)window:(NSString *)function of:(ORMQueryNode *)node for:(ORMQueryNode *)group at:(ORMPlannerPlace *)place
 {
+	return [self window:function of:node for:group at:place counting:NO];
+}
+
+/* The same; counting a step's members (windowCountOfStep:), whose not is
+ * the count's comparison, not the member's. */
+- (ORMPlanValue *)window:(NSString *)function
+                      of:(ORMQueryNode *)node
+                     for:(ORMQueryNode *)group
+                      at:(ORMPlannerPlace *)place
+                counting:(BOOL)counting
+{
 	if (![@[ @"count", @"sum", @"average", @"max", @"min" ] containsObject:function ?: @""] || node.isValue) {
 		return nil;
 	}
@@ -1136,7 +1149,8 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			members = (ORMCDRelationship *)property;
 		}
 	}
-	if (at != group || member == nil || member.step.operatorKind != ORMQueryAnd || (node != member && node.step.parent != member)) {
+	BOOL plain = member.step.operatorKind == ORMQueryAnd || (counting && member.step.operatorKind == ORMQueryNot);
+	if (at != group || member == nil || !plain || (node != member && node.step.parent != member)) {
 		return nil;
 	}
 	ORMQueryNode *partition = member.step.parent;
@@ -1223,6 +1237,55 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	}
 	return [ORMPlanValue aggregate:function of:node.identifier in:bag where:partition.identifier is:groupPath
 	                        window:key.identifier comparison:comparison than:[ORMPlanValue valueAtPath:otherPath]];
+}
+
+/* A step to a member some other of whose attributes an inequality
+ * relates to the object read ("some earlier fill-up of the vehicle"), as
+ * a window's count compared with none: above it where the step holds, none
+ * under a not. Its member's nodes listed nowhere, sorted by nothing, used
+ * by no value computed from them here (an aggregate's own bag is its own),
+ * and not in a bag being planned. nil where it is not that: the step is
+ * then planned as it is, an exists. */
+- (ORMPlanCondition *)windowCountOfStep:(ORMQueryStep *)step
+{
+	ORMQueryNode *member = [step.nodes count] == 1 ? [step.nodes firstObject] : nil;
+	if (_bagNodes != nil || member == nil || step.countComparison != nil
+	    || (step.operatorKind != ORMQueryAnd && step.operatorKind != ORMQueryNot)) {
+		return nil;
+	}
+	NSMutableSet *own = [NSMutableSet setWithObject:member.identifier];
+	for (ORMQueryStep *each in member.steps) {
+		for (ORMQueryNode *attribute in each.nodes) {
+			[own addObject:attribute.identifier];
+		}
+	}
+	for (ORMQueryNode *each in [_query nodes]) {
+		if ([own containsObject:each.identifier] && (each.isProjected || each.sortOrder != ORMQueryUnsorted)) {
+			return nil;
+		}
+		if (each.isValue && each.expression.kind != ORMQueryExpressionAggregate) {
+			for (NSString *used in [each.expression nodeIds]) {
+				if ([own containsObject:used]) {
+					return nil;
+				}
+			}
+		}
+	}
+	/* For the nearest node above that reaches the partition through
+	 * to-ones, and the attribute compared. */
+	ORMQueryNode *partition = step.parent;
+	for (ORMQueryNode *group = partition; group != nil && [self toOneKeysFrom:group to:partition] != nil; group = group.step.parent) {
+		ORMPlannerPlace *place = [_reached objectForKey:group.identifier];
+		if (place == nil || ![self inScope:place] || place.parts != nil) {
+			continue;
+		}
+		ORMPlanValue *count = [self window:@"count" of:member for:group at:place counting:YES];
+		if (count != nil) {
+			return [ORMPlanCondition compare:count comparison:step.operatorKind == ORMQueryNot ? @"=" : @">"
+			                            with:[ORMPlanValue constant:@"0" type:@"Integer 64"]];
+		}
+	}
+	return nil;
 }
 
 /* The same for several nodes: of the group's tuples, those whose columns

@@ -303,7 +303,7 @@
 	                                                                     serviceRoot:root];
 	ORMQueryODataCursor *cursor = [odata cursorWithTransport:service serviceRoot:root];
 	NSMutableArray *rows = [NSMutableArray array];
-	for (NSUInteger guard = 0; guard < 10 && ![cursor atEnd]; guard++) {
+	for (NSUInteger guard = 0; guard < 1000 && ![cursor atEnd]; guard++) {
 		dispatch_semaphore_t done = dispatch_semaphore_create(0);
 		[cursor nextPage:10 completion:^(ORMQueryResult *result, NSError *failed) {
 			XCTAssertNotNil(result, @"%@", failed);
@@ -365,7 +365,14 @@
 	                 @"      + was at Odometer3 <= Odometer1\n"
 	                 @"      + took Litres3\n"
 	                 @"  Previous = max(Odometer2) for FillUp1\n"
-	                 @"  ✓Since = total(Litres3) for FillUp1\n";
+	                 @"  ✓Since = total(Litres3) for FillUp1\n"
+	                 @"\n"
+	                 @"Query First:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + not FillUp2 is of that Vehicle\n"
+	                 @"      + was at Odometer2 < Odometer1\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	return editor;
@@ -484,6 +491,66 @@
 	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"2 30", @"3 36" ]), @"%@", [plan text]);
 	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"2 30", @"3 36" ]), @"%@", [odata requestText]);
+	/* Each vehicle's first: none of its fill-ups below, a window's count. */
+	plan = [planner planForQuery:[self query:@"First" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertTrue([[plan text] rangeOfString:@"count of FillUp2 in bag1 where Vehicle is vehicle.id, Odometer2 < odometer = 0"].location
+	                  != NSNotFound, @"%@", [plan text]);
+	result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"1", @"4" ]), @"%@", [plan text]);
+	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"1", @"4" ]), @"%@", [odata requestText]);
+}
+
+/* A store of one vehicle's fill-ups, each 10 km after the one before;
+ * the rows "the one before" gives of them. */
+- (NSManagedObjectContext *)storeOf:(NSUInteger)count fillUpsOf:(ORMModel *)model planner:(ORMQueryPlanner *)planner
+                           expected:(NSMutableArray *)expected
+{
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	[context performBlockAndWait:^{
+		NSManagedObject *vehicle = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:context];
+		[vehicle setValue:@1 forKey:@"id"];
+		for (NSUInteger i = 1; i <= count; i++) {
+			NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+			[fillUp setValue:@(i) forKey:@"id"];
+			[fillUp setValue:vehicle forKey:@"vehicle"];
+			[fillUp setValue:[NSDecimalNumber numberWithUnsignedInteger:1000 + 10 * i] forKey:@"odometer"];
+			[fillUp setValue:[NSDecimalNumber numberWithUnsignedInteger:30] forKey:@"litres"];
+			if (i > 1) {
+				[expected addObject:@[ @(i), @(i - 1) ]];
+			}
+		}
+		NSError *saved = nil;
+		XCTAssertTrue([context save:&saved], @"%@", saved);
+	}];
+	return context;
+}
+
+/* A window whose partition is read over many batches (and pages): made
+ * once, each fill-up's the one before it. The service's in pages of ten:
+ * fewer fill-ups, as it gives each one's vehicle's with it to check what
+ * the filter cannot say. */
+- (void)testAWindowOverManyBatches
+{
+	ORMEditor *editor = [self fillUps];
+	ORMModel *model = editor.model;
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Before" in:model]];
+	NSMutableArray *expected = [NSMutableArray array];
+	NSManagedObjectContext *context = [self storeOf:600 fillUpsOf:model planner:planner expected:expected];
+	NSError *error = nil;
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], [self sorted:expected]);
+	NSMutableArray *fewer = [NSMutableArray array];
+	context = [self storeOf:60 fillUpsOf:model planner:planner expected:fewer];
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], [self sorted:fewer], @"%@", [odata requestText]);
 }
 
 /* The one before among a supertype's records: the bag lists a

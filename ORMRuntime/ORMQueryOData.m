@@ -155,6 +155,11 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 - (NSArray<ORMTuple *> *)rowsOf:(NSDictionary *)json;
 /* Whether the condition holds of the object, the variables bound. */
 - (BOOL)holds:(ORMPlanCondition *)condition object:(ORMODataObject *)read bindings:(NSDictionary *)bindings;
+/* Whether the bag's rows of the group are needed no more: only windows
+ * aggregate it, and the group's are made. */
+- (BOOL)hasWindowsOfBag:(NSString *)name group:(id)group;
+/* The windows made, gone: a run starts without them. */
+- (void)forgetWindows;
 /* The key paths from the object read that the condition looks at, asked
  * whole; those from the variable, when named, instead. */
 - (NSArray<NSArray<NSString *> *> *)pathsOf:(ORMPlanCondition *)condition from:(NSString *)variable;
@@ -182,9 +187,11 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 	/* A bag's rows by group, where a group is a value (an identifier), by
 	 * the rows answered. */
 	NSMapTable<NSArray *, NSDictionary *> *_bagGroups;
-	/* A window over a group's rows, by those rows (the list a batch's
-	 * answer has for the group). */
-	NSMapTable<NSArray *, ORMWindow *> *_windows;
+	/* Each window value's windows, by partition, made once in the run; the
+	 * partitions windowed of each bag; the bags another aggregate reads. */
+	NSMapTable<ORMPlanValue *, NSMutableDictionary *> *_windows;
+	NSMutableDictionary<NSString *, NSMutableSet *> *_windowedGroups;
+	NSMutableSet<NSString *> *_plainBags;
 }
 
 /* A join that binds: the joined objects read for the page with the pairs'
@@ -683,6 +690,18 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	return YES;
 }
 
+- (void)forgetWindows
+{
+	_windows = nil;
+	_windowedGroups = nil;
+	_plainBags = nil;
+}
+
+- (BOOL)hasWindowsOfBag:(NSString *)name group:(id)group
+{
+	return ![_plainBags containsObject:name] && [[_windowedGroups objectForKey:name] containsObject:group];
+}
+
 - (id)firstAt:(ORMPlanValue *)value object:(ORMODataObject *)read bindings:(NSDictionary *)bindings
 {
 	NSString *applied = value.bag != nil ? [NSString stringWithFormat:@"%@.%@", value.bag.name, value.function] : nil;
@@ -705,22 +724,37 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		/* Over a window: the group's rows sorted by its column once, the
 		 * object's answered by its value. */
 		if (value.windowColumn != nil) {
-			NSArray *rows = [self rowsOf:value group:group];
 			if (_windows == nil) {
-				_windows = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsWeakMemory
+				_windows = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory
 				                                                  | NSPointerFunctionsObjectPointerPersonality
 				                                 valueOptions:NSPointerFunctionsStrongMemory];
+				_windowedGroups = [NSMutableDictionary dictionary];
 			}
-			ORMWindow *window = [_windows objectForKey:rows];
-			if (window == nil) {
+			NSMutableDictionary *made = [_windows objectForKey:value];
+			if (made == nil) {
+				made = [NSMutableDictionary dictionary];
+				[_windows setObject:made forKey:value];
+			}
+			ORMWindow *window = group != nil ? [made objectForKey:group] : nil;
+			if (window == nil && group != nil) {
 				NSUInteger key = [nodeIds indexOfObject:value.windowColumn];
-				window = [ORMWindow windowOf:rows key:key value:column != NSNotFound ? column : key function:value.function
-				                       order:ORMJSONOrder];
-				[_windows setObject:window forKey:rows];
+				window = [ORMWindow windowOf:[self rowsOf:value group:group] key:key value:column != NSNotFound ? column : key
+				                    function:value.function order:ORMJSONOrder];
+				[made setObject:window forKey:group];
+				NSMutableSet *groups = [_windowedGroups objectForKey:value.bag.name];
+				if (groups == nil) {
+					groups = [NSMutableSet set];
+					[_windowedGroups setObject:groups forKey:value.bag.name];
+				}
+				[groups addObject:group];
 			}
 			return [window aggregateWhereKey:value.windowComparison
 			                            than:[self firstAt:value.windowValue object:read bindings:bindings]];
 		}
+		if (_plainBags == nil) {
+			_plainBags = [NSMutableSet set];
+		}
+		[_plainBags addObject:value.bag.name];
 		/* For several nodes: the rows whose other group columns are theirs. */
 		NSMutableArray *also = [NSMutableArray array];
 		for (NSUInteger i = 0; i < [value.alsoColumns count]; i++) {
@@ -1471,7 +1505,10 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSMutableOrderedSet *groups = [NSMutableOrderedSet orderedSet];
 	for (NSDictionary *json in page) {
 		for (id group in [_rows valuesAt:[scope firstObject] object:ORMODataObjectOf(json, _read) bindings:@{}]) {
-			if (group != [NSNull null]) {
+			/* A partition windowed on an earlier page: not again. */
+			NSRange dot = [name rangeOfString:@"."];
+			NSString *bag = dot.location != NSNotFound ? [name substringToIndex:dot.location] : name;
+			if (group != [NSNull null] && ![_rows hasWindowsOfBag:bag group:group]) {
 				[groups addObject:group];
 			}
 		}
@@ -2944,6 +2981,9 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 
 - (ORMQueryODataCursor *)cursorWithTransport:(id<ODataTransport>)transport serviceRoot:(NSURL *)serviceRoot
 {
+	/* A run of its own: windows made of what the service had before are
+	 * not this one's. */
+	[_rows forgetWindows];
 	return _collectionPath != nil ? [[ORMQueryODataCursor alloc] initWithRequest:self transport:transport serviceRoot:serviceRoot]
 	                              : nil;
 }

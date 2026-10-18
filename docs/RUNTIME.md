@@ -212,14 +212,21 @@ fill-ups: 0.6 s to list each with its vehicle, 2.4 s computing a column,
 1.3 s for a total per vehicle). "The one before" (an aggregate of the
 earlier ones of the same vehicle) is decorrelated
 ([QUERIES.md](QUERIES.md#decorrelation)): a window over each vehicle's
-fill-ups, and the fill-up at the previous odometer looked up by it, 6.5 s
-for 100,000 where it took 480 s.
+fill-ups, made once in a run, its existence a window's count, and the
+fill-up at the previous odometer looked up by it: 5 s for 100,000 where it
+took 480 s, 0.58 s for one vehicle of 10,000.
 
 Not yet:
-- **More decorrelation.** An existence with an inequality is still a
-  correlated subquery in the store, quadratic within a partition (one
-  vehicle of 3,000 fill-ups: 1 s); a window count would not be. Windows
-  over several groups (`also`), and over a computed key, are bags still.
+- **More decorrelation.** Windows over several groups (`also`), over a
+  computed key, or with two inequalities ("since the one before, up to
+  this one") are bags still.
+- **OData's checks through a collection.** What the filter cannot say,
+  through a to-many ("the fill-up of the vehicle at the previous
+  odometer"), is checked on the answers, so each object read comes with
+  the whole collection expanded: quadratic in what goes over the wire for
+  a vehicle of many fill-ups (600: 360,000 objects). The interpreter looks
+  such a member up by its key; the service could be asked for the members
+  a page needs once, as its bags are.
 - **Flat typed values.** Values boxed as objects (NSNumber, NSDecimalNumber,
   key-value coding for each path) are most of what a row costs now. Column
   kinds are known when a plan is made: a tuple can be a flat array of
