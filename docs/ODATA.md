@@ -201,6 +201,29 @@ it is read whole before the first page. Each aggregate is worked out from
 the bag's rows with the group's identifier. A page's rows are made as its
 objects arrive, while the bags' rows are theirs.
 
+**The service aggregates** a bag where it can (Data Aggregation's
+`$apply`): a bag of the object read, of a member of one of its to-many
+relationships, a member's own attribute aggregated (sum, max, min,
+average, or a count). The bag's condition, as the member sees it (the
+object read's paths through the member's inverse), filters the members,
+which are grouped by the object:
+
+```
+bag1.sum, aggregated by the service for each page's groups:
+GET Costs?$apply=filter(Amount gt 5 and (Vehicle/Id eq 1 or Vehicle/Id eq 2))/groupby((Vehicle/Id),aggregate(Amount with sum as Value))
+```
+
+One value for each group comes back, not every tuple. A request is made
+for each aggregate of the bag. Where the service refuses (a service
+without Data Aggregation, or an aggregate along a path it cannot follow:
+ODataKit's service, through Core Data, aggregates no key path through a
+to-one), the bag's rows are read instead, from then on.
+
+**The service computes** a listed value node ([EXPRESSIONS.md](EXPRESSIONS.md))
+of the object read's own values, in arithmetic `$filter` says (`add`,
+`sub`, `mul`, a minus): `$compute=EndedAtKilometres sub Kilometres as
+Computed2`, listed from the answer.
+
 `testTheServiceAnswersTheQueries` serves the mapped model with `ODataService`
 over SQLite and checks the rows that Q1 to Q5, the payroll query and a count
 return; `testTheServiceRowsAreTheStoresRows` checks every row against the

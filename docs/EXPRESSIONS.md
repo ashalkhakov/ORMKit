@@ -201,7 +201,8 @@ are many:
 - **Planned once its groups are reached**: an aggregate for nodes reached
   already before the node's steps, one for a value node after it.
 - **Through OData**, the bag read and the tuples matched on the answers,
-  as for one node; `$apply` (`groupby`, `aggregate`) is not used yet.
+  as for one node: for several groups, one a value node, the service does
+  not aggregate it (it groups by paths, not by values computed).
 
 **Sorting by a value node** sorts the rows once all are read: no store
 sorts by a value computed. Where any node sorted by is computed, each
@@ -382,9 +383,10 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
   can as Apple's does, is for later.
 - **OData:** arithmetic in `$filter` where OData has it (`add`, `sub`,
   `mul`, a minus); a division, a rounding or a choice is checked on the
-  answers. A listed value node is computed from what is read, as a
-  calculation's column is, rather than by `$compute`; a grouped list by
-  `$apply` (`groupby`, `aggregate`), with step 4.
+  answers. A listed value node of the object read's own values, in that
+  arithmetic, is computed by the service (`$compute`); others from what
+  is read. A bag of a member's own attribute is aggregated by the service
+  (`$apply`), a value for each group ([ODATA.md](ODATA.md)).
 - **Sorting by a value node** sorts the rows in memory, once read
   ([Grouping](#grouping)).
 - **Validation code:** a rule with a computed value is no one predicate;
@@ -451,9 +453,10 @@ Logbook's model, as the earlier items did.
 - Units checked across joins, so that adding kilometres to miles is caught
   when the query is made.
 - Window functions (a running total, a rank).
-- OData `$apply` for grouped lists, and `$compute` for listed value nodes,
-  where the service has them; computing in the store where FreeCoreData's
-  SQLite store can, as Apple's does.
+- OData `$apply` with several groups, a computed one among them
+  (`compute(...)/groupby(...)`), and aggregates through paths the service
+  follows; computing in the store where FreeCoreData's SQLite store can,
+  as Apple's does.
 - Profiling the runtime: how long a plan takes as the store grows, bags
   run whole where their group is not reached from the object read, rows
   sorted in memory.

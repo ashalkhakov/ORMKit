@@ -8,6 +8,28 @@
 @interface ORMQueryExpressionTests : ORMTestCase
 @end
 
+/* A service that refuses $apply, as one without Data Aggregation does; the
+ * rest it answers. */
+@interface ORMTestNoApplyTransport : NSObject <ODataTransport>
+@property (nonatomic, strong) id<ODataTransport> service;
+@property (nonatomic) NSUInteger refused;
+@end
+
+@implementation ORMTestNoApplyTransport
+- (void)startExchange:(ODataExchange *)exchange
+{
+	if ([[[exchange.request.URL query] stringByRemovingPercentEncoding] rangeOfString:@"$apply="].location != NSNotFound) {
+		self.refused++;
+		exchange.URLResponse = [[NSHTTPURLResponse alloc] initWithURL:exchange.request.URL statusCode:501 HTTPVersion:@"HTTP/1.1"
+		                                                 headerFields:@{ @"Content-Type": @"application/json" }];
+		exchange.data = [@"{\"error\":{\"code\":\"501\",\"message\":\"No $apply here.\"}}" dataUsingEncoding:NSUTF8StringEncoding];
+		[exchange finish];
+		return;
+	}
+	[self.service startExchange:exchange];
+}
+@end
+
 @implementation ORMQueryExpressionTests
 
 - (ORMEditor *)trips
@@ -261,6 +283,9 @@
 	XCTAssertEqualObjects(odata.notes, @[]);
 	XCTAssertTrue([[odata queryText] rangeOfString:@"EndedAtKilometres sub Kilometres gt 100"].location != NSNotFound,
 	              @"%@", [odata queryText]);
+	/* The length computed by the service, listed from its answer. */
+	XCTAssertTrue([[odata queryText] rangeOfString:@"$compute=EndedAtKilometres sub Kilometres as Computed2"].location
+	                  != NSNotFound, @"%@", [odata queryText]);
 	XCTAssertEqualObjects([self rowsOf:odata over:context], (@[ @[ @1, @150 ] ]));
 	ORMQueryOData *everyTrip = [ORMQueryOData requestForPlan:each coreData:planner.coreData error:&error];
 	rows = [NSMutableArray array];
@@ -1062,6 +1087,101 @@
 		NSArray *found = [context executeFetchRequest:records error:NULL];
 		XCTAssertEqualObjects([[found valueForKey:amount] valueForKey:@"description"], (@[ @"120", @"9" ]));
 	}];
+}
+
+#pragma mark Aggregated by the service
+
+/* A bag of a member's own attribute is aggregated by the service
+ * ($apply), a value for each group, the page's groups only; the rows are
+ * those the store gives. */
+- (void)testTheServiceAggregates
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Amount is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Number is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Vehicle(.id) is an entity type.\n"
+	                 @"Cost(.id) is of Vehicle\n"
+	                 @"Each Cost is of exactly one Vehicle.\n"
+	                 @"Cost cost Amount\n"
+	                 @"Each Cost cost exactly one Amount.\n"
+	                 @"\n"
+	                 @"Query Totals:\n"
+	                 @"✓Vehicle\n"
+	                 @"  + Cost is of that Vehicle\n"
+	                 @"    + cost Amount > 5\n"
+	                 @"  ✓Total = total(Amount) for Vehicle\n"
+	                 @"  ✓Most = max(Amount) for Vehicle\n"
+	                 @"  ✓Costs: Number = count(Amount) for Vehicle\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	NSString *reason = nil;
+	for (NSArray *each in @[ @[ @"1", @"1", @"10" ], @[ @"2", @"1", @"15" ], @[ @"3", @"1", @"2" ], @[ @"4", @"2", @"100" ],
+	                         @[ @"5", @"3", @"7" ] ]) {
+		for (NSArray *fact in @[ @[ @"Cost is of Vehicle", each[1] ], @[ @"Cost cost Amount", each[2] ] ]) {
+			NSArray *roles = [[facts objectForKey:fact[0]] visibleRoles];
+			XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:fact[0]] identifier]
+			                                              named:@{ [roles[0] identifier]: each[0], [roles[1] identifier]: fact[1] }
+			                                             reason:&reason]), @"%@", reason);
+		}
+	}
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Totals" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMQueryResult *result = [[[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]]
+		executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	NSArray *expected = @[ @"1 25 15 2", @"2 100 100 1", @"3 7 7 1" ];
+	XCTAssertEqualObjects([self sorted:result.rows], expected, @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	NSString *said = [odata requestText];
+	XCTAssertTrue([said rangeOfString:@"aggregated by the service for each page's groups"].location != NSNotFound, @"%@", said);
+	XCTAssertTrue([said rangeOfString:@"groupby((Vehicle/Id),aggregate(Amount with sum as Value))"].location != NSNotFound, @"%@", said);
+	XCTAssertTrue([said rangeOfString:@"aggregate($count as Value)"].location != NSNotFound, @"%@", said);
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], expected, @"%@", said);
+	/* A page at a time: each page's groups. */
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ORMQueryODataCursor *cursor = [odata cursorWithTransport:[[ODataService alloc] initWithPersistentStoreCoordinator:
+		                                                          context.persistentStoreCoordinator serviceRoot:root]
+	                                             serviceRoot:root];
+	NSMutableArray *paged = [NSMutableArray array];
+	for (NSUInteger guard = 0; guard < 10 && ![cursor atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		[cursor nextPage:1 completion:^(ORMQueryResult *page, NSError *failed) {
+			XCTAssertNotNil(page, @"%@", failed);
+			[paged addObjectsFromArray:page.rows ?: @[]];
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
+	}
+	XCTAssertEqualObjects([self sorted:paged], expected);
+	/* A service that refuses: the bag's rows read instead, the same rows. */
+	ORMTestNoApplyTransport *refusing = [[ORMTestNoApplyTransport alloc] init];
+	refusing.service = [[ODataService alloc] initWithPersistentStoreCoordinator:context.persistentStoreCoordinator serviceRoot:root];
+	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	cursor = [odata cursorWithTransport:refusing serviceRoot:root];
+	NSMutableArray *read = [NSMutableArray array];
+	for (NSUInteger guard = 0; guard < 10 && ![cursor atEnd]; guard++) {
+		dispatch_semaphore_t done = dispatch_semaphore_create(0);
+		[cursor nextPage:10 completion:^(ORMQueryResult *page, NSError *failed) {
+			XCTAssertNotNil(page, @"%@", failed);
+			[read addObjectsFromArray:page.rows ?: @[]];
+			dispatch_semaphore_signal(done);
+		}];
+		XCTAssertEqual(dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(20 * NSEC_PER_SEC))), 0);
+	}
+	XCTAssertEqualObjects([self sorted:read], expected);
+	XCTAssertGreaterThan(refusing.refused, 0u);
 }
 
 /* Rows as text, a moment as UTC ISO 8601 text, in order. */
