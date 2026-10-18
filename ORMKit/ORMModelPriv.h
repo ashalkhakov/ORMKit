@@ -303,6 +303,12 @@
 @interface ORMQueryPart : NSObject <NSCopying>
 @property (nonatomic, copy) NSString *identifier;
 @property (nonatomic) BOOL isStep;
+/* A value node (ormq:Value), under the node it is computed for: its name,
+ * and its expression as the file keeps it (docs/EXPRESSIONS.md); ref its
+ * value type. */
+@property (nonatomic) BOOL isValue;
+@property (nonatomic, copy) NSString *name;
+@property (nonatomic, copy) NSString *expression;
 @property (nonatomic, copy) NSString *ref;
 @property (nonatomic, copy) NSString *roleId;
 @property (nonatomic, copy) NSString *projected;
@@ -328,6 +334,8 @@
 - (NSUInteger)index;
 - (NSArray<ORMQueryPart *> *)steps;
 - (NSArray<ORMQueryPart *> *)nodes;
+/* A node's value nodes. */
+- (NSArray<ORMQueryPart *> *)values;
 - (void)addPart:(ORMQueryPart *)part;
 - (void)insertPart:(ORMQueryPart *)part atIndex:(NSUInteger)index;
 - (void)detach;

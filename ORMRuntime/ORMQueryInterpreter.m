@@ -311,8 +311,19 @@ ORMCompare(id left, NSString *comparison, id right)
 	if (condition == nil) {
 		return;
 	}
-	for (ORMPlanValue *value in @[ condition.left ?: [NSNull null], condition.right ?: [NSNull null] ]) {
-		if (![value isKindOfClass:[ORMPlanValue class]] || value.bag == nil) {
+	NSMutableArray *values = [NSMutableArray array];
+	for (NSMutableArray *pending = [NSMutableArray arrayWithObjects:condition.left ?: [NSNull null],
+	                                                                condition.right ?: [NSNull null], nil];
+	     [pending count] > 0;) {
+		ORMPlanValue *value = [pending lastObject];
+		[pending removeLastObject];
+		if ([value isKindOfClass:[ORMPlanValue class]]) {
+			[values addObject:value];
+			[pending addObjectsFromArray:value.operands ?: @[]];
+		}
+	}
+	for (ORMPlanValue *value in values) {
+		if (value.bag == nil) {
 			continue;
 		}
 		BOOL known = NO;
@@ -597,8 +608,10 @@ ORMBagKey(ORMPlanValue *value)
 		                        inStore:operand.inStore];
 	}
 	case ORMPlanCompare: {
-		if (condition.left.bag != nil || condition.right.bag != nil) {
-			/* An aggregate of a bag: computed on the objects fetched. */
+		if ([condition.left usesBag] || [condition.right usesBag] || condition.left.operands != nil
+		    || condition.right.operands != nil) {
+			/* An aggregate of a bag, a computed value: computed on the
+			 * objects fetched. */
 			NSString *text = [[condition description] stringByReplacingOccurrencesOfString:@"%" withString:@"%%"];
 			return [ORMPredicatePart format:text arguments:nil inStore:NO];
 		}
@@ -895,6 +908,13 @@ ORMGoesOnPastACast(ORMPlanPath *path)
 {
 	if (value.path != nil) {
 		return [self valueOf:value.path object:object bindings:bindings];
+	}
+	if (value.operands != nil) {
+		NSMutableArray *values = [NSMutableArray array];
+		for (ORMPlanValue *operand in value.operands) {
+			[values addObject:[self value:operand object:object bindings:bindings] ?: [NSNull null]];
+		}
+		return ORMPlanApply(value.function, values);
 	}
 	if (value.bag == nil) {
 		return [self constant:value];

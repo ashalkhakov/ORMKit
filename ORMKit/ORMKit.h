@@ -51,6 +51,7 @@
 #import "ORMCoreDataValidation.h"
 #import "ORMODataAnnotator.h"
 #import "ORMQuery.h"
+#import "ORMQueryExpression.h"
 #import "ORMCDModel+CoreData.h"
 #if __has_include(<ORMRuntime/ORMRuntime.h>)
 #import <ORMRuntime/ORMRuntime.h>

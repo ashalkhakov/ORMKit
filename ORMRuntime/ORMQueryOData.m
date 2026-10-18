@@ -384,10 +384,9 @@ ORMVariableKeys(ORMPlanCondition *condition, NSMutableDictionary<NSString *, NSA
 	};
 	add(condition.path, bound);
 	add(condition.otherPath, bound);
-	add(condition.left.path, bound);
-	add(condition.right.path, bound);
-	add(condition.left.groupPath, bound);
-	add(condition.right.groupPath, bound);
+	for (ORMPlanPath *path in [([condition.left paths] ?: @[]) arrayByAddingObjectsFromArray:[condition.right paths] ?: @[]]) {
+		add(path, bound);
+	}
 	if (condition.kind == ORMPlanMatches) {
 		/* Our side of the pairs, and what the joined plan reads of the
 		 * object read, its outer object. */
@@ -435,9 +434,9 @@ ORMVariableKeys(ORMPlanCondition *condition, NSMutableDictionary<NSString *, NSA
 	while ([pending count] > 0) {
 		ORMPlanCondition *at = [pending lastObject];
 		[pending removeLastObject];
-		for (ORMPlanPath *path in @[ at.path ?: [NSNull null], at.otherPath ?: [NSNull null], at.left.path ?: [NSNull null],
-		                             at.right.path ?: [NSNull null], at.valuePath ?: [NSNull null],
-		                             at.left.groupPath ?: [NSNull null], at.right.groupPath ?: [NSNull null] ]) {
+		NSArray *valuePaths = [([at.left paths] ?: @[]) arrayByAddingObjectsFromArray:[at.right paths] ?: @[]];
+		for (ORMPlanPath *path in [@[ at.path ?: [NSNull null], at.otherPath ?: [NSNull null], at.valuePath ?: [NSNull null] ]
+		                              arrayByAddingObjectsFromArray:valuePaths]) {
 			if ([path isKindOfClass:[ORMPlanPath class]] && [path.variable isEqualToString:variable]) {
 				[paths addObject:path.keys];
 			}
@@ -513,6 +512,25 @@ ORMVariableKeys(ORMPlanCondition *condition, NSMutableDictionary<NSString *, NSA
 }
 
 /* A constant as JSON has its type: a number, a truth, or text. */
+/* Whether $filter says the value: a path, a constant, or arithmetic it has
+ * (add, sub, mul, a minus) of such; a division, a rounding, a choice not. */
+static BOOL
+ORMSayable(ORMPlanValue *value)
+{
+	if (value.operands == nil) {
+		return YES;
+	}
+	if (![@[ @"add", @"subtract", @"multiply", @"negate" ] containsObject:value.function ?: @""]) {
+		return NO;
+	}
+	for (ORMPlanValue *operand in value.operands) {
+		if (!ORMSayable(operand)) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
 static id
 ORMJSONConstant(ORMPlanValue *value)
 {
@@ -651,6 +669,13 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		NSString *function = [@{ @"sum": @"@sum.self", @"average": @"@avg.self", @"max": @"@max.self",
 		                         @"min": @"@min.self" } objectForKey:value.function];
 		return [values valueForKeyPath:function];
+	}
+	if (value.operands != nil) {
+		NSMutableArray *values = [NSMutableArray array];
+		for (ORMPlanValue *operand in value.operands) {
+			[values addObject:[self firstAt:operand object:read bindings:bindings] ?: [NSNull null]];
+		}
+		return ORMPlanApply(value.function, values);
 	}
 	return value.path != nil ? [[self valuesAt:value.path object:read bindings:bindings] firstObject] : ORMJSONConstant(value);
 }
@@ -1479,6 +1504,20 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 
 - (ODataExpression *)value:(ORMPlanValue *)value
 {
+	if (value.operands != nil) {
+		/* Arithmetic, as $filter says it. */
+		NSString *op = [@{ @"add": @"add", @"subtract": @"sub", @"multiply": @"mul" } objectForKey:value.function];
+		ODataExpression *first = [self value:[value.operands firstObject]];
+		if ([value.function isEqualToString:@"negate"]) {
+			NSError *error = nil;
+			ODataExpression *made = first != nil ? [ODataExpression unary:@"-" operand:first error:&error] : nil;
+			if (first != nil && made == nil) {
+				[self fail:error];
+			}
+			return made;
+		}
+		return op != nil ? [self binary:op left:first right:[self value:[value.operands lastObject]]] : nil;
+	}
 	return value.path != nil ? [self expressionFor:value.path entity:NULL] : [self literal:value];
 }
 
@@ -1670,7 +1709,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	case ORMPlanNot:
 		return [self not:[self lower:condition.operand]];
 	case ORMPlanCompare:
-		if (condition.left.bag != nil || condition.right.bag != nil) {
+		if ([condition.left usesBag] || [condition.right usesBag] || !ORMSayable(condition.left)
+		    || !ORMSayable(condition.right)) {
 			/* Checked on the answers where it is a condition of its own;
 			 * inside another, said by nothing. */
 			[self note:[NSString stringWithFormat:@"%@ is not asked of the service.", condition]];
@@ -2005,7 +2045,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		return NO;
 	}
 	if (condition.kind == ORMPlanCompare) {
-		return condition.left.bag != nil || condition.right.bag != nil;
+		return [condition.left usesBag] || [condition.right usesBag] || !ORMSayable(condition.left)
+			|| !ORMSayable(condition.right);
 	}
 	if (condition.kind == ORMPlanAggregate && condition.operand != nil) {
 		return YES;

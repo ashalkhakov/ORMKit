@@ -6,8 +6,8 @@ derivation says what facts follow ([RULES.md](RULES.md),
 [DERIVATION.md](DERIVATION.md)). None of them can compute a value from
 others: a trip's length from where it started and ended, a service's cost
 less its discount, the litres per hundred kilometres between two fill-ups.
-This is the design for that. Nothing here is built yet; [Steps](#steps)
-says in what order it would be.
+This is the design for that, in [steps](#steps); step 1, value nodes with
+arithmetic, is built.
 
 ## What needs it
 
@@ -190,23 +190,24 @@ as a stored derivation is today.
 
 ### In the file
 
-A value node is a node of the query's tree with its expression in place of
-a role:
+A value node is a child of the node it is computed for, beside its steps,
+with its name, its value type (`ref`) and its expression, each node by
+its id:
 
 ```xml
-<ormq:Value id="_v1" Name="Length" Type="_Distance" Projected="true">
-  <ormq:Apply Function="subtract">
-    <ormq:Use Node="_q2"/>
-    <ormq:Use Node="_q1"/>
-  </ormq:Apply>
-</ormq:Value>
+<ormq:Value id="_v1" ref="_Distance" Name="Length" Projected="true"
+            Expression="subtract(#_q2, #_q1)" Comparison="&gt;" Value="100"/>
 ```
 
-`Apply` names a function (`add`, `subtract`, `multiply`, `divide`,
-`negate`, `round`, `abs`, `min`, `max`, `date`, `days`, `months`,
-`addDays`, `addMonths`, `month`, `today`, `coalesce`), `Use` a node,
-`Constant` a value with its type. An aggregate value node keeps today's
-attributes (`Aggregate`, `Of`, its group nodes).
+The expression is the outline's with node ids for designations and
+functions by name (`add`, `subtract`, `multiply`, `divide`, `negate`,
+`round`, `abs`, `min`, `max`, `coalesce`; the date functions with step
+3); a constant is a number or quoted text (`'a''b'`). One attribute
+rather than nested elements: a rename of a node rewrites it, and nothing
+else reads it. A value node is listed, compared and sorted with the
+attributes a node has (`Projected`, `Comparison`, `Value`, `CompareTo`,
+`Sort`). An aggregate value node will keep today's attributes
+(`Aggregate`, `Of`, its group nodes).
 
 **For NORMA,** a derivation whose rule has value nodes is written, as
 today, as the fact type's informal rule (its verbalization); the role path
@@ -228,16 +229,28 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
 
 ### Planning and running
 
-- **The plan** gets an expression value: `ORMPlanValue` with a function
-  and its operand values (paths, constants, other expressions,
-  aggregates). A condition compares two values, as now; a column lists one.
-- **Core Data:** the interpreter makes an `NSExpression` of it. Where the
-  store can evaluate it (arithmetic over attributes of the object read),
-  it is in the fetch's predicate; otherwise it is checked in memory, as
-  parts the store cannot say are today. Dates are computed in memory.
-- **OData:** arithmetic in `$filter`; a listed value node by `$compute`; a
-  grouped list by `$apply` (`groupby`, `aggregate`). Where the service
-  cannot, the request says so, as it does for what it cannot filter.
+- **The plan** gets an applied value: `ORMPlanValue` with a function
+  and its operand values (paths, constants, other applied values;
+  aggregates with step 2), `subtract(endedAtKilometres, kilometres)`. A
+  condition compares two values, as now; a column lists one. Each operand
+  is a node's place where the value node is computed (an entity by its
+  identifier); one not reached, out of scope, or absorbed is noted, and
+  the value node left out. A node a maybe reaches through to-ones is one
+  value from the object read, so it may be used outside the maybe: no
+  value where there is none.
+- **Core Data:** a condition with a computed value is checked on the
+  objects fetched, as an aggregate's is, and a column computed for each
+  row; both by `ORMPlanApply`, which the OData runner shares. Saying the
+  arithmetic in the fetch's predicate, where FreeCoreData's SQLite store
+  can as Apple's does, is for later.
+- **OData:** arithmetic in `$filter` where OData has it (`add`, `sub`,
+  `mul`, a minus); a division, a rounding or a choice is checked on the
+  answers. A listed value node is computed from what is read, as a
+  calculation's column is, rather than by `$compute`; a grouped list by
+  `$apply` (`groupby`, `aggregate`), with step 4.
+- **Sorting by a value node** is noted, not done: the cursors page by
+  key paths the store sorts by, which a computed value is not. It needs
+  rows sorted in memory, with step 4's grouping.
 - **Validation code:** a rule whose condition is one predicate with
   expressions is one predicate still (`NSExpression` in it); the driver
   asks it of the object. Aggregates in rules are bags, checked at save as
@@ -255,11 +268,13 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
 
 ## Steps
 
-1. **Value nodes with arithmetic** (A): the node in the model, the
+1. **Value nodes with arithmetic** (A), done: the node in the model, the
    outline, the editor, the file; the logic and the words; planned and run
-   (Core Data, OData `$filter` and `$compute`); listed, compared, sorted.
-   In Logbook: a trip's length, price per litre, the trip-ends-after-it-
-   started rule within a unit.
+   (Core Data, OData `$filter`); listed and compared. Sorting by one is
+   left for step 4. In Logbook: a trip's length and a fill-up's price per
+   unit of volume (`TripLength`, `PricePerVolume`); the trip-ends-no-
+   nearer rule within a unit (`TripEndsNoNearer`) turned out to need only
+   a comparison of two nodes.
 2. **Aggregates as value nodes** (B): the latest earlier, by a label. In
    Logbook: the fill-up before, the reading at a moment, the rate on a
    date; fuel consumption per full tank.

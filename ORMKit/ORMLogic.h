@@ -18,6 +18,9 @@
 /* Its place among the variables of its object type in what it belongs
  * to, from 1: what tells Person1 from Person2. */
 @property (nonatomic) NSUInteger ordinal;
+/* A computed value's name ("Length"), said in place of its type's and
+ * never numbered; nil for none. */
+@property (nonatomic, copy) NSString *name;
 + (instancetype)variableOf:(ORMObjectType *)type;
 @end
 

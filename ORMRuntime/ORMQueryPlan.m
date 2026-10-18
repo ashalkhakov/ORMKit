@@ -180,6 +180,42 @@ ORMPlanKindNames(void)
 	return value;
 }
 
++ (instancetype)apply:(NSString *)function to:(NSArray<ORMPlanValue *> *)operands
+{
+	ORMPlanValue *value = [[self alloc] init];
+	value->_function = [function copy];
+	value->_operands = [operands copy] ?: @[];
+	return value;
+}
+
+- (NSArray<ORMPlanPath *> *)paths
+{
+	NSMutableArray *paths = [NSMutableArray array];
+	if (_path != nil) {
+		[paths addObject:_path];
+	}
+	if (_groupPath != nil) {
+		[paths addObject:_groupPath];
+	}
+	for (ORMPlanValue *operand in _operands) {
+		[paths addObjectsFromArray:[operand paths]];
+	}
+	return paths;
+}
+
+- (BOOL)usesBag
+{
+	if (_bag != nil) {
+		return YES;
+	}
+	for (ORMPlanValue *operand in _operands) {
+		if ([operand usesBag]) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 /* A bag's column's title, by its node. */
 static NSString *
 ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
@@ -202,6 +238,9 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 {
 	if (_path != nil) {
 		return [_path description];
+	}
+	if (_operands != nil) {
+		return [NSString stringWithFormat:@"%@(%@)", _function, [[_operands valueForKey:@"description"] componentsJoinedByString:@", "]];
 	}
 	if (_bag != nil) {
 		NSString *of = _column != nil ? [NSString stringWithFormat:@"%@ of %@", _function, ORMColumnTitle(_bag, _column)]
@@ -436,10 +475,9 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	}
 	ORMAddVariable(free, self.path);
 	ORMAddVariable(free, self.otherPath);
-	ORMAddVariable(free, self.left.path);
-	ORMAddVariable(free, self.right.path);
-	ORMAddVariable(free, self.left.groupPath);
-	ORMAddVariable(free, self.right.groupPath);
+	for (ORMPlanPath *path in [([self.left paths] ?: @[]) arrayByAddingObjectsFromArray:[self.right paths] ?: @[]]) {
+		ORMAddVariable(free, path);
+	}
 	for (NSArray *pair in self.pairs) {
 		ORMAddVariable(free, [pair firstObject]);
 	}
@@ -714,7 +752,13 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	NSMutableArray *listed = [NSMutableArray array];
 	for (ORMPlanColumn *column in self.columns) {
 		if (column.value != nil) {
-			/* Computed of the object read: listed with it, or not at all. */
+			/* Computed of the object read: listed with it, or not at all; of
+			 * what a variable is bound to, not of the object alone. */
+			for (ORMPlanPath *path in [column.value paths]) {
+				if (path.variable != nil && column.value.operands != nil) {
+					return nil;
+				}
+			}
 			continue;
 		}
 		if (column.path.variable != nil) {
@@ -851,11 +895,12 @@ ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet 
 	case ORMPlanNot:
 		return ORMCollectTrails(condition.operand, bound, trails);
 	case ORMPlanCompare:
-		if (condition.left.bag != nil || condition.right.bag != nil) {
+		if ([condition.left usesBag] || [condition.right usesBag]) {
 			return NO;
 		}
-		ORMAddTrail(condition.left.path, bound, trails);
-		ORMAddTrail(condition.right.path, bound, trails);
+		for (ORMPlanPath *path in [([condition.left paths] ?: @[]) arrayByAddingObjectsFromArray:[condition.right paths] ?: @[]]) {
+			ORMAddTrail(path, bound, trails);
+		}
 		return YES;
 	case ORMPlanNotNull:
 	case ORMPlanIsOf:
@@ -1044,6 +1089,13 @@ static id ORMConditionList(ORMPlanCondition *condition);
 static id
 ORMValueList(ORMPlanValue *value)
 {
+	if (value.operands != nil) {
+		NSMutableArray *operands = [NSMutableArray array];
+		for (ORMPlanValue *operand in value.operands) {
+			[operands addObject:ORMValueList(operand)];
+		}
+		return @{ @"apply": value.function, @"to": operands };
+	}
 	if (value.bag != nil) {
 		NSMutableDictionary *list = [NSMutableDictionary dictionaryWithObjectsAndKeys:value.function, @"aggregate",
 		                                                 value.bag.name, @"in", value.groupColumn ?: @"", @"where",
@@ -1173,7 +1225,132 @@ ORMConditionList(ORMPlanCondition *condition)
 	return list;
 }
 
+#pragma mark Computing
+
+/* Whether a number is held whole: not a decimal, not a float or double. */
+static BOOL
+ORMIsWhole(NSNumber *number)
+{
+	if ([number isKindOfClass:[NSDecimalNumber class]]) {
+		return NO;
+	}
+	const char *type = [number objCType];
+	return type != NULL && strcmp(type, @encode(double)) != 0 && strcmp(type, @encode(float)) != 0;
+}
+
+static NSDecimalNumber *
+ORMDecimalOf(NSNumber *number)
+{
+	return [number isKindOfClass:[NSDecimalNumber class]] ? (NSDecimalNumber *)number
+		: [NSDecimalNumber decimalNumberWithDecimal:[number decimalValue]];
+}
+
+/* Two numbers' sum, difference, product or quotient (function's), in the
+ * kind both are: nil for a division by zero. */
+static NSNumber *
+ORMArithmetic(NSString *function, NSNumber *a, NSNumber *b)
+{
+	BOOL divide = [function isEqualToString:@"divide"];
+	if (divide && [b doubleValue] == 0) {
+		return nil;
+	}
+	if ([a isKindOfClass:[NSDecimalNumber class]] || [b isKindOfClass:[NSDecimalNumber class]]) {
+		NSDecimalNumber *x = ORMDecimalOf(a), *y = ORMDecimalOf(b);
+		@try {
+			if ([function isEqualToString:@"add"]) {
+				return [x decimalNumberByAdding:y];
+			}
+			if ([function isEqualToString:@"subtract"]) {
+				return [x decimalNumberBySubtracting:y];
+			}
+			if ([function isEqualToString:@"multiply"]) {
+				return [x decimalNumberByMultiplyingBy:y];
+			}
+			return [x decimalNumberByDividingBy:y];
+		} @catch (NSException *exception) {
+			return nil;
+		}
+	}
+	if (ORMIsWhole(a) && ORMIsWhole(b) && !divide) {
+		long long x = [a longLongValue], y = [b longLongValue];
+		return @([function isEqualToString:@"add"] ? x + y : [function isEqualToString:@"subtract"] ? x - y : x * y);
+	}
+	double x = [a doubleValue], y = [b doubleValue];
+	return @([function isEqualToString:@"add"] ? x + y : [function isEqualToString:@"subtract"] ? x - y
+	         : [function isEqualToString:@"multiply"] ? x * y : x / y);
+}
+
+/* The number rounded to the places, half away from zero. */
+static NSNumber *
+ORMRounded(NSNumber *number, NSInteger places)
+{
+	if (ORMIsWhole(number) && places >= 0) {
+		return number;
+	}
+	NSDecimalNumberHandler *handler = [NSDecimalNumberHandler decimalNumberHandlerWithRoundingMode:NSRoundPlain
+	                                                                                         scale:(short)places
+	                                                                              raiseOnExactness:NO
+	                                                                               raiseOnOverflow:NO
+	                                                                              raiseOnUnderflow:NO
+	                                                                           raiseOnDivideByZero:NO];
+	NSDecimalNumber *rounded = [ORMDecimalOf(number) decimalNumberByRoundingAccordingToBehavior:handler];
+	return [number isKindOfClass:[NSDecimalNumber class]] ? rounded : @([rounded doubleValue]);
+}
+
+id
+ORMPlanApply(NSString *function, NSArray *values)
+{
+	NSMutableArray *given = [NSMutableArray array];
+	for (id value in values) {
+		[given addObject:value != nil ? value : [NSNull null]];
+	}
+	id first = [given count] > 0 ? [given objectAtIndex:0] : [NSNull null];
+	id second = [given count] > 1 ? [given objectAtIndex:1] : [NSNull null];
+	if ([function isEqualToString:@"coalesce"]) {
+		id chosen = first != [NSNull null] ? first : second;
+		return chosen != [NSNull null] ? chosen : nil;
+	}
+	if ([function isEqualToString:@"min"] || [function isEqualToString:@"max"]) {
+		BOOL alike = NO;
+		for (Class kind in @[ [NSNumber class], [NSString class], [NSDate class] ]) {
+			alike = alike || ([first isKindOfClass:kind] && [second isKindOfClass:kind]);
+		}
+		if (!alike) {
+			return nil;
+		}
+		NSComparisonResult order = [first compare:second];
+		BOOL min = [function isEqualToString:@"min"];
+		return (order == NSOrderedDescending) == min ? second : first;
+	}
+	for (id value in given) {
+		if (![value isKindOfClass:[NSNumber class]]) {
+			return nil;
+		}
+	}
+	if ([function isEqualToString:@"negate"] && [given count] == 1) {
+		return ORMArithmetic(@"subtract", @0, first);
+	}
+	if ([function isEqualToString:@"abs"] && [given count] == 1) {
+		return [first doubleValue] < 0 ? ORMArithmetic(@"subtract", @0, first) : first;
+	}
+	if ([function isEqualToString:@"round"] && [given count] == 2) {
+		return ORMRounded(first, [second integerValue]);
+	}
+	if ([given count] == 2 && [@[ @"add", @"subtract", @"multiply", @"divide" ] containsObject:function ?: @""]) {
+		return ORMArithmetic(function, first, second);
+	}
+	return nil;
+}
+
 /* Reading back: each part checked, the first wrong one the error. */
+
+/* The functions a value applies, and how many operands each takes. */
+static NSDictionary<NSString *, NSNumber *> *
+ORMPlanFunctionArities(void)
+{
+	return @{ @"add": @2, @"subtract": @2, @"multiply": @2, @"divide": @2, @"negate": @1, @"round": @2, @"abs": @1,
+		      @"min": @2, @"max": @2, @"coalesce": @2 };
+}
 
 static NSError *
 ORMPlanError(NSString *text)
@@ -1216,6 +1393,25 @@ static ORMPlanCondition *ORMReadCondition(id list, NSDictionary<NSString *, ORMP
 static ORMPlanValue *
 ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, NSError **error)
 {
+	if ([list isKindOfClass:[NSDictionary class]] && [list objectForKey:@"apply"] != nil) {
+		id function = [list objectForKey:@"apply"];
+		id to = [list objectForKey:@"to"];
+		NSNumber *arity = [ORMPlanFunctionArities() objectForKey:[function isKindOfClass:[NSString class]] ? function : @""];
+		if (arity == nil || ![to isKindOfClass:[NSArray class]] || [to count] != [arity unsignedIntegerValue]) {
+			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no function of %lu values.", function,
+			                                                 (unsigned long)([to isKindOfClass:[NSArray class]] ? [to count] : 0)]);
+			return nil;
+		}
+		NSMutableArray *operands = [NSMutableArray array];
+		for (id each in to) {
+			ORMPlanValue *operand = ORMReadValueIn(each, defined, error);
+			if (operand == nil) {
+				return nil;
+			}
+			[operands addObject:operand];
+		}
+		return [ORMPlanValue apply:function to:operands];
+	}
 	if ([list isKindOfClass:[NSDictionary class]] && [list objectForKey:@"aggregate"] != nil) {
 		id function = [list objectForKey:@"aggregate"];
 		/* As the interpreter reads them: also the one value, and how many

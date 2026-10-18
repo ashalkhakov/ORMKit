@@ -196,6 +196,7 @@ identified (a name, a state, a country).
 | `Session + has Cinema` | a link fact type: from an objectifying type to a player of its fact, or back; planned as the objectified fact type's entity's relationship |
 | `City1` | a label: nodes of one object type with the same label are the same object |
 | `Country2 <> Country1` | a condition comparing two nodes of the same object type |
+| `✓Length = Kilometres2 - Kilometres1 > 100` | a value node: computed from nodes before it, under the node it is for, listed and compared as a node is ([EXPRESSIONS.md](EXPRESSIONS.md)) |
 
 A step reads from the role it enters by: "is location of" is the inverse
 reading of "Branch is located in City". When a fact type has no reading that
@@ -217,6 +218,10 @@ says (ORMOutlineReader), as one change:
   the steps of its node of X; the first node's need no such line.
 - A condition with a designation for its value (`Country2 <> Country1`)
   compares two nodes.
+- A line without `+` at a node's steps' depth, `Name = expression`, is a
+  value node of that node (`Name: Type = ...` gives its value type), made
+  once every step is; a comparison after the expression, outside its
+  parentheses, is its condition.
 - A constraint's first line (`It is impossible that:`) or a calculation's
   (`Total of each Branch is total(Salary) of:`) says what the query is for.
 
@@ -514,6 +519,10 @@ a query is undone with the model. **Save a Copy for NORMA** leaves them out:
         <ormq:Node id="_..." Role="_City's role">
           <ormq:Step ... Operator="Not" Count=">" CountValue="1"> ...
 ```
+
+A value node is an `ormq:Value` child of its node, its expression by node
+ids (`Expression="subtract(#_q2, #_q1)"`): see
+[EXPRESSIONS.md](EXPRESSIONS.md#in-the-file).
 
 A query may be a constraint or a calculation instead of a list
 (`Kind="Constraint"`, `Kind="Calculation" Function="Total" Of="_node"`):

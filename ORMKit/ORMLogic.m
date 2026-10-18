@@ -16,6 +16,9 @@
 
 - (NSString *)description
 {
+	if (self.name != nil) {
+		return self.name;
+	}
 	return [NSString stringWithFormat:@"%@%@", self.objectType.name ?: @"?",
 	        self.ordinal > 0 ? [NSString stringWithFormat:@"%lu", (unsigned long)self.ordinal] : @""];
 }

@@ -68,6 +68,18 @@ ORMComparisonWords(NSString *name)
 	return [words objectForKey:key];
 }
 
+/* How tightly a term binds, said: sums, products, a leading minus, then
+ * anything else. */
+static NSInteger
+ORMArithmeticPrecedence(ORMTerm *term)
+{
+	if (term.functionName == nil || term.isAggregate) {
+		return 4;
+	}
+	NSDictionary *precedence = @{ @"add": @1, @"subtract": @1, @"multiply": @2, @"divide": @2, @"negate": @3 };
+	return [[precedence objectForKey:term.functionName] integerValue] ?: 4;
+}
+
 @implementation ORMPhrase
 {
 	NSMapTable *_aliases;
@@ -173,7 +185,7 @@ ORMComparisonWords(NSString *name)
 	/* By type: numbered when two or more and one is named again. */
 	NSMutableArray *types = [NSMutableArray array];
 	for (ORMVariable *variable in variables) {
-		if (variable.objectType != nil && [types indexOfObjectIdenticalTo:variable.objectType] == NSNotFound) {
+		if (variable.objectType != nil && variable.name == nil && [types indexOfObjectIdenticalTo:variable.objectType] == NSNotFound) {
 			[types addObject:variable.objectType];
 		}
 	}
@@ -181,7 +193,7 @@ ORMComparisonWords(NSString *name)
 		NSMutableArray *same = [NSMutableArray array];
 		BOOL again = NO;
 		for (ORMVariable *variable in variables) {
-			if (variable.objectType == type) {
+			if (variable.objectType == type && variable.name == nil) {
 				[same addObject:variable];
 				again = again || [counts countForObject:[NSValue valueWithNonretainedObject:variable]] > 1;
 			}
@@ -199,6 +211,9 @@ ORMComparisonWords(NSString *name)
 - (NSString *)nameOf:(ORMVariable *)variable
 {
 	ORMVariable *canonical = [self canonical:variable];
+	if (canonical.name != nil) {
+		return canonical.name;
+	}
 	NSString *name = canonical.objectType.name ?: @"?";
 	return canonical.ordinal > 0 ? [NSString stringWithFormat:@"%@%lu", name, (unsigned long)canonical.ordinal] : name;
 }
@@ -227,6 +242,11 @@ ORMComparisonWords(NSString *name)
 	ORMVariable *canonical = [self canonical:variable];
 	NSString *name = [self nameOf:canonical];
 	NSString *identifier = canonical.objectType.identifier;
+	/* A computed value by its name alone: "Length is ...". */
+	if (canonical.name != nil) {
+		[self mention:canonical];
+		return ORMMakeTerm(nil, name, identifier);
+	}
 	if ([self isMentioned:canonical]) {
 		return ORMMakeTerm(canonical.ordinal > 0 ? nil : @"that", name, identifier);
 	}
@@ -326,6 +346,8 @@ ORMComparisonWords(NSString *name)
 		[b objectType:spoken.name id:spoken.elementId];
 	} else if (term.constant != nil) {
 		[b value:term.constant];
+	} else if (!term.isAggregate && [self sayArithmetic:term into:b]) {
+		return;
 	} else {
 		/* count(x): how many there are. */
 		NSString *function = [term.functionName isEqualToString:@"count"] ? @"number" : term.functionName;
@@ -340,6 +362,66 @@ ORMComparisonWords(NSString *name)
 			[b keyword:@" for "];
 			[self sayTerm:term.group into:b];
 		}
+	}
+}
+
+/* A query's arithmetic (docs/EXPRESSIONS.md), in words: "Quantity2 minus
+ * Quantity1", "the absolute value of ...". An operand that binds less
+ * tightly than its place is bracketed. NO for another function. */
+- (BOOL)sayArithmetic:(ORMTerm *)term into:(ORMSentenceBuilder *)b
+{
+	NSDictionary *infix = @{ @"add": @" plus ", @"subtract": @" minus ", @"multiply": @" times ", @"divide": @" divided by " };
+	NSDictionary *prefix = @{ @"negate": @"minus ", @"abs": @"the absolute value of " };
+	NSDictionary *pairs = @{ @"min": @"the lesser of ", @"max": @"the greater of " };
+	NSString *name = term.functionName;
+	NSArray *arguments = term.arguments;
+	if ([infix objectForKey:name] != nil && [arguments count] == 2) {
+		NSInteger place = ORMArithmeticPrecedence(term);
+		BOOL strict = [name isEqualToString:@"subtract"] || [name isEqualToString:@"divide"];
+		[self sayOperand:[arguments firstObject] place:place strict:NO into:b];
+		[b keyword:[infix objectForKey:name]];
+		[self sayOperand:[arguments lastObject] place:place strict:strict into:b];
+		return YES;
+	}
+	if ([prefix objectForKey:name] != nil && [arguments count] == 1) {
+		[b keyword:[prefix objectForKey:name]];
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		return YES;
+	}
+	if ([pairs objectForKey:name] != nil && [arguments count] == 2) {
+		[b keyword:[pairs objectForKey:name]];
+		[self sayTerm:[arguments firstObject] into:b];
+		[b keyword:@" and "];
+		[self sayTerm:[arguments lastObject] into:b];
+		return YES;
+	}
+	if ([name isEqualToString:@"round"] && [arguments count] == 2) {
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		[b keyword:@" rounded to "];
+		[self sayTerm:[arguments lastObject] into:b];
+		[b keyword:@" decimal places"];
+		return YES;
+	}
+	if ([name isEqualToString:@"coalesce"] && [arguments count] == 2) {
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		[b keyword:@", or "];
+		[self sayOperand:[arguments lastObject] place:3 strict:NO into:b];
+		[b keyword:@" where there is none"];
+		return YES;
+	}
+	return NO;
+}
+
+- (void)sayOperand:(ORMTerm *)term place:(NSInteger)place strict:(BOOL)strict into:(ORMSentenceBuilder *)b
+{
+	NSInteger own = ORMArithmeticPrecedence(term);
+	BOOL bracketed = own < place || (strict && own == place && place < 3);
+	if (bracketed) {
+		[b plain:@"("];
+	}
+	[self sayTerm:term into:b];
+	if (bracketed) {
+		[b plain:@")"];
 	}
 }
 

@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMEditor.h"
 #import "ORMLogic.h"
+#import "ORMQueryExpression.h"
 
 /* Conceptual queries, after Bloesch and Halpin's ConQuer: a query is a path
  * through the model's fact types, an outline of object types joined by
@@ -78,7 +79,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 
 @class ORMQueryStep;
 
-/* An object type in the outline. */
+/* An object type in the outline; or a value node (docs/EXPRESSIONS.md),
+ * computed from other nodes rather than reached by a step: "Length =
+ * Quantity2 - Quantity1", under the node it is computed for. */
 @interface ORMQueryNode : NSObject
 @property (nonatomic, readonly, copy) NSString *identifier;
 @property (nonatomic, readonly, strong) ORMObjectType *objectType;
@@ -101,7 +104,15 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* ConQuer's subscript: nodes of one object type with the same label are the
  * same object ("lives in City1 ... lives in City1"). nil for none. */
 @property (nonatomic, readonly, copy) NSString *label;
-/* Its name and label: "City1". */
+/* A value node's: its name, what it computes, and the node it is under
+ * (its objectType the value type it is of; no role, no step). */
+@property (nonatomic, readonly) BOOL isValue;
+@property (nonatomic, readonly, copy) NSString *name;
+@property (nonatomic, readonly, strong) ORMQueryExpression *expression;
+@property (nonatomic, readonly, weak) ORMQueryNode *valueOf;
+/* The value nodes under it, in order. */
+@property (nonatomic, readonly, copy) NSArray<ORMQueryNode *> *values;
+/* Its name and label: "City1"; a value node's name. */
 - (NSString *)designation;
 /* Its steps, each from it; alternatives when combinesWithOr. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryStep *> *steps;
@@ -201,7 +212,8 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * type and label, in outline order; the node itself when it is that one, or
  * has no label. */
 - (ORMQueryNode *)firstOccurrenceOf:(ORMQueryNode *)node;
-/* Every node, depth first; the ticked ones. */
+/* Every node, depth first, each node's value nodes after what its steps
+ * reach; the ticked ones. */
 - (NSArray<ORMQueryNode *> *)nodes;
 - (NSArray<ORMQueryNode *> *)projectedNodes;
 /* ConQuer's outline, as above. */
@@ -287,6 +299,22 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
                       ofStep:(NSString *)stepId
                       reason:(NSString **)reason;
 - (void)setSortOrder:(ORMQuerySort)order ofNode:(NSString *)nodeId;
+/* A value node under the node, computed by the expression as the outline
+ * says it (each node by its designation: "Quantity2 - Quantity1"), of the
+ * value type (nil: the first node it uses' type). Listed, compared and
+ * sorted as any node is, by the methods above. Its id; nil, and why, for a
+ * name a node of the query has, an expression that is none or names a node
+ * not before it, arithmetic of what is not a number, or a type that is no
+ * value type. */
+- (NSString *)addValueNamed:(NSString *)name
+                         to:(NSString *)nodeId
+                 expression:(NSString *)expression
+                       type:(NSString *)valueTypeId
+                     reason:(NSString **)reason;
+/* What it computes, said again; NO and why as above. */
+- (BOOL)setExpression:(NSString *)expression ofValue:(NSString *)valueId reason:(NSString **)reason;
+/* NO, and why, while another node uses it. */
+- (BOOL)removeValue:(NSString *)valueId reason:(NSString **)reason;
 /* comparison nil clears the count. */
 - (BOOL)setCount:(NSString *)comparison
            value:(NSUInteger)value

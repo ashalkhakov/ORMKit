@@ -85,6 +85,17 @@
                        in:(ORMPlanDefinition *)bag
                     where:(NSString *)groupColumn
                        is:(ORMPlanPath *)groupPath;
+/* A value computed from others (docs/EXPRESSIONS.md): the function
+ * ("add", "subtract", "multiply", "divide", "negate", "round", "abs",
+ * "min", "max", "coalesce") of the operands' values; none where an operand
+ * has none, or it is a division by zero. "subtract(x1.quantity, quantity)". */
++ (instancetype)apply:(NSString *)function to:(NSArray<ORMPlanValue *> *)operands;
+/* An applied value's: its operands (function its function); nil for others. */
+@property (nonatomic, readonly, copy) NSArray<ORMPlanValue *> *operands;
+/* The paths it reads: its own, its operands', an aggregate's group's. */
+- (NSArray<ORMPlanPath *> *)paths;
+/* Whether it, or one of its operands, is an aggregate of a bag. */
+- (BOOL)usesBag;
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
 @property (nonatomic, readonly, copy) NSString *text;
 @property (nonatomic, readonly, copy) NSString *attributeType;
@@ -312,3 +323,10 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 @end
 
 extern NSString * const ORMQueryPlanErrorDomain;
+
+/* An applied value's function of its operands' values (NSNull, or nil, for
+ * none): nil where one is none, is not a number where arithmetic wants one,
+ * or it divides by zero. Whole numbers stay whole but in a division;
+ * decimals stay decimal; others are doubles. Each evaluator computes with
+ * it. */
+id ORMPlanApply(NSString *function, NSArray *values);

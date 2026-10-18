@@ -19,6 +19,9 @@
  * parts, @[ the trace below the base ("/role"), the part's place ], in
  * the order the entity has them. nil for others. */
 @property (nonatomic, copy) NSArray<NSArray *> *parts;
+/* A value node's: what it computes, its paths as from where it is; no
+ * path of its own. nil for others. */
+@property (nonatomic, strong) ORMPlanValue *value;
 @end
 
 @implementation ORMPlannerPlace
@@ -180,7 +183,22 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 
 - (BOOL)inScope:(ORMPlannerPlace *)place
 {
+	if (place.value != nil) {
+		/* Computed: where each path it reads is. */
+		for (ORMPlanPath *path in [place.value paths]) {
+			if (path.variable != nil && ![_scope containsObject:path.variable]) {
+				return NO;
+			}
+		}
+		return YES;
+	}
 	return place.path.variable == nil || [_scope containsObject:place.path.variable];
+}
+
+/* What is at a place reached before, as a value from here. */
+- (ORMPlanValue *)valueOf:(ORMPlannerPlace *)place
+{
+	return place.value ?: [ORMPlanValue valueAtPath:[self pathOf:place]];
 }
 
 - (void)reach:(ORMQueryNode *)node place:(ORMPlannerPlace *)place
@@ -285,6 +303,10 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		if ([titles countForObject:title] > 1 && above != nil) {
 			title = [NSString stringWithFormat:@"%@ of %@", title, [above designation]];
 		}
+		if (place.value != nil) {
+			[columns addObject:[ORMPlanColumn columnTitled:title node:node.identifier value:place.value]];
+			continue;
+		}
 		ORMPlanColumn *planned = [ORMPlanColumn columnTitled:title node:node.identifier path:place.path
 		                                               trail:[place.trail valueForKey:@"name"]
 		                                          identifier:identifier != [NSNull null] ? [identifier name] : nil];
@@ -360,6 +382,11 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		}
 		ORMPlannerPlace *place = [column objectAtIndex:1];
 		id identifier = [column objectAtIndex:2];
+		if (place.value != nil) {
+			[self note:[NSString stringWithFormat:@"%@ is sorted by, but it is computed, which a fetch does not sort by yet.",
+			                                      [node designation]]];
+			continue;
+		}
 		BOOL one = column != nil && (place.entity == nil || identifier != [NSNull null]);
 		for (ORMCDProperty *property in place.trail) {
 			one = one && !([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany);
@@ -395,6 +422,10 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	for (NSArray *column in _columns) {
 		ORMPlannerPlace *place = [column objectAtIndex:1];
 		id identifier = [column objectAtIndex:2];
+		if (place.value != nil) {
+			/* Computed: what it is computed from orders it, or nothing. */
+			continue;
+		}
 		if ([place isRead] || place.path.variable != nil || (place.entity != nil && identifier == [NSNull null])) {
 			return @[];
 		}
@@ -419,8 +450,14 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 - (BOOL)lists:(NSString *)variable
 {
 	for (NSArray *column in _columns) {
-		if ([((ORMPlannerPlace *)[column objectAtIndex:1]).path.variable isEqualToString:variable]) {
+		ORMPlannerPlace *place = [column objectAtIndex:1];
+		if ([place.path.variable isEqualToString:variable]) {
 			return YES;
+		}
+		for (ORMPlanPath *path in [place.value paths]) {
+			if ([path.variable isEqualToString:variable]) {
+				return YES;
+			}
 		}
 	}
 	return NO;
@@ -460,11 +497,15 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	if (place.parts != nil || reference.parts != nil) {
 		return [self relateParts:place comparison:comparison to:reference node:other];
 	}
+	if (reference.value != nil && (reference.level != _level || ![self inScope:reference])) {
+		[self note:[NSString stringWithFormat:@"%@ is compared with %@, which is computed where it is not one value.",
+		                                      place.value ?: place.path, [other designation]]];
+		return nil;
+	}
 	ORMPlanCondition *related = nil;
 	if ([self inScope:reference]) {
 		if (place.entity == nil) {
-			return [ORMPlanCondition compare:[ORMPlanValue valueAtPath:place.path] comparison:comparison
-			                            with:[ORMPlanValue valueAtPath:[self pathOf:reference]]];
+			return [ORMPlanCondition compare:[self valueOf:place] comparison:comparison with:[self valueOf:reference]];
 		}
 		if (!equality) {
 			[self note:[NSString stringWithFormat:@"%@ %@ %@ compares objects: only = and <> can.", place.path, comparison,
@@ -619,7 +660,113 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	if (combined != nil) {
 		[parts addObject:combined];
 	}
+	/* Its value nodes, computed from what its steps reached. */
+	for (ORMQueryNode *value in node.values) {
+		ORMPlanCondition *condition = [self conditionForValue:value columns:columns];
+		if (condition != nil) {
+			[parts addObject:condition];
+		}
+	}
 	return ORMAllOf(parts);
+}
+
+#pragma mark Value nodes
+
+/* Whether the place is reached from the object read through to-ones only. */
+- (BOOL)throughToOnes:(ORMPlannerPlace *)place
+{
+	for (ORMCDProperty *property in place.trail) {
+		if ([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
+/* A value node (docs/EXPRESSIONS.md): what it computes, from the places of
+ * the nodes it uses, listed and compared as any node. Nothing, noted, where
+ * one of them is not one value where it is computed. */
+- (ORMPlanCondition *)conditionForValue:(ORMQueryNode *)value columns:(BOOL)columns
+{
+	ORMPlanValue *computed = [self valueOfExpression:value.expression in:value];
+	if (computed == nil) {
+		return nil;
+	}
+	ORMPlannerPlace *place = [[ORMPlannerPlace alloc] init];
+	place.value = computed;
+	if (columns) {
+		[self column:value place:place identifier:nil];
+	}
+	NSMutableArray *parts = [NSMutableArray arrayWithArray:[self correlationsOf:value place:place]];
+	[self reach:value place:place];
+	if (value.comparison != nil && value.comparedNode == nil) {
+		ORMObjectType *type = [value.objectType valueType];
+		NSString *attributeType = type.dataType != nil ? [ORMCoreDataMapper attributeTypeFor:type.dataType] : @"String";
+		[parts addObject:[ORMPlanCondition compare:computed comparison:value.comparison
+		                                      with:[ORMPlanValue constant:value.value ?: @"" type:attributeType]]];
+	}
+	return ORMAllOf(parts);
+}
+
+/* The expression as a plan's value: each node by what is at its place, an
+ * entity by its identifier. nil, noted, where a node is not reached, or not
+ * one value here. */
+- (ORMPlanValue *)valueOfExpression:(ORMQueryExpression *)expression in:(ORMQueryNode *)value
+{
+	switch (expression.kind) {
+	case ORMQueryExpressionConstant: {
+		NSString *text = expression.constant ?: @"";
+		if ([text hasPrefix:@"'"] && [text length] >= 2) {
+			return [ORMPlanValue constant:[[text substringWithRange:NSMakeRange(1, [text length] - 2)]
+			                                  stringByReplacingOccurrencesOfString:@"''" withString:@"'"]
+			                         type:@"String"];
+		}
+		return [ORMPlanValue constant:text type:[text rangeOfString:@"."].location != NSNotFound ? @"Decimal" : @"Integer 64"];
+	}
+	case ORMQueryExpressionNode: {
+		ORMQueryNode *used = nil;
+		for (ORMQueryNode *each in [_query nodes]) {
+			used = [each.identifier isEqualToString:expression.nodeId] ? each : used;
+		}
+		ORMPlannerPlace *place = [_reached objectForKey:expression.nodeId ?: @""];
+		/* Bound where it is not in scope (a maybe's), but through to-ones
+		 * only: one value from the object read. */
+		if (place != nil && place.value == nil && ![self inScope:place] && place.level == _level && !place.isJoined
+		    && [self throughToOnes:place]) {
+			ORMPlannerPlace *read = [ORMPlannerPlace variable:nil entity:place.entity trail:place.trail];
+			read.path = [place pathFromRead];
+			read.level = place.level;
+			place = read;
+		}
+		NSString *why = used == nil || place == nil ? @"which the query does not reach before it"
+			: place.parts != nil ? @"which is absorbed, and has no one value"
+			: place.level != _level || ![self inScope:place] ? @"which is not one value where it is computed" : nil;
+		ORMCDAttribute *identifier = why == nil && place.entity != nil ? [_places identifierOf:used.objectType on:place.entity] : nil;
+		if (why == nil && place.entity != nil && identifier == nil) {
+			why = @"which has no one value to compute with";
+		}
+		if (why != nil) {
+			[self note:[NSString stringWithFormat:@"%@ uses %@, %@.", [value designation], [used designation] ?: @"a node", why]];
+			return nil;
+		}
+		if (place.value != nil) {
+			return place.value;
+		}
+		ORMPlanPath *path = [self pathOf:place];
+		return [ORMPlanValue valueAtPath:identifier != nil ? [path pathByAddingKey:identifier.name] : path];
+	}
+	case ORMQueryExpressionFunction:
+		break;
+	}
+	NSMutableArray *operands = [NSMutableArray array];
+	for (ORMQueryExpression *argument in expression.arguments) {
+		ORMPlanValue *operand = [self valueOfExpression:argument in:value];
+		if (operand == nil) {
+			return nil;
+		}
+		[operands addObject:operand];
+	}
+	return [ORMPlanValue apply:expression.function to:operands];
 }
 
 /* Whether the step's aggregate is a bag's: for another node than the one

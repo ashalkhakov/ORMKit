@@ -3,6 +3,7 @@
 #import "ORMEditorPriv.h"
 #import "ORMXML.h"
 #import "ORMModelPriv.h"
+#import "ORMQueryExpression.h"
 
 #define Q ORMQueryNamespace
 
@@ -67,6 +68,11 @@ ORMQueryAggregateNames(void)
 @property (nonatomic, readwrite, copy) NSArray<ORMQueryStep *> *steps;
 @property (nonatomic, readwrite) BOOL combinesWithOr;
 @property (nonatomic, readwrite) ORMQuerySort sortOrder;
+@property (nonatomic, readwrite) BOOL isValue;
+@property (nonatomic, readwrite, copy) NSString *name;
+@property (nonatomic, readwrite, strong) ORMQueryExpression *expression;
+@property (nonatomic, readwrite, weak) ORMQueryNode *valueOf;
+@property (nonatomic, readwrite, copy) NSArray<ORMQueryNode *> *values;
 @end
 
 @interface ORMQueryStep ()
@@ -106,6 +112,11 @@ ORMQueryAggregateNames(void)
 + (ORMQuery *)queryOf:(ORMStoredQuery *)stored model:(ORMModel *)model;
 - (ORMQueryNode *)nodeOf:(ORMQueryPart *)part type:(ORMObjectType *)type role:(ORMRole *)role model:(ORMModel *)model;
 - (ORMQueryStep *)stepOf:(ORMQueryPart *)part parent:(ORMQueryNode *)parent model:(ORMModel *)model;
+- (void)collect:(ORMQueryNode *)node into:(NSMutableArray *)nodes;
+/* Each node's designation, by id; each designation's node, among the nodes
+ * given, where it is one object. */
+- (NSDictionary<NSString *, NSString *> *)designationsById;
+- (NSDictionary<NSString *, NSString *> *)nodeIdsByDesignationAmong:(NSArray<ORMQueryNode *> *)nodes;
 @end
 
 /* The kinds and functions as the file names them. */
@@ -143,7 +154,8 @@ ORMQueryPartAttributes(void)
 		@[ @"Label", @"label" ], @[ @"Combine", @"combine" ], @[ @"Sort", @"sort" ], @[ @"Operator", @"operatorName" ],
 		@[ @"Count", @"countComparison" ], @[ @"CountValue", @"countValueText" ], @[ @"Aggregate", @"aggregateName" ],
 		@[ @"AggregateNode", @"aggregateNodeId" ], @[ @"GroupNode", @"groupNodeId" ],
-		@[ @"CompareAggregate", @"compareAggregate" ], @[ @"CompareGroupNode", @"compareGroupNode" ]
+		@[ @"CompareAggregate", @"compareAggregate" ], @[ @"CompareGroupNode", @"compareGroupNode" ],
+		@[ @"Name", @"name" ], @[ @"Expression", @"expression" ]
 	];
 }
 
@@ -210,11 +222,22 @@ ORMBoolValue(NSString *value, BOOL fallback)
 {
 	NSMutableArray *nodes = [NSMutableArray array];
 	for (ORMQueryPart *part in _parts) {
-		if (!part.isStep) {
+		if (!part.isStep && !part.isValue) {
 			[nodes addObject:part];
 		}
 	}
 	return nodes;
+}
+
+- (NSArray<ORMQueryPart *> *)values
+{
+	NSMutableArray *values = [NSMutableArray array];
+	for (ORMQueryPart *part in _parts) {
+		if (part.isValue) {
+			[values addObject:part];
+		}
+	}
+	return values;
 }
 
 - (void)addPart:(ORMQueryPart *)part
@@ -257,6 +280,7 @@ ORMBoolValue(NSString *value, BOOL fallback)
 	ORMQueryPart *copy = [[ORMQueryPart allocWithZone:zone] init];
 	copy.identifier = self.identifier;
 	copy.isStep = self.isStep;
+	copy.isValue = self.isValue;
 	for (NSArray *attribute in ORMQueryPartAttributes()) {
 		[copy setValue:[self valueForKey:[attribute lastObject]] forKey:[attribute lastObject]];
 	}
@@ -273,11 +297,16 @@ ORMBoolValue(NSString *value, BOOL fallback)
 	ORMQueryPart *part = [[ORMQueryPart alloc] init];
 	part.identifier = ORMAttribute(element, @"id");
 	part.isStep = [[element localName] isEqualToString:@"Step"];
+	part.isValue = [[element localName] isEqualToString:@"Value"];
 	for (NSArray *attribute in ORMQueryPartAttributes()) {
 		[part setValue:ORMAttribute(element, [attribute firstObject]) forKey:[attribute lastObject]];
 	}
 	NSMutableArray *parts = [NSMutableArray array];
-	for (NSXMLElement *child in ORMChildren(element, Q, part.isStep ? @"Node" : @"Step")) {
+	for (NSXMLElement *child in part.isValue ? @[] : ORMChildren(element, Q, part.isStep ? @"Node" : @"Step")) {
+		[parts addObject:[self partOf:child]];
+	}
+	/* A node's value nodes, after its steps. */
+	for (NSXMLElement *child in part.isStep || part.isValue ? @[] : ORMChildren(element, Q, @"Value")) {
 		[parts addObject:[self partOf:child]];
 	}
 	part.parts = parts;
@@ -406,7 +435,12 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 			ORMAddChild(parent, child);
 		}
 		ORMWriteValues(child, part, ORMQueryPartAttributes());
-		ORMWriteParts(document, child, part.parts, part.isStep ? @"Node" : @"Step");
+		if (part.isStep) {
+			ORMWriteParts(document, child, part.parts, @"Node");
+		} else if (!part.isValue) {
+			ORMWriteParts(document, child, [part steps], @"Step");
+			ORMWriteParts(document, child, [part values], @"Value");
+		}
 	}
 }
 
@@ -443,6 +477,9 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 
 - (NSString *)designation
 {
+	if (self.isValue) {
+		return self.name ?: @"?";
+	}
 	return [NSString stringWithFormat:@"%@%@", self.objectType.name ?: @"?", self.label ?: @""];
 }
 
@@ -722,6 +759,11 @@ ORMRenameNode(ORMQueryPart *tree, NSString *from, NSString *to)
 				[part setValue:to forKey:key];
 			}
 		}
+		ORMQueryExpression *expression = part.expression != nil
+			? [ORMQueryExpression expressionWithCanonicalText:part.expression reason:NULL] : nil;
+		if ([[expression nodeIds] containsObject:from]) {
+			part.expression = [[expression expressionRenaming:from to:to] canonicalText];
+		}
 	}
 }
 
@@ -854,6 +896,9 @@ ORMFreshen(ORMQueryPart *tree, NSString *name, NSUInteger round)
 		if ([part.label length] > 0) {
 			part.label = [NSString stringWithFormat:@"%@ (%@ %lu)", part.label, name, (unsigned long)round];
 		}
+		if ([part.name length] > 0) {
+			part.name = [NSString stringWithFormat:@"%@ (%@ %lu)", part.name, name, (unsigned long)round];
+		}
 		part.projected = nil;
 		part.forRole = nil;
 		part.sort = nil;
@@ -884,7 +929,7 @@ ORMGraftSubtypeRule(ORMQueryPart *at, ORMObjectType *subtype, ORMStoredQuery *ru
 	}
 	ORMMergeLabel(tree, tree, at.label, at);
 	ORMRenameNode(tree, tree.identifier, at.identifier);
-	for (ORMQueryPart *step in [[tree steps] copy]) {
+	for (ORMQueryPart *step in [[tree steps] arrayByAddingObjectsFromArray:[tree values]]) {
 		[step detach];
 		[at addPart:step];
 	}
@@ -918,7 +963,7 @@ ORMExpandSubtypeStep(ORMQueryPart *step, ORMObjectType *subtype, ORMStoredQuery 
 	}
 	ORMRenameNode(from, node.identifier, from.identifier);
 	[step detach];
-	for (ORMQueryPart *each in [[node steps] copy]) {
+	for (ORMQueryPart *each in [[node steps] arrayByAddingObjectsFromArray:[node values]]) {
 		[each detach];
 		[from addPart:each];
 	}
@@ -1051,7 +1096,7 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 		if ([its count] == 0) {
 			column.combine = node.combine;
 		}
-		for (ORMQueryPart *each in more) {
+		for (ORMQueryPart *each in [more arrayByAddingObjectsFromArray:[node values]]) {
 			[column addPart:each];
 		}
 	}
@@ -1074,6 +1119,10 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 			[each setValue:[step valueForKey:key] forKey:key];
 		}
 		[from insertPart:each atIndex:at++];
+	}
+	/* And its value nodes, the node's now. */
+	for (ORMQueryPart *each in [root values]) {
+		[from addPart:each];
 	}
 	[step detach];
 	return nil;
@@ -1212,6 +1261,7 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 		return query;
 	}
 	query.root = [query nodeOf:rootPart type:type role:nil model:model];
+	[query dropValuesUsingWhatIsGone];
 	/* What a condition compares with, now every node is read. */
 	NSArray *nodes = [query nodes];
 	NSString *of = query.kind == ORMQueryCalculation ? stored.of : nil;
@@ -1253,6 +1303,27 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 	return query;
 }
 
+/* A value node uses only nodes before it, in outline order: one using a
+ * node that is gone, or one after it, is left out. */
+- (void)dropValuesUsingWhatIsGone
+{
+	NSMutableSet *before = [NSMutableSet set];
+	for (ORMQueryNode *node in [self nodes]) {
+		if (node.isValue) {
+			BOOL known = YES;
+			for (NSString *used in [node.expression nodeIds]) {
+				known = known && [before containsObject:used];
+			}
+			if (!known) {
+				node.valueOf.values = ORMWithout(node.valueOf.values, node);
+				self.isComplete = NO;
+				continue;
+			}
+		}
+		[before addObject:node.identifier ?: @""];
+	}
+}
+
 - (ORMQueryNode *)nodeOf:(ORMQueryPart *)part type:(ORMObjectType *)type role:(ORMRole *)role model:(ORMModel *)model
 {
 	ORMQueryNode *node = [[ORMQueryNode alloc] init];
@@ -1279,6 +1350,23 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 		}
 	}
 	node.steps = steps;
+	NSMutableArray *values = [NSMutableArray array];
+	for (ORMQueryPart *valuePart in [part values]) {
+		ORMObjectType *valueType = [model elementWithId:valuePart.ref ?: @""];
+		ORMQueryExpression *expression = valuePart.expression != nil
+			? [ORMQueryExpression expressionWithCanonicalText:valuePart.expression reason:NULL] : nil;
+		if (![valueType isKindOfClass:[ORMObjectType class]] || expression == nil || [valuePart.name length] == 0) {
+			self.isComplete = NO;
+			continue;
+		}
+		ORMQueryNode *value = [self nodeOf:valuePart type:valueType role:nil model:model];
+		value.isValue = YES;
+		value.name = valuePart.name;
+		value.expression = expression;
+		value.valueOf = node;
+		[values addObject:value];
+	}
+	node.values = values;
 	return node;
 }
 
@@ -1383,6 +1471,7 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 			[self collect:child into:nodes];
 		}
 	}
+	[nodes addObjectsFromArray:node.values];
 }
 
 - (ORMQueryNode *)firstOccurrenceOf:(ORMQueryNode *)node
@@ -1475,8 +1564,40 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 - (NSString *)nodeText:(ORMQueryNode *)node
 {
 	NSString *sort = node.sortOrder == ORMQueryAscending ? @" ↑" : node.sortOrder == ORMQueryDescending ? @" ↓" : @"";
-	return [NSString stringWithFormat:@"%@%@%@%@", node.isProjected ? @"✓" : @"", [node designation],
+	/* A value node with what it computes: "Length = Quantity2 - Quantity1". */
+	NSString *computed = node.isValue
+		? [@" = " stringByAppendingString:[node.expression textWithDesignations:[self designationsById]]] : @"";
+	return [NSString stringWithFormat:@"%@%@%@%@%@", node.isProjected ? @"✓" : @"", [node designation], computed,
 	                                  [self conditionText:node], sort];
+}
+
+- (NSDictionary<NSString *, NSString *> *)designationsById
+{
+	NSMutableDictionary *designations = [NSMutableDictionary dictionary];
+	for (ORMQueryNode *node in [self nodes]) {
+		[designations setObject:[node designation] forKey:node.identifier ?: @""];
+	}
+	return designations;
+}
+
+- (NSDictionary<NSString *, NSString *> *)nodeIdsByDesignationAmong:(NSArray<ORMQueryNode *> *)nodes
+{
+	NSMutableDictionary *ids = [NSMutableDictionary dictionary];
+	NSMutableSet *ambiguous = [NSMutableSet set];
+	for (ORMQueryNode *node in nodes) {
+		NSString *designation = [node designation];
+		ORMQueryNode *first = [self firstOccurrenceOf:node];
+		NSString *known = [ids objectForKey:designation];
+		/* Two nodes of a designation are one object only by a label. */
+		if (known != nil && ![known isEqualToString:first.identifier]) {
+			[ambiguous addObject:designation];
+		}
+		if (known == nil) {
+			[ids setObject:first.identifier forKey:designation];
+		}
+	}
+	[ids removeObjectsForKeys:[ambiguous allObjects]];
+	return ids;
 }
 
 + (NSString *)nameOfCalculationFunction:(ORMQueryCalculationFunction)function
@@ -1554,7 +1675,7 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 			                  step.countComparison, compared];
 		}
 		for (ORMQueryNode *child in step.nodes) {
-			if ([child.steps count] == 0) {
+			if ([child.steps count] == 0 && [child.values count] == 0) {
 				continue;
 			}
 			if (child != [step.nodes firstObject]) {
@@ -1563,9 +1684,34 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 			[self outlineSteps:child indent:indent + 1 into:out];
 		}
 	}
+	/* Its value nodes, after its steps, without a "+". */
+	for (ORMQueryNode *value in node.values) {
+		[out appendFormat:@"%@%@\n", pad, [self nodeText:value]];
+	}
 }
 
 #pragma mark As logic
+
+/* An expression as a term: a node's variable, a constant, a function. */
+static ORMTerm *
+ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
+{
+	switch (expression.kind) {
+	case ORMQueryExpressionNode: {
+		ORMVariable *variable = [variables objectForKey:expression.nodeId ?: @""];
+		return variable != nil ? [ORMTerm termWithVariable:variable] : [ORMTerm termWithConstant:@"?"];
+	}
+	case ORMQueryExpressionConstant:
+		return [ORMTerm termWithConstant:expression.constant ?: @""];
+	case ORMQueryExpressionFunction:
+		break;
+	}
+	NSMutableArray *arguments = [NSMutableArray array];
+	for (ORMQueryExpression *argument in expression.arguments) {
+		[arguments addObject:ORMTermOfExpression(argument, variables)];
+	}
+	return [ORMTerm termWithFunction:expression.function arguments:arguments aggregate:NO];
+}
 
 - (ORMRelation *)relation
 {
@@ -1578,6 +1724,9 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	for (ORMQueryNode *node in [self nodes]) {
 		ORMQueryNode *first = [self firstOccurrenceOf:node];
 		ORMVariable *variable = [variables objectForKey:first.identifier] ?: [ORMVariable variableOf:node.objectType];
+		if (node.isValue) {
+			variable.name = node.name;
+		}
 		[variables setObject:variable forKey:node.identifier];
 	}
 	ORMFormula *formula = [self formulaOf:self.root variables:variables];
@@ -1625,6 +1774,17 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		[conjuncts addObject:[ORMFormula combine:ORMFormulaOr children:steps]];
 	} else {
 		[conjuncts addObjectsFromArray:steps];
+	}
+	/* Each value node is its expression's value: "Length = subtract(Quantity2,
+	 * Quantity1)", then its own condition. */
+	for (ORMQueryNode *value in node.values) {
+		[conjuncts addObject:[ORMFormula compare:@"="
+		                                operands:@[ [ORMTerm termWithVariable:[variables objectForKey:value.identifier]],
+		                                            ORMTermOfExpression(value.expression, variables) ]]];
+		ORMFormula *valueCondition = [self conditionOf:value variables:variables];
+		if (valueCondition != nil) {
+			[conjuncts addObject:valueCondition];
+		}
 	}
 	return [conjuncts count] == 1 ? [conjuncts firstObject] : [ORMFormula combine:ORMFormulaAnd children:conjuncts];
 }
@@ -1963,9 +2123,10 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	ORMQueryPart *node = [self part:nodeId step:NO];
 	ORMObjectType *type = [self typeOfQueryNode:node];
 	ORMRole *entry = [_editor.model elementWithId:roleId];
-	if (node == nil || type == nil || ![entry isKindOfClass:[ORMRole class]]) {
+	if (node == nil || node.isValue || type == nil || ![entry isKindOfClass:[ORMRole class]]) {
 		if (reason != NULL) {
-			*reason = @"A step goes from a node of a query through a role.";
+			*reason = node.isValue ? @"A value node is computed: no step goes from it."
+			                       : @"A step goes from a node of a query through a role.";
 		}
 		return nil;
 	}
@@ -2008,13 +2169,45 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	for (ORMQueryPart *node in query.of != nil ? [step tree] : @[]) {
 		takesOf = takesOf || (!node.isStep && [node.identifier isEqualToString:query.of]);
 	}
+	NSArray *using = [self valuesIn:query using:[step tree]];
 	[_editor modelChange:@"Remove Query Step" with:^{
 		[step detach];
+		for (ORMQueryPart *value in using) {
+			[value detach];
+		}
 		if (takesOf) {
 			query.of = nil;
 		}
 		[self->_editor wrote:query];
 	}];
+}
+
+/* The query's value nodes that use one of the parts, or a value node that
+ * does, outside them. */
+- (NSArray<ORMQueryPart *> *)valuesIn:(ORMStoredQuery *)query using:(NSArray<ORMQueryPart *> *)parts
+{
+	NSMutableSet *gone = [NSMutableSet set];
+	for (ORMQueryPart *part in parts) {
+		[gone addObject:part.identifier ?: @""];
+	}
+	NSMutableArray *using = [NSMutableArray array];
+	for (BOOL more = YES; more;) {
+		more = NO;
+		for (ORMQueryPart *part in [query.root tree]) {
+			if (!part.isValue || [gone containsObject:part.identifier ?: @""]) {
+				continue;
+			}
+			ORMQueryExpression *expression = [ORMQueryExpression expressionWithCanonicalText:part.expression reason:NULL];
+			for (NSString *used in [expression nodeIds]) {
+				if ([gone containsObject:used] && ![using containsObject:part]) {
+					[using addObject:part];
+					[gone addObject:part.identifier ?: @""];
+					more = YES;
+				}
+			}
+		}
+	}
+	return using;
 }
 
 /* A change to a part of a query. */
@@ -2268,6 +2461,198 @@ ORMIsAbove(ORMQueryPart *node, ORMQueryPart *step)
 	[self change:@"Set Query Sort" part:node with:^{
 		node.sort = value;
 	}];
+}
+
+#pragma mark Value nodes
+
+/* What a function does not take, in the expression: an operand of
+ * arithmetic that is not a number; nil where each is. */
+static ORMQueryExpression *
+ORMNotANumberIn(ORMQueryExpression *expression, NSSet *numeric)
+{
+	if (expression.kind != ORMQueryExpressionFunction) {
+		return nil;
+	}
+	BOOL any = [expression.function isEqualToString:@"coalesce"] || [expression.function isEqualToString:@"min"]
+		|| [expression.function isEqualToString:@"max"];
+	for (ORMQueryExpression *argument in expression.arguments) {
+		ORMQueryExpression *inner = ORMNotANumberIn(argument, numeric);
+		if (inner != nil) {
+			return inner;
+		}
+		if (!any && ![argument isNumericGivenNumericNodes:numeric]) {
+			return argument;
+		}
+	}
+	return nil;
+}
+
+/* Whether the name is one a value node can have: a word, as an expression
+ * names a node. */
+static BOOL
+ORMIsValueName(NSString *name)
+{
+	ORMQueryExpression *read = [ORMQueryExpression expressionWithText:name designations:@{ name ?: @"": @"_" } reason:NULL];
+	return [name length] > 0 && read.kind == ORMQueryExpressionNode;
+}
+
+/* The expression said, read among the query's nodes before the point (the
+ * first n of its nodes), and the value type it is of: the one given, or the
+ * first node it uses'. nil and why where it is none, uses a node not
+ * before it, does arithmetic of what is not a number, or is of a type that
+ * is no value type. */
+- (ORMQueryExpression *)expression:(NSString *)text
+                           inQuery:(ORMQuery *)view
+                            before:(NSUInteger)end
+                              type:(ORMObjectType **)type
+                            reason:(NSString **)reason
+{
+	NSArray *nodes = [view nodes];
+	NSArray *before = [nodes subarrayWithRange:NSMakeRange(0, MIN(end, [nodes count]))];
+	NSString *why = nil;
+	ORMQueryExpression *expression = [ORMQueryExpression expressionWithText:text
+	                                                           designations:[view nodeIdsByDesignationAmong:before]
+	                                                                 reason:&why];
+	NSMutableSet *numeric = [NSMutableSet set];
+	NSMutableDictionary *byId = [NSMutableDictionary dictionary];
+	for (ORMQueryNode *node in before) {
+		[byId setObject:node forKey:node.identifier ?: @""];
+		if ([node isNumeric]) {
+			[numeric addObject:node.identifier ?: @""];
+		}
+	}
+	ORMQueryExpression *odd = expression != nil ? ORMNotANumberIn(expression, numeric) : nil;
+	ORMQueryNode *first = [byId objectForKey:[[expression nodeIds] firstObject] ?: @""];
+	ORMObjectType *of = *type ?: [first.objectType valueType];
+	if (expression == nil) {
+		why = [NSString stringWithFormat:@"\"%@\" is no value: %@.", text ?: @"", why];
+	} else if (odd != nil) {
+		why = [NSString stringWithFormat:@"%@ is not a number, and arithmetic is of numbers.",
+		                                 [odd textWithDesignations:[view designationsById]]];
+	} else if (of == nil || of.kind != ORMValueType) {
+		why = of == nil ? @"A value node is of a value type: name one." : [NSString stringWithFormat:@"%@ is no value type.", of.name];
+	} else if ([expression isNumericGivenNumericNodes:numeric] && ![of.dataType isNumeric]) {
+		why = [NSString stringWithFormat:@"It computes a number, and %@ is not one.", of.name];
+	}
+	if (why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return nil;
+	}
+	*type = of;
+	return expression;
+}
+
+- (NSString *)addValueNamed:(NSString *)name
+                         to:(NSString *)nodeId
+                 expression:(NSString *)text
+                       type:(NSString *)valueTypeId
+                     reason:(NSString **)reason
+{
+	ORMQueryPart *node = [self part:nodeId step:NO];
+	ORMStoredQuery *query = [self queryOfPart:node];
+	ORMQuery *view = query != nil ? [ORMQuery queryOf:query model:_editor.model] : nil;
+	ORMObjectType *type = valueTypeId != nil ? [_editor.model elementWithId:valueTypeId] : nil;
+	NSString *why = nil;
+	if (node == nil || node.isValue || view == nil) {
+		why = node.isValue ? @"A value node is under a node a step reaches, or the root." : @"There is no such node.";
+	} else if (!ORMIsValueName(name) || [[ORMQueryExpression functionArities] objectForKey:name] != nil) {
+		why = [NSString stringWithFormat:@"\"%@\" is no name for a value: a word, not a function's.", name ?: @""];
+	} else if ([[view designationsById] allKeysForObject:name].count > 0) {
+		why = [NSString stringWithFormat:@"A node of the query is %@ already.", name];
+	} else if (valueTypeId != nil && ![type isKindOfClass:[ORMObjectType class]]) {
+		why = @"There is no such value type.";
+	}
+	ORMQueryExpression *expression = nil;
+	if (why == nil) {
+		/* After what the node's steps reach and its value nodes. */
+		ORMQueryNode *under = nil;
+		for (ORMQueryNode *each in [view nodes]) {
+			under = [each.identifier isEqualToString:nodeId] ? each : under;
+		}
+		NSMutableArray *subtree = [NSMutableArray array];
+		[view collect:under into:subtree];
+		NSUInteger end = [[view nodes] indexOfObjectIdenticalTo:under] + [subtree count];
+		expression = [self expression:text inQuery:view before:end type:&type reason:&why];
+	}
+	if (why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return nil;
+	}
+	ORMQueryPart *value = [[ORMQueryPart alloc] init];
+	value.isValue = YES;
+	value.identifier = ORMNewId();
+	value.name = name;
+	value.expression = [expression canonicalText];
+	value.ref = type.identifier;
+	[_editor modelChange:@"Add Query Value" with:^{
+		[node addPart:value];
+		[self->_editor wrote:query];
+	}];
+	return value.identifier;
+}
+
+- (BOOL)setExpression:(NSString *)text ofValue:(NSString *)valueId reason:(NSString **)reason
+{
+	ORMQueryPart *value = [self part:valueId step:NO];
+	ORMStoredQuery *query = [self queryOfPart:value];
+	ORMQuery *view = query != nil && value.isValue ? [ORMQuery queryOf:query model:_editor.model] : nil;
+	ORMObjectType *type = [_editor.model elementWithId:value.ref ?: @""];
+	NSUInteger end = NSNotFound;
+	NSArray *nodes = [view nodes];
+	for (NSUInteger i = 0; i < [nodes count]; i++) {
+		end = [[[nodes objectAtIndex:i] identifier] isEqualToString:valueId] ? i : end;
+	}
+	NSString *why = view == nil || end == NSNotFound ? @"There is no such value node." : nil;
+	ORMQueryExpression *expression = why == nil ? [self expression:text inQuery:view before:end type:&type reason:&why] : nil;
+	if (expression == nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return NO;
+	}
+	NSString *canonical = [expression canonicalText];
+	if (![canonical isEqualToString:value.expression]) {
+		[self change:@"Set Query Value" part:value with:^{
+			value.expression = canonical;
+		}];
+	}
+	return YES;
+}
+
+- (BOOL)removeValue:(NSString *)valueId reason:(NSString **)reason
+{
+	ORMQueryPart *value = [self part:valueId step:NO];
+	ORMStoredQuery *query = [self queryOfPart:value];
+	NSString *why = query == nil || !value.isValue ? @"There is no such value node." : nil;
+	for (ORMQueryPart *part in why == nil ? [query.root tree] : @[]) {
+		ORMQueryExpression *expression = part.isValue && part != value
+			? [ORMQueryExpression expressionWithCanonicalText:part.expression reason:NULL] : nil;
+		BOOL uses = [[expression nodeIds] containsObject:valueId];
+		for (NSString *key in ORMNodeReferences()) {
+			uses = uses || [[part valueForKey:key] isEqualToString:valueId];
+		}
+		if (uses) {
+			why = [NSString stringWithFormat:@"%@ is used by another node of the query.", value.name];
+			break;
+		}
+	}
+	if (why == nil && [query.of isEqualToString:valueId]) {
+		why = [NSString stringWithFormat:@"%@ is what the query calculates.", value.name];
+	}
+	if (why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return NO;
+	}
+	[self change:@"Remove Query Value" part:value with:^{
+		[value detach];
+	}];
+	return YES;
 }
 
 @end

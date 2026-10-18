@@ -78,6 +78,54 @@ ORMNodeOf(NSTextCheckingResult *match, NSString *text, NSUInteger first)
 	return node;
 }
 
+/* A value node's line: "✓Length = Quantity2 - Quantity1 > 100 ↓", its
+ * type given or not ("Length: Distance = ..."). */
+static NSRegularExpression *
+ORMValueLine(void)
+{
+	return [NSRegularExpression regularExpressionWithPattern:@"^(✓)?([\\p{L}_][\\p{L}\\p{N}_]*)(?:: (.+?))? = (.+)$"
+	                                                 options:0
+	                                                   error:NULL];
+}
+
+static BOOL
+ORMIsValueLine(ORMOutlineLine *line)
+{
+	return ![line.text hasPrefix:@"+ "] && ![line.text hasSuffix:@":"]
+		&& [ORMValueLine() firstMatchInString:line.text options:0 range:NSMakeRange(0, [line.text length])] != nil;
+}
+
+/* What follows a value node's "=": its expression, then a condition after
+ * the first comparison outside parentheses and quotes, then its sort. */
+static NSString *
+ORMSplitValueTail(NSString *rest, ORMOutlineNode *said)
+{
+	if ([rest hasSuffix:@" ↑"] || [rest hasSuffix:@" ↓"]) {
+		said.sort = [rest hasSuffix:@"↑"] ? ORMQueryAscending : ORMQueryDescending;
+		rest = [rest substringToIndex:[rest length] - 2];
+	}
+	NSInteger depth = 0;
+	BOOL quoted = NO;
+	for (NSUInteger i = 0; i < [rest length]; i++) {
+		unichar c = [rest characterAtIndex:i];
+		if (c == '\'') {
+			quoted = !quoted;
+		} else if (!quoted && c == '(') {
+			depth++;
+		} else if (!quoted && c == ')') {
+			depth--;
+		} else if (!quoted && depth == 0 && (c == '<' || c == '>' || c == '=')) {
+			unichar next = i + 1 < [rest length] ? [rest characterAtIndex:i + 1] : 0;
+			NSUInteger length = (c == '<' && (next == '>' || next == '=')) || (c == '>' && next == '=') ? 2 : 1;
+			said.comparison = [rest substringWithRange:NSMakeRange(i, length)];
+			said.value = [[rest substringFromIndex:i + length]
+				stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+			return [[rest substringToIndex:i] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+		}
+	}
+	return rest;
+}
+
 static NSArray<NSString *> *
 ORMAggregateNames(void)
 {
@@ -93,6 +141,8 @@ ORMAggregateNames(void)
 	/* Conditions comparing with another node, once every node is made:
 	 * @[ node id, comparison, designation, line ]. */
 	NSMutableArray<NSArray *> *_comparisons;
+	/* Value nodes, once every step is made: @[ node id, line ]. */
+	NSMutableArray<NSArray *> *_values;
 	ORMOutlineHeader *_header;
 }
 
@@ -174,6 +224,50 @@ ORMAggregateNames(void)
 	}
 	NSString *why = nil;
 	if (![_queries setCondition:said.comparison value:value ofNode:nodeId reason:&why]) {
+		return [self fail:why ?: @"the condition cannot be set" line:line];
+	}
+	return YES;
+}
+
+#pragma mark Value nodes
+
+/* "✓Length = Quantity2 - Quantity1 > 100": the value node, under the node,
+ * and what the line says of it. */
+- (BOOL)value:(ORMOutlineLine *)line of:(NSString *)nodeId
+{
+	NSString *text = line.text;
+	NSTextCheckingResult *match = [ORMValueLine() firstMatchInString:text options:0 range:NSMakeRange(0, [text length])];
+	ORMOutlineNode *said = [[ORMOutlineNode alloc] init];
+	said.projected = ORMGroup(match, text, 1) != nil;
+	NSString *name = ORMGroup(match, text, 2);
+	NSString *typeName = ORMGroup(match, text, 3);
+	NSString *expression = ORMSplitValueTail(ORMGroup(match, text, 4), said);
+	ORMObjectType *type = typeName != nil ? [_editor.model objectTypeNamed:typeName] : nil;
+	if (typeName != nil && type == nil) {
+		return [self fail:[NSString stringWithFormat:@"no object type of the model is named %@", typeName] line:line];
+	}
+	NSString *why = nil;
+	NSString *valueId = [_queries addValueNamed:name to:nodeId expression:expression type:type.identifier reason:&why];
+	if (valueId == nil) {
+		return [self fail:why ?: @"the value cannot be made" line:line];
+	}
+	[_queries setProjected:said.projected ofNode:valueId];
+	if (said.sort != ORMQueryUnsorted) {
+		[_queries setSortOrder:said.sort ofNode:valueId];
+	}
+	if (said.comparison == nil) {
+		return YES;
+	}
+	NSString *value = said.value;
+	if ([value hasPrefix:@"'"] && [value hasSuffix:@"'"] && [value length] >= 2) {
+		value = [[value substringWithRange:NSMakeRange(1, [value length] - 2)] stringByReplacingOccurrencesOfString:@"''"
+		                                                                                                withString:@"'"];
+	} else if ([value length] > 0 && [[NSCharacterSet letterCharacterSet] characterIsMember:[value characterAtIndex:0]]) {
+		/* Another node, by its designation: "Length < Length2". */
+		[_comparisons addObject:@[ valueId, said.comparison, value, line ]];
+		return YES;
+	}
+	if (![_queries setCondition:said.comparison value:value ofNode:valueId reason:&why]) {
 		return [self fail:why ?: @"the condition cannot be set" line:line];
 	}
 	return YES;
@@ -316,13 +410,13 @@ ORMAggregateNames(void)
 				return NSNotFound;
 			}
 			next++;
-		} else if ([under.text hasPrefix:@"+ "]) {
+		} else if ([under.text hasPrefix:@"+ "] || ORMIsValueLine(under)) {
 			next = [self steps:next from:current];
 			if (next == NSNotFound) {
 				return NSNotFound;
 			}
 		} else {
-			[self fail:@"neither a step, an aggregate nor a node's name" line:under];
+			[self fail:@"neither a step, an aggregate, a value nor a node's name" line:under];
 			return NSNotFound;
 		}
 	}
@@ -341,6 +435,12 @@ ORMAggregateNames(void)
 	BOOL first = YES;
 	while (index < [_lines count]) {
 		ORMOutlineLine *line = [_lines objectAtIndex:index];
+		/* A value node of the node: made once every step is. */
+		if (line.depth == depth && ORMIsValueLine(line)) {
+			[_values addObject:@[ nodeId, line ]];
+			index++;
+			continue;
+		}
 		if (line.depth != depth || ![line.text hasPrefix:@"+ "]
 		    || [line.text rangeOfString:[NSString stringWithFormat:@"^\\+ (%@)\\(",
 		                                                           [ORMAggregateNames() componentsJoinedByString:@"|"]]
@@ -459,6 +559,7 @@ ORMAggregateNames(void)
 {
 	_failure = nil;
 	_comparisons = [NSMutableArray array];
+	_values = [NSMutableArray array];
 	NSMutableArray *lines = [NSMutableArray array];
 	NSUInteger number = 0;
 	for (NSString *raw in [text componentsSeparatedByString:@"\n"]) {
@@ -610,7 +711,7 @@ ORMAggregateNames(void)
 	NSUInteger next = [_lines indexOfObjectIdenticalTo:rootLine] + 1;
 	if (next < [_lines count]) {
 		ORMOutlineLine *first = [_lines objectAtIndex:next];
-		if (first.depth != 1 || ![first.text hasPrefix:@"+ "]) {
+		if (first.depth != 1 || !([first.text hasPrefix:@"+ "] || ORMIsValueLine(first))) {
 			return [self fail:@"a step from the root is indented once, after \"+\"" line:first];
 		}
 		next = [self steps:next from:root];
@@ -619,6 +720,12 @@ ORMAggregateNames(void)
 		}
 		if (next < [_lines count]) {
 			return [self fail:@"it is under nothing it can be read under" line:[_lines objectAtIndex:next]];
+		}
+	}
+	/* Value nodes, in order, now every step is made. */
+	for (NSArray *value in _values) {
+		if (![self value:[value lastObject] of:[value firstObject]]) {
+			return NO;
 		}
 	}
 	/* Conditions comparing nodes, now there are all of them. */

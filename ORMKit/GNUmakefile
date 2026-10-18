@@ -51,6 +51,7 @@ ORMKit_HEADER_FILES = \
   ORMCoreDataValidation.h \
   ORMODataAnnotator.h \
   ORMQuery.h \
+  ORMQueryExpression.h \
   ORMCDModel+CoreData.h \
   ORMQueryPlanner.h \
   ORMQueryOData+ORMKit.h \
@@ -97,6 +98,7 @@ ORMKit_OBJC_FILES = \
   ORMCoreDataValidation.m \
   ORMODataAnnotator.m \
   ORMQuery.m \
+  ORMQueryExpression.m \
   ORMCDModel+CoreData.m \
   ORMQueryPlaces.m \
   ORMQueryPlanner.m \
