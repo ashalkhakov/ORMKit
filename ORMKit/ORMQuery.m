@@ -1703,6 +1703,17 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 	}
 	case ORMQueryExpressionConstant:
 		return [ORMTerm termWithConstant:expression.constant ?: @""];
+	case ORMQueryExpressionAggregate: {
+		/* As a step's aggregate is said: "the maximum of Moment2 for that
+		 * FillUp1". */
+		NSDictionary *functions = @{ @"count": @"count", @"total": @"total", @"avg": @"average", @"max": @"maximum",
+			                         @"min": @"minimum" };
+		ORMVariable *group = [variables objectForKey:[expression.groups firstObject] ?: @""];
+		return [ORMTerm termWithFunction:[functions objectForKey:expression.function] ?: expression.function
+		                       arguments:@[ ORMTermOfExpression([expression.arguments firstObject], variables) ]
+		                       aggregate:YES
+		                           group:group != nil ? [ORMTerm termWithVariable:group] : nil];
+	}
 	case ORMQueryExpressionFunction:
 		break;
 	}
@@ -2501,8 +2512,54 @@ ORMIsValueName(NSString *name)
  * first node it uses'. nil and why where it is none, uses a node not
  * before it, does arithmetic of what is not a number, or is of a type that
  * is no value type. */
+/* The node above: the one its step is from, or a value node's node. */
+static ORMQueryNode *
+ORMAbove(ORMQueryNode *node)
+{
+	return node.step.parent ?: node.valueOf;
+}
+
+static BOOL
+ORMIsAtOrAbove(ORMQueryNode *node, ORMQueryNode *below)
+{
+	for (ORMQueryNode *at = below; at != nil; at = ORMAbove(at)) {
+		if (at == node) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* Why an aggregate cannot be the value node's, under the node: each node
+ * it is for that node or above it, what it aggregates below them, a total
+ * or an average of numbers, a count of a type given; nil where it can. */
+static NSString *
+ORMAggregateRefusal(ORMQueryExpression *aggregate, ORMQueryNode *under, NSDictionary *byId, NSSet *numeric,
+                    ORMObjectType *given)
+{
+	ORMQueryNode *of = [byId objectForKey:[[aggregate.arguments firstObject] nodeId] ?: @""];
+	for (NSString *groupId in aggregate.groups) {
+		ORMQueryNode *group = [byId objectForKey:groupId];
+		if (group == nil || !ORMIsAtOrAbove(group, under)) {
+			return [NSString stringWithFormat:@"An aggregate is for the node it is under, or one above: %@ is not.",
+			                                  [group designation] ?: @"that"];
+		}
+		if (of == nil || of == group || !ORMIsAtOrAbove(group, of)) {
+			return [NSString stringWithFormat:@"An aggregate for %@ is of a node below it.", [group designation]];
+		}
+	}
+	if ([@[ @"total", @"avg" ] containsObject:aggregate.function] && ![numeric containsObject:of.identifier ?: @""]) {
+		return [NSString stringWithFormat:@"A total or an average is of numbers; %@ is not one.", [of designation]];
+	}
+	if ([aggregate.function isEqualToString:@"count"] && given == nil) {
+		return @"A count is a number: name the value type it is of.";
+	}
+	return nil;
+}
+
 - (ORMQueryExpression *)expression:(NSString *)text
                            inQuery:(ORMQuery *)view
+                             under:(ORMQueryNode *)under
                             before:(NSUInteger)end
                               type:(ORMObjectType **)type
                             reason:(NSString **)reason
@@ -2524,8 +2581,12 @@ ORMIsValueName(NSString *name)
 	ORMQueryExpression *odd = expression != nil ? ORMNotANumberIn(expression, numeric) : nil;
 	ORMQueryNode *first = [byId objectForKey:[[expression nodeIds] firstObject] ?: @""];
 	ORMObjectType *of = *type ?: [first.objectType valueType];
+	NSString *refused = expression.kind == ORMQueryExpressionAggregate
+		? ORMAggregateRefusal(expression, under, byId, numeric, *type) : nil;
 	if (expression == nil) {
 		why = [NSString stringWithFormat:@"\"%@\" is no value: %@.", text ?: @"", why];
+	} else if (refused != nil) {
+		why = refused;
 	} else if (odd != nil) {
 		why = [NSString stringWithFormat:@"%@ is not a number, and arithmetic is of numbers.",
 		                                 [odd textWithDesignations:[view designationsById]]];
@@ -2574,7 +2635,7 @@ ORMIsValueName(NSString *name)
 		NSMutableArray *subtree = [NSMutableArray array];
 		[view collect:under into:subtree];
 		NSUInteger end = [[view nodes] indexOfObjectIdenticalTo:under] + [subtree count];
-		expression = [self expression:text inQuery:view before:end type:&type reason:&why];
+		expression = [self expression:text inQuery:view under:under before:end type:&type reason:&why];
 	}
 	if (why != nil) {
 		if (reason != NULL) {
@@ -2607,7 +2668,9 @@ ORMIsValueName(NSString *name)
 		end = [[[nodes objectAtIndex:i] identifier] isEqualToString:valueId] ? i : end;
 	}
 	NSString *why = view == nil || end == NSNotFound ? @"There is no such value node." : nil;
-	ORMQueryExpression *expression = why == nil ? [self expression:text inQuery:view before:end type:&type reason:&why] : nil;
+	ORMQueryNode *under = why == nil ? [(ORMQueryNode *)[nodes objectAtIndex:end] valueOf] : nil;
+	ORMQueryExpression *expression = why == nil
+		? [self expression:text inQuery:view under:under before:end type:&type reason:&why] : nil;
 	if (expression == nil) {
 		if (reason != NULL) {
 			*reason = why;

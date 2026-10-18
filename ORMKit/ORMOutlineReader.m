@@ -212,15 +212,11 @@ ORMAggregateNames(void)
 		/* Quoted, a quote in it doubled: "'O''Brien'". */
 		value = [[value substringWithRange:NSMakeRange(1, [value length] - 2)] stringByReplacingOccurrencesOfString:@"''"
 		                                                                                                withString:@"'"];
-	} else {
-		/* Another node, its designation: "Country2 <> Country1". */
-		ORMQueryNode *node = [self node:nodeId];
-		NSString *name = node.objectType.name ?: @"";
-		NSString *rest = [value hasPrefix:name] ? [value substringFromIndex:[name length]] : nil;
-		if (rest != nil && [[rest stringByTrimmingCharactersInSet:[NSCharacterSet decimalDigitCharacterSet]] length] == 0) {
-			[_comparisons addObject:@[ nodeId, said.comparison, value, line ]];
-			return YES;
-		}
+	} else if ([value length] > 0 && [[NSCharacterSet letterCharacterSet] characterIsMember:[value characterAtIndex:0]]) {
+		/* Another node, its designation: "Country2 <> Country1", "Moment3 =
+		 * Previous". A value is quoted where it is not a number. */
+		[_comparisons addObject:@[ nodeId, said.comparison, value, line ]];
+		return YES;
 	}
 	NSString *why = nil;
 	if (![_queries setCondition:said.comparison value:value ofNode:nodeId reason:&why]) {

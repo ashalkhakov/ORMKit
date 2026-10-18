@@ -152,6 +152,9 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	 * planning the query. And the bags made, by "group node/node". */
 	NSSet<NSString *> *_bagNodes;
 	NSMutableDictionary<NSString *, ORMPlanDefinition *> *_bags;
+	/* The bags being made around this planning, by "group node/node": an
+	 * aggregate of one of them is left out of what it is made of. */
+	NSSet<NSString *> *_bagging;
 }
 
 - (instancetype)initWithCoreData:(ORMCDModel *)coreData
@@ -647,6 +650,15 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			                                      node.objectType.name, node.value ?: @""]];
 		}
 	}
+	/* Its aggregates first: of the whole query, for this object, so that
+	 * what its steps reach may be compared with them ("the one before"). */
+	for (ORMQueryNode *value in node.values) {
+		ORMPlanCondition *condition = value.expression.kind == ORMQueryExpressionAggregate
+			? [self conditionForValue:value columns:columns] : nil;
+		if (condition != nil) {
+			[parts addObject:condition];
+		}
+	}
 	NSMutableArray *steps = [NSMutableArray array];
 	for (ORMQueryStep *step in node.steps) {
 		BOOL listed = columns && step.operatorKind != ORMQueryNot;
@@ -660,9 +672,10 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	if (combined != nil) {
 		[parts addObject:combined];
 	}
-	/* Its value nodes, computed from what its steps reached. */
+	/* Its other value nodes, computed from what its steps reached. */
 	for (ORMQueryNode *value in node.values) {
-		ORMPlanCondition *condition = [self conditionForValue:value columns:columns];
+		ORMPlanCondition *condition = value.expression.kind != ORMQueryExpressionAggregate
+			? [self conditionForValue:value columns:columns] : nil;
 		if (condition != nil) {
 			[parts addObject:condition];
 		}
@@ -755,6 +768,26 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		ORMPlanPath *path = [self pathOf:place];
 		return [ORMPlanValue valueAtPath:identifier != nil ? [path pathByAddingKey:identifier.name] : path];
 	}
+	case ORMQueryExpressionAggregate: {
+		ORMQueryNode *of = nil;
+		ORMQueryNode *group = nil;
+		for (ORMQueryNode *each in [_query nodes]) {
+			of = [each.identifier isEqualToString:[[expression.arguments firstObject] nodeId]] ? each : of;
+			group = [each.identifier isEqualToString:[expression.groups firstObject]] ? each : group;
+		}
+		/* A bag's rows leave out the aggregates being made of them; others
+		 * they may be compared with are theirs ("since the one before"). */
+		if ([_bagging containsObject:[NSString stringWithFormat:@"%@/%@", group.identifier, of.identifier]]) {
+			return nil;
+		}
+		if ([expression.groups count] != 1) {
+			[self note:[NSString stringWithFormat:@"%@ is for more than one node, which is not planned yet.",
+			                                      [value designation]]];
+			return nil;
+		}
+		NSDictionary *functions = @{ @"count": @"count", @"total": @"sum", @"avg": @"average", @"max": @"max", @"min": @"min" };
+		return of != nil && group != nil ? [self aggregate:[functions objectForKey:expression.function] of:of for:group] : nil;
+	}
 	case ORMQueryExpressionFunction:
 		break;
 	}
@@ -829,7 +862,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 {
 	NSMutableSet *nodes = [NSMutableSet setWithObject:group.identifier];
 	ORMQueryNode *at = node;
-	for (; at != nil && at != group; at = at.step.parent) {
+	for (; at != nil && at != group; at = at.step.parent ?: at.valueOf) {
 		[nodes addObject:at.identifier];
 	}
 	ORMPlannerPlace *place = [_reached objectForKey:group.identifier];
@@ -855,6 +888,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		planner->_definitions = _definitions;
 		planner->_bags = [NSMutableDictionary dictionary];
 		planner->_bagNodes = nodes;
+		planner->_bagging = [(_bagging ?: [NSSet set]) setByAddingObject:key];
 		ORMQueryPlan *plan = [planner planned];
 		_variables = planner->_variables;
 		_outers = planner->_outers;

@@ -163,6 +163,8 @@ ORMCompare(id left, NSString *comparison, id right)
 
 @class ORMPlanRun;
 
+static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
+
 @interface ORMQueryInterpreter ()
 - (ORMPlanRun *)runOf:(ORMQueryPlan *)plan
              bindings:(NSDictionary<NSString *, id> *)bindings
@@ -591,6 +593,13 @@ ORMBagKey(ORMPlanValue *value)
 	return [keys count] > 0 ? [keys componentsJoinedByString:@"."] : @"SELF";
 }
 
+/* Whether the path goes on past a cast where a store is asked: a
+ * predicate asked of objects in memory reads a subentity's keys. */
+- (BOOL)pastACast:(ORMPlanPath *)path
+{
+	return !self.predicateOnly && ORMGoesOnPastACast(path);
+}
+
 - (ORMPredicatePart *)lower:(ORMPlanCondition *)condition
 {
 	switch (condition.kind) {
@@ -628,12 +637,14 @@ ORMBagKey(ORMPlanValue *value)
 		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ %@ %@", left,
 		                                                           [ORMPredicateOperators() objectForKey:condition.comparison],
 		                                                           right]
-		                      arguments:arguments inStore:YES];
+		                      arguments:arguments
+		                        inStore:![self pastACast:condition.left.path] && ![self pastACast:condition.right.path]];
 	}
 	case ORMPlanNotNull: {
 		NSMutableArray *arguments = [NSMutableArray array];
 		NSString *path = [self operand:condition.path arguments:arguments bound:NULL];
-		return [ORMPredicatePart format:[path stringByAppendingString:@" != nil"] arguments:arguments inStore:YES];
+		return [ORMPredicatePart format:[path stringByAppendingString:@" != nil"] arguments:arguments
+		                        inStore:![self pastACast:condition.path]];
 	}
 	case ORMPlanExists:
 	case ORMPlanCount:
@@ -675,7 +686,8 @@ ORMBagKey(ORMPlanValue *value)
 		NSMutableArray *arguments = [NSMutableArray array];
 		NSString *left = [self operand:condition.path arguments:arguments bound:NULL];
 		NSString *right = [self operand:condition.otherPath arguments:arguments bound:NULL];
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ == %@", left, right] arguments:arguments inStore:YES];
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ == %@", left, right] arguments:arguments
+		                        inStore:![self pastACast:condition.path] && ![self pastACast:condition.otherPath]];
 	}
 	case ORMPlanAmong:
 		return [self among:condition];

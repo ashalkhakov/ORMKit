@@ -197,6 +197,7 @@ identified (a name, a state, a country).
 | `City1` | a label: nodes of one object type with the same label are the same object |
 | `Country2 <> Country1` | a condition comparing two nodes of the same object type |
 | `✓Length = Kilometres2 - Kilometres1 > 100` | a value node: computed from nodes before it, under the node it is for, listed and compared as a node is ([EXPRESSIONS.md](EXPRESSIONS.md)) |
+| `Previous = max(Moment2) for FillUp1` | an aggregate as a value node, for the node it is under or above: compared with (`+ was at Moment3 = Previous`), used in arithmetic |
 
 A step reads from the role it enters by: "is location of" is the inverse
 reading of "Branch is located in City". When a fact type has no reading that

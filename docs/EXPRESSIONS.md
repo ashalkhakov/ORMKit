@@ -6,8 +6,8 @@ derivation says what facts follow ([RULES.md](RULES.md),
 [DERIVATION.md](DERIVATION.md)). None of them can compute a value from
 others: a trip's length from where it started and ended, a service's cost
 less its discount, the litres per hundred kilometres between two fill-ups.
-This is the design for that, in [steps](#steps); step 1, value nodes with
-arithmetic, is built.
+This is the design for that, in [steps](#steps); steps 1 and 2, value
+nodes with arithmetic and aggregates, are built.
 
 ## What needs it
 
@@ -138,6 +138,25 @@ reading at a moment, the rate on or before a date. It needs no new
 construct beyond the value node: the aggregate is today's, the comparison
 today's. A convenience, `latest(FillUp2 by Moment2)`, may come later as
 sugar for exactly this.
+
+As built:
+- **An aggregate is a value node's whole expression**, `max(Moment2) for
+  FillUp1`, never part of another: arithmetic uses it by its name
+  (`Consumption = Litres1 / (Odometer1 - Previous) * 100`). It is for the
+  node it is under or one above, of a node below that; a total or an
+  average of numbers; a count of the value type it is given (`Count:
+  Number = count(X) for Y`), the others of the type of what they
+  aggregate. In the file, the expression the same way:
+  `Expression="max(#_m2) for #_f1"`.
+- **Its bag** is today's, the whole query again listing the group and the
+  nodes down to the one aggregated, but for the aggregates being made of
+  it: one that depends on another computes that one in its own bag ("the
+  litres since the fill-up before": a total of the fill-ups after a
+  maximum), and none depends on itself.
+- **Planned before the node's steps**, which may then be compared with it
+  (`Moment3 = Previous`); arithmetic value nodes after them.
+- Said as a step's aggregate is: "Previous is the maximum of Moment2 for
+  FillUp1".
 
 ### Grouping
 
@@ -275,9 +294,11 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
    unit of volume (`TripLength`, `PricePerVolume`); the trip-ends-no-
    nearer rule within a unit (`TripEndsNoNearer`) turned out to need only
    a comparison of two nodes.
-2. **Aggregates as value nodes** (B): the latest earlier, by a label. In
-   Logbook: the fill-up before, the reading at a moment, the rate on a
-   date; fuel consumption per full tank.
+2. **Aggregates as value nodes** (B), done: the latest earlier, compared
+   with. In Logbook: the fill-up before (`FillUpBefore`), fuel
+   consumption per full tank (`FullTankConsumption`). The reading at a
+   moment and the rate on a date are the same construct, and come with the
+   reports (step 4) and conversion (step 5) that use them.
 3. **Dates** (C): the date functions, durations. In Logbook: a trip's
    duration, when a reminder is next due, events while the vehicle is kept.
 4. **Grouping** (D): aggregates for several nodes; grouped lists; OData

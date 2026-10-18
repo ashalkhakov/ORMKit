@@ -285,6 +285,245 @@
 	return rows;
 }
 
+#pragma mark Aggregates
+
+- (ORMEditor *)fillUps
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Odometer is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Litres is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Number is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Vehicle(.id) is an entity type.\n"
+	                 @"FillUp(.id) is of Vehicle\n"
+	                 @"Each FillUp is of exactly one Vehicle.\n"
+	                 @"FillUp was at Odometer\n"
+	                 @"Each FillUp was at exactly one Odometer.\n"
+	                 @"FillUp took Litres\n"
+	                 @"Each FillUp took exactly one Litres.\n"
+	                 @"\n"
+	                 @"Query Before:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + FillUp2 is of that Vehicle\n"
+	                 @"      + was at Odometer2 < Odometer1\n"
+	                 @"    + ✓FillUp3 is of that Vehicle\n"
+	                 @"      + was at Odometer3 = Previous\n"
+	                 @"  Previous = max(Odometer2) for FillUp1\n"
+	                 @"\n"
+	                 @"Query Consumption:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + took Litres1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + FillUp2 is of that Vehicle\n"
+	                 @"      + was at Odometer2 < Odometer1\n"
+	                 @"  Previous = max(Odometer2) for FillUp1\n"
+	                 @"  ✓Consumption = Litres1 / (Odometer1 - Previous) * 100\n"
+	                 @"\n"
+	                 @"Query Since:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + FillUp2 is of that Vehicle\n"
+	                 @"      + was at Odometer2 < Odometer1\n"
+	                 @"    + FillUp3 is of that Vehicle\n"
+	                 @"      + was at Odometer3 > Previous\n"
+	                 @"      + was at Odometer3 <= Odometer1\n"
+	                 @"      + took Litres3\n"
+	                 @"  Previous = max(Odometer2) for FillUp1\n"
+	                 @"  ✓Since = total(Litres3) for FillUp1\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	return editor;
+}
+
+/* An aggregate is a value node's whole expression: "max(X) for Y". */
+- (void)testAggregatesAreReadAndWritten
+{
+	NSDictionary *ids = @{ @"A": @"_a", @"B": @"_b", @"C": @"_c" };
+	NSDictionary *names = @{ @"_a": @"A", @"_b": @"B", @"_c": @"C" };
+	NSString *reason = nil;
+	ORMQueryExpression *e = [ORMQueryExpression expressionWithText:@"max(A) for B" designations:ids reason:&reason];
+	XCTAssertEqual(e.kind, ORMQueryExpressionAggregate, @"%@", reason);
+	XCTAssertEqualObjects([e canonicalText], @"max(#_a) for #_b");
+	XCTAssertEqualObjects([e textWithDesignations:names], @"max(A) for B");
+	XCTAssertEqualObjects([ORMQueryExpression expressionWithCanonicalText:@"max(#_a) for #_b" reason:NULL], e);
+	XCTAssertEqualObjects([e nodeIds], (@[ @"_a", @"_b" ]));
+	XCTAssertEqualObjects([[e expressionRenaming:@"_b" to:@"_d"] canonicalText], @"max(#_a) for #_d");
+	e = [ORMQueryExpression expressionWithText:@"count(A) for B, C" designations:ids reason:NULL];
+	XCTAssertEqualObjects([e canonicalText], @"count(#_a) for #_b, #_c");
+	/* max of two is a function still. */
+	e = [ORMQueryExpression expressionWithText:@"max(A, B)" designations:ids reason:NULL];
+	XCTAssertEqual(e.kind, ORMQueryExpressionFunction);
+	for (NSString *wrong in @[ @"max(A) for B + 1", @"1 + max(A) for B", @"total(A)", @"max(A) for D", @"max(A + 1) for B" ]) {
+		reason = nil;
+		XCTAssertNil([ORMQueryExpression expressionWithText:wrong designations:ids reason:&reason], @"%@", wrong);
+		XCTAssertTrue([reason length] > 0, @"%@", wrong);
+	}
+}
+
+/* The one before: the greatest earlier reading, a value node for each
+ * fill-up, which another node is compared with; used in arithmetic. */
+- (void)testTheOneBefore
+{
+	ORMEditor *editor = [self fillUps];
+	ORMQuery *before = [self query:@"Before" in:editor.model];
+	XCTAssertEqualObjects([before outlineText], @"✓FillUp1\n"
+	                                            @"  + was at Odometer1\n"
+	                                            @"  + is of Vehicle\n"
+	                                            @"    + FillUp2 is of that Vehicle\n"
+	                                            @"      + was at Odometer2 < Odometer1\n"
+	                                            @"    + ✓FillUp3 is of that Vehicle\n"
+	                                            @"      + was at Odometer3 = Previous\n"
+	                                            @"  Previous = max(Odometer2) for FillUp1\n");
+	ORMQueryNode *previous = [self node:@"Previous" of:before];
+	XCTAssertEqualObjects(previous.objectType, [editor.model objectTypeNamed:@"Odometer"]);
+	XCTAssertEqual([self node:@"Odometer3" of:before].comparedNode, previous);
+	NSArray *said = [[[[ORMVerbalizer alloc] initWithModel:editor.model] sentencesForQuery:before] valueForKey:@"text"];
+	XCTAssertTrue([[said firstObject] rangeOfString:@"Previous is the maximum of Odometer2 for FillUp1."].location
+	                  != NSNotFound, @"%@", said);
+	/* What the editor refuses. */
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *root = before.root.identifier;
+	NSString *vehicle = [self node:@"Vehicle" of:before].identifier;
+	NSString *reason = nil;
+	XCTAssertNil([queries addValueNamed:@"Many" to:root expression:@"count(Odometer2) for FillUp1" type:nil reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"value type"].location != NSNotFound, @"%@", reason);
+	XCTAssertNotNil([queries addValueNamed:@"Many" to:root expression:@"count(Odometer2) for FillUp1"
+	                                  type:[[editor.model objectTypeNamed:@"Number"] identifier] reason:&reason], @"%@", reason);
+	XCTAssertNil([queries addValueNamed:@"Odd" to:root expression:@"max(Odometer1) for Vehicle" type:nil reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"or one above"].location != NSNotFound, @"%@", reason);
+	XCTAssertNil([queries addValueNamed:@"Odd" to:vehicle expression:@"max(Odometer1) for Vehicle" type:nil reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"below it"].location != NSNotFound, @"%@", reason);
+
+	/* Run: vehicle 1 filled up at 1000, 1500 and 2100 km, with 40, 30 and
+	 * 36 litres; vehicle 2 once, at 500. */
+	ORMModel *model = editor.model;
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	NSArray *given = @[ @[ @"1", @"1", @"1000", @"40" ], @[ @"2", @"1", @"1500", @"30" ], @[ @"3", @"1", @"2100", @"36" ],
+		                @[ @"4", @"2", @"500", @"20" ] ];
+	for (NSArray *each in given) {
+		for (NSArray *fact in @[ @[ @"FillUp is of Vehicle", each[1] ], @[ @"FillUp was at Odometer", each[2] ],
+		                         @[ @"FillUp took Litres", each[3] ] ]) {
+			NSArray *roles = [[facts objectForKey:fact[0]] visibleRoles];
+			XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:fact[0]] identifier]
+			                                              named:@{ [roles[0] identifier]: each[0], [roles[1] identifier]: fact[1] }
+			                                             reason:&reason]), @"%@", reason);
+		}
+	}
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Before" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertEqualObjects([[self archived:plan] text], [plan text]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"2 1", @"3 2" ]), @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"2 1", @"3 2" ]), @"%@", [odata requestText]);
+	/* Litres per hundred kilometres since the fill-up before. */
+	plan = [planner planForQuery:[self query:@"Consumption" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"2 6", @"3 6" ]), @"%@", [plan text]);
+	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"2 6", @"3 6" ]), @"%@", [odata requestText]);
+	/* The litres since the fill-up before: an aggregate of fill-ups after
+	 * another aggregate, whose bag computes that one. */
+	plan = [planner planForQuery:[self query:@"Since" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"2 30", @"3 36" ]), @"%@", [plan text]);
+	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"2 30", @"3 36" ]), @"%@", [odata requestText]);
+}
+
+/* The one before among a supertype's records: the bag lists a
+ * subtype's property, which the service gives with each such record. */
+- (void)testTheOneBeforeThroughASubtype
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Odometer is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Vehicle(.id) is an entity type.\n"
+	                 @"Record(.id) is of Vehicle\n"
+	                 @"Each Record is of exactly one Vehicle.\n"
+	                 @"Each FillUp is a Record.\n"
+	                 @"Each Repair is a Record.\n"
+	                 @"FillUp was at Odometer\n"
+	                 @"Each FillUp was at exactly one Odometer.\n"
+	                 @"\n"
+	                 @"Query Before:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + Record is of that Vehicle\n"
+	                 @"      + is FillUp2\n"
+	                 @"        + was at Odometer2 < Odometer1\n"
+	                 @"  ✓Previous = max(Odometer2) for FillUp1\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model factTypes]) {
+		if ([fact primaryReading] != nil) {
+			[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+		}
+	}
+	NSString *reason = nil;
+	for (NSArray *each in @[ @[ @"1", @"1", @"1000" ], @[ @"2", @"1", @"" ], @[ @"3", @"1", @"1500" ], @[ @"4", @"2", @"500" ] ]) {
+		ORMObjectType *kind = [model objectTypeNamed:[each[2] length] > 0 ? @"FillUp" : @"Repair"];
+		XCTAssertNotNil([editor.populationEditor addInstanceOf:kind.identifier named:each[0] reason:&reason], @"%@", reason);
+		if ([each[2] length] > 0) {
+			NSArray *roles = [[facts objectForKey:@"FillUp was at Odometer"] visibleRoles];
+			XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:@"FillUp was at Odometer"] identifier]
+			                                              named:@{ [roles[0] identifier]: each[0], [roles[1] identifier]: each[2] }
+			                                             reason:&reason]), @"%@", reason);
+		}
+		NSArray *roles = [[facts objectForKey:@"Record is of Vehicle"] visibleRoles];
+		XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:@"Record is of Vehicle"] identifier]
+		                                              named:@{ [roles[0] identifier]: each[0], [roles[1] identifier]: each[1] }
+		                                             reason:&reason]), @"%@", reason);
+	}
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Before" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"3 1000" ]), @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"3 1000" ]), @"%@", [odata requestText]);
+}
+
+/* Rows as text, each its values by spaces, in order. */
+- (NSArray *)sorted:(NSArray *)rows
+{
+	NSMutableArray *texts = [NSMutableArray array];
+	for (NSArray *row in rows) {
+		[texts addObject:[row componentsJoinedByString:@" "]];
+	}
+	return [texts sortedArrayUsingSelector:@selector(compare:)];
+}
+
 /* Each function's value, none where an operand is none or it divides by
  * zero; whole numbers whole, decimals decimal. */
 - (void)testFunctionsAreComputed

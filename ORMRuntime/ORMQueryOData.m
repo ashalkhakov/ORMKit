@@ -649,7 +649,9 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			if (each != [NSNull null]) {
 				[distinct addObject:each];
 			}
-			if ([each isKindOfClass:[NSNumber class]]) {
+			/* Numbers; the greatest or least of anything else compared too. */
+			if ([each isKindOfClass:[NSNumber class]]
+			    || (each != [NSNull null] && [@[ @"max", @"min" ] containsObject:value.function ?: @""])) {
 				[values addObject:each];
 			}
 		}
@@ -1345,8 +1347,19 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	if (condition == nil) {
 		return;
 	}
-	for (ORMPlanValue *value in @[ condition.left ?: [NSNull null], condition.right ?: [NSNull null] ]) {
-		ORMPlanDefinition *bag = [value isKindOfClass:[ORMPlanValue class]] ? value.bag : nil;
+	NSMutableArray *values = [NSMutableArray array];
+	for (NSMutableArray *pending = [NSMutableArray arrayWithObjects:condition.left ?: [NSNull null],
+	                                                                condition.right ?: [NSNull null], nil];
+	     [pending count] > 0;) {
+		ORMPlanValue *value = [pending lastObject];
+		[pending removeLastObject];
+		if ([value isKindOfClass:[ORMPlanValue class]]) {
+			[values addObject:value];
+			[pending addObjectsFromArray:value.operands ?: @[]];
+		}
+	}
+	for (ORMPlanValue *value in values) {
+		ORMPlanDefinition *bag = value.bag;
 		if (bag == nil || [_bags objectForKey:bag.name] != nil) {
 			continue;
 		}
@@ -1408,6 +1421,27 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 
 #pragma mark Paths
 
+/* The entity's property of the name; else a subentity's, which a path
+ * whose casts are left out (a trail) reaches past one. */
+static NSPropertyDescription *
+ORMPropertyOf(NSEntityDescription *entity, NSString *key, BOOL *ofSubentity)
+{
+	NSPropertyDescription *property = key != nil ? [[entity propertiesByName] objectForKey:key] : nil;
+	if (property != nil || entity == nil) {
+		return property;
+	}
+	for (NSEntityDescription *sub in entity.subentities) {
+		property = ORMPropertyOf(sub, key, NULL);
+		if (property != nil) {
+			if (ofSubentity != NULL) {
+				*ofSubentity = YES;
+			}
+			return property;
+		}
+	}
+	return nil;
+}
+
 /* The path as the filter says it, and the entity it reaches (nil: a value). */
 - (ODataExpression *)expressionFor:(ORMPlanPath *)path entity:(NSEntityDescription **)reached
 {
@@ -1457,7 +1491,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	NSMutableArray *names = [NSMutableArray array];
 	NSEntityDescription *at = start;
 	for (NSString *key in keys) {
-		NSPropertyDescription *property = [[at propertiesByName] objectForKey:key];
+		NSPropertyDescription *property = ORMPropertyOf(at, key, NULL);
 		if (property == nil) {
 			[self fail:ORMODataError([NSString stringWithFormat:@"%@ has no property %@.", at.name ?: @"A value", key])];
 			return nil;
@@ -2205,10 +2239,16 @@ ORMJoinedVariables(ORMPlanCondition *condition, BOOL inside, NSMutableSet *varia
 		NSEntityDescription *at = _read;
 		NSArray *keys = column.trail;
 		for (NSUInteger i = 0; i < [keys count]; i++) {
-			NSPropertyDescription *property = [[at propertiesByName] objectForKey:[keys objectAtIndex:i]];
+			BOOL derived = NO;
+			NSPropertyDescription *property = ORMPropertyOf(at, [keys objectAtIndex:i], &derived);
 			if (property == nil) {
 				[self fail:ORMODataError([NSString stringWithFormat:@"%@ has no property %@.", at.name, [keys objectAtIndex:i]])];
 				return NO;
+			}
+			if (derived) {
+				/* A subentity's: its objects come whole, their own
+				 * properties with them. */
+				level.all = YES;
 			}
 			if ([property isKindOfClass:[NSRelationshipDescription class]]) {
 				at = ((NSRelationshipDescription *)property).destinationEntity;
@@ -2258,7 +2298,11 @@ ORMJoinedVariables(ORMPlanCondition *condition, BOOL inside, NSMutableSet *varia
 		ORMODataLevel *level = top;
 		NSEntityDescription *at = entity;
 		for (NSUInteger i = 0; i < [keys count]; i++) {
-			NSPropertyDescription *property = [[at propertiesByName] objectForKey:[keys objectAtIndex:i]];
+			BOOL derived = NO;
+			NSPropertyDescription *property = ORMPropertyOf(at, [keys objectAtIndex:i], &derived);
+			if (derived) {
+				level.all = YES;
+			}
 			if ([property isKindOfClass:[NSRelationshipDescription class]]) {
 				at = ((NSRelationshipDescription *)property).destinationEntity;
 				level = [level expanding:[self wireOf:property] entity:at];

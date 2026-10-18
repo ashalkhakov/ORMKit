@@ -7,6 +7,7 @@
 @property (nonatomic, readwrite, copy) NSString *constant;
 @property (nonatomic, readwrite, copy) NSString *function;
 @property (nonatomic, readwrite, copy) NSArray<ORMQueryExpression *> *arguments;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *groups;
 @end
 
 /* Reading one, a character at a time: the text, where it is, the
@@ -77,6 +78,60 @@ ORMReadArguments(ORMExpressionReader *r)
 	}
 }
 
+/* A node, by its id or its designation as the reader reads them. */
+static NSString *
+ORMReadNodeId(ORMExpressionReader *r)
+{
+	unichar c = ORMPeek(r);
+	NSString *text = r->text;
+	NSUInteger length = [text length];
+	NSUInteger start = r->at;
+	if (c == '#' && r->designations == nil) {
+		start = ++r->at;
+		while (r->at < length && [text characterAtIndex:r->at] != ',' && [text characterAtIndex:r->at] != ')'
+		       && [text characterAtIndex:r->at] != ' ') {
+			r->at++;
+		}
+		return [text substringWithRange:NSMakeRange(start, r->at - start)];
+	}
+	while (r->at < length && ORMIsNamePart([text characterAtIndex:r->at])) {
+		r->at++;
+	}
+	NSString *name = [text substringWithRange:NSMakeRange(start, r->at - start)];
+	NSString *nodeId = r->designations != nil ? [r->designations objectForKey:name] : nil;
+	if (nodeId == nil) {
+		ORMFail(r, [name length] > 0 ? [NSString stringWithFormat:@"no node of the query is designated %@", name]
+		                             : @"an aggregate is for nodes of the query");
+	}
+	return nodeId;
+}
+
+/* After an aggregate's argument: " for" and the nodes it is for, by
+ * commas; nil, and the reader where it was, where no "for" follows. */
+static NSArray *
+ORMReadGroups(ORMExpressionReader *r)
+{
+	NSUInteger at = r->at;
+	ORMPeek(r);
+	if (![[r->text substringFromIndex:r->at] hasPrefix:@"for "]) {
+		r->at = at;
+		return nil;
+	}
+	r->at += 4;
+	NSMutableArray *groups = [NSMutableArray array];
+	while (YES) {
+		NSString *group = ORMReadNodeId(r);
+		if (group == nil) {
+			return @[];
+		}
+		[groups addObject:group];
+		if (ORMPeek(r) != ',') {
+			return groups;
+		}
+		r->at++;
+	}
+}
+
 static ORMQueryExpression *
 ORMReadPrimary(ORMExpressionReader *r)
 {
@@ -136,6 +191,28 @@ ORMReadPrimary(ORMExpressionReader *r)
 		if (ORMPeek(r) == '(') {
 			r->at++;
 			NSNumber *arity = [[ORMQueryExpression functionArities] objectForKey:name];
+			BOOL aggregates = [[ORMQueryExpression aggregateNames] containsObject:name];
+			if (aggregates) {
+				NSUInteger after = r->at;
+				NSArray *arguments = ORMReadArguments(r);
+				NSArray *groups = [arguments count] == 1 ? ORMReadGroups(r) : nil;
+				if ([groups count] == 0 && r->failure != nil) {
+					return nil;
+				}
+				if (groups != nil) {
+					ORMQueryExpression *of = [arguments firstObject];
+					if (of.kind != ORMQueryExpressionNode) {
+						return ORMFail(r, [NSString stringWithFormat:@"%@ is of a node of the query", name]);
+					}
+					return [ORMQueryExpression aggregate:name of:of.nodeId for:groups];
+				}
+				if (arity == nil) {
+					return ORMFail(r, [NSString stringWithFormat:@"%@(...) is for nodes: \"%@(X) for Y\"", name, name]);
+				}
+				/* min and max of two values: read again as a function. */
+				r->at = after;
+				r->failure = nil;
+			}
 			if (arity == nil) {
 				return ORMFail(r, [NSString stringWithFormat:@"there is no function %@", name]);
 			}
@@ -243,6 +320,33 @@ ORMPrecedence(ORMQueryExpression *expression)
 	return expression;
 }
 
++ (instancetype)aggregate:(NSString *)name of:(NSString *)nodeId for:(NSArray<NSString *> *)groups
+{
+	ORMQueryExpression *expression = [[self alloc] init];
+	expression.kind = ORMQueryExpressionAggregate;
+	expression.function = name;
+	expression.arguments = @[ [ORMQueryExpression node:nodeId] ];
+	expression.groups = groups ?: @[];
+	return expression;
+}
+
++ (NSArray<NSString *> *)aggregateNames
+{
+	return @[ @"count", @"total", @"avg", @"max", @"min" ];
+}
+
+/* Whether an aggregate is in it but as the whole of it. */
+static BOOL
+ORMNestsAnAggregate(ORMQueryExpression *expression)
+{
+	for (ORMQueryExpression *argument in expression.kind == ORMQueryExpressionFunction ? expression.arguments : @[]) {
+		if (argument.kind == ORMQueryExpressionAggregate || ORMNestsAnAggregate(argument)) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 + (NSDictionary<NSString *, NSNumber *> *)functionArities
 {
 	return @{ @"add": @2, @"subtract": @2, @"multiply": @2, @"divide": @2, @"negate": @1, @"round": @2, @"abs": @1,
@@ -269,6 +373,9 @@ ORMPrecedence(ORMQueryExpression *expression)
 {
 	ORMExpressionReader r = { text ?: @"", 0, designations, nil };
 	ORMQueryExpression *expression = ORMReadSum(&r);
+	if (expression != nil && ORMNestsAnAggregate(expression)) {
+		expression = ORMFail(&r, @"an aggregate is a value node's whole expression: give it a value node of its own");
+	}
 	if (expression != nil && ORMPeek(&r) != 0) {
 		expression = ORMFail(&r, [NSString stringWithFormat:@"\"%@\" is more than the value says",
 		                                                    [r.text substringFromIndex:r.at]]);
@@ -305,6 +412,14 @@ ORMPrecedence(ORMQueryExpression *expression)
 		}
 		return [NSString stringWithFormat:@"%@(%@)", self.function, [arguments componentsJoinedByString:@", "]];
 	}
+	case ORMQueryExpressionAggregate: {
+		NSMutableArray *groups = [NSMutableArray array];
+		for (NSString *group in self.groups) {
+			[groups addObject:[@"#" stringByAppendingString:group]];
+		}
+		return [NSString stringWithFormat:@"%@(%@) for %@", self.function, [[self.arguments firstObject] canonicalText],
+		                                  [groups componentsJoinedByString:@", "]];
+	}
 	}
 	return @"";
 }
@@ -326,6 +441,15 @@ ORMSaidIn(ORMQueryExpression *argument, NSInteger place, BOOL right, NSDictionar
 		return [designations objectForKey:self.nodeId ?: @""] ?: @"?";
 	case ORMQueryExpressionConstant:
 		return self.constant ?: @"";
+	case ORMQueryExpressionAggregate: {
+		NSMutableArray *groups = [NSMutableArray array];
+		for (NSString *group in self.groups) {
+			[groups addObject:[designations objectForKey:group] ?: @"?"];
+		}
+		return [NSString stringWithFormat:@"%@(%@) for %@", self.function,
+		                                  [[self.arguments firstObject] textWithDesignations:designations],
+		                                  [groups componentsJoinedByString:@", "]];
+	}
 	case ORMQueryExpressionFunction:
 		break;
 	}
@@ -357,6 +481,7 @@ ORMSaidIn(ORMQueryExpression *argument, NSInteger place, BOOL right, NSDictionar
 	for (ORMQueryExpression *argument in self.arguments) {
 		[argument collectNodeIds:into];
 	}
+	[into addObjectsFromArray:self.groups ?: @[]];
 }
 
 - (NSArray<NSString *> *)nodeIds
@@ -380,6 +505,14 @@ ORMSaidIn(ORMQueryExpression *argument, NSInteger place, BOOL right, NSDictionar
 		}
 		return [ORMQueryExpression function:self.function arguments:arguments];
 	}
+	case ORMQueryExpressionAggregate: {
+		NSMutableArray *groups = [NSMutableArray array];
+		for (NSString *group in self.groups) {
+			[groups addObject:[group isEqualToString:from] ? to : group];
+		}
+		NSString *of = [[self.arguments firstObject] nodeId];
+		return [ORMQueryExpression aggregate:self.function of:[of isEqualToString:from] ? to : of for:groups];
+	}
 	}
 	return self;
 }
@@ -397,6 +530,11 @@ ORMSaidIn(ORMQueryExpression *argument, NSInteger place, BOOL right, NSDictionar
 			return [[self.arguments firstObject] isNumericGivenNumericNodes:numeric];
 		}
 		return YES;
+	case ORMQueryExpressionAggregate:
+		/* A count, a total, an average are numbers; the greatest and the
+		 * least are of what they are of. */
+		return ![@[ @"max", @"min" ] containsObject:self.function]
+			|| [[self.arguments firstObject] isNumericGivenNumericNodes:numeric];
 	}
 	return NO;
 }
