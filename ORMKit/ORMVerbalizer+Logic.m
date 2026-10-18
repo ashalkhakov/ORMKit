@@ -402,6 +402,32 @@ ORMArithmeticPrecedence(ORMTerm *term)
 		[b keyword:@" decimal places"];
 		return YES;
 	}
+	NSDictionary *spans = @{ @"days": @"days", @"months": @"months", @"minutes": @"minutes" };
+	if ([spans objectForKey:name] != nil && [arguments count] == 2) {
+		[b keyword:[NSString stringWithFormat:@"the number of %@ from ", [spans objectForKey:name]]];
+		[self sayTerm:[arguments firstObject] into:b];
+		[b keyword:@" to "];
+		[self sayTerm:[arguments lastObject] into:b];
+		return YES;
+	}
+	NSDictionary *later = @{ @"addDays": @" days", @"addMonths": @" months" };
+	if ([later objectForKey:name] != nil && [arguments count] == 2) {
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		[b keyword:@" plus "];
+		[self sayTerm:[arguments lastObject] into:b];
+		[b keyword:[later objectForKey:name]];
+		return YES;
+	}
+	NSDictionary *ofDay = @{ @"date": @"the date of ", @"month": @"the first day of the month of " };
+	if ([ofDay objectForKey:name] != nil && [arguments count] == 1) {
+		[b keyword:[ofDay objectForKey:name]];
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		return YES;
+	}
+	if ([name isEqualToString:@"today"] && [arguments count] == 0) {
+		[b keyword:@"today"];
+		return YES;
+	}
 	if ([name isEqualToString:@"coalesce"] && [arguments count] == 2) {
 		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
 		[b keyword:@", or "];

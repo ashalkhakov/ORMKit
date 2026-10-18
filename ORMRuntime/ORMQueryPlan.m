@@ -1297,6 +1297,99 @@ ORMRounded(NSNumber *number, NSInteger places)
 	return [number isKindOfClass:[NSDecimalNumber class]] ? rounded : @([rounded doubleValue]);
 }
 
+/* The calendar dates are computed in: Gregorian, UTC, as the sample
+ * populations' moments are. */
+static NSCalendar *
+ORMUTCCalendar(void)
+{
+	NSCalendar *calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+	calendar.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+	return calendar;
+}
+
+/* The moment the date's day starts, in the calendar's time zone (GNUstep's
+ * NSCalendar has no -startOfDayForDate:). */
+static NSDate *
+ORMStartOfDay(NSCalendar *calendar, NSDate *date)
+{
+	NSDateComponents *parts = [calendar components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay fromDate:date];
+	return [calendar dateFromComponents:parts];
+}
+
+/* A moment: a date, or ISO 8601 text as a service answers with one; nil
+ * for anything else. */
+static NSDate *
+ORMMomentOf(id value)
+{
+	if ([value isKindOfClass:[NSDate class]]) {
+		return value;
+	}
+	if (![value isKindOfClass:[NSString class]]) {
+		return nil;
+	}
+	NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+	formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+	formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+	for (NSString *format in @[ @"yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX", @"yyyy-MM-dd'T'HH:mm:ssXXXXX", @"yyyy-MM-dd'T'HH:mm:ss.SSS",
+	                            @"yyyy-MM-dd'T'HH:mm:ss", @"yyyy-MM-dd HH:mm:ss", @"yyyy-MM-dd" ]) {
+		formatter.dateFormat = format;
+		NSDate *date = [formatter dateFromString:value];
+		if (date != nil) {
+			return date;
+		}
+	}
+	return nil;
+}
+
+/* A date function's value (docs/EXPRESSIONS.md), in UTC; nil where an
+ * argument is not of its kind. */
+static id
+ORMDateFunction(NSString *function, NSArray *given)
+{
+	NSCalendar *calendar = ORMUTCCalendar();
+	if ([function isEqualToString:@"today"]) {
+		return ORMStartOfDay(calendar, [NSDate date]);
+	}
+	NSDate *first = ORMMomentOf([given firstObject]);
+	if (first == nil) {
+		return nil;
+	}
+	if ([function isEqualToString:@"date"]) {
+		return ORMStartOfDay(calendar, first);
+	}
+	if ([function isEqualToString:@"month"]) {
+		NSDateComponents *parts = [calendar components:NSCalendarUnitYear | NSCalendarUnitMonth fromDate:first];
+		return [calendar dateFromComponents:parts];
+	}
+	id second = [given count] > 1 ? [given objectAtIndex:1] : nil;
+	if ([function isEqualToString:@"addDays"] || [function isEqualToString:@"addMonths"]) {
+		if (![second isKindOfClass:[NSNumber class]]) {
+			return nil;
+		}
+		NSDateComponents *by = [[NSDateComponents alloc] init];
+		if ([function isEqualToString:@"addDays"]) {
+			by.day = [second integerValue];
+		} else {
+			by.month = [second integerValue];
+		}
+		return [calendar dateByAddingComponents:by toDate:first options:0];
+	}
+	NSDate *last = ORMMomentOf(second);
+	if (last == nil) {
+		return nil;
+	}
+	if ([function isEqualToString:@"minutes"]) {
+		return @((long long)([last timeIntervalSinceDate:first] / 60));
+	}
+	if ([function isEqualToString:@"days"]) {
+		NSDateComponents *span = [calendar components:NSCalendarUnitDay fromDate:ORMStartOfDay(calendar, first)
+		                                       toDate:ORMStartOfDay(calendar, last) options:0];
+		return @(span.day);
+	}
+	NSDateComponents *span = [calendar components:NSCalendarUnitMonth fromDate:first toDate:last options:0];
+	return @(span.month);
+}
+
 id
 ORMPlanApply(NSString *function, NSArray *values)
 {
@@ -1321,6 +1414,9 @@ ORMPlanApply(NSString *function, NSArray *values)
 		NSComparisonResult order = [first compare:second];
 		BOOL min = [function isEqualToString:@"min"];
 		return (order == NSOrderedDescending) == min ? second : first;
+	}
+	if ([@[ @"date", @"days", @"months", @"minutes", @"addDays", @"addMonths", @"month", @"today" ] containsObject:function ?: @""]) {
+		return ORMDateFunction(function, given);
 	}
 	for (id value in given) {
 		if (![value isKindOfClass:[NSNumber class]]) {
@@ -1349,7 +1445,8 @@ static NSDictionary<NSString *, NSNumber *> *
 ORMPlanFunctionArities(void)
 {
 	return @{ @"add": @2, @"subtract": @2, @"multiply": @2, @"divide": @2, @"negate": @1, @"round": @2, @"abs": @1,
-		      @"min": @2, @"max": @2, @"coalesce": @2 };
+		      @"min": @2, @"max": @2, @"coalesce": @2, @"date": @1, @"days": @2, @"months": @2, @"minutes": @2,
+		      @"addDays": @2, @"addMonths": @2, @"month": @1, @"today": @0 };
 }
 
 static NSError *

@@ -6,8 +6,8 @@ derivation says what facts follow ([RULES.md](RULES.md),
 [DERIVATION.md](DERIVATION.md)). None of them can compute a value from
 others: a trip's length from where it started and ended, a service's cost
 less its discount, the litres per hundred kilometres between two fill-ups.
-This is the design for that, in [steps](#steps); steps 1 and 2, value
-nodes with arithmetic and aggregates, are built.
+This is the design for that, in [steps](#steps); steps 1 to 3, value
+nodes with arithmetic, aggregates and dates, are built.
 
 ## What needs it
 
@@ -97,7 +97,7 @@ by name:
 | --- | --- | --- |
 | arithmetic | `a + b`, `a − b`, `a × b` (or `*`), `a ÷ b` (or `/`), `−a`, parentheses | numbers; `÷` by zero is no value |
 | numbers | `round(a, n)`, `abs(a)`, `min(a, b)`, `max(a, b)` | |
-| dates | `date(m)`, `days(d1, d2)`, `months(d1, d2)`, `addDays(d, n)`, `addMonths(d, n)`, `month(d)` (its first day), `today()` | moments and dates; `month` is the key for grouping by month |
+| dates | `date(m)`, `days(d1, d2)`, `months(d1, d2)`, `minutes(m1, m2)`, `addDays(d, n)`, `addMonths(d, n)`, `month(d)` (its first day), `today()` | moments and dates, in UTC; whole days, months and minutes from the first to the second; `month` is the key for grouping by month |
 | choice | `a ?? b` | a, or b where a has no value |
 | aggregate | `total(X) for Y` … as today | a value per Y, now usable as a node |
 
@@ -270,15 +270,20 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
 - **Sorting by a value node** is noted, not done: the cursors page by
   key paths the store sorts by, which a computed value is not. It needs
   rows sorted in memory, with step 4's grouping.
-- **Validation code:** a rule whose condition is one predicate with
-  expressions is one predicate still (`NSExpression` in it); the driver
-  asks it of the object. Aggregates in rules are bags, checked at save as
+- **Validation code:** a rule with a computed value is no one predicate;
+  where it needs no store (no bag, no join), the driver asks its plan of
+  the object in memory, with the evaluator the interpreter checks fetched
+  objects with. Aggregates in rules are bags, checked at save as
   rules over joins are.
 
 ### Typing, and what is refused
 
 - An operand of the wrong kind (a date added to a quantity) is refused when
-  the value node is set, with why.
+  the value node is set, with why: each function says what kind each
+  argument is, a number or a moment, and what it gives
+  (`+[ORMQueryExpression functionKinds]`); a value node of a kind its value
+  type is not is refused too. Quoted text is a date where one is wanted
+  (`days('2026-01-01', today())`).
 - **Units are the modeller's to convert.** Whether two quantities are in
   the same unit depends on the data, not the query, so `Quantity2 −
   Quantity1` is not refused. A rule that compares distances converts them
@@ -299,8 +304,12 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
    consumption per full tank (`FullTankConsumption`). The reading at a
    moment and the rate on a date are the same construct, and come with the
    reports (step 4) and conversion (step 5) that use them.
-3. **Dates** (C): the date functions, durations. In Logbook: a trip's
-   duration, when a reminder is next due, events while the vehicle is kept.
+3. **Dates** (C), done: the date functions, durations, in UTC, as the
+   sample populations' moments are; through OData, the answers' moments
+   read as ISO 8601 text, and dates computed checked on the answers. In
+   Logbook: a trip's duration (`TripDuration`), when a reminder is next due
+   by date (`ReminderNextDue`), events while the vehicle is kept
+   (`EventsWhileKept`, checked by the generated validation in memory).
 4. **Grouping** (D): aggregates for several nodes; grouped lists; OData
    `$apply`. In Logbook: the reports by month.
 5. **Reference data** (E): a population an app is seeded with; the unit

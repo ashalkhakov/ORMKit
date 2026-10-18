@@ -514,6 +514,169 @@
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"3 1000" ]), @"%@", [odata requestText]);
 }
 
+#pragma mark Dates
+
+/* Durations and dates, in UTC: across midnight, at a month's end; a
+ * computed date compared; from the store and from the service. */
+- (void)testDates
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Moment is a value type.\n"
+	                 @"Portable data type: Temporal: Date & Time\n"
+	                 @"Count is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Trip(.id) started at Moment\n"
+	                 @"Each Trip started at exactly one Moment.\n"
+	                 @"Trip ended at Moment\n"
+	                 @"Each Trip ended at exactly one Moment.\n"
+	                 @"\n"
+	                 @"Query Durations:\n"
+	                 @"✓Trip\n"
+	                 @"  + started at Moment1\n"
+	                 @"  + ended at Moment2\n"
+	                 @"  ✓Duration: Count = minutes(Moment1, Moment2)\n"
+	                 @"  ✓Days: Count = days(Moment1, Moment2)\n"
+	                 @"  ✓Month = month(Moment1)\n"
+	                 @"  ✓Due = addMonths(Moment1, 6) > '2026-08-01'\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMQuery *query = [self query:@"Durations" in:model];
+	XCTAssertTrue([[query outlineText] hasSuffix:@"  ✓Month = month(Moment1)\n  ✓Due = addMonths(Moment1, 6) > '2026-08-01'\n"],
+	              @"%@", [query outlineText]);
+	NSArray *said = [[[[ORMVerbalizer alloc] initWithModel:model] sentencesForQuery:query] valueForKey:@"text"];
+	for (NSString *words in @[ @"Duration is the number of minutes from Moment1 to Moment2",
+	                           @"Month is the first day of the month of Moment1", @"Due is Moment1 plus 6 months" ]) {
+		XCTAssertTrue([[said firstObject] rangeOfString:words].location != NSNotFound, @"%@", said);
+	}
+	/* What is refused. */
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *root = query.root.identifier;
+	NSString *count = [[model objectTypeNamed:@"Count"] identifier];
+	NSString *reason = nil;
+	XCTAssertNil([queries addValueNamed:@"Odd" to:root expression:@"minutes(Moment1, 3)" type:count reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"3 is not a moment or a date"].location != NSNotFound, @"%@", reason);
+	XCTAssertNil([queries addValueNamed:@"Odd" to:root expression:@"Moment1 + 1" type:nil reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"Moment1 is not a number"].location != NSNotFound, @"%@", reason);
+	XCTAssertNil([queries addValueNamed:@"Odd" to:root expression:@"days(Moment1, Moment2)" type:nil reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"name the value type"].location != NSNotFound, @"%@", reason);
+	XCTAssertNil([queries addValueNamed:@"Odd" to:root expression:@"addDays(Moment1, 1)" type:count reason:&reason]);
+	XCTAssertTrue([reason rangeOfString:@"computes a moment"].location != NSNotFound, @"%@", reason);
+	XCTAssertNotNil([queries addValueNamed:@"Since" to:root expression:@"days('2026-01-01', today())" type:count reason:&reason],
+	                @"%@", reason);
+
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	for (NSArray *each in @[ @[ @"1", @"2026-01-31T22:00:00", @"2026-02-01T01:30:00" ],
+	                         @[ @"2", @"2026-03-10T08:00:00", @"2026-03-10T09:15:00" ] ]) {
+		for (NSArray *fact in @[ @[ @"Trip started at Moment", each[1] ], @[ @"Trip ended at Moment", each[2] ] ]) {
+			NSArray *roles = [[facts objectForKey:fact[0]] visibleRoles];
+			XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:fact[0]] identifier]
+			                                              named:@{ [roles[0] identifier]: each[0], [roles[1] identifier]: fact[1] }
+			                                             reason:&reason]), @"%@", reason);
+		}
+	}
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Durations" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertEqualObjects([[self archived:plan] text], [plan text]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	NSArray *expected = @[ @"2 75 0 2026-03-01T00:00:00Z 2026-09-10T08:00:00Z" ];
+	XCTAssertEqualObjects([self datedRows:result.rows], expected, @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqualObjects([self datedRows:[self rowsOf:odata over:context]], expected, @"%@", [odata requestText]);
+	/* Across midnight, at a month's end, without the condition. */
+	XCTAssertEqualObjects(ORMPlanApply(@"minutes", @[ @"2026-01-31T22:00:00Z", @"2026-02-01T01:30:00Z" ]), @210);
+	XCTAssertEqualObjects(ORMPlanApply(@"days", @[ @"2026-01-31T22:00:00Z", @"2026-02-01T01:30:00Z" ]), @1);
+	XCTAssertEqualObjects(ORMPlanApply(@"months", @[ @"2026-01-31", @"2026-03-30" ]), @1);
+	NSArray *dates = @[ ORMPlanApply(@"addMonths", @[ @"2026-01-31T22:00:00Z", @1 ]),
+		                ORMPlanApply(@"date", @[ @"2026-01-31T22:00:00Z" ]), ORMPlanApply(@"addDays", @[ @"2026-12-31", @1 ]) ];
+	XCTAssertEqualObjects([self datedRows:@[ dates ]], (@[ @"2026-02-28T22:00:00Z 2026-01-31T00:00:00Z 2027-01-01T00:00:00Z" ]));
+}
+
+/* A rule with a computed value is no one predicate, but the generated
+ * tables' validator asks its plan of each object in memory. */
+- (void)testARuleWithAComputedValueIsValidated
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Moment is a value type.\n"
+	                 @"Portable data type: Temporal: Date & Time\n"
+	                 @"Count is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Trip(.id) started at Moment\n"
+	                 @"Each Trip started at exactly one Moment.\n"
+	                 @"Trip ended at Moment\n"
+	                 @"Each Trip ended at exactly one Moment.\n"
+	                 @"\n"
+	                 @"Query Backwards:\n"
+	                 @"It is impossible that:\n"
+	                 @"✓Trip\n"
+	                 @"  + started at Moment1\n"
+	                 @"  + ended at Moment2\n"
+	                 @"  Length: Count = minutes(Moment1, Moment2) < 0\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	NSString *reason = nil;
+	for (NSArray *each in @[ @[ @"1", @"2026-03-10T08:00:00", @"2026-03-10T09:15:00" ],
+	                         @[ @"2", @"2026-03-11T08:00:00", @"2026-03-11T07:00:00" ] ]) {
+		for (NSArray *fact in @[ @[ @"Trip started at Moment", each[1] ], @[ @"Trip ended at Moment", each[2] ] ]) {
+			NSArray *roles = [[facts objectForKey:fact[0]] visibleRoles];
+			XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:fact[0]] identifier]
+			                                              named:@{ [roles[0] identifier]: each[0], [roles[1] identifier]: fact[1] }
+			                                             reason:&reason]), @"%@", reason);
+		}
+	}
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:model mapping:nil name:@"Trips"];
+	ORMTables *tables = [generator tables];
+	NSString *notes = [generator.notes componentsJoinedByString:@"\n"];
+	XCTAssertTrue([notes rangeOfString:@"Backwards"].location == NSNotFound, @"%@", notes);
+	ORMRule *rule = [[tables.rules objectForKey:@"Trip"] lastObject];
+	XCTAssertEqualObjects(rule.constraint, @"Backwards");
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	NSMutableArray *invalid = [NSMutableArray array];
+	for (NSManagedObject *trip in [context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Trip"] error:NULL]) {
+		if (![validator validate:trip error:NULL]) {
+			[invalid addObject:[trip valueForKey:@"id"]];
+		}
+	}
+	XCTAssertEqualObjects(invalid, @[ @2 ]);
+}
+
+/* Rows as text, a moment as UTC ISO 8601 text, in order. */
+- (NSArray *)datedRows:(NSArray *)rows
+{
+	NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+	formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+	formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+	formatter.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss'Z'";
+	NSMutableArray *texts = [NSMutableArray array];
+	for (NSArray *row in rows) {
+		NSMutableArray *values = [NSMutableArray array];
+		for (id value in row) {
+			[values addObject:[value isKindOfClass:[NSDate class]] ? [formatter stringFromDate:value] : [value description]];
+		}
+		[texts addObject:[values componentsJoinedByString:@" "]];
+	}
+	return [texts sortedArrayUsingSelector:@selector(compare:)];
+}
+
 /* Rows as text, each its values by spaces, in order. */
 - (NSArray *)sorted:(NSArray *)rows
 {

@@ -531,6 +531,20 @@ ORMSayable(ORMPlanValue *value)
 	return YES;
 }
 
+/* A computed value as an answer would have it: a moment as its text. */
+static id
+ORMJSONOfComputed(id value)
+{
+	if (![value isKindOfClass:[NSDate class]]) {
+		return value;
+	}
+	NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+	formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+	formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+	formatter.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss'Z'";
+	return [formatter stringFromDate:value];
+}
+
 static id
 ORMJSONConstant(ORMPlanValue *value)
 {
@@ -677,7 +691,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		for (ORMPlanValue *operand in value.operands) {
 			[values addObject:[self firstAt:operand object:read bindings:bindings] ?: [NSNull null]];
 		}
-		return ORMPlanApply(value.function, values);
+		return ORMJSONOfComputed(ORMPlanApply(value.function, values));
 	}
 	return value.path != nil ? [[self valuesAt:value.path object:read bindings:bindings] firstObject] : ORMJSONConstant(value);
 }

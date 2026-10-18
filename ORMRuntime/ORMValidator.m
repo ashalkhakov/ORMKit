@@ -261,10 +261,14 @@ ORMViolation(NSManagedObject *object, ORMRule *rule)
 		return NO;
 	}
 	if ([kind isEqualToString:@"plan"]) {
-		NSPredicate *predicate = [self predicateOf:check model:[[object entity] managedObjectModel]];
-		return predicate != nil && [[object entity] isKindOfEntity:[[[[object entity] managedObjectModel] entitiesByName]
-		                                                              objectForKey:check.plan.entityName]]
-		       && [predicate evaluateWithObject:object];
+		NSManagedObjectModel *model = [[object entity] managedObjectModel];
+		if (![[object entity] isKindOfEntity:[[model entitiesByName] objectForKey:check.plan.entityName]]) {
+			return NO;
+		}
+		NSPredicate *predicate = [self predicateOf:check model:model];
+		/* No predicate (a value computed): the plan asked of the object. */
+		return predicate != nil ? [predicate evaluateWithObject:object]
+		                        : [[[ORMQueryInterpreter alloc] initWithModel:model] plan:check.plan holdsOf:object];
 	}
 	return YES;
 }

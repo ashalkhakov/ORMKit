@@ -2476,22 +2476,52 @@ ORMIsAbove(ORMQueryPart *node, ORMQueryPart *step)
 
 #pragma mark Value nodes
 
-/* What a function does not take, in the expression: an operand of
- * arithmetic that is not a number; nil where each is. */
+/* What kind of value the expression gives: N a number, T a moment or a
+ * date, ? another (text, a truth value, an object), by the kinds of the
+ * nodes given (by id). A quoted constant is text, or a date where one is
+ * wanted. */
+static unichar
+ORMKindOf(ORMQueryExpression *expression, NSSet *numeric, NSSet *temporal)
+{
+	switch (expression.kind) {
+	case ORMQueryExpressionNode:
+		return [numeric containsObject:expression.nodeId ?: @""] ? 'N'
+			: [temporal containsObject:expression.nodeId ?: @""] ? 'T' : '?';
+	case ORMQueryExpressionConstant:
+		return [expression.constant hasPrefix:@"'"] ? '?' : 'N';
+	case ORMQueryExpressionAggregate:
+		return [@[ @"max", @"min" ] containsObject:expression.function]
+			? ORMKindOf([expression.arguments firstObject], numeric, temporal) : 'N';
+	case ORMQueryExpressionFunction: {
+		NSString *kinds = [[ORMQueryExpression functionKinds] objectForKey:expression.function ?: @""];
+		unichar result = [kinds length] > 0 ? [kinds characterAtIndex:[kinds length] - 1] : '?';
+		return result == '*' ? ORMKindOf([expression.arguments firstObject], numeric, temporal) : result;
+	}
+	}
+	return '?';
+}
+
+/* What a function does not take, in the expression: an argument of
+ * another kind than it wants, and the kind (N or T) in *wanted; nil where
+ * each is of the kind wanted. */
 static ORMQueryExpression *
-ORMNotANumberIn(ORMQueryExpression *expression, NSSet *numeric)
+ORMWrongKindIn(ORMQueryExpression *expression, NSSet *numeric, NSSet *temporal, unichar *wanted)
 {
 	if (expression.kind != ORMQueryExpressionFunction) {
 		return nil;
 	}
-	BOOL any = [expression.function isEqualToString:@"coalesce"] || [expression.function isEqualToString:@"min"]
-		|| [expression.function isEqualToString:@"max"];
-	for (ORMQueryExpression *argument in expression.arguments) {
-		ORMQueryExpression *inner = ORMNotANumberIn(argument, numeric);
+	NSString *kinds = [[ORMQueryExpression functionKinds] objectForKey:expression.function ?: @""];
+	for (NSUInteger i = 0; i < [expression.arguments count]; i++) {
+		ORMQueryExpression *argument = [expression.arguments objectAtIndex:i];
+		ORMQueryExpression *inner = ORMWrongKindIn(argument, numeric, temporal, wanted);
 		if (inner != nil) {
 			return inner;
 		}
-		if (!any && ![argument isNumericGivenNumericNodes:numeric]) {
+		unichar want = i < [kinds length] ? [kinds characterAtIndex:i] : '*';
+		unichar have = ORMKindOf(argument, numeric, temporal);
+		BOOL dateText = want == 'T' && argument.kind == ORMQueryExpressionConstant && have == '?';
+		if (want != '*' && want != have && !dateText) {
+			*wanted = want;
 			return argument;
 		}
 	}
@@ -2571,14 +2601,20 @@ ORMAggregateRefusal(ORMQueryExpression *aggregate, ORMQueryNode *under, NSDictio
 	                                                           designations:[view nodeIdsByDesignationAmong:before]
 	                                                                 reason:&why];
 	NSMutableSet *numeric = [NSMutableSet set];
+	NSMutableSet *temporal = [NSMutableSet set];
 	NSMutableDictionary *byId = [NSMutableDictionary dictionary];
 	for (ORMQueryNode *node in before) {
 		[byId setObject:node forKey:node.identifier ?: @""];
 		if ([node isNumeric]) {
 			[numeric addObject:node.identifier ?: @""];
 		}
+		if ([[node.objectType valueType] dataType].family == ORMDataTypeTemporal) {
+			[temporal addObject:node.identifier ?: @""];
+		}
 	}
-	ORMQueryExpression *odd = expression != nil ? ORMNotANumberIn(expression, numeric) : nil;
+	unichar wanted = 'N';
+	ORMQueryExpression *odd = expression != nil ? ORMWrongKindIn(expression, numeric, temporal, &wanted) : nil;
+	unichar gives = expression != nil ? ORMKindOf(expression, numeric, temporal) : '?';
 	ORMQueryNode *first = [byId objectForKey:[[expression nodeIds] firstObject] ?: @""];
 	ORMObjectType *of = *type ?: [first.objectType valueType];
 	NSString *refused = expression.kind == ORMQueryExpressionAggregate
@@ -2588,12 +2624,15 @@ ORMAggregateRefusal(ORMQueryExpression *aggregate, ORMQueryNode *under, NSDictio
 	} else if (refused != nil) {
 		why = refused;
 	} else if (odd != nil) {
-		why = [NSString stringWithFormat:@"%@ is not a number, and arithmetic is of numbers.",
+		why = [NSString stringWithFormat:wanted == 'N' ? @"%@ is not a number, and arithmetic is of numbers."
+		                                               : @"%@ is not a moment or a date, which it is used as.",
 		                                 [odd textWithDesignations:[view designationsById]]];
 	} else if (of == nil || of.kind != ORMValueType) {
 		why = of == nil ? @"A value node is of a value type: name one." : [NSString stringWithFormat:@"%@ is no value type.", of.name];
-	} else if ([expression isNumericGivenNumericNodes:numeric] && ![of.dataType isNumeric]) {
-		why = [NSString stringWithFormat:@"It computes a number, and %@ is not one.", of.name];
+	} else if (gives == 'N' && ![of.dataType isNumeric]) {
+		why = [NSString stringWithFormat:@"It computes a number, and %@ is not one: name the value type it is of.", of.name];
+	} else if (gives == 'T' && of.dataType.family != ORMDataTypeTemporal) {
+		why = [NSString stringWithFormat:@"It computes a moment or a date, and %@ is not one.", of.name];
 	}
 	if (why != nil) {
 		if (reason != NULL) {

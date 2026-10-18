@@ -607,7 +607,14 @@ ORMBound(NSString *value)
 		*reason = [plan.notes count] > 0 ? [plan.notes componentsJoinedByString:@" "] : @"it reads no entity";
 		return nil;
 	}
-	return [_interpreter predicateForPlan:plan reason:reason] != nil ? plan : nil;
+	/* One predicate; or, where that cannot be, asked of the object in
+	 * memory, as long as that needs no store. */
+	NSString *notOne = nil;
+	if ([_interpreter predicateForPlan:plan reason:&notOne] != nil || [_interpreter asksOfOneObject:plan reason:NULL]) {
+		return plan;
+	}
+	*reason = notOne;
+	return nil;
 }
 
 /* A constraint query as a rule of the entity it reads: its plan, the

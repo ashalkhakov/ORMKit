@@ -11,7 +11,10 @@
  *
  * The functions, by name: add, subtract, multiply, divide, negate (said
  * +, -, *, / and a leading -; also −, ×, ÷), round(a, n), abs(a), min(a, b),
- * max(a, b), coalesce(a, b). Or, as a value node's whole expression, an
+ * max(a, b), coalesce(a, b); of moments and dates, in UTC: date(m) its day,
+ * days(a, b), months(a, b) and minutes(a, b) how many whole ones from a to
+ * b, addDays(d, n), addMonths(d, n), month(d) its month's first day,
+ * today(). Or, as a value node's whole expression, an
  * aggregate: "max(Moment2) for FillUp1", "max(#_m2) for #_f1". */
 
 typedef NS_ENUM(NSInteger, ORMQueryExpressionKind) {
@@ -45,6 +48,10 @@ typedef NS_ENUM(NSInteger, ORMQueryExpressionKind) {
 
 /* The functions there are, by name, and how many arguments each takes. */
 + (NSDictionary<NSString *, NSNumber *> *)functionArities;
+/* What each function takes and gives, by name: a letter for each argument
+ * and then the result's, N a number, T a moment or date, * anything (a
+ * result * is the first argument's kind): "TT" + "N" is "TTN". */
++ (NSDictionary<NSString *, NSString *> *)functionKinds;
 
 /* As the file keeps it; nil, and why, where it is not one. */
 + (instancetype)expressionWithCanonicalText:(NSString *)text reason:(NSString **)reason;

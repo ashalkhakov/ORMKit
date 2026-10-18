@@ -349,8 +349,20 @@ ORMNestsAnAggregate(ORMQueryExpression *expression)
 
 + (NSDictionary<NSString *, NSNumber *> *)functionArities
 {
-	return @{ @"add": @2, @"subtract": @2, @"multiply": @2, @"divide": @2, @"negate": @1, @"round": @2, @"abs": @1,
-		      @"min": @2, @"max": @2, @"coalesce": @2 };
+	NSMutableDictionary *arities = [NSMutableDictionary dictionary];
+	NSDictionary *kinds = [self functionKinds];
+	for (NSString *name in kinds) {
+		[arities setObject:@([[kinds objectForKey:name] length] - 1) forKey:name];
+	}
+	return arities;
+}
+
++ (NSDictionary<NSString *, NSString *> *)functionKinds
+{
+	return @{ @"add": @"NNN", @"subtract": @"NNN", @"multiply": @"NNN", @"divide": @"NNN", @"negate": @"NN",
+		      @"round": @"NNN", @"abs": @"NN", @"min": @"***", @"max": @"***", @"coalesce": @"***", @"date": @"TT",
+		      @"days": @"TTN", @"months": @"TTN", @"minutes": @"TTN", @"addDays": @"TNT", @"addMonths": @"TNT",
+		      @"month": @"TT", @"today": @"T" };
 }
 
 - (id)copyWithZone:(NSZone *)zone
@@ -524,12 +536,11 @@ ORMSaidIn(ORMQueryExpression *argument, NSInteger place, BOOL right, NSDictionar
 		return [numeric containsObject:self.nodeId ?: @""];
 	case ORMQueryExpressionConstant:
 		return ![self.constant hasPrefix:@"'"];
-	case ORMQueryExpressionFunction:
-		if ([self.function isEqualToString:@"coalesce"] || [self.function isEqualToString:@"min"]
-		    || [self.function isEqualToString:@"max"]) {
-			return [[self.arguments firstObject] isNumericGivenNumericNodes:numeric];
-		}
-		return YES;
+	case ORMQueryExpressionFunction: {
+		NSString *kinds = [[ORMQueryExpression functionKinds] objectForKey:self.function ?: @""];
+		unichar result = [kinds length] > 0 ? [kinds characterAtIndex:[kinds length] - 1] : 'N';
+		return result == '*' ? [[self.arguments firstObject] isNumericGivenNumericNodes:numeric] : result == 'N';
+	}
 	case ORMQueryExpressionAggregate:
 		/* A count, a total, an average are numbers; the greatest and the
 		 * least are of what they are of. */

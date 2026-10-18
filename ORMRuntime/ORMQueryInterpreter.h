@@ -88,6 +88,14 @@
  * and why, where part of it is no predicate: an aggregate of a bag, a join
  * fetched or probed, a subquery the interpreter checks in memory. */
 - (NSPredicate *)predicateForPlan:(ORMQueryPlan *)plan reason:(NSString **)reason;
+/* Whether the plan's condition can be asked of one object in memory,
+ * though it is no predicate (a value it computes, a path past a cast): it
+ * fetches nothing, no bag and no join. nil reason where it can; why not
+ * where it cannot. */
+- (BOOL)asksOfOneObject:(ORMQueryPlan *)plan reason:(NSString **)reason;
+/* Whether the object meets the plan's condition, asked in memory; NO where
+ * it cannot be asked of one object. */
+- (BOOL)plan:(ORMQueryPlan *)plan holdsOf:(id)object;
 /* The same as predicate format text, its values written in as literals
  * ("nr == 52 AND name == \"Ann\"", nil as nil): what generated code parses
  * with +predicateWithFormat:, on any platform, without printing a predicate

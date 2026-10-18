@@ -218,6 +218,8 @@ static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
 - (BOOL)holds:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings;
 /* Whether it aggregates a bag it defines, read with each batch. */
 - (BOOL)readsBags;
+/* Whether it reads a bag, or a join it probes or fetches. */
+- (BOOL)needsAStore;
 @end
 
 /* The plan's fetch, a batch at a time, in its order. */
@@ -474,6 +476,11 @@ ORMBagKey(ORMPlanValue *value)
 - (BOOL)readsBags
 {
 	return [_bagValues count] > 0;
+}
+
+- (BOOL)needsAStore
+{
+	return [_bagValues count] > 0 || [_probes count] > 0;
 }
 
 - (BOOL)keeps:(id)object
@@ -1847,6 +1854,39 @@ ORMPredicateLiteral(id value)
 		[text appendFormat:@"%C", c];
 	}
 	return text;
+}
+
+/* A run of the plan as one object is asked it: prepared, nothing fetched;
+ * nil, and why, where a bag or a join needs a store. */
+- (ORMPlanRun *)runAskingOneObject:(ORMQueryPlan *)plan reason:(NSString **)reason
+{
+	ORMPlanRun *run = [[ORMPlanRun alloc] init];
+	run.interpreter = self;
+	run.plan = plan;
+	run.bindings = @{};
+	run.equalities = @[];
+	run.predicateOnly = YES;
+	NSString *why = nil;
+	if (![run prepare]) {
+		why = [run.error localizedDescription] ?: @"it cannot be planned";
+	} else if ([run needsAStore]) {
+		why = @"it reads a bag or a join, which one object cannot be asked without a store";
+	}
+	if (why != nil && reason != NULL) {
+		*reason = why;
+	}
+	return why == nil ? run : nil;
+}
+
+- (BOOL)asksOfOneObject:(ORMQueryPlan *)plan reason:(NSString **)reason
+{
+	return [self runAskingOneObject:plan reason:reason] != nil;
+}
+
+- (BOOL)plan:(ORMQueryPlan *)plan holdsOf:(id)object
+{
+	ORMPlanRun *run = [self runAskingOneObject:plan reason:NULL];
+	return run != nil && (plan.condition == nil || [run holds:plan.condition object:object bindings:@{}]);
 }
 
 - (NSPredicate *)predicateForPlan:(ORMQueryPlan *)plan reason:(NSString **)reason
