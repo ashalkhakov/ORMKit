@@ -432,7 +432,19 @@ ORMRoleNameShapes(ORMShape *factShape)
 	XCTAssertTrue([[model objectTypeNamed:@"Male"] isSubtypeOf:person]);
 	ORMObjectType *adult = [model objectTypeNamed:@"Adult"];
 	XCTAssertTrue([adult isSubtypeOf:person]);
-	XCTAssertEqualObjects(adult.definitionText, @"Each Adult is by definition a Person who is of some Age.");
+	/* The rule as NORMA keeps a subtype's, said back as it was written. */
+	XCTAssertEqualObjects([adult derivationRule].informalText, @"a Person who is of some Age");
+	XCTAssertTrue([adult derivationRule].isSubtypeRule);
+	XCTAssertTrue([[self textsOf:adult.identifier in:model]
+		containsObject:@"Each Adult is by definition a Person who is of some Age."], @"%@", [self textsOf:adult.identifier in:model]);
+	NSString *saved = [[NSString alloc] initWithData:[editor dataForSaving] encoding:NSUTF8StringEncoding];
+	NSRange rule = [saved rangeOfString:@"<orm:SubtypeDerivationRule>"];
+	XCTAssertTrue(rule.location != NSNotFound);
+	NSString *after = rule.location != NSNotFound ? [saved substringFromIndex:rule.location] : @"";
+	XCTAssertTrue([after rangeOfString:@"<orm:SubtypeDerivationPath id="].location
+	              < [after rangeOfString:@"<orm:Body>a Person who is of some Age</orm:Body>"].location);
+	ORMModel *reread = [ORMModel modelOfDocument:ORMParseDocument([editor dataForSaving], NULL) reason:NULL];
+	XCTAssertEqualObjects([[reread objectTypeNamed:@"Adult"] derivationRule].informalText, @"a Person who is of some Age");
 	ORMObjectType *enrolment = [model objectTypeNamed:@"Enrolment"];
 	XCTAssertEqualObjects([[enrolment.nestedFactType primaryReading] text], @"{0} enrolled in {1}");
 	XCTAssertTrue([[self textsOf:money.identifier in:model]

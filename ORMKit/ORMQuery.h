@@ -162,6 +162,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* A derivation's fact type: its listed columns are that fact type's roles,
  * in its order (nil: none yet). */
 @property (nonatomic, readonly, weak) ORMFactType *derivedFactType;
+/* A derivation's subtype: its rows are the instances of its root's type
+ * that are of the subtype (nil: it derives a fact type, or none yet). */
+@property (nonatomic, readonly, weak) ORMObjectType *derivedSubtype;
 /* "value", "count", "total", "avg", "max", "min". */
 + (NSString *)nameOfCalculationFunction:(ORMQueryCalculationFunction)function;
 
@@ -170,6 +173,8 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 + (ORMQuery *)queryWithId:(NSString *)identifier inModel:(ORMModel *)model;
 /* The derivation of the fact type, if a query derives it. */
 + (ORMQuery *)derivationOf:(ORMFactType *)factType inModel:(ORMModel *)model;
+/* The derivation of the subtype, if a query derives it. */
++ (ORMQuery *)derivationOfSubtype:(ORMObjectType *)subtype inModel:(ORMModel *)model;
 /* The model's derivations: its derivation queries, and the rules NORMA
  * keeps as a role path, read as queries where one is plain (one path, no
  * split, calculation, condition, negation or outer join, each role
@@ -232,6 +237,13 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * type's DerivationRule (docs/DERIVATION.md). NO for a query of another
  * kind, a fact type another query derives, or one with NORMA's own rule. */
 - (BOOL)setDerivedFactType:(NSString *)factTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
+/* The subtype a derivation derives: each instance of the query's root
+ * type that it finds is one. Its root is a supertype of it. The subtype
+ * keeps its rule's words, or is given the query's name for them, as
+ * NORMA's SubtypeDerivationRule. NO for a query of another kind, a type no
+ * supertype of the root, one another query derives, or one with NORMA's own
+ * path. */
+- (BOOL)setDerivedSubtype:(NSString *)objectTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* A constraint's modality; NO for a query of another kind. */
 - (BOOL)setDeontic:(BOOL)deontic ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* A calculation's function, of a node of the query below its root; NO for

@@ -18,6 +18,7 @@ ORMKitTests_OBJC_FILES = \
   ORMConstraintSentenceTests.m \
   ORMValuePatternTests.m \
   ORMConstraintQueriesTests.m \
+  ORMSubtypeDerivationTests.m \
   ORMSVGTests.m \
   ORMVerbalizerTests.m \
   ORMCoreDataTests.m \

@@ -511,5 +511,7 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 /* A fact type's rule set, or taken away (nil), inside a model change; the
  * fact type derived while it has one with a path or an expression. */
 - (void)setDerivationRule:(ORMDerivationRule *)rule ofFactType:(ORMFactType *)fact;
+/* A subtype's, likewise. */
+- (void)setDerivationRule:(ORMDerivationRule *)rule ofSubtype:(ORMObjectType *)type;
 @end
 

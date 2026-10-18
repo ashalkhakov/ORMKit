@@ -835,6 +835,27 @@ ORMDerivationMark(ORMDerivationRule *rule)
 		[self emit:b];
 		return;
 	}
+	if (query.kind == ORMQueryDerivation && query.derivedSubtype != nil) {
+		/* "Each Cost is by definition a Record that cost some Money"; "Each
+		 * Record that ... is a Cost" for a partly derived one. */
+		ORMObjectType *subtype = query.derivedSubtype;
+		[phrase mention:root];
+		if ([subtype derivationRule].isPartial) {
+			[b keyword:@"Each "];
+			[b objectType:[phrase nameOf:root] id:root.objectType.identifier];
+			[phrase say:relation.formula from:root relative:YES into:b];
+			[b keyword:[NSString stringWithFormat:@" is %@ ", ORMArticle(subtype.name)]];
+			[b objectType:subtype.name id:subtype.identifier];
+		} else {
+			[b keyword:@"Each "];
+			[b objectType:subtype.name id:subtype.identifier];
+			[b keyword:[NSString stringWithFormat:@" is by definition %@ ", ORMArticle(root.objectType.name)]];
+			[b objectType:[phrase nameOf:root] id:root.objectType.identifier];
+			[phrase say:relation.formula from:root relative:YES into:b];
+		}
+		[self emit:b];
+		return;
+	}
 	if (query.kind == ORMQueryDerivation) {
 		/* The rule: "Employee1 reports to Employee2 if and only if ...",
 		 * without the mark, which the fact type's verbalization gives. */

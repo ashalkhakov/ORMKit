@@ -26,7 +26,7 @@
  *   Rating is a value type.
  *   Each Male is a Person.
  *   Each Male is by definition a Person who is of Gender 'M'.
- *                                 the rule kept as Male's definition
+ *                                 the rule kept as Male's derivation rule
  *   Enrolment is where Student enrolled in Course.
  *   This association with Amount and Currency provides the preferred
  *     identification scheme for Money.

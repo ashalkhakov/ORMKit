@@ -32,6 +32,7 @@
 @property (nonatomic, copy) NSString *function;
 @property (nonatomic, copy) NSString *calculated;
 @property (nonatomic, strong) ORMFactType *derived;
+@property (nonatomic, strong) ORMObjectType *subtype;
 @property (nonatomic, strong) ORMOutlineLine *line;
 @end
 
@@ -546,6 +547,11 @@ ORMAggregateNames(void)
 	NSRegularExpression *derivation = [NSRegularExpression regularExpressionWithPattern:@"^Derivation of \"(.+)\":$"
 	                                                                            options:0
 	                                                                              error:NULL];
+	/* A subtype's, by its name: "Derivation of Cost:". */
+	NSRegularExpression *subtype = [NSRegularExpression regularExpressionWithPattern:@"^Derivation of ([^\"].*):$"
+	                                                                         options:0
+	                                                                           error:NULL];
+	NSTextCheckingResult *ofSubtype = [subtype firstMatchInString:text options:0 range:all];
 	NSTextCheckingResult *calculated = [calculation firstMatchInString:text options:0 range:all];
 	NSTextCheckingResult *derived = [derivation firstMatchInString:text options:0 range:all];
 	if ([text isEqualToString:@"It is impossible that:"] || [text isEqualToString:@"It is forbidden that:"]) {
@@ -558,6 +564,14 @@ ORMAggregateNames(void)
 		header.calculated = ORMGroup(calculated, text, 4);
 	} else if ([text isEqualToString:@"Derivation:"]) {
 		header.kind = ORMQueryDerivation;
+	} else if (ofSubtype != nil) {
+		header.kind = ORMQueryDerivation;
+		header.subtype = [_editor.model objectTypeNamed:ORMGroup(ofSubtype, text, 1)];
+		if (header.subtype == nil) {
+			_failure = [NSString stringWithFormat:@"Line %lu, \"%@\": no object type of the model is named so.",
+			                                      (unsigned long)line.number, text];
+			return nil;
+		}
 	} else if (derived != nil) {
 		header.kind = ORMQueryDerivation;
 		NSString *reading = ORMGroup(derived, text, 1);
@@ -646,6 +660,11 @@ ORMAggregateNames(void)
 	    && [ORMQuery derivationOf:header.derived inModel:_editor.model] == nil
 	    && ![_queries setDerivedFactType:header.derived.identifier ofQuery:_query reason:&why]) {
 		return [self fail:why ?: @"the fact type cannot be derived so" line:header.line];
+	}
+	if (header.kind == ORMQueryDerivation && header.subtype != nil
+	    && [ORMQuery derivationOfSubtype:header.subtype inModel:_editor.model] == nil
+	    && ![_queries setDerivedSubtype:header.subtype.identifier ofQuery:_query reason:&why]) {
+		return [self fail:why ?: @"the subtype cannot be derived so" line:header.line];
 	}
 	return YES;
 }

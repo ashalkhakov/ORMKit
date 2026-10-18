@@ -768,6 +768,16 @@
 	fact.isDerived = rule != nil && (rule.pathId != nil || rule.hasExpression);
 }
 
+- (void)setDerivationRule:(ORMDerivationRule *)rule ofSubtype:(ORMObjectType *)type
+{
+	NSMutableDictionary *rules = [self.extras objectForKey:@"derivations"];
+	if (rule != nil) {
+		[rules setObject:rule forKey:type.identifier];
+	} else {
+		[rules removeObjectForKey:type.identifier];
+	}
+}
+
 @end
 
 @implementation ORMModel (ORMJoinPaths)

@@ -605,15 +605,28 @@ ORMReservedNames(void)
 
 /* The supertype a subtype's entity inherits from: the one that identifies
  * it, else its first mapped one. */
+/* A subtype a rule derives, not stored: what it is changes as the facts
+ * do, which no entity of its own can follow. */
+static BOOL
+ORMIsDerivedSubtype(ORMObjectType *type)
+{
+	ORMDerivationRule *rule = [type derivationRule];
+	return rule != nil && !rule.isStored;
+}
+
 - (ORMObjectType *)parentOf:(ORMObjectType *)type
 {
+	/* One supertype Core Data inherits from: the one that identifies it,
+	 * one no rule derives before one that a rule does. */
 	ORMObjectType *chosen = nil;
 	for (ORMFactType *fact in type.supertypeFacts) {
 		ORMObjectType *supertype = [fact supertype];
 		if ([self resolved:supertype] != ORMResolvedEntity) {
 			continue;
 		}
-		if (chosen == nil || fact.providesPreferredIdentifier) {
+		BOOL better = chosen == nil || (ORMIsDerivedSubtype(chosen) && !ORMIsDerivedSubtype(supertype))
+			|| (fact.providesPreferredIdentifier && ORMIsDerivedSubtype(chosen) == ORMIsDerivedSubtype(supertype));
+		if (better) {
 			chosen = supertype;
 		}
 	}
@@ -649,12 +662,15 @@ ORMReservedNames(void)
 		for (ORMFactType *fact in type.supertypeFacts) {
 			ownIdentification = ownIdentification || !fact.providesPreferredIdentifier;
 		}
-		if (parent != nil && self.mapping.flattensSubtypes && !ownIdentification) {
+		BOOL derived = ORMIsDerivedSubtype(type);
+		if (parent != nil && (self.mapping.flattensSubtypes || derived) && !ownIdentification) {
 			ORMCDEntity *root = [_entityOf objectForKey:parent.identifier];
 			[_entityOf setObject:root forKey:type.identifier];
 			[self note:ORMMappingWarning
-			      text:[NSString stringWithFormat:@"%@ is flattened into %@: its properties are optional there.",
-			                                      type.name, root.name]
+			      text:derived ? [NSString stringWithFormat:@"%@ is derived by a rule, so it is no entity of its own: its "
+			                                                 @"properties are %@'s, optional there.", type.name, root.name]
+			                   : [NSString stringWithFormat:@"%@ is flattened into %@: its properties are optional there.",
+			                                                type.name, root.name]
 			   element:type.identifier];
 			continue;
 		}

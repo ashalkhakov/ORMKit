@@ -773,22 +773,30 @@ ORMPurposeName(ORMPathedRolePurpose purpose)
  * holds (NORMA's role path) stays as the file has it. */
 - (void)writeDerivationRuleOf:(ORMFactType *)fact
 {
-	ORMDerivationRule *rule = [self.model.derivationRules objectForKey:fact.identifier];
-	NSXMLElement *element = ORMChild(fact.element, CORE, @"DerivationRule");
+	[self writeRule:[self.model.derivationRules objectForKey:fact.identifier] in:fact.element subtype:NO];
+}
+
+/* A fact type's DerivationRule, or a subtype's SubtypeDerivationRule:
+ * their path FactTypeDerivationPath or SubtypeDerivationPath, else alike. */
+- (void)writeRule:(ORMDerivationRule *)rule in:(NSXMLElement *)owner subtype:(BOOL)subtype
+{
+	NSString *local = subtype ? @"SubtypeDerivationRule" : @"DerivationRule";
+	NSString *pathLocal = subtype ? @"SubtypeDerivationPath" : @"FactTypeDerivationPath";
+	NSXMLElement *element = ORMChild(owner, CORE, local);
 	if (rule == nil) {
 		ORMDetach(element);
 		return;
 	}
 	if (element == nil) {
-		element = ORMNewElement(_document, CORE, @"DerivationRule");
-		ORMInsertChild(fact.element, element);
+		element = ORMNewElement(_document, CORE, local);
+		ORMInsertChild(owner, element);
 	}
-	NSXMLElement *path = ORMChild(element, CORE, @"FactTypeDerivationPath");
+	NSXMLElement *path = ORMChild(element, CORE, pathLocal);
 	if (path == nil && rule.pathId != nil) {
-		path = ORMNewElementWithId(_document, CORE, @"FactTypeDerivationPath", rule.pathId);
+		path = ORMNewElementWithId(_document, CORE, pathLocal, rule.pathId);
 		ORMAddChild(element, path);
 	}
-	NSXMLElement *expression = ORMChild(element, CORE, @"DerivationExpression");
+	NSXMLElement *expression = ORMChild(element, CORE, subtype ? @"SubtypeDerivationExpression" : @"DerivationExpression");
 	NSString *legacy = ORMAttribute(expression, @"DerivationStorage");
 	NSString *completeness = ORMAttribute(path, @"DerivationCompleteness") ?: ORMAttribute(element, @"DerivationCompleteness");
 	NSString *storage = ORMAttribute(path, @"DerivationStorage") ?: ORMAttribute(element, @"DerivationStorage");
@@ -1081,6 +1089,7 @@ ORMPurposeName(ORMPathedRolePurpose purpose)
 	}
 	ORMWriteNested(_document, element, @"Definitions", @"Definition", type.definitionText);
 	ORMWriteNested(_document, element, @"Notes", @"Note", type.noteText);
+	[self writeRule:[self.model.derivationRules objectForKey:type.identifier] in:element subtype:YES];
 	if (type.kind == ORMValueType) {
 		NSXMLElement *dataType = ORMChild(element, CORE, @"ConceptualDataType");
 		if (dataType == nil && type.dataType != nil) {

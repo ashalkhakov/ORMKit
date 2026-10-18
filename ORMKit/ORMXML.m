@@ -271,7 +271,8 @@ ORMRank(NSString *local)
 			@"Objects", @"Facts", @"Constraints", @"DataTypes", @"CustomReferenceModes", @"ModelNotes",
 			@"ModelErrors", @"ReferenceModeKinds", @"RecognizedPhrases", @"Extensions",
 			/* An object type's. */
-			@"Definitions", @"Notes", @"Abbreviations", @"PlayedRoles", @"PreferredIdentifier",
+			@"Definitions", @"Notes", @"Abbreviations", @"CardinalityRestriction", @"PlayedRoles",
+			@"SubtypeDerivationRule", @"PreferredIdentifier",
 			@"NestedPredicate", @"ConceptualDataType", @"ValueRestriction", @"Instances",
 			/* A fact type's. */
 			@"FactRoles", @"ReadingOrders", @"InternalConstraints", @"DerivationRule",

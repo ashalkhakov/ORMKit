@@ -804,6 +804,10 @@
 			isa = PBXBuildFile;
 			fileRef = 2E2244200692D4F67C2FDB53 /* ORMConstraintQueries.m */;
 		};
+		C917DFC2EA5F780E0F3E2FB8 /* ORMSubtypeDerivationTests.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 3F80E56331C5A2FF542182AE /* ORMSubtypeDerivationTests.m */;
+		};
 		CA487547267B63669045A97A /* ORMCoreDataValidation.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 8AA4CEDDA923B6706D18D22E /* ORMCoreDataValidation.h */;
@@ -1334,6 +1338,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMPopulationView.m;
+			sourceTree = "<group>";
+		};
+		3F80E56331C5A2FF542182AE /* ORMSubtypeDerivationTests.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMSubtypeDerivationTests.m;
 			sourceTree = "<group>";
 		};
 		3FECE28DE0F9C9216CA13468 /* ORMUpdater-Apple.m */ = {
@@ -2403,6 +2413,7 @@
 				CCA441C55A616D18C18A3D3A /* ORMPopulationTests.m */,
 				99460512A004DF4683FCEF8F /* ORMQueryTests.m */,
 				246EACF5EDCE13A1AF8E7361 /* ORMSVGTests.m */,
+				3F80E56331C5A2FF542182AE /* ORMSubtypeDerivationTests.m */,
 				621E1F4AE899065D5EFD7FAF /* ORMTestSupport.h */,
 				73D95C1CB5718ECFD903C6B1 /* ORMTestSupport.m */,
 				13110F95DFE652EF2EA97CE6 /* ORMTextTests.m */,
@@ -3010,6 +3021,7 @@
 				170943F3A9C33BCEE511F78C /* ORMConstraintSentenceTests.m */,
 				37CA7EA28B2AF09D3E5E167F /* ORMValuePatternTests.m */,
 				498449F4304367F21C1AB221 /* ORMConstraintQueriesTests.m */,
+				C917DFC2EA5F780E0F3E2FB8 /* ORMSubtypeDerivationTests.m */,
 				3A9781E342C2DAA4E77B3379 /* ORMSVGTests.m */,
 				BB7D1D14489381283134B535 /* ORMVerbalizerTests.m */,
 				E7EB0C470E66130544EB303B /* ORMCoreDataTests.m */,

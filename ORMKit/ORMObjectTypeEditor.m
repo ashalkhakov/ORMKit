@@ -305,6 +305,69 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	return YES;
 }
 
+- (BOOL)setDerivationNote:(NSString *)text ofSubtype:(NSString *)objectTypeId reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	if (![type isKindOfClass:[ORMObjectType class]] || [type.supertypes count] == 0) {
+		if (reason != NULL) {
+			*reason = @"Only a subtype is derived by a rule.";
+		}
+		return NO;
+	}
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:type.identifier];
+	NSString *words = [text length] > 0 ? text : nil;
+	if ([words ?: @"" isEqualToString:rule.informalText ?: @""] && (rule != nil) == (words != nil)) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Derivation" with:^{
+		if (words == nil) {
+			[_editor.model setDerivationRule:nil ofSubtype:type];
+		} else {
+			ORMDerivationRule *kept = rule;
+			if (kept == nil) {
+				kept = [[ORMDerivationRule alloc] initWithModel:_editor.model];
+				kept.identifier = nil;
+				kept.isSubtypeRule = YES;
+				kept.paths = @[];
+				kept.calculations = @[];
+				kept.conditions = @[];
+				kept.projections = @{};
+			}
+			kept.pathId = kept.pathId ?: ORMNewId();
+			kept.noteId = kept.noteId ?: ORMNewId();
+			kept.informalText = words;
+			[_editor.model setDerivationRule:kept ofSubtype:type];
+		}
+		[_editor wrote:type];
+	}];
+	return YES;
+}
+
+- (BOOL)setDerivationPartial:(BOOL)partial
+                      stored:(BOOL)stored
+                   ofSubtype:(NSString *)objectTypeId
+                      reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	ORMDerivationRule *rule = [type isKindOfClass:[ORMObjectType class]]
+		? [_editor.model.derivationRules objectForKey:type.identifier] : nil;
+	if (rule.pathId == nil) {
+		if (reason != NULL) {
+			*reason = rule != nil ? @"Its rule is an older one, which says this itself." : @"It is not derived.";
+		}
+		return NO;
+	}
+	if (rule.isPartial == partial && rule.isStored == stored) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Derivation" with:^{
+		rule.isPartial = partial;
+		rule.isStored = stored;
+		[_editor wrote:type];
+	}];
+	return YES;
+}
+
 /* One of an object type's flags, by its property's key. */
 - (BOOL)setFlag:(NSString *)key to:(BOOL)flag of:(NSString *)objectTypeId named:(NSString *)action
          reason:(NSString **)reason

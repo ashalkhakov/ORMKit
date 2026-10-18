@@ -118,6 +118,38 @@ Refused, with a note, and not run:
 - a derivation through itself, which ConQuer has no fixpoint for. Past 16
   rounds of expansion a query is taken to be one.
 
+## Subtypes
+
+A subtype can be derived too: "Each Cost is by definition a Record that
+cost some Money". NORMA keeps the rule on the subtype, as it keeps a fact
+type's (`SubtypeDerivationRule`, its path's completeness and storage, its
+words in an informal rule), and ORMKit writes it so:
+`-[ORMObjectTypeEditor setDerivationNote:ofSubtype:reason:]` takes the
+words after "by definition", and the sentence reads back into it.
+
+A derivation query of the subtype runs the rule. Its `Of` is the subtype
+and its root a supertype, ticked; its rows are the instances that are of
+the subtype. Its outline starts `Derivation of Cost:`, and it says
+"Each Cost is by definition a Record that cost some Money". The subtype
+keeps its own words for NORMA beside it.
+
+```
+Derivation of Cost:
+✓Record
+  + cost Money
+```
+
+- **Queries through it.** A step to the subtype ("is Cost") from its
+  supertype, and a query of the subtype, are put as its rule before
+  planning, as a derived fact type's step is: no step, the same object,
+  the rule's steps and what the query says of the subtype said of the
+  supertype's node. A subtype whose rule is words alone, or partly derived,
+  is refused with a note.
+- **Core Data.** What a derived subtype is changes as the facts do, and an
+  object's entity cannot, so it is no entity of its own: its fact types are
+  its supertype's entity's, optional there (as flattening does). A subtype
+  of it and of another inherits from the other.
+
 ## Core Data, and keeping stored ones up to date
 
 - **Derived, not stored:** nothing in the Core Data model. The mapping says
@@ -248,6 +280,5 @@ That takes the place of the dependency order of step 3.
 - Writing a query back as NORMA's role path, so that NORMA runs a
   path-shaped derivation too. NORMA reads the informal rule meanwhile.
 - Recursive derivations (a fixpoint).
-- Subtype derivation rules ("each Grandparent is a Person who ..."), which
-  NORMA keeps the same way. The same query kind would do, with `Of` a
-  subtype.
+- A subtype derived and stored: Core Data cannot change an object's
+  entity, so a stored subtype is mapped as an asserted one for now.

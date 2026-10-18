@@ -100,6 +100,7 @@ ORMQueryAggregateNames(void)
 @property (nonatomic, readwrite) ORMQueryCalculationFunction calculationFunction;
 @property (nonatomic, readwrite, weak) ORMQueryNode *calculatedNode;
 @property (nonatomic, readwrite, weak) ORMFactType *derivedFactType;
+@property (nonatomic, readwrite, weak) ORMObjectType *derivedSubtype;
 /* What the stored query says, its object types, fact types and roles
  * looked up in the model. */
 + (ORMQuery *)queryOf:(ORMStoredQuery *)stored model:(ORMModel *)model;
@@ -480,6 +481,16 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 	return nil;
 }
 
++ (ORMQuery *)derivationOfSubtype:(ORMObjectType *)subtype inModel:(ORMModel *)model
+{
+	for (ORMQuery *query in [self queriesInModel:model]) {
+		if (query.kind == ORMQueryDerivation && [query.derivedSubtype.identifier isEqualToString:subtype.identifier]) {
+			return query;
+		}
+	}
+	return nil;
+}
+
 + (ORMQuery *)derivationOf:(ORMFactType *)factType inModel:(ORMModel *)model
 {
 	for (ORMQuery *query in [self queriesInModel:model]) {
@@ -827,6 +838,112 @@ ORMCombinesWithOr(ORMQueryPart *node)
 
 /* The step through a derived fact type put as its derivation's path,
  * under the node it is from. nil when done; why otherwise. */
+/* A derivation's tree made the query's own: fresh ids, its labels apart
+ * from the query's, nothing it lists or sorts by but what the query's
+ * nodes say. */
+static void
+ORMFreshen(ORMQueryPart *tree, NSString *name, NSUInteger round)
+{
+	for (ORMQueryPart *part in [tree tree]) {
+		NSString *was = part.identifier;
+		NSString *now = ORMNewId();
+		part.identifier = now;
+		if (was != nil) {
+			ORMRenameNode(tree, was, now);
+		}
+		if ([part.label length] > 0) {
+			part.label = [NSString stringWithFormat:@"%@ (%@ %lu)", part.label, name, (unsigned long)round];
+		}
+		part.projected = nil;
+		part.forRole = nil;
+		part.sort = nil;
+	}
+}
+
+/* A derived subtype's rule grafted on the node, an instance of its
+ * supertype: what the rule says of its root, said of the node, and its
+ * steps the node's. Why not, where not. */
+static NSString *
+ORMGraftSubtypeRule(ORMQueryPart *at, ORMObjectType *subtype, ORMStoredQuery *rule, NSString *name, NSUInteger round)
+{
+	ORMQueryPart *tree = [rule.root copy];
+	ORMFreshen(tree, name, round);
+	if ([[tree steps] count] > 0 && ORMCombinesWithOr(at) && [[at steps] count] > 0) {
+		return [NSString stringWithFormat:@"%@ is met where steps are combined with or, which its rule's cannot be.",
+		                                  subtype.name];
+	}
+	for (NSString *key in @[ @"comparison", @"value", @"compareTo" ]) {
+		NSString *value = [tree valueForKey:key];
+		if (value == nil) {
+			continue;
+		}
+		if ([at valueForKey:key] != nil && ![[at valueForKey:key] isEqualToString:value]) {
+			return [NSString stringWithFormat:@"%@ says more of its root than the query can take with it.", name];
+		}
+		[at setValue:value forKey:key];
+	}
+	ORMMergeLabel(tree, tree, at.label, at);
+	ORMRenameNode(tree, tree.identifier, at.identifier);
+	for (ORMQueryPart *step in [[tree steps] copy]) {
+		[step detach];
+		[at addPart:step];
+	}
+	return nil;
+}
+
+/* "is Cost", from a node of its supertype, to a subtype derived by a
+ * rule: no step, the same object, the subtype's rule and what the query
+ * says of the subtype said of the node. Why not, where not. */
+static NSString *
+ORMExpandSubtypeStep(ORMQueryPart *step, ORMObjectType *subtype, ORMStoredQuery *rule, NSString *name,
+                     NSUInteger round, ORMModel *model)
+{
+	ORMQueryPart *from = [step parent];
+	ORMQueryPart *node = [[step nodes] firstObject];
+	if (from == nil || node == nil) {
+		return [NSString stringWithFormat:@"\"is %@\" is no step from a node.", subtype.name];
+	}
+	/* What the query says of the subtype's node, said of the same object. */
+	for (NSString *key in @[ @"projected", @"comparison", @"value", @"compareTo", @"sort" ]) {
+		NSString *value = [node valueForKey:key];
+		if (value != nil && [from valueForKey:key] != nil && ![[from valueForKey:key] isEqualToString:value]) {
+			return [NSString stringWithFormat:@"%@ and its supertype are said different things of.", subtype.name];
+		}
+		if (value != nil) {
+			[from setValue:value forKey:key];
+		}
+	}
+	if ([node.label length] > 0) {
+		ORMMergeLabel(from, node, from.label, from);
+	}
+	ORMRenameNode(from, node.identifier, from.identifier);
+	[step detach];
+	for (ORMQueryPart *each in [[node steps] copy]) {
+		[each detach];
+		[from addPart:each];
+	}
+	return ORMGraftSubtypeRule(from, subtype, rule, name, round);
+}
+
+/* The subtype a part brings in that a rule derives and does not store: a
+ * query's root of it, or a step to it from its supertype. */
+static ORMObjectType *
+ORMDerivedSubtypeOf(ORMQueryPart *part, ORMModel *model)
+{
+	ORMObjectType *type = nil;
+	if (!part.isStep && [part parent] == nil) {
+		type = [model elementWithId:part.ref];
+	} else if (part.isStep) {
+		ORMFactType *fact = [model elementWithId:part.ref];
+		ORMRole *entry = [model elementWithId:part.roleId];
+		if ([fact isKindOfClass:[ORMFactType class]] && fact.kind == ORMFactTypeSubtype && entry.isSupertypeMetaRole) {
+			type = [[entry oppositeRole] player];
+		}
+	}
+	ORMDerivationRule *rule = [type isKindOfClass:[ORMObjectType class]] ? [type derivationRule] : nil;
+	return rule != nil && !rule.isStored ? type : nil;
+}
+
 static NSString *
 ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMStoredQuery *rule, NSUInteger round,
               ORMModel *model)
@@ -863,22 +980,7 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 		                                  derivation.name];
 	}
 	columns = byRole;
-	/* Its own: fresh ids, its labels apart from the query's, nothing it
-	 * lists or sorts by but what the step's nodes say. */
-	for (ORMQueryPart *part in all) {
-		NSString *was = part.identifier;
-		NSString *now = ORMNewId();
-		part.identifier = now;
-		if (was != nil) {
-			ORMRenameNode(tree, was, now);
-		}
-		if ([part.label length] > 0) {
-			part.label = [NSString stringWithFormat:@"%@ (%@ %lu)", part.label, derivation.name, (unsigned long)round];
-		}
-		part.projected = nil;
-		part.forRole = nil;
-		part.sort = nil;
-	}
+	ORMFreshen(tree, derivation.name, round);
 	NSUInteger entry = ORMIndexOfRole(roles, step.roleId);
 	if (entry == NSNotFound) {
 		return [NSString stringWithFormat:@"\"%@\" is gone through by a role it does not show.", what];
@@ -1003,6 +1105,53 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 				break;
 			}
 		}
+		/* A subtype a rule derives: its rule, where it is met. */
+		ORMQueryPart *subtyped = nil;
+		ORMObjectType *subtype = nil;
+		for (ORMQueryPart *each in step == nil ? [(copy ?: stored).root tree] : @[]) {
+			subtype = ORMDerivedSubtypeOf(each, model);
+			if (subtype != nil) {
+				subtyped = each;
+				break;
+			}
+		}
+		if (subtyped != nil) {
+			ORMQuery *derivation = [ORMQuery derivationOfSubtype:subtype inModel:model];
+			ORMStoredQuery *rule = nil;
+			for (ORMStoredQuery *each in model.storedQueries) {
+				rule = [each.identifier isEqualToString:derivation.identifier] ? each : rule;
+			}
+			NSString *why = nil;
+			if ([subtype derivationRule].isPartial) {
+				why = [NSString stringWithFormat:@"%@ is partly derived and not stored: queries do not go through it yet.",
+				                                 subtype.name];
+			} else if (rule == nil) {
+				why = [NSString stringWithFormat:@"%@ is derived by its rule's words alone, which queries cannot run.",
+				                                 subtype.name];
+			} else if (round > 16) {
+				why = [NSString stringWithFormat:@"%@ is derived through itself, which queries do not run.", subtype.name];
+			}
+			if (why == nil) {
+				if (copy == nil) {
+					copy = [stored copy];
+					for (ORMQueryPart *each in [copy.root tree]) {
+						subtyped = [each.identifier isEqualToString:subtyped.identifier] ? each : subtyped;
+					}
+				}
+				if (subtyped.isStep) {
+					why = ORMExpandSubtypeStep(subtyped, subtype, rule, derivation.name, round, model);
+				} else {
+					/* A query of the subtype: of its rule's root, the supertype. */
+					copy.root.ref = rule.root.ref;
+					why = ORMGraftSubtypeRule(copy.root, subtype, rule, derivation.name, round);
+				}
+			}
+			if (why != nil) {
+				[notes addObject:why];
+				return nil;
+			}
+			continue;
+		}
 		if (step == nil) {
 			break;
 		}
@@ -1052,8 +1201,9 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 	NSUInteger function = [ORMCalculationFunctionNames() indexOfObject:stored.function ?: @"Value"];
 	query.calculationFunction = function != NSNotFound ? (ORMQueryCalculationFunction)function : ORMCalculationValue;
 	if (query.kind == ORMQueryDerivation) {
-		ORMFactType *derived = [model elementWithId:stored.of];
+		id derived = [model elementWithId:stored.of];
 		query.derivedFactType = [derived isKindOfClass:[ORMFactType class]] ? derived : nil;
+		query.derivedSubtype = [derived isKindOfClass:[ORMObjectType class]] ? derived : nil;
 	}
 	ORMQueryPart *rootPart = stored.root;
 	ORMObjectType *type = [model elementWithId:rootPart.ref];
@@ -1369,6 +1519,9 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 	} else if (self.kind == ORMQueryDerivation && self.derivedFactType != nil) {
 		[out appendFormat:@"Derivation of \"%@\":\n",
 		                  [self.derivedFactType displayText]];
+	} else if (self.kind == ORMQueryDerivation && self.derivedSubtype != nil) {
+		/* A subtype by its name, unquoted: "Derivation of Cost:". */
+		[out appendFormat:@"Derivation of %@:\n", self.derivedSubtype.name];
 	} else if (self.kind == ORMQueryDerivation) {
 		[out appendString:@"Derivation:\n"];
 	}
@@ -1700,6 +1853,48 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		query.of = factTypeId;
 		[self->_editor wrote:query];
 		[self->_editor.factTypeEditor setQueryRuleOf:fact words:name];
+	}];
+	return YES;
+}
+
+- (BOOL)setDerivedSubtype:(NSString *)objectTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason
+{
+	ORMStoredQuery *query = [self query:queryId];
+	ORMObjectType *subtype = [_editor.model elementWithId:objectTypeId];
+	ORMObjectType *root = query != nil ? [_editor.model elementWithId:query.root.ref] : nil;
+	ORMQuery *other = [subtype isKindOfClass:[ORMObjectType class]]
+		? [ORMQuery derivationOfSubtype:subtype inModel:_editor.model] : nil;
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:objectTypeId];
+	NSString *why = nil;
+	if (query == nil) {
+		why = @"There is no such query.";
+	} else if (![query.kind isEqualToString:@"Derivation"]) {
+		why = @"Only a derivation derives a subtype.";
+	} else if (![subtype isKindOfClass:[ORMObjectType class]] || ![root isKindOfClass:[ORMObjectType class]]
+	           || ![subtype isSubtypeOf:root]) {
+		why = @"A derivation of a subtype reads one of its supertypes.";
+	} else if (other != nil && ![other.identifier isEqualToString:queryId]) {
+		why = [NSString stringWithFormat:@"%@ derives it already.", other.name];
+	} else if (rule.hasRolePath || rule.hasExpression) {
+		why = @"It has NORMA's own derivation rule.";
+	}
+	if (why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return NO;
+	}
+	if ([query.of isEqualToString:objectTypeId]) {
+		return YES;
+	}
+	NSString *name = query.name ?: @"";
+	[_editor modelChange:@"Set Derived Subtype" with:^{
+		query.of = objectTypeId;
+		[self->_editor wrote:query];
+		/* NORMA's rule, in the modeller's words where it has them. */
+		if (rule == nil) {
+			[self->_editor.objectTypeEditor setDerivationNote:name ofSubtype:objectTypeId reason:NULL];
+		}
 	}];
 	return YES;
 }

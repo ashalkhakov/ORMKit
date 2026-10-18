@@ -141,9 +141,9 @@ Of an object type, read back (`-[ORMSentenceEditor addStatement:...]`):
 Person.", "Enrolment is where Student enrolled in Course." and "This
 association with ... provides the preferred identification scheme for
 ...", the uniqueness constraint over those players' roles said before it.
-"Each Male is by definition a Person who ..." makes the subtype, with the
-rule kept as its informal definition until ORMKit writes NORMA's subtype
-derivation rules.
+"Each Male is by definition a Person who ..." makes the subtype and its
+derivation rule, as NORMA keeps one ([DERIVATION.md](DERIVATION.md#subtypes)),
+in the words after "by definition".
 
 A whole schema reads as text (`-addFromText:failures:`, `ormtool build`),
 a statement a line, with lines that go on from the one before: "# Name"

@@ -50,5 +50,16 @@
 - (BOOL)setValueConstraint:(NSString *)text of:(NSString *)elementId reason:(NSString **)reason;
 /* The subtype fact type. Its id. */
 - (NSString *)addSubtype:(NSString *)subtypeId of:(NSString *)supertypeId reason:(NSString **)reason;
+/* A subtype's derivation rule, as NORMA keeps it (SubtypeDerivationRule):
+ * in words, what comes after "Each Male is by definition" ("a Person who
+ * is of Gender 'M'"); empty takes the rule away. Refused for a type that
+ * is no subtype. */
+- (BOOL)setDerivationNote:(NSString *)text ofSubtype:(NSString *)objectTypeId reason:(NSString **)reason;
+/* The rule's completeness and storage (docs/DERIVATION.md): partly
+ * derived, some instances asserted; stored, kept once derived. */
+- (BOOL)setDerivationPartial:(BOOL)partial
+                      stored:(BOOL)stored
+                   ofSubtype:(NSString *)objectTypeId
+                      reason:(NSString **)reason;
 
 @end

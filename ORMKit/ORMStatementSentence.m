@@ -113,7 +113,8 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 		if ([verb hasPrefix:@" is by definition"]) {
 			NSRange space = [after rangeOfString:@" "];
 			supertypeName = ORMStatementName(space.location != NSNotFound ? [after substringToIndex:space.location] : after);
-			rule = [text stringByAppendingString:@"."];
+			/* "a Person who is of Gender 'M'": its words, after "by definition". */
+			rule = [[verb substringFromIndex:[@" is by definition " length]] stringByAppendingString:after];
 		} else {
 			supertypeName = ORMStatementName(after);
 		}
@@ -136,7 +137,7 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 		}
 		[made addObject:fact];
 		if (rule != nil) {
-			[self.editor.elementEditor setDefinition:rule of:subtype reason:&failure];
+			[self.editor.objectTypeEditor setDerivationNote:rule ofSubtype:subtype reason:&failure];
 		}
 	}];
 	if (failure != nil) {
