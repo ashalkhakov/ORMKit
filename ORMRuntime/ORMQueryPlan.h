@@ -118,6 +118,24 @@
                       are:(NSArray<ORMPlanValue *> *)values;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *alsoColumns;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanValue *> *alsoValues;
+/* An aggregate over a window (docs/QUERIES.md, decorrelation): of the
+ * group's tuples, those whose column for a node compares ("<", "<=", ">",
+ * ">=") with the value of the object here: "max of Odometer2 in bag2 where
+ * Vehicle is vehicle.id, Odometer2 < odometer", the greatest odometer of
+ * the vehicle's fill-ups below this one's. The bag lists each member of
+ * the group once; a backend sorts a group's tuples by the column once, and
+ * answers each object from its value. */
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
+                   window:(NSString *)windowColumn
+               comparison:(NSString *)comparison
+                     than:(ORMPlanValue *)value;
+@property (nonatomic, readonly, copy) NSString *windowColumn;
+@property (nonatomic, readonly, copy) NSString *windowComparison;
+@property (nonatomic, readonly, strong) ORMPlanValue *windowValue;
 @end
 
 typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {

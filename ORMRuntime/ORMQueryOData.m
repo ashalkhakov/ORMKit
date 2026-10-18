@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryOData.h"
 #import "ORMTuple.h"
+#import "ORMWindow.h"
 #import "ORMCursor.h"
 #import <CoreData/CoreData.h>
 #import <ODataKit/ODataApply.h>
@@ -181,6 +182,9 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 	/* A bag's rows by group, where a group is a value (an identifier), by
 	 * the rows answered. */
 	NSMapTable<NSArray *, NSDictionary *> *_bagGroups;
+	/* A window over a group's rows, by those rows (the list a batch's
+	 * answer has for the group). */
+	NSMapTable<NSArray *, ORMWindow *> *_windows;
 }
 
 /* A join that binds: the joined objects read for the page with the pairs'
@@ -606,6 +610,21 @@ ORMLiteralAt(id value, NSArray<NSString *> *wire, NSEntityDescription *entity, O
 	return [ODataExpression literalWithValue:value ?: [NSNull null]];
 }
 
+/* JSON values in order, as ORMJSONCompare compares them; nothing first. */
+static NSComparisonResult
+ORMJSONOrder(id left, id right)
+{
+	BOOL leftNull = left == nil || left == [NSNull null];
+	BOOL rightNull = right == nil || right == [NSNull null];
+	if (leftNull || rightNull) {
+		return leftNull == rightNull ? NSOrderedSame : leftNull ? NSOrderedAscending : NSOrderedDescending;
+	}
+	if ([left isKindOfClass:[NSNumber class]] && [right isKindOfClass:[NSNumber class]]) {
+		return [(NSNumber *)left compare:right];
+	}
+	return [[left description] compare:[right description]];
+}
+
 static BOOL
 ORMJSONCompare(id left, NSString *comparison, id right)
 {
@@ -683,6 +702,25 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		id group = [[self valuesAt:value.groupPath object:read bindings:bindings] firstObject];
 		NSArray *nodeIds = [value.bag.plan.columns valueForKey:@"nodeId"];
 		NSUInteger column = [nodeIds indexOfObject:value.column ?: @""];
+		/* Over a window: the group's rows sorted by its column once, the
+		 * object's answered by its value. */
+		if (value.windowColumn != nil) {
+			NSArray *rows = [self rowsOf:value group:group];
+			if (_windows == nil) {
+				_windows = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsWeakMemory
+				                                                  | NSPointerFunctionsObjectPointerPersonality
+				                                 valueOptions:NSPointerFunctionsStrongMemory];
+			}
+			ORMWindow *window = [_windows objectForKey:rows];
+			if (window == nil) {
+				NSUInteger key = [nodeIds indexOfObject:value.windowColumn];
+				window = [ORMWindow windowOf:rows key:key value:column != NSNotFound ? column : key function:value.function
+				                       order:ORMJSONOrder];
+				[_windows setObject:window forKey:rows];
+			}
+			return [window aggregateWhereKey:value.windowComparison
+			                            than:[self firstAt:value.windowValue object:read bindings:bindings]];
+		}
 		/* For several nodes: the rows whose other group columns are theirs. */
 		NSMutableArray *also = [NSMutableArray array];
 		for (NSUInteger i = 0; i < [value.alsoColumns count]; i++) {
@@ -1575,7 +1613,7 @@ ORMMemberCondition(ORMPlanCondition *condition, NSString *variable, NSString *in
 	ORMPlanColumn *group = [plan columnOfNode:value.groupColumn ?: @""];
 	ORMPlanColumn *of = [plan columnOfNode:value.column ?: @""];
 	NSEntityDescription *read = [self entityNamed:plan.entityName];
-	if (method == nil || [value.alsoColumns count] > 0 || group == nil || group.path.variable != nil
+	if (method == nil || [value.alsoColumns count] > 0 || value.windowColumn != nil || group == nil || group.path.variable != nil
 	    || [group.path.steps count] > 0 || group.identifierKey == nil || of.path.variable == nil || read == nil
 	    || [plan.definitions count] > 0) {
 		return NO;

@@ -371,6 +371,49 @@ Reading the subtype matters. A store fetching Academic has none of
 Professor's properties, so `chair.name = 'Informatics'` holds only of a
 Professor. When every result must be a professor, Professor is what is read.
 
+### Decorrelation
+
+A bag of the whole query, for each group, is what ConQuer-II says, and
+read as it says it is correlated: "the greatest odometer of the vehicle's
+fill-ups below this one's" makes a row for each fill-up and each earlier
+one of its vehicle, quadratic in a vehicle's fill-ups. Two shapes are
+planned and run otherwise, as databases unnest a correlated subquery
+(Kim, 1982; Neumann and Kemper, "Unnesting arbitrary queries", 2015):
+
+- **An inequality is a window.** An aggregate over what one comparison
+  relates to the group (`Previous = max(Odometer2) for FillUp1`, where
+  FillUp2 is of FillUp1's vehicle and `Odometer2 < Odometer1`) is planned
+  as an aggregate over a window. Its bag lists each member of a partition
+  once, and the value is of the partition's tuples whose key compares with
+  the object's:
+
+  ```
+  let bag1 = read FillUp list vehicle (id), self (id), odometer
+  ... max of Odometer2 in bag1 where Vehicle is vehicle.id, Odometer2 < odometer
+  ```
+
+  A backend sorts a partition's tuples by the key once, with the aggregate
+  of every run of them from either end (`ORMWindow`), and answers each
+  object by a binary search: O(m log m) for a vehicle of m fill-ups, not
+  O(m²). The shape: one to-many on the way from the group to the node
+  aggregated (its node the member, its parent the partition, reached from
+  the group through to-ones); the member's own steps only to its
+  attributes, with conditions on values; and one of them compared (<, <=,
+  >, >=) with an attribute reached from the group through to-ones. Any
+  other is the whole query's bag, as before.
+- **An equality is a lookup.** An exists (a count, an aggregate) over a
+  collection, with a conjunct `x.key = v` whose v names nothing the
+  condition binds, takes its members from an index of the collection by
+  the key, made once for the collection's owner, rather than trying each
+  ("the fill-up of this vehicle at the previous odometer"). What the
+  index finds is still asked the whole condition.
+
+"The one before" at 100,000 fill-ups (100 to a vehicle) went from 480 s to
+6.5 s with these, and is linear in the vehicles. Within one partition an
+existence with an inequality is still asked of the store as a correlated
+subquery (`some vehicle.fillUps as x1 has x1.odometer < odometer`); as a
+window count above none, it would not be.
+
 ## The interpreter: running a plan against Core Data
 
 Some plans cannot be one fetch request, so `ORMQueryInterpreter` runs them.

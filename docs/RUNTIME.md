@@ -210,15 +210,16 @@ With these, plain reads, joins, computed columns, sorts and per-object
 aggregates take about ten times as long for ten times the objects (100,000
 fill-ups: 0.6 s to list each with its vehicle, 2.4 s computing a column,
 1.3 s for a total per vehicle). "The one before" (an aggregate of the
-earlier ones of the same vehicle) went from 146 s to 1 s for 1,000, but is
-still a bag for each object, quadratic in a vehicle's fill-ups.
+earlier ones of the same vehicle) is decorrelated
+([QUERIES.md](QUERIES.md#decorrelation)): a window over each vehicle's
+fill-ups, and the fill-up at the previous odometer looked up by it, 6.5 s
+for 100,000 where it took 480 s.
 
 Not yet:
-- **Decorrelation.** An aggregate over what an inequality relates ("the
-  greatest odometer below this one") is a running aggregate over each
-  group in order (a window, as SQL's), not a bag for each object; and a
-  correlated subquery the store runs for each row is one it can run once
-  (Kim; Neumann and Kemper, "Unnesting arbitrary queries").
+- **More decorrelation.** An existence with an inequality is still a
+  correlated subquery in the store, quadratic within a partition (one
+  vehicle of 3,000 fill-ups: 1 s); a window count would not be. Windows
+  over several groups (`also`), and over a computed key, are bags still.
 - **Flat typed values.** Values boxed as objects (NSNumber, NSDecimalNumber,
   key-value coding for each path) are most of what a row costs now. Column
   kinds are known when a plan is made: a tuple can be a flat array of

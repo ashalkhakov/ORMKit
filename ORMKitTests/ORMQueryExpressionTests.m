@@ -452,6 +452,11 @@
 	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Before" in:model]];
 	XCTAssertEqualObjects(plan.notes, @[]);
 	XCTAssertEqualObjects([[self archived:plan] text], [plan text]);
+	/* Decorrelated: the vehicle's fill-ups, once, by odometer. */
+	XCTAssertTrue([[plan text] rangeOfString:@"let bag1 = read FillUp list vehicle (id), self (id), odometer"].location != NSNotFound,
+	              @"%@", [plan text]);
+	XCTAssertTrue([[plan text] rangeOfString:@"where Vehicle is vehicle.id, Odometer2 < odometer"].location != NSNotFound,
+	              @"%@", [plan text]);
 	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
 	NSError *error = nil;
 	NSManagedObjectContext *context = [store newContextWithError:&error];

@@ -346,6 +346,11 @@
 			isa = PBXBuildFile;
 			fileRef = 17EAEBAF92A12202869D3AD4 /* ORMModelBrowser.m */;
 		};
+		573E4C9098875E62BE691735 /* ORMWindow.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 86AB9FAFC946712CD4248966 /* ORMWindow.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		577E51F5695E44BE4833C6A0 /* ORMIssuesView.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 0271819204EC0D33A2AB30DF /* ORMIssuesView.m */;
@@ -776,6 +781,10 @@
 			isa = PBXBuildFile;
 			fileRef = 0EEEAC66689D2FB46B75A54E /* ORMVerbalizerTests.m */;
 		};
+		BC69D3EE811F82FB16A400F6 /* ORMWindow.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 1AE07975F841BEA6C46BF812 /* ORMWindow.m */;
+		};
 		BD65B0FB5517FD316F7E72E8 /* ORMWindowController.m */ = {
 			isa = PBXBuildFile;
 			fileRef = E6D02C60A7E8B7C9FA581455 /* ORMWindowController.m */;
@@ -962,6 +971,10 @@
 		F15FE67197E1ED375B7D951F /* ORMCursor.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 3991801820FA2F22C806039D /* ORMCursor.m */;
+		};
+		F4EE50B51BE7FD21B550261E /* ORMWindowTests.m */ = {
+			isa = PBXBuildFile;
+			fileRef = DBDEB203104719CF14F1B18D /* ORMWindowTests.m */;
 		};
 		F5AD2E4043E15A7801080CB9 /* ORMModelTests.m */ = {
 			isa = PBXBuildFile;
@@ -1195,6 +1208,12 @@
 			name = OTelKit.xcframework;
 			path = .deps/OTelKit.xcframework;
 			sourceTree = SOURCE_ROOT;
+		};
+		1AE07975F841BEA6C46BF812 /* ORMWindow.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMWindow.m;
+			sourceTree = "<group>";
 		};
 		1BD60235BFFFEB2270AD79EE /* ORMDocument.h */ = {
 			isa = PBXFileReference;
@@ -1769,6 +1788,12 @@
 			path = ORMDeriver.m;
 			sourceTree = "<group>";
 		};
+		86AB9FAFC946712CD4248966 /* ORMWindow.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMWindow.h;
+			sourceTree = "<group>";
+		};
 		86CE28AC08510FC853003C51 /* ORMNormalizer.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -2173,6 +2198,12 @@
 			path = ORMAppDelegate.h;
 			sourceTree = "<group>";
 		};
+		DBDEB203104719CF14F1B18D /* ORMWindowTests.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMWindowTests.m;
+			sourceTree = "<group>";
+		};
 		DCD36BEFF925FD84E6C7A1B9 /* Sparkle.xcframework */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = wrapper.xcframework;
@@ -2515,6 +2546,7 @@
 				13110F95DFE652EF2EA97CE6 /* ORMTextTests.m */,
 				C0665AB5ABADF57083755AD8 /* ORMValuePatternTests.m */,
 				0EEEAC66689D2FB46B75A54E /* ORMVerbalizerTests.m */,
+				DBDEB203104719CF14F1B18D /* ORMWindowTests.m */,
 				570B77BE41ECF63253C618A7 /* ORMWriterTests.m */,
 			);
 			path = ORMKitTests;
@@ -2542,6 +2574,8 @@
 				26AEE745C0107D3A2537BE13 /* ORMTuple.m */,
 				A12999F62C1AEC6336AF8D78 /* ORMValidator.h */,
 				E4DA127DFA66CE73DA9FDC44 /* ORMValidator.m */,
+				86AB9FAFC946712CD4248966 /* ORMWindow.h */,
+				1AE07975F841BEA6C46BF812 /* ORMWindow.m */,
 			);
 			path = ORMRuntime;
 			sourceTree = "<group>";
@@ -2738,6 +2772,7 @@
 				3B864043033EA6D038FE3ABB /* ORMQueryPlan.h */,
 				8388339255EA6691DFA06F47 /* ORMQueryInterpreter.h */,
 				BED20DC0B095CC5AFBD0DFE7 /* ORMTuple.h */,
+				573E4C9098875E62BE691735 /* ORMWindow.h */,
 				54707845230900C47086D8BC /* ORMCursor.h */,
 				AC482BC65D31DAC2093E7429 /* ORMQueryOData.h */,
 				5B8283E1E684E5471A49FB2D /* ORMTables.h */,
@@ -3047,6 +3082,7 @@
 				99831D34C642FD3CFA4CD5BE /* ORMQueryInterpreter.m */,
 				F15FE67197E1ED375B7D951F /* ORMCursor.m */,
 				605984CD66B32B407417F8E0 /* ORMTuple.m */,
+				BC69D3EE811F82FB16A400F6 /* ORMWindow.m */,
 				BDAC91D0B29FE474368C5F7F /* ORMQueryOData.m */,
 				A20FC48761C1C37839E917F9 /* ORMTables.m */,
 				865877A8C4AA1D2231E76213 /* ORMSaveHook.m */,
@@ -3132,6 +3168,7 @@
 				C917DFC2EA5F780E0F3E2FB8 /* ORMSubtypeDerivationTests.m */,
 				BA5CC1CB90014A2EFE9DB267 /* ORMQueryExpressionTests.m */,
 				FF5F3907A01D1896B4B241FE /* ORMDerivationPathTests.m */,
+				F4EE50B51BE7FD21B550261E /* ORMWindowTests.m */,
 				CFD25F2B8547C66FEDF463D4 /* ORMReferenceDataTests.m */,
 				3A9781E342C2DAA4E77B3379 /* ORMSVGTests.m */,
 				BB7D1D14489381283134B535 /* ORMVerbalizerTests.m */,

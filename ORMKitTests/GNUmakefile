@@ -21,6 +21,7 @@ ORMKitTests_OBJC_FILES = \
   ORMSubtypeDerivationTests.m \
   ORMQueryExpressionTests.m \
   ORMDerivationPathTests.m \
+  ORMWindowTests.m \
   ORMReferenceDataTests.m \
   ORMSVGTests.m \
   ORMVerbalizerTests.m \

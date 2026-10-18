@@ -194,6 +194,22 @@ ORMPlanKindNames(void)
 	return value;
 }
 
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
+                   window:(NSString *)windowColumn
+               comparison:(NSString *)comparison
+                     than:(ORMPlanValue *)than
+{
+	ORMPlanValue *value = [self aggregate:function of:column in:bag where:groupColumn is:groupPath];
+	value->_windowColumn = [windowColumn copy];
+	value->_windowComparison = [comparison copy];
+	value->_windowValue = than;
+	return value;
+}
+
 + (instancetype)apply:(NSString *)function to:(NSArray<ORMPlanValue *> *)operands
 {
 	ORMPlanValue *value = [[self alloc] init];
@@ -214,6 +230,7 @@ ORMPlanKindNames(void)
 	for (ORMPlanValue *operand in [(_operands ?: @[]) arrayByAddingObjectsFromArray:_alsoValues ?: @[]]) {
 		[paths addObjectsFromArray:[operand paths]];
 	}
+	[paths addObjectsFromArray:[_windowValue paths] ?: @[]];
 	return paths;
 }
 
@@ -262,6 +279,9 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 		NSMutableString *where = [NSMutableString stringWithFormat:@"%@ is %@", ORMColumnTitle(_bag, _groupColumn), _groupPath];
 		for (NSUInteger i = 0; i < [_alsoColumns count]; i++) {
 			[where appendFormat:@", %@ is %@", ORMColumnTitle(_bag, [_alsoColumns objectAtIndex:i]), [_alsoValues objectAtIndex:i]];
+		}
+		if (_windowColumn != nil) {
+			[where appendFormat:@", %@ %@ %@", ORMColumnTitle(_bag, _windowColumn), _windowComparison, _windowValue];
 		}
 		return [NSString stringWithFormat:@"%@ in %@ where %@", of, _bag.name, where];
 	}
@@ -1042,7 +1062,7 @@ ORMBagValuesIn(ORMPlanCondition *condition, NSMutableArray *into)
 	ORMPlanColumn *group = [value.bag.plan columnOfNode:value.groupColumn ?: @""];
 	return [value.bag.plan.entityName isEqualToString:self.entityName] && group != nil && group.path.variable == nil
 		&& [group.path.keys count] == 0 && value.groupPath.variable == nil && [value.groupPath.keys count] <= 1
-		&& [value.alsoColumns count] == 0;
+		&& [value.alsoColumns count] == 0 && value.windowColumn == nil;
 }
 
 - (NSArray<NSArray<NSString *> *> *)trailsFromRead
@@ -1252,6 +1272,11 @@ ORMValueList(ORMPlanValue *value)
 			}
 			[list setObject:value.alsoColumns forKey:@"alsoWhere"];
 			[list setObject:values forKey:@"alsoAre"];
+		}
+		if (value.windowColumn != nil) {
+			[list setObject:value.windowColumn forKey:@"window"];
+			[list setObject:value.windowComparison forKey:@"windowIs"];
+			[list setObject:ORMValueList(value.windowValue) forKey:@"than"];
 		}
 		return list;
 	}
@@ -1703,6 +1728,20 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 				return nil;
 			}
 			[values addObject:also];
+		}
+		id window = [list objectForKey:@"window"];
+		if (window != nil) {
+			id comparison = [list objectForKey:@"windowIs"];
+			if (![window isKindOfClass:[NSString class]] || [values count] > 0
+			    || ![@[ @"<", @"<=", @">", @">=" ] containsObject:comparison ?: @""]) {
+				*error = ORMPlanError(@"an aggregate's window is a column, compared (<, <=, >, >=) with a value.");
+				return nil;
+			}
+			ORMPlanValue *than = ORMReadValueIn([list objectForKey:@"than"], defined, error);
+			if (than == nil) {
+				return nil;
+			}
+			return [ORMPlanValue aggregate:function of:of in:bag where:where is:is window:window comparison:comparison than:than];
 		}
 		return [ORMPlanValue aggregate:function of:of in:bag where:where is:is also:alsoWhere are:values];
 	}
