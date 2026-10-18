@@ -319,6 +319,9 @@
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
 	ORMQueryPlan *plan = [planner planForQuery:query];
 	XCTAssertEqualObjects(plan.notes, @[]);
+	/* A bag for each aggregate, each once: the others it does not use are
+	 * not in it. */
+	XCTAssertEqual([plan.definitions count], 3u, @"%@", [plan text]);
 	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
 	NSError *error = nil;
 	NSManagedObjectContext *context = [store newContextWithError:&error];
@@ -375,6 +378,8 @@
 	XCTAssertNil([planner.coreData entityNamed:@"Currency"]);
 	plan = [planner planForQuery:query];
 	XCTAssertEqualObjects(plan.notes, @[]);
+	/* And the rates' members, once, wherever they are joined. */
+	XCTAssertEqual([plan.definitions count], 4u, @"%@", [plan text]);
 	store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
 	context = [store newContextWithError:&error];
 	XCTAssertNotNil(context, @"%@", error);

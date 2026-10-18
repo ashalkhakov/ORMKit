@@ -155,6 +155,10 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	/* The bags being made around this planning, by "group node/node": an
 	 * aggregate of one of them is left out of what it is made of. */
 	NSSet<NSString *> *_bagging;
+	/* Planning a bag: the value nodes it needs (listed by it, with a
+	 * condition, compared with, or used by one it needs); others are left
+	 * out of it. */
+	NSSet<NSString *> *_neededValues;
 }
 
 - (instancetype)initWithCoreData:(ORMCDModel *)coreData
@@ -413,6 +417,14 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 /* A set named in the plan, its plan reading the entity. */
 - (ORMPlanDefinition *)define:(NSString *)prefix plan:(ORMQueryPlan *)plan
 {
+	/* One the plan defines already, the same: that one (a join's members,
+	 * read the same wherever they are). */
+	NSString *text = [plan text];
+	for (ORMPlanDefinition *each in _definitions) {
+		if ([each.name hasPrefix:prefix] && [[each.plan text] isEqualToString:text]) {
+			return each;
+		}
+	}
 	ORMPlanDefinition *definition = [ORMPlanDefinition definitionNamed:[NSString stringWithFormat:@"%@%lu", prefix,
 	                                                                                               (unsigned long)[_definitions count] + 1]
 	                                                              plan:plan];
@@ -701,6 +713,9 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	 * with them ("the one before"). */
 	NSMutableArray *pending = [NSMutableArray array];
 	for (ORMQueryNode *value in node.values) {
+		if (_bagNodes != nil && ![_neededValues containsObject:value.identifier]) {
+			continue;
+		}
 		if (value.expression.kind == ORMQueryExpressionAggregate && [self canPlan:value]) {
 			ORMPlanCondition *condition = [self conditionForValue:value columns:columns];
 			if (condition != nil) {
@@ -968,6 +983,70 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	return [self aggregate:function of:node for:group also:@[]];
 }
 
+/* The value nodes a bag listing the nodes needs: those it lists, those
+ * with a condition, those another node is compared with (a value node,
+ * where it is needed), and what a needed one uses. */
+- (NSSet<NSString *> *)valuesNeededBy:(NSSet<NSString *> *)listed
+{
+	NSMutableSet *needed = [NSMutableSet set];
+	NSArray *nodes = [_query nodes];
+	NSMutableDictionary *byId = [NSMutableDictionary dictionary];
+	for (ORMQueryNode *node in nodes) {
+		[byId setObject:node forKey:node.identifier ?: @""];
+	}
+	for (BOOL more = YES; more;) {
+		more = NO;
+		for (ORMQueryNode *node in nodes) {
+			NSMutableArray *wanted = [NSMutableArray array];
+			if (node.isValue && ([listed containsObject:node.identifier] || node.comparison != nil)) {
+				[wanted addObject:node];
+			}
+			if (node.comparedNode.isValue && (!node.isValue || [needed containsObject:node.identifier])) {
+				[wanted addObject:node.comparedNode];
+			}
+			if (node.isValue && [needed containsObject:node.identifier]) {
+				for (NSString *used in [node.expression nodeIds]) {
+					ORMQueryNode *each = [byId objectForKey:used];
+					if (each.isValue) {
+						[wanted addObject:each];
+					}
+				}
+			}
+			for (ORMQueryNode *each in wanted) {
+				if (![needed containsObject:each.identifier]) {
+					[needed addObject:each.identifier];
+					more = YES;
+				}
+			}
+		}
+	}
+	return needed;
+}
+
+/* An aggregate value node's bag's key, as it is planned; nil for another. */
+- (NSString *)bagKeyOfValue:(ORMQueryNode *)value
+{
+	if (!value.isValue || value.expression.kind != ORMQueryExpressionAggregate) {
+		return nil;
+	}
+	NSMutableDictionary *byId = [NSMutableDictionary dictionary];
+	for (ORMQueryNode *each in [_query nodes]) {
+		[byId setObject:each forKey:each.identifier ?: @""];
+	}
+	ORMQueryNode *of = [byId objectForKey:[[value.expression.arguments firstObject] nodeId] ?: @""];
+	ORMQueryNode *group = nil;
+	NSMutableArray *others = [NSMutableArray array];
+	for (NSString *groupId in value.expression.groups) {
+		ORMQueryNode *each = [byId objectForKey:groupId];
+		if (group == nil && each != nil && !each.isValue) {
+			group = each;
+		} else if (each != nil) {
+			[others addObject:each];
+		}
+	}
+	return of != nil && group != nil ? [self bagKeyOf:of for:group also:others] : nil;
+}
+
 /* A bag's key: what it is for, and of. */
 - (NSString *)bagKeyOf:(ORMQueryNode *)node for:(ORMQueryNode *)group also:(NSArray<ORMQueryNode *> *)others
 {
@@ -1015,7 +1094,21 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		[alsoValues addObject:its];
 	}
 	NSString *key = [self bagKeyOf:node for:group also:others];
-	ORMPlanDefinition *bag = [_bags objectForKey:key];
+	/* A bag is what it is made of, which leaves out the aggregates being
+	 * made around it that it would use: kept by both, and shared by every
+	 * planning, nested ones too. */
+	NSSet *around = [(_bagging ?: [NSSet set]) setByAddingObject:key];
+	NSSet *needed = [self valuesNeededBy:nodes];
+	NSMutableArray *excluded = [NSMutableArray array];
+	for (ORMQueryNode *each in [_query nodes]) {
+		NSString *itsKey = [needed containsObject:each.identifier] ? [self bagKeyOfValue:each] : nil;
+		if (itsKey != nil && [around containsObject:itsKey]) {
+			[excluded addObject:itsKey];
+		}
+	}
+	NSString *cached = [NSString stringWithFormat:@"%@|%@", key,
+	                                              [[excluded sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@";"]];
+	ORMPlanDefinition *bag = [_bags objectForKey:cached];
 	if (bag == nil) {
 		ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
 		planner->_query = _query;
@@ -1028,14 +1121,15 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		planner->_outers = _outers;
 		/* What it defines, the query's too, before it. */
 		planner->_definitions = _definitions;
-		planner->_bags = [NSMutableDictionary dictionary];
+		planner->_bags = _bags;
 		planner->_bagNodes = nodes;
+		planner->_neededValues = needed;
 		planner->_bagging = [(_bagging ?: [NSSet set]) setByAddingObject:key];
 		ORMQueryPlan *plan = [planner planned];
 		_variables = planner->_variables;
 		_outers = planner->_outers;
 		bag = [self define:@"bag" plan:plan];
-		[_bags setObject:bag forKey:key];
+		[_bags setObject:bag forKey:cached];
 	}
 	/* The group as its column has it: by its identifier, where it has one. */
 	ORMPlanPath *groupPath = [self pathOf:place];

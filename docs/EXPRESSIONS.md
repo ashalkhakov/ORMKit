@@ -273,9 +273,15 @@ As built:
   Where a mapping absorbs a currency as its code
   (`AbsorbIdentifierTypes`), the steps from it to its rates, a fact type
   kept as an entity of its own, are joins on the code: each rate whose
-  base is the code, bound, optional for a maybe. Each aggregate's bag
-  plans the others it uses again, so such a plan defines many sets; it
-  runs, and sharing them is for later.
+  base is the code, bound, optional for a maybe.
+- **One set for each aggregate.** A bag plans only the value nodes it
+  needs: those it lists, those with a condition, those compared with, and
+  what those use; the others, aggregates among them, are not in it. Bags
+  are shared by every planning, nested ones too, kept by the aggregate
+  and by which of the aggregates it uses are being made around it; and a
+  set planned the same twice (a join's members) is defined once. Logbook's
+  `CostsByMonth` went from 47 sets to 4: a bag for each of its three
+  aggregates, and the rates' members.
 
 ### Computed facts (F)
 
@@ -448,3 +454,6 @@ Logbook's model, as the earlier items did.
 - OData `$apply` for grouped lists, and `$compute` for listed value nodes,
   where the service has them; computing in the store where FreeCoreData's
   SQLite store can, as Apple's does.
+- Profiling the runtime: how long a plan takes as the store grows, bags
+  run whole where their group is not reached from the object read, rows
+  sorted in memory.
