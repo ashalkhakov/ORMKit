@@ -6,9 +6,9 @@ derivation says what facts follow ([RULES.md](RULES.md),
 [DERIVATION.md](DERIVATION.md)). None of them can compute a value from
 others: a trip's length from where it started and ended, a service's cost
 less its discount, the litres per hundred kilometres between two fill-ups.
-This is the design for that, in [steps](#steps); steps 1 to 5, value
-nodes with arithmetic, aggregates, dates and grouping, and reference data,
-are built.
+This is the design for that, in [steps](#steps), all six built: value
+nodes with arithmetic, aggregates, dates and grouping, reference data, and
+computed facts.
 
 ## What needs it
 
@@ -261,6 +261,34 @@ stored, it is expanded into the query that goes through it, value node and
 all; derived and stored, it is computed at save (DERIVATION.md, step 6),
 as a stored derivation is today.
 
+As built:
+- **A ticked value node is a role's column**, of the role's player's
+  value type (`derivedColumns`):
+
+  ```
+  Derivation of "Trip lasted Minutes":
+  ✓Trip
+    + was at Moment1
+    + ended at Moment2
+    ✓Minutes: Minutes = minutes(Moment1, Moment2)
+  ```
+
+  Said "that Trip lasted Minutes if and only if ... and Minutes is the
+  number of minutes from Moment1 to Moment2".
+- **Gone through**, the step's node is the value node, with what the query
+  says of it (`+ lasted ✓Minutes > 60`). No step starts from a role its
+  rule computes, nor goes on from one: there is no object there.
+- **Stored**, the population's facts are made from the rule's rows (a
+  value no instance has, as a new one), and the save hook sets the
+  attribute to the computed column's value, for each object a change
+  reaches.
+- **A role played by a type identified by several values** (Money, an
+  amount and a currency; Distance) is not computed yet: a value node is
+  one value. Logbook's service cost and reminder's due distance wait for
+  that.
+- **The outline writes a value node's type** where it is not the one taken
+  from the first node it uses, so that it reads back.
+
 ### In the file
 
 A value node is a child of the node it is computed for, beside its steps,
@@ -372,9 +400,11 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
    length in its driver's unit. Money in the user's currency, the rate on
    or before a record's date, is "the one before" over rates users enter,
    not reference data; it comes with the reports' next round.
-6. **Computed facts** (F): projections of value nodes; derived and stored
-   ones computed at save. In Logbook: a service's cost stored, a trip's
-   distance derived, a reminder's due distance and date.
+6. **Computed facts** (F), done: projections of value nodes; derived and
+   stored ones computed at save. In Logbook: how long a trip lasted
+   ("Trip lasted Minutes"). A service's cost, a trip's distance and a
+   reminder's due distance are played by types of two values each, for
+   later.
 
 Each step lands with its tests on both platforms and its part of
 Logbook's model, as the earlier items did.
@@ -387,6 +417,8 @@ Logbook's model, as the earlier items did.
 - Units checked across joins, so that adding kilometres to miles is caught
   when the query is made.
 - Window functions (a running total, a rank).
+- Computed facts whose role's player is identified by several values
+  (Money, Distance): a value node for each part.
 - OData `$apply` for grouped lists, and `$compute` for listed value nodes,
   where the service has them; computing in the store where FreeCoreData's
   SQLite store can, as Apple's does.

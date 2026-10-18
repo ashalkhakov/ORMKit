@@ -993,9 +993,24 @@ ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionar
 	if (!ORMCollectTrails(self.condition, @{}, trails) || [self.definitions count] > 0) {
 		return nil;
 	}
+	NSMutableDictionary *bindings = [NSMutableDictionary dictionary];
+	ORMBindings(self.condition, @{}, bindings);
 	for (ORMPlanColumn *column in self.columns) {
 		if (column.value != nil) {
-			return nil;
+			/* Computed: what it is computed from; none of a bag's. */
+			if ([column.value usesBag]) {
+				return nil;
+			}
+			for (ORMPlanPath *path in [column.value paths]) {
+				NSArray *trail = ORMTrailOf(path, bindings);
+				if (trail == nil) {
+					return nil;
+				}
+				if ([trail count] > 0) {
+					[trails addObject:trail];
+				}
+			}
+			continue;
 		}
 		NSArray *trail = [self trailOfColumn:column];
 		if (trail == nil) {

@@ -123,6 +123,11 @@
 	XCTAssertNotNil(made, @"%@", reason);
 	XCTAssertEqualObjects([[ORMQuery queryWithId:made inModel:editor.model] outlineText],
 	                      [more stringByReplacingOccurrencesOfString:@"Double: Kilometres" withString:@"Double"]);
+	/* A type that is not what it would be taken to be is written. */
+	NSString *typed = @"✓Trip\n  + started at Kilometres\n  + has Note\n  Count: Kilometres = count(Note) for Trip\n";
+	made = [reader addQueryNamed:@"Typed" outline:typed reason:&reason];
+	XCTAssertNotNil(made, @"%@", reason);
+	XCTAssertEqualObjects([[ORMQuery queryWithId:made inModel:editor.model] outlineText], typed);
 }
 
 /* What the editor refuses, and undoes. */
@@ -738,6 +743,118 @@
 	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
 	XCTAssertNotNil(odata, @"%@", error);
 	XCTAssertEqualObjects([self datedRows:[self rowsOf:odata over:context] sorted:NO], expected, @"%@", [odata requestText]);
+}
+
+#pragma mark Computed facts
+
+/* A derivation lists a value node as a role's player: "Trip went
+ * Kilometres" derived from where it started and ended; queried through,
+ * the value node comes with it. Stored, "Trip covered Kilometres" is made
+ * in the population, and worked out at save. */
+- (void)testComputedFacts
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Kilometres is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Trip(.id) started at Kilometres\n"
+	                 @"Each Trip started at exactly one Kilometres.\n"
+	                 @"Trip ended at Kilometres\n"
+	                 @"Each Trip ended at exactly one Kilometres.\n"
+	                 @"Trip went Kilometres\n"
+	                 @"Each Trip went at most one Kilometres.\n"
+	                 @"Trip covered Kilometres\n"
+	                 @"Each Trip covered at most one Kilometres.\n"
+	                 @"\n"
+	                 @"Query WentRule:\n"
+	                 @"Derivation of \"Trip went Kilometres\":\n"
+	                 @"✓Trip\n"
+	                 @"  + started at Kilometres1\n"
+	                 @"  + ended at Kilometres2\n"
+	                 @"  ✓Length = Kilometres2 - Kilometres1\n"
+	                 @"\n"
+	                 @"Query CoveredRule:\n"
+	                 @"Derivation of \"Trip covered Kilometres\":\n"
+	                 @"✓Trip\n"
+	                 @"  + started at Kilometres1\n"
+	                 @"  + ended at Kilometres2\n"
+	                 @"  ✓Length = Kilometres2 - Kilometres1\n"
+	                 @"\n"
+	                 @"Query Long:\n"
+	                 @"✓Trip\n"
+	                 @"  + went ✓Kilometres > 100\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMQuery *rule = [self query:@"WentRule" in:model];
+	XCTAssertEqualObjects([[rule derivedColumns] valueForKey:@"designation"], (@[ @"Trip", @"Length" ]));
+	NSArray *said = [[[ORMVerbalizer alloc] initWithModel:model] sentencesForElement:rule.derivedFactType.identifier];
+	NSString *words = [[said valueForKey:@"text"] componentsJoinedByString:@"\n"];
+	XCTAssertTrue([words rangeOfString:@"Length is Kilometres2 minus Kilometres1"].location != NSNotFound, @"%@", words);
+
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	NSString *reason = nil;
+	for (NSArray *each in @[ @[ @"Trip started at Kilometres", @"1", @"100" ], @[ @"Trip ended at Kilometres", @"1", @"250" ],
+	                         @[ @"Trip started at Kilometres", @"2", @"300" ], @[ @"Trip ended at Kilometres", @"2", @"350" ] ]) {
+		ORMFactType *fact = [facts objectForKey:each[0]];
+		NSArray *roles = [fact visibleRoles];
+		XCTAssertNotNil(([editor.populationEditor addFactOf:fact.identifier
+		                                              named:@{ [roles[0] identifier]: each[1], [roles[1] identifier]: each[2] }
+		                                             reason:&reason]), @"%@", reason);
+	}
+	/* Through it: the value node in the query, compared and listed. */
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Long" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMQueryResult *result = [[[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]]
+		executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"1 150" ]), @"%@", [plan text]);
+	/* No step from a role its rule computes. */
+	NSString *from = [[[ORMOutlineReader alloc] initWithEditor:editor]
+		addQueryNamed:@"From" outline:@"✓Kilometres\n  + Trip went that Kilometres\n" reason:&reason];
+	XCTAssertNotNil(from, @"%@", reason);
+	XCTAssertTrue([[[planner planForQuery:[ORMQuery queryWithId:from inModel:model]].notes firstObject]
+	                  rangeOfString:@"its rule computes"].location != NSNotFound);
+
+	/* Stored: made in the population; worked out at save. */
+	ORMFactType *covered = [facts objectForKey:@"Trip covered Kilometres"];
+	XCTAssertTrue([editor.factTypeEditor setDerivationPartial:NO stored:YES of:covered.identifier reason:&reason], @"%@", reason);
+	XCTAssertTrue([editor.populationEditor bringStoredDerivationsUpToDate:&reason], @"%@", reason);
+	NSMutableArray *made = [NSMutableArray array];
+	for (ORMFactInstance *each in [covered instances]) {
+		NSMutableArray *players = [NSMutableArray array];
+		for (ORMRole *role in [covered visibleRoles]) {
+			[players addObject:[[each.instancesByRole objectForKey:role.identifier] displayText]];
+		}
+		[made addObject:[players componentsJoinedByString:@" "]];
+	}
+	XCTAssertEqualObjects([made sortedArrayUsingSelector:@selector(compare:)], (@[ @"1 150", @"2 50" ]));
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:model mapping:nil name:@"Trips"];
+	ORMTables *tables = [generator tables];
+	XCTAssertEqual([tables.derivations count], 1u, @"%@", generator.notes);
+	ORMStoredDerivation *derivation = [tables.derivations firstObject];
+	XCTAssertEqualObjects(derivation.kind, @"value");
+	planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	context = [store newContextWithError:&error];
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	[context performBlockAndWait:^{
+		NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"Trip"];
+		fetch.predicate = [NSPredicate predicateWithFormat:@"id == 1"];
+		NSManagedObject *trip = [[context executeFetchRequest:fetch error:NULL] firstObject];
+		XCTAssertEqualObjects([[trip valueForKey:derivation.target] description], @"150");
+		[trip setValue:[NSDecimalNumber decimalNumberWithString:@"300"] forKey:@"endedAtKilometres"];
+		NSMutableSet *changed = [NSMutableSet setWithSet:[context updatedObjects]];
+		NSError *failed = nil;
+		XCTAssertTrue([hook deriveInContext:context changed:changed error:&failed], @"%@", failed);
+		XCTAssertEqualObjects([[trip valueForKey:derivation.target] description], @"200");
+	}];
 }
 
 /* Rows as text, a moment as UTC ISO 8601 text, in order. */

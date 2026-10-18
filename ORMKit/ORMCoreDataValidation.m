@@ -1047,15 +1047,21 @@ ORMInDependencyOrder(NSArray<ORMQuery *> *derivations)
 
 /* The plan's columns for the object read and the node, by object: no
  * identifier's key, so that a row has the objects themselves, which a
- * relationship is set to. nil where the plan lists either by no path. */
+ * relationship is set to; a computed value as it is. nil where the plan
+ * lists the root by no path. */
 static ORMQueryPlan *
 ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 {
 	NSMutableArray *columns = [NSMutableArray array];
 	for (ORMQueryNode *each in @[ root, node ]) {
 		ORMPlanColumn *column = [plan columnOfNode:each.identifier];
-		if (column == nil || column.value != nil) {
+		if (column == nil || (column.value != nil && each == root)) {
 			return nil;
+		}
+		/* A value node's, computed: the value itself. */
+		if (column.value != nil) {
+			[columns addObject:column];
+			continue;
 		}
 		[columns addObject:[ORMPlanColumn columnTitled:column.title node:column.nodeId path:column.path
 		                                         trail:column.trail

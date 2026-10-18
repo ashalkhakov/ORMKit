@@ -727,6 +727,11 @@ ORMDerivationQuery(ORMFactType *fact, ORMModel *model, NSString **why)
 		if (column == nil || (id)column == [NSNull null]) {
 			return nil;
 		}
+		/* A value node, of what the role's player's values are. */
+		ORMObjectType *player = [[roles objectAtIndex:i] player];
+		if (column.isValue && column.objectType != player && column.objectType != [player valueType]) {
+			return nil;
+		}
 		[columns addObject:column];
 	}
 	return columns;
@@ -1032,6 +1037,11 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 	if (entry == NSNotFound) {
 		return [NSString stringWithFormat:@"\"%@\" is gone through by a role it does not show.", what];
 	}
+	if ([[columns objectAtIndex:entry] isValue]) {
+		return [NSString stringWithFormat:@"\"%@\" is gone through from a role its rule computes, which no step starts "
+		                                  @"from.",
+		                                  what];
+	}
 	NSString *why = nil;
 	ORMQueryPart *root = ORMReroot([columns objectAtIndex:entry], model, &why);
 	if (root == nil) {
@@ -1073,6 +1083,11 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 		ORMQueryPart *column = [columns objectAtIndex:index];
 		NSArray *more = [node steps];
 		NSArray *its = [column steps];
+		if (column.isValue && [more count] > 0) {
+			return [NSString stringWithFormat:@"\"%@\" is gone through to %@, which its rule computes: no step goes on "
+			                                  @"from it.",
+			                                  what, [roles[index] player].name];
+		}
 		if ([more count] > 0 && [its count] > 0 && (ORMCombinesWithOr(node) || ORMCombinesWithOr(column))
 		    && !([more count] == 1 && [its count] == 1)) {
 			return [NSString stringWithFormat:@"\"%@\" is gone through to %@, whose steps there are combined with or.",
@@ -1566,9 +1581,21 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 - (NSString *)nodeText:(ORMQueryNode *)node
 {
 	NSString *sort = node.sortOrder == ORMQueryAscending ? @" ↑" : node.sortOrder == ORMQueryDescending ? @" ↓" : @"";
-	/* A value node with what it computes: "Length = Quantity2 - Quantity1". */
-	NSString *computed = node.isValue
-		? [@" = " stringByAppendingString:[node.expression textWithDesignations:[self designationsById]]] : @"";
+	/* A value node with what it computes: "Length = Quantity2 - Quantity1";
+	 * its type where it is not the first node's it uses ("Minutes:
+	 * Minutes = minutes(Moment1, Moment2)"). */
+	NSString *computed = @"";
+	if (node.isValue) {
+		ORMQueryNode *first = nil;
+		NSString *firstId = node.expression.kind == ORMQueryExpressionAggregate && [node.expression.function isEqualToString:@"count"]
+			? nil : [[node.expression nodeIds] firstObject];
+		for (ORMQueryNode *each in [self nodes]) {
+			first = [each.identifier isEqualToString:firstId ?: @""] ? each : first;
+		}
+		NSString *typed = [first.objectType valueType] == node.objectType ? @""
+			: [NSString stringWithFormat:@": %@", node.objectType.name ?: @"?"];
+		computed = [NSString stringWithFormat:@"%@ = %@", typed, [node.expression textWithDesignations:[self designationsById]]];
+	}
 	return [NSString stringWithFormat:@"%@%@%@%@%@", node.isProjected ? @"✓" : @"", [node designation], computed,
 	                                  [self conditionText:node], sort];
 }
