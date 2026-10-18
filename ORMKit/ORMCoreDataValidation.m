@@ -1050,10 +1050,10 @@ ORMInDependencyOrder(NSArray<ORMQuery *> *derivations)
  * relationship is set to; a computed value as it is. nil where the plan
  * lists the root by no path. */
 static ORMQueryPlan *
-ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
+ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, NSArray<ORMQueryNode *> *nodes)
 {
 	NSMutableArray *columns = [NSMutableArray array];
-	for (ORMQueryNode *each in @[ root, node ]) {
+	for (ORMQueryNode *each in [@[ root ] arrayByAddingObjectsFromArray:nodes]) {
 		ORMPlanColumn *column = [plan columnOfNode:each.identifier];
 		if (column == nil || (column.value != nil && each == root)) {
 			return nil;
@@ -1074,8 +1074,11 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 /* The stored derived fact types worked out at save (docs/DERIVATION.md),
  * as the tables have them (docs/RUNTIME.md): those Core Data does not
  * derive itself, whose rule goes from the first role's player, the
- * property the second role is mapped to set to what it reaches. The
- * driver asks the rule of each object a change can reach, in memory. */
+ * property the second role is mapped to set to what it reaches (the
+ * properties of the parts of a player of several identifying values,
+ * where it is absorbed). Partly derived, only where the rule derives
+ * something. The driver asks the rule of each object a change can reach,
+ * in memory. */
 - (void)derivations
 {
 	ORMQueryPlanner *planner = nil;
@@ -1088,15 +1091,28 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 		NSString *what = [fact displayText];
 		NSString *why = nil;
 		NSArray *roles = [fact visibleRoles];
-		NSArray *columns = [query derivedColumns];
-		NSArray *target = [roles count] == 2 ? [_bySource objectForKey:[(ORMRole *)[roles lastObject] identifier]] : nil;
+		NSArray *groups = [query derivedColumnGroups];
+		ORMRole *far = [roles count] == 2 ? [roles lastObject] : nil;
+		NSArray *target = far != nil ? [_bySource objectForKey:far.identifier] : nil;
 		ORMCDEntity *entity = [target firstObject];
 		ORMCDProperty *property = [target lastObject];
-		if (rule.isPartial) {
-			why = @"partly derived: what is asserted and what is derived are kept in one property";
-		} else if ([roles count] != 2 || [columns count] != 2 || [columns firstObject] != query.root) {
+		/* A player of several identifying values, absorbed: its parts'
+		 * properties on the root's entity, in its identifier's order. */
+		NSMutableArray *targets = [NSMutableArray array];
+		BOOL parted = [ORMQuery partRolesOf:far.player] != nil;
+		if (parted && property == nil) {
+			entity = [_coreData entityWithSource:query.root.objectType.identifier]
+				?: [_coreData entityNamed:[ORMCoreDataMapper entityNameFor:query.root.objectType.name]];
+			ORMQueryPlaces *places = [[ORMQueryPlaces alloc] initWithCoreData:_coreData];
+			for (NSArray *keys in entity != nil ? [places identifyingPartsOfAbsorbed:far.player base:far.identifier on:entity] ?: @[] : @[]) {
+				[targets addObject:[keys firstObject]];
+			}
+		}
+		if ([roles count] != 2 || [groups count] != 2 || [[groups firstObject] firstObject] != query.root) {
 			why = @"its rule does not go from one role's player to the other's";
-		} else if (property == nil) {
+		} else if (parted && [targets count] != [[ORMQuery partRolesOf:far.player] count]) {
+			why = @"its player is identified by several values, kept in no properties of the object";
+		} else if (!parted && property == nil) {
 			why = @"it is mapped to no property";
 		} else if ([property isKindOfClass:[ORMCDAttribute class]] && ((ORMCDAttribute *)property).derivation != nil) {
 			/* Core Data derives it. */
@@ -1107,15 +1123,22 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 		if (why == nil) {
 			planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
 			ORMQueryPlan *planned = [planner planForQuery:query];
-			plan = [planned.notes count] == 0 ? ORMObjectColumns(planned, query.root, [columns lastObject]) : nil;
+			plan = [planned.notes count] == 0 ? ORMObjectColumns(planned, query.root, [groups lastObject]) : nil;
 			trails = [plan trailsFromRead];
-			if (plan == nil || ![plan.entityName isEqualToString:entity.name]) {
+			/* Of the entity, or a subentity of it (a Service's cost, kept on
+			 * Record): those objects have the property too. */
+			BOOL of = NO;
+			for (ORMCDEntity *at = plan != nil ? [_coreData entityNamed:plan.entityName] : nil; at != nil && !of;
+			     at = at.parentName != nil ? [_coreData entityNamed:at.parentName] : nil) {
+				of = [at.name isEqualToString:entity.name];
+			}
+			if (!of) {
 				why = @"its rule does not plan from the object the property is of";
-			} else if ([plan.definitions count] > 0 || trails == nil) {
+			} else if (trails == nil) {
 				why = @"its rule reads what no path from the object says, which is not asked of it in memory";
 			}
 		}
-		NSArray *backs = why == nil ? [self backsFrom:entity trails:trails] : nil;
+		NSArray *backs = why == nil ? [self backsFrom:[_coreData entityNamed:plan.entityName] trails:trails] : nil;
 		if (why == nil && backs == nil) {
 			why = @"a relationship on its path has no inverse";
 		}
@@ -1123,11 +1146,12 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 			[_notes addObject:[NSString stringWithFormat:@"%@: not worked out at save: %@.", what, why]];
 			continue;
 		}
-		NSString *kind = [property isKindOfClass:[ORMCDAttribute class]] ? @"value"
+		NSString *kind = parted ? @"values" : [property isKindOfClass:[ORMCDAttribute class]] ? @"value"
 			: (((ORMCDRelationship *)property).toMany ? @"objects" : @"object");
-		[_derivations addObject:[ORMStoredDerivation derivationWithText:what root:entity.name plan:plan
-		                                                         target:property.name
+		[_derivations addObject:[ORMStoredDerivation derivationWithText:what root:plan.entityName plan:plan
+		                                                        targets:parted ? targets : @[ property.name ]
 		                                                           kind:kind
+		                                                        partial:rule.isPartial
 		                                                          backs:backs]];
 	}
 }

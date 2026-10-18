@@ -1316,6 +1316,19 @@ ORMWrapPart(NSString *name, BOOL composite)
 				id player = [each.players objectForKey:roleId];
 				if ([player isKindOfClass:[ORMInstance class]]) {
 					[byRole setObject:[player identifier] forKey:roleId];
+				} else if ([player isKindOfClass:[NSDictionary class]]) {
+					/* An instance of several values, made of its parts. */
+					ORMRole *role = [_editor.model elementWithId:roleId];
+					NSMutableDictionary *parts = [NSMutableDictionary dictionary];
+					for (NSString *partRoleId in player) {
+						id part = [player objectForKey:partRoleId];
+						ORMRole *partRole = [_editor.model elementWithId:partRoleId];
+						[parts setObject:[part isKindOfClass:[ORMInstance class]] ? [part identifier]
+						                                                           : [population value:part of:partRole.player.identifier]
+						          forKey:partRoleId];
+					}
+					[byRole setObject:[population instanceOf:role.player.identifier identifiedBy:parts] forKey:roleId];
+					known = NO;
 				} else {
 					/* A value no instance has yet: made. */
 					ORMRole *role = [_editor.model elementWithId:roleId];
@@ -1330,12 +1343,23 @@ ORMWrapPart(NSString *name, BOOL composite)
 			[population factOf:factId players:byRole];
 		}
 		/* A fully derived one's facts the rule no longer derives go; a
-		 * partly derived one's may be asserted, and stay. */
-		if (!rule.isPartial) {
-			for (NSDictionary *byRole in stored) {
-				if (![kept containsObject:byRole]) {
-					[gone addObject:[stored objectForKey:byRole]];
-				}
+		 * partly derived one's may be asserted, and stay, but where each
+		 * object has at most one (a service's cost): the derived one
+		 * replaces it, as at save. */
+		NSArray *visible = [fact visibleRoles];
+		ORMRole *first = [visible firstObject];
+		BOOL functional = [visible count] == 2 && [fact hasUniquenessOverRoles:@[ first ]];
+		NSMutableSet *derivedFor = [NSMutableSet set];
+		for (ORMDerivedFact *each in functional ? [derived objectForKey:factId] : @[]) {
+			id player = [each.players objectForKey:first.identifier];
+			if ([player isKindOfClass:[ORMInstance class]]) {
+				[derivedFor addObject:[player identifier]];
+			}
+		}
+		for (NSDictionary *byRole in stored) {
+			BOOL replaced = functional && [derivedFor containsObject:[byRole objectForKey:first.identifier] ?: @""];
+			if (![kept containsObject:byRole] && (!rule.isPartial || replaced)) {
+				[gone addObject:[stored objectForKey:byRole]];
 			}
 		}
 	}

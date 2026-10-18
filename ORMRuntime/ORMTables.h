@@ -39,9 +39,23 @@ extern const NSUInteger ORMTablesFormat;
 @property (nonatomic, readonly, copy) NSString *root;
 @property (nonatomic, readonly, strong) ORMQueryPlan *plan;
 /* The property it is kept in, and what it holds: "value", "object" (one,
- * or none where there are none or several), or "objects". */
+ * or none where there are none or several), or "objects"; or "values",
+ * the properties a player of several identifying values is kept in (an
+ * absorbed Money's amount and currency), in targets, each set to its
+ * column after the first. */
 @property (nonatomic, readonly, copy) NSString *target;
 @property (nonatomic, readonly, copy) NSString *kind;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *targets;
+/* Partly derived: what is derived is set where the rule derives
+ * something; elsewhere what was asserted stays. */
+@property (nonatomic, readonly) BOOL partial;
++ (instancetype)derivationWithText:(NSString *)text
+                              root:(NSString *)root
+                              plan:(ORMQueryPlan *)plan
+                           targets:(NSArray<NSString *> *)targets
+                              kind:(NSString *)kind
+                           partial:(BOOL)partial
+                             backs:(NSArray<NSArray *> *)backs;
 /* The ways back from a change to the objects it can affect: for each
  * entity the plan reads through, the inverse keys from there to the root,
  * @[ entity, @[ key, ... ] ]. */

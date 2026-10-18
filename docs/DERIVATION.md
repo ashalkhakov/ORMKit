@@ -246,10 +246,23 @@ That takes the place of the dependency order of step 3.
      asks it of each affected root in memory
      (`-[ORMQueryInterpreter executePlan:ofObjects:inContext:error:]`), so
      unsaved changes count, and sets the property where it differs.
-     Conditions, nots and counts on the way are the plan's. One partly
-     derived, or one whose plan reads a set it defines, is in the
-     generator's notes. One Core Data derives itself (step 5) is left to
-     it.
+     Conditions, nots and counts on the way are the plan's. One Core Data
+     derives itself (step 5) is left to it.
+   - **Partly derived:** the property is set where the rule derives
+     something; elsewhere what was asserted stays. In the sample
+     population too, where each object has at most one (a service's
+     cost), the derived fact replaces its other one.
+   - **A computed value** (a value node, [EXPRESSIONS.md](EXPRESSIONS.md))
+     is the column the property is set to; a player of several values
+     (Money, absorbed as an amount and a currency) sets each part's
+     property (kind `values`).
+   - **An aggregate grouped by the object itself** (the sum of a service's
+     items) is asked of the same objects in memory: its bag's plan run over
+     them, its trails the bag's. One grouped otherwise, which only the
+     store can read, is in the generator's notes.
+   - **A rule that reads a subentity** of the property's entity (a
+     service's cost, kept on Record) is rooted there: those objects have
+     the property too.
    - Then each constraint query is checked again by the driver
      (`-[ORMSaveHook checkInContext:changed:violations:]`), for every root
      a change, a derived one included, reaches. An alethic violation

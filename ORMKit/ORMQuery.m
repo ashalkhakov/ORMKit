@@ -710,6 +710,70 @@ ORMDerivationQuery(ORMFactType *fact, ORMModel *model, NSString **why)
 	return derivations;
 }
 
++ (NSArray<ORMRole *> *)partRolesOf:(ORMObjectType *)player
+{
+	NSArray *roles = player.kind == ORMValueType ? nil : [player.preferredIdentifier allRoles];
+	return [roles count] > 1 ? roles : nil;
+}
+
+/* Whether the node can be a part's column: of the part's player, or its
+ * value type. */
+static BOOL
+ORMIsOfPart(ORMQueryNode *node, ORMRole *part)
+{
+	return node.objectType == part.player || (node.isValue && node.objectType == [part.player valueType]);
+}
+
+- (NSArray<NSArray<ORMQueryNode *> *> *)derivedColumnGroups
+{
+	NSArray *roles = [self.derivedFactType visibleRoles];
+	NSArray *projected = [self projectedNodes];
+	NSMutableArray *groups = [NSMutableArray array];
+	NSUInteger at = 0;
+	for (ORMRole *role in roles) {
+		NSArray *parts = [ORMQuery partRolesOf:role.player];
+		/* A node of the player itself, though it has parts. */
+		ORMQueryNode *next = at < [projected count] ? [projected objectAtIndex:at] : nil;
+		if (parts != nil && !next.isValue && (next.objectType == role.player || [next.objectType isSubtypeOf:role.player])) {
+			parts = nil;
+		}
+		if (parts == nil) {
+			if (at >= [projected count]) {
+				return nil;
+			}
+			ORMQueryNode *column = [projected objectAtIndex:at++];
+			BOOL fits = column.isValue ? (column.objectType == role.player || column.objectType == [role.player valueType])
+			                           : column.objectType == role.player || [column.objectType isSubtypeOf:role.player];
+			if (!fits) {
+				return nil;
+			}
+			[groups addObject:@[ column ]];
+			continue;
+		}
+		/* The next as many columns, each the part its type is, in the
+		 * identifier's order (a computed part comes after the steps). */
+		if (at + [parts count] > [projected count]) {
+			return nil;
+		}
+		NSMutableArray *taken = [[projected subarrayWithRange:NSMakeRange(at, [parts count])] mutableCopy];
+		at += [parts count];
+		NSMutableArray *group = [NSMutableArray array];
+		for (ORMRole *part in parts) {
+			ORMQueryNode *found = nil;
+			for (ORMQueryNode *node in taken) {
+				found = found ?: (ORMIsOfPart(node, part) ? node : nil);
+			}
+			if (found == nil) {
+				return nil;
+			}
+			[taken removeObjectIdenticalTo:found];
+			[group addObject:found];
+		}
+		[groups addObject:group];
+	}
+	return at == [projected count] ? groups : nil;
+}
+
 - (NSArray<ORMQueryNode *> *)derivedColumns
 {
 	NSArray *roles = [self.derivedFactType visibleRoles];
@@ -1781,6 +1845,9 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 	ORMFormula *formula = [self formulaOf:self.root variables:variables];
 	/* A derivation's in the order of its fact type's roles. */
 	NSArray *listed = (self.kind == ORMQueryDerivation ? [self derivedColumns] : nil) ?: [self projectedNodes];
+	if (self.kind == ORMQueryDerivation && [self derivedColumns] == nil && [self derivedColumnGroups] != nil) {
+		listed = [[self derivedColumnGroups] valueForKeyPath:@"@unionOfArrays.self"];
+	}
 	NSMutableArray *columns = [NSMutableArray array];
 	for (ORMQueryNode *node in listed) {
 		[columns addObject:[variables objectForKey:node.identifier]];
@@ -2042,10 +2109,9 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 	} else if ([_editor.model.derivationRules objectForKey:fact.identifier].hasRolePath
 	           || [_editor.model.derivationRules objectForKey:fact.identifier].hasExpression) {
 		why = @"It has NORMA's own derivation rule.";
-	} else if (other == nil && [_editor.model.derivationRules objectForKey:fact.identifier] != nil) {
-		/* A note of its own, which the query's words would replace. */
-		why = @"It has a derivation note of its own: clear it first.";
 	}
+	/* A note of its own gives way to the query's words; whether it is
+	 * partly derived and stored stays. */
 	if (why != nil) {
 		if (reason != NULL) {
 			*reason = why;

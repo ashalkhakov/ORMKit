@@ -1160,7 +1160,17 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			return [self binaryStep:step node:node property:property at:at columns:columns];
 		}
 		if ([[_places absorbedParts:node.role.identifier on:entity] count] > 0) {
-			return [self absorbed:node base:node.role.identifier entity:entity at:at columns:columns];
+			ORMPlanCondition *absorbed = [self absorbed:node base:node.role.identifier entity:entity at:at columns:columns];
+			/* Maybe: its parts are the object's own, reached and listed as
+			 * they are (nothing where there is none); nothing asked. */
+			if (step.operatorKind == ORMQueryMaybe) {
+				if ([self asksSomethingBelow:node]) {
+					[self note:[NSString stringWithFormat:@"%@ is absorbed: what is said of it under a maybe is not asked.",
+					                                      node.objectType.name]];
+				}
+				return nil;
+			}
+			return absorbed;
 		}
 	}
 	return [self entityStep:step entity:entity at:at columns:columns];
@@ -1428,6 +1438,26 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	                        comparison:step.countComparison
 	                          constant:[ORMPlanValue constant:step.aggregateValue ?: @""
 	                                                     type:((ORMCDAttribute *)last).attributeType]];
+}
+
+/* Whether the node, or one below it, has a condition: a comparison, a not,
+ * an alternative, a count; a label alone asks nothing. */
+- (BOOL)asksSomethingBelow:(ORMQueryNode *)node
+{
+	if (node.comparison != nil || node.combinesWithOr) {
+		return YES;
+	}
+	for (ORMQueryStep *step in node.steps) {
+		if (step.operatorKind == ORMQueryNot || step.countComparison != nil) {
+			return YES;
+		}
+		for (ORMQueryNode *next in step.nodes) {
+			if ([self asksSomethingBelow:next]) {
+				return YES;
+			}
+		}
+	}
+	return NO;
 }
 
 /* Whether what is below the node asks more of it than that it is there:

@@ -196,6 +196,14 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * the role its node says it is, else the one at its place; nil when they
  * are not one of each role. */
 - (NSArray<ORMQueryNode *> *)derivedColumns;
+/* The same, a role's columns each: one, or for a role played by a type
+ * identified by several values (Money: an amount and a currency), a
+ * ticked node for each, in its identifier's order, of each part's type.
+ * nil where they are not that. */
+- (NSArray<NSArray<ORMQueryNode *> *> *)derivedColumnGroups;
+/* The roles of the player's identifier where it is identified by several
+ * values, in order; nil otherwise. */
++ (NSArray<ORMRole *> *)partRolesOf:(ORMObjectType *)player;
 /* The query as the planner plans it (docs/DERIVATION.md): each step through
  * a derived fact type that is not stored put as its derivation's path, the
  * derivation's columns for the step's roles the step's nodes. The query
@@ -246,8 +254,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * constraint's modality, a calculation's function and node). */
 - (BOOL)setKind:(ORMQueryKind)kind ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* The fact type a derivation derives, written for NORMA too as the fact
- * type's DerivationRule (docs/DERIVATION.md). NO for a query of another
- * kind, a fact type another query derives, or one with NORMA's own rule. */
+ * type's DerivationRule (docs/DERIVATION.md): its words the query's, which
+ * a note the fact type has gives way to; whether it is partly derived and
+ * stored stays. NO for a query of another kind, a fact type another query
+ * derives, or one with NORMA's own rule. */
 - (BOOL)setDerivedFactType:(NSString *)factTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* The subtype a derivation derives: each instance of the query's root
  * type that it finds is one. Its root is a supertype of it. The subtype

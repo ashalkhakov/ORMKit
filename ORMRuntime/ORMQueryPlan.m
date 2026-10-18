@@ -904,8 +904,16 @@ ORMCompareTrails(NSArray *a, NSArray *b, void *context)
 
 /* What the condition reads, into trails; NO where it reads what no path
  * says. */
+static BOOL ORMCollectTrailsIn(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet *trails, BOOL bags);
+
 static BOOL
 ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet *trails)
+{
+	return ORMCollectTrailsIn(condition, bound, trails, NO);
+}
+
+static BOOL
+ORMCollectTrailsIn(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet *trails, BOOL bags)
 {
 	if (condition == nil) {
 		return YES;
@@ -915,13 +923,13 @@ ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet 
 	case ORMPlanAnd:
 	case ORMPlanOr:
 		for (ORMPlanCondition *operand in condition.operands) {
-			ok = ORMCollectTrails(operand, bound, trails) && ok;
+			ok = ORMCollectTrailsIn(operand, bound, trails, bags) && ok;
 		}
 		return ok;
 	case ORMPlanNot:
-		return ORMCollectTrails(condition.operand, bound, trails);
+		return ORMCollectTrailsIn(condition.operand, bound, trails, bags);
 	case ORMPlanCompare:
-		if ([condition.left usesBag] || [condition.right usesBag]) {
+		if (!bags && ([condition.left usesBag] || [condition.right usesBag])) {
 			return NO;
 		}
 		for (ORMPlanPath *path in [([condition.left paths] ?: @[]) arrayByAddingObjectsFromArray:[condition.right paths] ?: @[]]) {
@@ -958,12 +966,20 @@ ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet 
 				[trails addObject:value];
 			}
 		}
-		return ORMCollectTrails(condition.operand, inner, trails);
+		return ORMCollectTrailsIn(condition.operand, inner, trails, bags);
 	}
 	case ORMPlanMatches:
 		return NO;
 	}
 	return NO;
+}
+
+/* What the condition reads, as ORMCollectTrails, its bags' aggregates
+ * read already (their group paths are what is compared). */
+static BOOL
+ORMCollectTrailsAllowingBags(ORMPlanCondition *condition, NSMutableSet *trails)
+{
+	return ORMCollectTrailsIn(condition, @{}, trails, YES);
 }
 
 /* The variables bound where the condition binds them, to their trails. */
@@ -987,20 +1003,82 @@ ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionar
 	ORMBindings(condition.operand, inner, all);
 }
 
+/* The bags the value aggregates, its operands' too. */
+static void
+ORMBagValuesOf(ORMPlanValue *value, NSMutableArray *into)
+{
+	if (value.bag != nil) {
+		[into addObject:value];
+	}
+	for (ORMPlanValue *operand in [(value.operands ?: @[]) arrayByAddingObjectsFromArray:value.alsoValues ?: @[]]) {
+		ORMBagValuesOf(operand, into);
+	}
+}
+
+static void
+ORMBagValuesIn(ORMPlanCondition *condition, NSMutableArray *into)
+{
+	if (condition == nil) {
+		return;
+	}
+	if (condition.left != nil) {
+		ORMBagValuesOf(condition.left, into);
+	}
+	if (condition.right != nil) {
+		ORMBagValuesOf(condition.right, into);
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMBagValuesIn(operand, into);
+	}
+	ORMBagValuesIn(condition.operand, into);
+}
+
+/* Whether the aggregate's bag is of the object read itself: its plan
+ * reads the same entity, grouped by the object it reads, here the object
+ * read (by its identifier). Then what the bag reads is read from the
+ * object too. */
+- (BOOL)bagIsOfTheObjectRead:(ORMPlanValue *)value
+{
+	ORMPlanColumn *group = [value.bag.plan columnOfNode:value.groupColumn ?: @""];
+	return [value.bag.plan.entityName isEqualToString:self.entityName] && group != nil && group.path.variable == nil
+		&& [group.path.keys count] == 0 && value.groupPath.variable == nil && [value.groupPath.keys count] <= 1
+		&& [value.alsoColumns count] == 0;
+}
+
 - (NSArray<NSArray<NSString *> *> *)trailsFromRead
 {
 	NSMutableSet *trails = [NSMutableSet set];
-	if (!ORMCollectTrails(self.condition, @{}, trails) || [self.definitions count] > 0) {
+	/* Aggregates of bags of the object read: what each bag reads. */
+	NSMutableArray *bagged = [NSMutableArray array];
+	ORMBagValuesIn(self.condition, bagged);
+	for (ORMPlanColumn *column in self.columns) {
+		if (column.value != nil) {
+			ORMBagValuesOf(column.value, bagged);
+		}
+	}
+	NSMutableSet *bags = [NSMutableSet set];
+	for (ORMPlanValue *value in bagged) {
+		NSArray *theirs = [self bagIsOfTheObjectRead:value] ? [value.bag.plan trailsFromRead] : nil;
+		if (theirs == nil) {
+			return nil;
+		}
+		[trails addObjectsFromArray:theirs];
+		[bags addObject:value.bag.name];
+	}
+	/* Sets it defines are those bags, or ones they define. */
+	for (ORMPlanDefinition *definition in self.definitions) {
+		if (![bags containsObject:definition.name] && ![definition.name hasPrefix:@"bag"]) {
+			return nil;
+		}
+	}
+	if (!ORMCollectTrailsAllowingBags(self.condition, trails)) {
 		return nil;
 	}
 	NSMutableDictionary *bindings = [NSMutableDictionary dictionary];
 	ORMBindings(self.condition, @{}, bindings);
 	for (ORMPlanColumn *column in self.columns) {
 		if (column.value != nil) {
-			/* Computed: what it is computed from; none of a bag's. */
-			if ([column.value usesBag]) {
-				return nil;
-			}
+			/* Computed: what it is computed from; a bag's, above. */
 			for (ORMPlanPath *path in [column.value paths]) {
 				NSArray *trail = ORMTrailOf(path, bindings);
 				if (trail == nil) {

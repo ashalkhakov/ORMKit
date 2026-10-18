@@ -42,9 +42,26 @@ ORMIsBack(id back)
 @property (nonatomic, readwrite, copy) NSString *target;
 @property (nonatomic, readwrite, copy) NSString *kind;
 @property (nonatomic, readwrite, copy) NSArray<NSArray *> *backs;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *targets;
+@property (nonatomic, readwrite) BOOL partial;
 @end
 
 @implementation ORMStoredDerivation
+
++ (instancetype)derivationWithText:(NSString *)text
+                              root:(NSString *)root
+                              plan:(ORMQueryPlan *)plan
+                           targets:(NSArray<NSString *> *)targets
+                              kind:(NSString *)kind
+                           partial:(BOOL)partial
+                             backs:(NSArray<NSArray *> *)backs
+{
+	ORMStoredDerivation *derivation = [self derivationWithText:text root:root plan:plan target:[targets firstObject] kind:kind
+	                                                     backs:backs];
+	derivation.targets = targets;
+	derivation.partial = partial;
+	return derivation;
+}
 
 + (instancetype)derivationWithText:(NSString *)text
                               root:(NSString *)root
@@ -60,13 +77,22 @@ ORMIsBack(id back)
 	derivation.target = target;
 	derivation.kind = kind;
 	derivation.backs = backs ?: @[];
+	derivation.targets = target != nil ? @[ target ] : @[];
 	return derivation;
 }
 
 - (id)propertyList
 {
-	return @{ @"text": self.text ?: @"", @"root": self.root, @"plan": [self.plan propertyList], @"target": self.target,
-		      @"kind": self.kind, @"backs": self.backs };
+	NSMutableDictionary *list = [NSMutableDictionary dictionaryWithDictionary:@{
+		@"text": self.text ?: @"", @"root": self.root, @"plan": [self.plan propertyList], @"target": self.target,
+		@"kind": self.kind, @"backs": self.backs }];
+	if ([self.targets count] > 1) {
+		[list setObject:self.targets forKey:@"targets"];
+	}
+	if (self.partial) {
+		[list setObject:@YES forKey:@"partial"];
+	}
+	return list;
 }
 
 + (instancetype)derivationWithPropertyList:(id)list error:(NSError **)error
@@ -79,9 +105,14 @@ ORMIsBack(id back)
 	NSString *target = [list objectForKey:@"target"];
 	NSString *kind = [list objectForKey:@"kind"];
 	NSArray *backs = [list objectForKey:@"backs"];
-	if (!ORMIsText(root) || !ORMIsText(target) || ![@[ @"value", @"object", @"objects" ] containsObject:kind]
-	    || ![backs isKindOfClass:[NSArray class]]) {
-		*error = ORMTablesError(@"a derivation has its root, target, kind (value, object or objects) and backs.");
+	id targets = [list objectForKey:@"targets"] ?: (target != nil ? @[ target ] : @[]);
+	BOOL texts = [targets isKindOfClass:[NSArray class]] && [targets count] > 0;
+	for (id each in texts ? targets : @[]) {
+		texts = texts && ORMIsText(each);
+	}
+	if (!ORMIsText(root) || !ORMIsText(target) || ![@[ @"value", @"object", @"objects", @"values" ] containsObject:kind]
+	    || ![backs isKindOfClass:[NSArray class]] || !texts) {
+		*error = ORMTablesError(@"a derivation has its root, target, kind (value, object, objects or values) and backs.");
 		return nil;
 	}
 	for (id back in backs) {
@@ -94,11 +125,12 @@ ORMIsBack(id back)
 	if (plan == nil) {
 		return nil;
 	}
-	if (![plan.entityName isEqualToString:root] || [plan.columns count] != 2) {
+	if (![plan.entityName isEqualToString:root] || [plan.columns count] != 1 + [targets count]) {
 		*error = ORMTablesError(@"a derivation's plan reads its root, and lists it and what it derives.");
 		return nil;
 	}
-	return [self derivationWithText:[list objectForKey:@"text"] root:root plan:plan target:target kind:kind backs:backs];
+	return [self derivationWithText:[list objectForKey:@"text"] root:root plan:plan targets:targets kind:kind
+	                        partial:[[list objectForKey:@"partial"] boolValue] backs:backs];
 }
 
 @end

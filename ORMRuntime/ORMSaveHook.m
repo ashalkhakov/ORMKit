@@ -57,6 +57,22 @@ ORMDerivedValue(NSArray<NSArray *> *rows, NSString *kind)
 	return [values count] == 1 ? [values anyObject] : nil;
 }
 
+/* The parts a derivation's rows give the object: the columns after the
+ * first, where all its rows give the same ones with none missing; nil
+ * otherwise. */
+static NSArray *
+ORMDerivedTuple(NSArray<NSArray *> *rows)
+{
+	NSMutableSet *tuples = [NSMutableSet set];
+	for (NSArray *row in rows) {
+		NSArray *tuple = [row subarrayWithRange:NSMakeRange(1, [row count] - 1)];
+		if (![tuple containsObject:[NSNull null]]) {
+			[tuples addObject:tuple];
+		}
+	}
+	return [tuples count] == 1 ? [tuples anyObject] : nil;
+}
+
 /* The object's property set to the value, where it differs. YES when it
  * was set. */
 static BOOL
@@ -155,7 +171,26 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
 			[rows addObject:row];
 		}
 		for (NSManagedObject *root in roots) {
-			id value = ORMDerivedValue([rowsOf objectForKey:root] ?: @[], derivation.kind);
+			NSArray *rows = [rowsOf objectForKey:root] ?: @[];
+			if ([derivation.kind isEqualToString:@"values"]) {
+				/* Each part's property its column: one tuple, or none. */
+				NSArray *tuple = ORMDerivedTuple(rows);
+				if (tuple == nil && derivation.partial) {
+					continue;
+				}
+				for (NSUInteger i = 0; i < [derivation.targets count]; i++) {
+					id part = tuple != nil ? [tuple objectAtIndex:i] : nil;
+					if (ORMSetDerived(root, [derivation.targets objectAtIndex:i], part == [NSNull null] ? nil : part, @"value")) {
+						[changed addObject:root];
+					}
+				}
+				continue;
+			}
+			id value = ORMDerivedValue(rows, derivation.kind);
+			/* Partly derived: what was asserted stays where nothing is. */
+			if (derivation.partial && (value == nil || ([value isKindOfClass:[NSSet class]] && [value count] == 0))) {
+				continue;
+			}
 			if (ORMSetDerived(root, derivation.target, value, derivation.kind)) {
 				[changed addObject:root];
 			}

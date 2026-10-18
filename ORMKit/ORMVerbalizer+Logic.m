@@ -70,6 +70,8 @@ ORMComparisonWords(NSString *name)
 
 /* How tightly a term binds, said: sums, products, a leading minus, then
  * anything else. */
+static NSUInteger ORMColumnCountOf(ORMFactType *fact);
+
 static NSInteger
 ORMArithmeticPrecedence(ORMTerm *term)
 {
@@ -976,7 +978,8 @@ ORMDerivationMark(ORMDerivationRule *rule)
 		/* The rule: "Employee1 reports to Employee2 if and only if ...",
 		 * without the mark, which the fact type's verbalization gives. */
 		ORMFactType *fact = query.derivedFactType;
-		if (fact == nil || [relation.columns count] != [[fact visibleRoles] count]) {
+		if (fact == nil || ([relation.columns count] != ORMColumnCountOf(fact)
+		                    && [relation.columns count] != [[fact visibleRoles] count])) {
 			[b plain:query.name ?: @"The derivation"];
 			[b keyword:fact == nil ? @" derives no fact type yet" : @" lists other than its fact type's roles"];
 			[self emit:b];
@@ -1006,6 +1009,18 @@ ORMDerivationMark(ORMDerivationRule *rule)
 	[self emit:b];
 }
 
+/* How many columns a derivation of the fact type lists: one for each role,
+ * a part each for a player of several identifying values. */
+static NSUInteger
+ORMColumnCountOf(ORMFactType *fact)
+{
+	NSUInteger count = 0;
+	for (ORMRole *role in [fact visibleRoles]) {
+		count += [[ORMQuery partRolesOf:role.player] count] ?: 1;
+	}
+	return count;
+}
+
 /* "* Employee1 reports to Employee2 if and only if Employee1 works for
  * some Branch that is headed by Employee2": the fact type's reading, its
  * roles the relation's columns in order, and the relation's formula. "if"
@@ -1033,12 +1048,39 @@ ORMDerivationMark(ORMDerivationRule *rule)
 			[phrase mention:column];
 		}
 	}
+	/* Each role's columns: one, or a part each for a player of several
+	 * identifying values. */
+	NSMutableArray *groups = [NSMutableArray array];
+	NSUInteger at = 0;
+	for (ORMRole *role in roles) {
+		NSUInteger count = [[ORMQuery partRolesOf:role.player] count] ?: 1;
+		/* A variable of the player itself, though it has parts. */
+		ORMVariable *next = at < [relation.columns count] ? [relation.columns objectAtIndex:at] : nil;
+		if (next.name == nil && (next.objectType == role.player || [next.objectType isSubtypeOf:role.player])) {
+			count = 1;
+		}
+		[groups addObject:at + count <= [relation.columns count]
+		                      ? [relation.columns subarrayWithRange:NSMakeRange(at, count)] : @[]];
+		at += count;
+	}
 	[b append:[self clause:[self readingOf:fact from:nil] terms:^ORMSpokenTerm *(ORMRole *role) {
 		NSUInteger index = [roles indexOfObjectIdenticalTo:role];
-		if (index == NSNotFound || index >= [relation.columns count]) {
+		NSArray *group = index != NSNotFound ? [groups objectAtIndex:index] : @[];
+		if ([group count] == 0) {
 			return ORMMakeTerm(nil, role.player.name, role.player.identifier);
 		}
-		return [phrase termFor:[relation.columns objectAtIndex:index]];
+		if ([group count] == 1) {
+			return [phrase termFor:[group firstObject]];
+		}
+		/* "the Money of Amount and Currency1". */
+		NSMutableArray *names = [NSMutableArray array];
+		for (ORMVariable *part in group) {
+			[names addObject:[phrase nameOf:part]];
+			[phrase mention:part];
+		}
+		ORMSpokenTerm *term = ORMMakeTerm(@"the", role.player.name, role.player.identifier);
+		term.value = [@"of " stringByAppendingString:[names componentsJoinedByString:@" and "]];
+		return term;
 	}]];
 	[b keyword:partial ? @" if " : @" if and only if "];
 	[phrase say:relation.formula from:[relation.columns firstObject] relative:NO into:b];
@@ -1061,7 +1103,8 @@ ORMDerivationMark(ORMDerivationRule *rule)
 	 * the same, plain. */
 	ORMQuery *query = [ORMQuery derivationOf:fact inModel:fact.model];
 	ORMRelation *queried = query != nil ? [query relation] : nil;
-	if (queried != nil && !queried.isIncomplete && [queried.columns count] == [[fact visibleRoles] count]) {
+	if (queried != nil && !queried.isIncomplete
+	    && ([queried.columns count] == ORMColumnCountOf(fact) || [queried.columns count] == [[fact visibleRoles] count])) {
 		[self emit:[self derivationOf:fact relation:queried mark:mark partial:rule.isPartial]];
 		return;
 	}

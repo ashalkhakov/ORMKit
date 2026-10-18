@@ -218,6 +218,10 @@ static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
 - (BOOL)holds:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings;
 /* Whether it aggregates a bag it defines, read with each batch. */
 - (BOOL)readsBags;
+/* The aggregates of bags it reads. */
+- (NSArray<ORMPlanValue *> *)bagValues;
+/* A bag's tuples, by group, worked out elsewhere (in memory). */
+- (void)keepGroups:(NSMapTable *)groups ofBag:(ORMPlanValue *)value;
 /* Whether it reads a bag, or a join it probes or fetches. */
 - (BOOL)needsAStore;
 @end
@@ -476,6 +480,19 @@ ORMBagKey(ORMPlanValue *value)
 - (BOOL)readsBags
 {
 	return [_bagValues count] > 0;
+}
+
+- (NSArray<ORMPlanValue *> *)bagValues
+{
+	return _bagValues ?: @[];
+}
+
+- (void)keepGroups:(NSMapTable *)groups ofBag:(ORMPlanValue *)value
+{
+	if (_bags == nil) {
+		_bags = [NSMutableDictionary dictionary];
+	}
+	[_bags setObject:groups forKey:ORMBagKey(value)];
 }
 
 - (BOOL)needsAStore
@@ -1774,12 +1791,37 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	if (run == nil) {
 		return nil;
 	}
-	if ([run readsBags]) {
-		if (error != NULL) {
-			*error = ORMInterpreterError(@"The plan aggregates a set it defines, which is read from the store, not "
-			                             @"asked of objects in memory.");
+	/* A bag of the object read: its plan asked of the same objects, its
+	 * tuples by each one. Another is read from the store. */
+	for (ORMPlanValue *value in [run bagValues]) {
+		if (![plan bagIsOfTheObjectRead:value]) {
+			if (error != NULL) {
+				*error = ORMInterpreterError(@"The plan aggregates a set it defines, which is read from the store, not "
+				                             @"asked of objects in memory.");
+			}
+			return nil;
 		}
-		return nil;
+		ORMQueryResult *bag = [self executePlan:value.bag.plan ofObjects:objects inContext:context error:error];
+		if (bag == nil) {
+			return nil;
+		}
+		NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.groupColumn ?: @""];
+		NSMapTable *groups = [NSMapTable strongToStrongObjectsMapTable];
+		NSMutableSet *given = [NSMutableSet set];
+		for (NSArray *tuple in bag.rows) {
+			if ([given containsObject:tuple] || column >= [tuple count]) {
+				continue;
+			}
+			[given addObject:tuple];
+			id each = [tuple objectAtIndex:column];
+			NSMutableArray *tuples = [groups objectForKey:each];
+			if (tuples == nil) {
+				tuples = [NSMutableArray array];
+				[groups setObject:tuples forKey:each];
+			}
+			[tuples addObject:tuple];
+		}
+		[run keepGroups:groups ofBag:value];
 	}
 	NSMutableArray *kept = [NSMutableArray array];
 	NSMutableArray *rows = [NSMutableArray array];

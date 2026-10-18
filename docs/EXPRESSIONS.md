@@ -307,9 +307,15 @@ As built:
   attribute to the computed column's value, for each object a change
   reaches.
 - **A role played by a type identified by several values** (Money, an
-  amount and a currency; Distance) is not computed yet: a value node is
-  one value. Logbook's service cost and reminder's due distance wait for
-  that.
+  amount and a currency) takes a ticked node for each part, found by its
+  type: a computed amount, and the currency the rule reaches. Said "that
+  Service cost the Money of Amount and Currency"; in the population, the
+  Money made of its parts where it is none yet; at save, each part's
+  property set (DERIVATION.md, step 6). A node of the player itself
+  still does for the role, as before.
+- **Partly derived and stored** ones are worked out too, where the rule
+  derives something (Logbook's service cost: its items less its
+  discount; any other record keeps the cost entered).
 - **The outline writes a value node's type** where it is not the one taken
   from the first node it uses, so that it reads back.
 
@@ -425,9 +431,8 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
    each at the rate on or before its day.
 6. **Computed facts** (F), done: projections of value nodes; derived and
    stored ones computed at save. In Logbook: how long a trip lasted
-   ("Trip lasted Minutes"). A service's cost, a trip's distance and a
-   reminder's due distance are played by types of two values each, for
-   later.
+   ("Trip lasted Minutes"); a service's cost, Money of two values, partly
+   derived and stored (`ServiceCost`).
 
 Each step lands with its tests on both platforms and its part of
 Logbook's model, as the earlier items did.
@@ -440,8 +445,6 @@ Logbook's model, as the earlier items did.
 - Units checked across joins, so that adding kilometres to miles is caught
   when the query is made.
 - Window functions (a running total, a rank).
-- Computed facts whose role's player is identified by several values
-  (Money, Distance): a value node for each part.
 - OData `$apply` for grouped lists, and `$compute` for listed value nodes,
   where the service has them; computing in the store where FreeCoreData's
   SQLite store can, as Apple's does.

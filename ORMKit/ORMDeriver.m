@@ -191,6 +191,33 @@ ORMRowValueIs(id value, ORMInstance *instance)
 	[_notes addObject:[NSString stringWithFormat:@"%@: %@", query.name, text]];
 }
 
+/* A row's parts as the instances or values that identify an instance of
+ * the role's player: @{ part role id: instance or text }; nil where an
+ * entity part has no instance. */
+- (NSDictionary *)partsOf:(NSArray *)values role:(ORMRole *)role
+{
+	NSArray *partRoles = [ORMQuery partRolesOf:role.player];
+	NSMutableDictionary *parts = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < [partRoles count] && i < [values count]; i++) {
+		ORMRole *part = [partRoles objectAtIndex:i];
+		id found = nil;
+		for (ORMInstance *instance in [part.player instances]) {
+			if (ORMRowValueIs([values objectAtIndex:i], instance)) {
+				found = instance;
+				break;
+			}
+		}
+		if (found == nil && part.player.kind == ORMValueType) {
+			found = ORMTextOfValue([values objectAtIndex:i]);
+		}
+		if (found == nil) {
+			return nil;
+		}
+		[parts setObject:found forKey:part.identifier];
+	}
+	return parts;
+}
+
 - (NSDictionary<NSString *, NSArray<ORMDerivedFact *> *> *)derivedFacts
 {
 	if (_facts != nil) {
@@ -223,17 +250,26 @@ ORMRowValueIs(id value, ORMInstance *instance)
 			[self note:query text:[plan.notes componentsJoinedByString:@" "]];
 			continue;
 		}
-		/* Each role's column in the row, by its node. */
-		NSArray *columns = [query derivedColumns];
+		/* Each role's columns in the row, by their nodes: one, or a part
+		 * each for a player of several identifying values. */
+		NSArray *groups = [query derivedColumnGroups];
 		NSMutableArray *at = [NSMutableArray array];
-		for (ORMQueryNode *node in columns) {
-			ORMPlanColumn *column = [plan columnOfNode:node.identifier];
-			NSUInteger index = column != nil ? [plan.columns indexOfObject:column] : NSNotFound;
-			if (index != NSNotFound) {
-				[at addObject:@(index)];
+		NSUInteger listed = 0;
+		for (NSArray *group in groups) {
+			NSMutableArray *indexes = [NSMutableArray array];
+			for (ORMQueryNode *node in group) {
+				ORMPlanColumn *column = [plan columnOfNode:node.identifier];
+				NSUInteger index = column != nil ? [plan.columns indexOfObject:column] : NSNotFound;
+				if (index != NSNotFound) {
+					[indexes addObject:@(index)];
+				}
+			}
+			if ([indexes count] == [group count]) {
+				[at addObject:indexes];
+				listed += [indexes count];
 			}
 		}
-		if ([plan.columns count] != [roles count] || [at count] != [roles count]) {
+		if ([plan.columns count] != listed || [at count] != [roles count]) {
 			[self note:query text:[NSString stringWithFormat:@"it lists %lu, and \"%@\" has %lu roles.",
 			                                                 (unsigned long)[plan.columns count],
 			                                                 [fact displayText],
@@ -256,8 +292,13 @@ ORMRowValueIs(id value, ORMInstance *instance)
 			NSMutableArray *key = [NSMutableArray array];
 			for (NSUInteger i = 0; i < [roles count]; i++) {
 				ORMRole *role = [roles objectAtIndex:i];
-				id value = [row objectAtIndex:[[at objectAtIndex:i] unsignedIntegerValue]];
-				if (value == [NSNull null]) {
+				NSArray *indexes = [at objectAtIndex:i];
+				NSMutableArray *parts = [NSMutableArray array];
+				for (NSNumber *index in indexes) {
+					[parts addObject:[row objectAtIndex:[index unsignedIntegerValue]]];
+				}
+				id value = [parts count] == 1 ? [parts firstObject] : parts;
+				if ([parts containsObject:[NSNull null]]) {
 					players = nil;
 					break;
 				}
@@ -271,6 +312,11 @@ ORMRowValueIs(id value, ORMInstance *instance)
 				if (player == nil && role.player.kind == ORMValueType) {
 					/* A value the population has no instance of. */
 					player = ORMTextOfValue(value);
+				}
+				if (player == nil && [parts count] > 1) {
+					/* An instance of several values none is yet: its parts, an
+					 * instance each, or a value's text. */
+					player = [self partsOf:parts role:role];
 				}
 				if (player == nil) {
 					players = nil;

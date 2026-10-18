@@ -857,6 +857,213 @@
 	}];
 }
 
+/* A computed fact whose player is identified by two values: a service's
+ * cost, Money (an amount and a currency), from its items less its
+ * discount. Partly derived and stored: a service with no items keeps the
+ * cost entered for it. */
+- (void)testAComputedFactOfTwoValues
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Amount is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Currency is an entity type.\n"
+	                 @"Reference Mode: .code\n"
+	                 @"Money has Amount\n"
+	                 @"Each Money has exactly one Amount.\n"
+	                 @"Money is in Currency\n"
+	                 @"Each Money is in exactly one Currency.\n"
+	                 @"For each Amount and Currency, at most one Money has that Amount and is in that Currency.\n"
+	                 @"This association with Amount and Currency provides the preferred identification scheme for Money.\n"
+	                 @"Service(.id) is paid in Currency\n"
+	                 @"Each Service is paid in exactly one Currency.\n"
+	                 @"Service had a discount of Money\n"
+	                 @"Each Service had a discount of at most one Money.\n"
+	                 @"Service cost Money\n"
+	                 @"++ The sum of its items' costs, less its discount.\n"
+	                 @"Each Service cost at most one Money.\n"
+	                 @"ServiceItem(.id) is part of Service\n"
+	                 @"Each ServiceItem is part of exactly one Service.\n"
+	                 @"ServiceItem cost Money\n"
+	                 @"Each ServiceItem cost exactly one Money.\n"
+	                 @"\n"
+	                 @"Query CostRule:\n"
+	                 @"Derivation of \"Service cost Money\":\n"
+	                 @"✓Service\n"
+	                 @"  + is paid in ✓Currency1\n"
+	                 @"  + ServiceItem is part of that Service\n"
+	                 @"    + cost Money1\n"
+	                 @"      + has Amount1\n"
+	                 @"      + is in Currency1\n"
+	                 @"  + maybe had a discount of Money2\n"
+	                 @"    + has Amount2\n"
+	                 @"  Items = total(Amount1) for Service\n"
+	                 @"  ✓Amount = Items - coalesce(Amount2, 0)\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMQuery *rule = [self query:@"CostRule" in:model];
+	NSArray *groups = [rule derivedColumnGroups];
+	XCTAssertEqual([groups count], 2u);
+	XCTAssertEqualObjects([[groups lastObject] valueForKey:@"designation"], (@[ @"Amount", @"Currency1" ]));
+	NSArray *said = [[[ORMVerbalizer alloc] initWithModel:model] sentencesForElement:rule.derivedFactType.identifier];
+	NSString *words = [[said valueForKey:@"text"] componentsJoinedByString:@"\n"];
+	XCTAssertTrue([words rangeOfString:@"that Service cost the Money of Amount and Currency if that Service"].location != NSNotFound,
+	              @"%@", words);
+
+	/* Its note gives way to the query's words; partly derived and stored
+	 * it stays. */
+	ORMFactType *cost = rule.derivedFactType;
+	NSString *reason = nil;
+	XCTAssertTrue([[cost derivationRule].informalText hasPrefix:@"For each Service, Amount and Currency"],
+	              @"%@", [cost derivationRule].informalText);
+	XCTAssertTrue([cost derivationRule].isPartial && [cost derivationRule].isStored);
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	for (NSArray *each in @[ @[ @"Service is paid in Currency", @"1", @"EUR" ], @[ @"Service is paid in Currency", @"2", @"EUR" ],
+	                         @[ @"ServiceItem is part of Service", @"1", @"1" ], @[ @"ServiceItem cost Money", @"1", @"100, EUR" ],
+	                         @[ @"ServiceItem is part of Service", @"2", @"1" ], @[ @"ServiceItem cost Money", @"2", @"50, EUR" ],
+	                         @[ @"Service had a discount of Money", @"1", @"20, EUR" ],
+	                         @[ @"Service cost Money", @"2", @"70, EUR" ],
+	                         @[ @"Service is paid in Currency", @"3", @"EUR" ], @[ @"ServiceItem is part of Service", @"3", @"3" ],
+	                         @[ @"ServiceItem cost Money", @"3", @"40, EUR" ] ]) {
+		ORMFactType *fact = [facts objectForKey:each[0]];
+		NSArray *roles = [fact visibleRoles];
+		XCTAssertNotNil(([editor.populationEditor addFactOf:fact.identifier
+		                                              named:@{ [roles[0] identifier]: each[1], [roles[1] identifier]: each[2] }
+		                                             reason:&reason]), @"%@: %@", each, reason);
+	}
+	/* In the population: service 1's from its items; service 2 keeps its own. */
+	XCTAssertTrue([editor.populationEditor bringStoredDerivationsUpToDate:&reason], @"%@", reason);
+	NSMutableArray *made = [NSMutableArray array];
+	for (ORMFactInstance *each in [cost instances]) {
+		NSMutableArray *players = [NSMutableArray array];
+		for (ORMRole *role in [cost visibleRoles]) {
+			[players addObject:[[each.instancesByRole objectForKey:role.identifier] displayText]];
+		}
+		[made addObject:[players componentsJoinedByString:@" "]];
+	}
+	XCTAssertEqualObjects([made sortedArrayUsingSelector:@selector(compare:)], (@[ @"1 130, 'EUR'", @"2 70, 'EUR'", @"3 40, 'EUR'" ]));
+
+	/* At save: the cost's parts, where the rule derives one. */
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:model mapping:nil name:@"Services"];
+	ORMTables *tables = [ORMTables tablesWithPropertyList:[[generator tables] propertyList] error:NULL];
+	XCTAssertEqual([tables.derivations count], 1u, @"%@", generator.notes);
+	ORMStoredDerivation *derivation = [tables.derivations firstObject];
+	XCTAssertEqualObjects(derivation.kind, @"values");
+	XCTAssertEqual([derivation.targets count], 2u);
+	XCTAssertTrue(derivation.partial);
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	NSString *amount = [derivation.targets firstObject];
+	[context performBlockAndWait:^{
+		NSFetchRequest *items = [NSFetchRequest fetchRequestWithEntityName:@"ServiceItem"];
+		items.predicate = [NSPredicate predicateWithFormat:@"id == 1"];
+		NSManagedObject *item = [[context executeFetchRequest:items error:NULL] firstObject];
+		NSString *itemAmount = nil;
+		for (NSString *key in [[item.entity attributesByName] allKeys]) {
+			itemAmount = [key hasSuffix:@"Amount"] ? key : itemAmount;
+		}
+		[item setValue:[NSDecimalNumber decimalNumberWithString:@"200"] forKey:itemAmount];
+		NSMutableSet *changed = [NSMutableSet setWithSet:[context updatedObjects]];
+		/* The item alone changed: the hook walks back to its service. */
+		NSFetchRequest *services = [NSFetchRequest fetchRequestWithEntityName:@"Service"];
+		services.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"id" ascending:YES] ];
+		NSError *failed = nil;
+		XCTAssertTrue([hook deriveInContext:context changed:changed error:&failed], @"%@", failed);
+		NSArray *found = [context executeFetchRequest:services error:NULL];
+		XCTAssertEqualObjects([[found valueForKey:amount] valueForKey:@"description"], (@[ @"230", @"70", @"40" ]));
+	}];
+}
+
+/* The same kept on a supertype: a record's cost, derived for those that
+ * are services; the rule reads Service, which has Record's properties. */
+- (void)testAComputedFactOfASubtype
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Amount is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Currency is an entity type.\n"
+	                 @"Reference Mode: .code\n"
+	                 @"Money has Amount\n"
+	                 @"Each Money has exactly one Amount.\n"
+	                 @"Money is in Currency\n"
+	                 @"Each Money is in exactly one Currency.\n"
+	                 @"For each Amount and Currency, at most one Money has that Amount and is in that Currency.\n"
+	                 @"This association with Amount and Currency provides the preferred identification scheme for Money.\n"
+	                 @"Record(.id) cost Money\n"
+	                 @"++ A service's: the sum of its items' costs.\n"
+	                 @"Each Record cost at most one Money.\n"
+	                 @"Each Service is a Record.\n"
+	                 @"Each Expense is a Record.\n"
+	                 @"Service is paid in Currency\n"
+	                 @"Each Service is paid in exactly one Currency.\n"
+	                 @"ServiceItem(.id) is part of Service\n"
+	                 @"Each ServiceItem is part of exactly one Service.\n"
+	                 @"ServiceItem cost Money\n"
+	                 @"Each ServiceItem cost exactly one Money.\n"
+	                 @"\n"
+	                 @"Query ServiceCost:\n"
+	                 @"Derivation of \"Record cost Money\":\n"
+	                 @"✓Record\n"
+	                 @"  + is Service\n"
+	                 @"    + is paid in ✓Currency1\n"
+	                 @"    + ServiceItem is part of that Service\n"
+	                 @"      + cost Money1\n"
+	                 @"        + has Amount1\n"
+	                 @"        + is in Currency1\n"
+	                 @"  ✓Amount = total(Amount1) for Record\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:model mapping:nil name:@"Records"];
+	ORMTables *tables = [ORMTables tablesWithPropertyList:[[generator tables] propertyList] error:NULL];
+	XCTAssertEqual([tables.derivations count], 1u, @"%@", generator.notes);
+	ORMStoredDerivation *derivation = [tables.derivations firstObject];
+	XCTAssertEqualObjects(derivation.root, @"Service");
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	NSString *reason = nil;
+	XCTAssertNotNil([editor.populationEditor addInstanceOf:[[model objectTypeNamed:@"Service"] identifier] named:@"1" reason:&reason]);
+	XCTAssertNotNil([editor.populationEditor addInstanceOf:[[model objectTypeNamed:@"Expense"] identifier] named:@"2" reason:&reason]);
+	for (NSArray *each in @[ @[ @"Service is paid in Currency", @"1", @"EUR" ], @[ @"ServiceItem is part of Service", @"1", @"1" ],
+	                         @[ @"ServiceItem cost Money", @"1", @"100, EUR" ], @[ @"Record cost Money", @"2", @"9, EUR" ] ]) {
+		ORMFactType *fact = [facts objectForKey:each[0]];
+		NSArray *roles = [fact visibleRoles];
+		XCTAssertNotNil(([editor.populationEditor addFactOf:fact.identifier
+		                                              named:@{ [roles[0] identifier]: each[1], [roles[1] identifier]: each[2] }
+		                                             reason:&reason]), @"%@: %@", each, reason);
+	}
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	NSString *amount = [derivation.targets firstObject];
+	[context performBlockAndWait:^{
+		NSManagedObject *item = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"ServiceItem"] error:NULL]
+			firstObject];
+		NSString *itemAmount = nil;
+		for (NSString *key in [[item.entity attributesByName] allKeys]) {
+			itemAmount = [key hasSuffix:@"Amount"] ? key : itemAmount;
+		}
+		[item setValue:[NSDecimalNumber decimalNumberWithString:@"120"] forKey:itemAmount];
+		NSError *failed = nil;
+		XCTAssertTrue([hook deriveInContext:context changed:[NSMutableSet setWithSet:[context updatedObjects]] error:&failed],
+		              @"%@", failed);
+		NSFetchRequest *records = [NSFetchRequest fetchRequestWithEntityName:@"Record"];
+		records.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"id" ascending:YES] ];
+		NSArray *found = [context executeFetchRequest:records error:NULL];
+		XCTAssertEqualObjects([[found valueForKey:amount] valueForKey:@"description"], (@[ @"120", @"9" ]));
+	}];
+}
+
 /* Rows as text, a moment as UTC ISO 8601 text, in order. */
 - (NSArray *)datedRows:(NSArray *)rows
 {

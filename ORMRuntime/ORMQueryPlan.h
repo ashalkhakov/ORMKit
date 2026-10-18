@@ -311,6 +311,11 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
  * values, a bag. What generated code walks back from a change to the
  * objects it can affect (docs/DERIVATION.md). */
 - (NSArray<NSArray<NSString *> *> *)trailsFromRead;
+/* Whether an aggregate's bag is of the object read itself: its plan reads
+ * the same entity, grouped by the object it reads, here the object read.
+ * Then it can be asked of the objects in memory, and what it reads is read
+ * from the object. */
+- (BOOL)bagIsOfTheObjectRead:(ORMPlanValue *)value;
 /* The key path of a column from the object read, its identifier left
  * out; nil for one computed, or past a join. */
 - (NSArray<NSString *> *)trailOfColumn:(ORMPlanColumn *)column;
