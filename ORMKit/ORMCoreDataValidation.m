@@ -673,7 +673,10 @@ ORMBound(NSString *value)
 	}
 	ORMConstraintQueries *builder = [[ORMConstraintQueries alloc] initWithEditor:_scratch];
 	builder.readable = readable;
+	/* Its queries' ids the same each time: they are in the plans written. */
+	ORMBeginIds([NSString stringWithFormat:@"rule.%@", constraint.identifier]);
 	NSArray *made = copy != nil ? [builder queriesFor:copy reason:&reason] : nil;
+	ORMEndIds();
 	/* All its rules, or none. */
 	BOOL plannable = made != nil;
 	for (NSString *identifier in made) {

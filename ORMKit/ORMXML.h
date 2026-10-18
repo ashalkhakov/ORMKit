@@ -86,6 +86,11 @@ void ORMPruneIfEmpty(NSXMLElement *element);
 
 /* An id as NORMA makes them: an underscore and an upper-case GUID. */
 NSString *ORMNewId(void);
+/* Ids made on this thread from now on are the prefix and a count
+ * ("_prefix.1", "_prefix.2"), until ORMEndIds: what is made of something
+ * generated is the same each time it is (generated code). Not nested. */
+void ORMBeginIds(NSString *prefix);
+void ORMEndIds(void);
 /* Every element of the document with the id. */
 NSXMLElement *ORMElementWithId(NSXMLDocument *document, NSString *elementId);
 /* Every element with an id, by it. */

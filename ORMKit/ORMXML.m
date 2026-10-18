@@ -373,7 +373,30 @@ ORMPruneIfEmpty(NSXMLElement *element)
 NSString *
 ORMNewId(void)
 {
+	NSMutableDictionary *thread = [[NSThread currentThread] threadDictionary];
+	NSString *prefix = [thread objectForKey:@"ORMIdPrefix"];
+	if (prefix != nil) {
+		NSUInteger count = [[thread objectForKey:@"ORMIdCount"] unsignedIntegerValue] + 1;
+		[thread setObject:@(count) forKey:@"ORMIdCount"];
+		return [NSString stringWithFormat:@"_%@.%lu", prefix, (unsigned long)count];
+	}
 	return [@"_" stringByAppendingString:[[[NSUUID UUID] UUIDString] uppercaseString]];
+}
+
+void
+ORMBeginIds(NSString *prefix)
+{
+	NSMutableDictionary *thread = [[NSThread currentThread] threadDictionary];
+	[thread setObject:prefix forKey:@"ORMIdPrefix"];
+	[thread setObject:@0 forKey:@"ORMIdCount"];
+}
+
+void
+ORMEndIds(void)
+{
+	NSMutableDictionary *thread = [[NSThread currentThread] threadDictionary];
+	[thread removeObjectForKey:@"ORMIdPrefix"];
+	[thread removeObjectForKey:@"ORMIdCount"];
 }
 
 NSXMLElement *

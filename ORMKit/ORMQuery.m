@@ -888,7 +888,9 @@ ORMFreshen(ORMQueryPart *tree, NSString *name, NSUInteger round)
 {
 	for (ORMQueryPart *part in [tree tree]) {
 		NSString *was = part.identifier;
-		NSString *now = ORMNewId();
+		/* The same each time, so that what is made of it is: its own id,
+		 * apart by the round. */
+		NSString *now = was != nil ? [NSString stringWithFormat:@"%@_%lu", was, (unsigned long)round] : ORMNewId();
 		part.identifier = now;
 		if (was != nil) {
 			ORMRenameNode(tree, was, now);
