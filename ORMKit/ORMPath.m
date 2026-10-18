@@ -272,6 +272,13 @@
  * ref/> or <Constant><Value>…</Value></Constant>, resolved later. */
 - (ORMPathSource *)sourceIn:(NSXMLElement *)container
 {
+	return [[self sourcesIn:container] firstObject];
+}
+
+/* Each of them, in order: an aggregation context's. */
+- (NSArray<ORMPathSource *> *)sourcesIn:(NSXMLElement *)container
+{
+	NSMutableArray *sources = [NSMutableArray array];
 	for (NSXMLNode *node in [container children]) {
 		if ([node kind] != NSXMLElementKind) {
 			continue;
@@ -288,14 +295,15 @@
 		} else if ([local isEqualToString:@"Constant"]) {
 			source.kind = ORMPathSourceConstant;
 			source.constant = ORMChildText(element, CORE, @"Value") ?: [element stringValue];
-			return source;
+			[sources addObject:source];
+			continue;
 		} else {
 			continue;
 		}
 		source.reference = ORMRef(element);
-		return source;
+		[sources addObject:source];
 	}
-	return nil;
+	return sources;
 }
 
 - (void)resolve:(ORMPathSource *)source
@@ -344,15 +352,30 @@
 	}
 	calculation.inputs = inputs;
 	calculation.parameterNames = names;
-	ORMPathSource *context = [self sourceIn:ORMChild(element, CORE, @"AggregationContext")];
-	if (context != nil) {
-		[sources addObject:context];
-		calculation.aggregationContext = @[ context ];
-	} else {
-		calculation.aggregationContext = @[];
-	}
+	NSArray *context = [self sourcesIn:ORMChild(element, CORE, @"AggregationContext")];
+	[sources addObjectsFromArray:context];
+	calculation.aggregationContext = context;
 	[self registerElement:calculation];
 	return calculation;
+}
+
+/* A lead path's ObjectUnifiers, on the roots and pathed roles each
+ * unifies: read after the path, which registers them. */
+- (void)readUnifiersOf:(NSXMLElement *)lead
+{
+	for (NSXMLElement *unifier in ORMGrandchildren(lead, CORE, @"ObjectUnifiers", CORE, @"ObjectUnifier")) {
+		NSString *unifierId = ORMAttribute(unifier, @"id");
+		for (NSXMLElement *member in ORMChildren(unifier, CORE, @"PathRoot")) {
+			ORMRolePath *path = [[self.extras objectForKey:@"roots"] objectForKey:ORMRef(member) ?: @""];
+			path.rootUnifierId = unifierId;
+		}
+		for (NSXMLElement *member in ORMChildren(unifier, CORE, @"PathedRole")) {
+			id pathed = [self elementWithId:ORMRef(member) ?: @""];
+			if ([pathed isKindOfClass:[ORMPathedRole class]]) {
+				[(ORMPathedRole *)pathed setUnifierId:unifierId];
+			}
+		}
+	}
 }
 
 /* A role path owner's paths, calculations and projections, under the
@@ -369,6 +392,7 @@
 	[leadElements addObjectsFromArray:ORMGrandchildren(element, CORE, @"PathComponent", CORE, @"RolePath")];
 	for (NSXMLElement *lead in leadElements) {
 		[paths addObject:[self readPath:lead parent:nil pending:pending]];
+		[self readUnifiersOf:lead];
 		[calculationElements addObjectsFromArray:ORMGrandchildren(lead, CORE, @"CalculatedValues", CORE,
 		                                                          @"CalculatedValue")];
 		for (NSXMLElement *condition in ORMGrandchildren(lead, CORE, @"Conditions", CORE, @"CalculatedCondition")) {
@@ -454,6 +478,13 @@
 	rule.noteId = ORMAttribute(note, @"id");
 	rule.hasRolePath = ORMChild(path, CORE, @"PathComponents") != nil || ORMChild(path, CORE, @"PathComponent") != nil;
 	rule.hasExpression = expression != nil;
+	/* A derivation query's rule: the role path NORMA has of it is the
+	 * query written, not a rule of its own. */
+	NSString *derived = ORMAttribute((NSXMLElement *)[element parent], @"id");
+	if (derived != nil && [[self.extras objectForKey:@"queryDerived"] containsObject:derived]) {
+		rule.hasRolePath = NO;
+		path = nil;
+	}
 	if (path != nil) {
 		[self readOwner:rule from:path
 		    projections:@[ @"DerivationProjections", @"DerivationProjection", @"RoleProjection", @"DerivationSource" ]];
@@ -594,6 +625,15 @@
 			}
 		}
 	}
+	/* What ORMKit's derivation queries derive, by id. */
+	NSMutableSet *queryDerived = [NSMutableSet set];
+	for (NSXMLElement *query in ORMChildren(ORMChild([self.document rootElement], ORMQueryNamespace, @"Queries"),
+	                                        ORMQueryNamespace, @"Query")) {
+		if ([ORMAttribute(query, @"Kind") isEqualToString:@"Derivation"] && ORMAttribute(query, @"Of") != nil) {
+			[queryDerived addObject:ORMAttribute(query, @"Of")];
+		}
+	}
+	[self.extras setObject:queryDerived forKey:@"queryDerived"];
 	NSMutableDictionary *derivations = [self.extras objectForKey:@"derivations"];
 	NSMutableDictionary *cardinalities = [self.extras objectForKey:@"cardinalities"];
 	for (ORMFactType *fact in self.factTypes) {

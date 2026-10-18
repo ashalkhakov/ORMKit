@@ -463,6 +463,10 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 	}
 	ORMWriteValues(element, query, ORMStoredQueryAttributes());
 	ORMWriteParts(document, element, query.root != nil ? @[ query.root ] : @[], @"Node");
+	/* A derivation's rule is the query, written as NORMA's path. */
+	if ([query.kind isEqualToString:@"Derivation"] && query.of != nil) {
+		[self writeDerivationOf:query.of];
+	}
 }
 
 @end

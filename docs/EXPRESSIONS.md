@@ -53,8 +53,8 @@ vehicle is kept" compares a moment with a date (C).
 - **NORMA** keeps calculations in its role paths: a `CalculatedValue` names
   a `Function` the model defines (a name, an operator symbol, parameters,
   "bag input" for an aggregate) and binds each parameter to a path root, a
-  pathed role, another calculated value or a constant. ORMKit reads them;
-  it does not write role paths for queries yet (DERIVATION.md, for later).
+  pathed role, another calculated value or a constant. ORMKit reads them,
+  and writes a derivation query's value nodes so (DERIVATION.md, step 9).
 
 ## The design
 
@@ -347,11 +347,10 @@ attributes a node has (`Projected`, `Comparison`, `Value`, `CompareTo`,
 `Sort`). An aggregate value node will keep today's attributes
 (`Aggregate`, `Of`, its group nodes).
 
-**For NORMA,** a derivation whose rule has value nodes is written, as
-today, as the fact type's informal rule (its verbalization); the role path
-with `CalculatedValue`s, and the `Function`s it names, is the "writing a
-query back as NORMA's role path" DERIVATION.md defers, and would come with
-it.
+**For NORMA,** a derivation whose rule has value nodes is written as the
+fact type's informal rule (its verbalization), and as its role path: each
+value node a `CalculatedValue` of a `Function` the model declares, a
+computed role projected from it (DERIVATION.md, step 9).
 
 ### Logic and words
 
@@ -447,8 +446,6 @@ Logbook's model, as the earlier items did.
 
 ## Not here, for later
 
-- Writing value nodes into NORMA's role paths (`CalculatedValue`,
-  `Function`), with DERIVATION.md's writing of queries back as role paths.
 - `latest(X by Y)` as sugar for "the one before".
 - Units checked across joins, so that adding kilometres to miles is caught
   when the query is made.

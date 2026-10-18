@@ -358,6 +358,12 @@
 - (void)readQueries;
 @end
 
+@interface ORMNormaWriter (ORMDerivations)
+/* The derivation rule of the fact type or subtype of the id written: a
+ * derivation query's path with it. */
+- (void)writeDerivationOf:(NSString *)identifier;
+@end
+
 @interface ORMNormaWriter (ORMQueries)
 /* A query's element, made where it has none, its values as the model's. */
 - (void)writeStoredQuery:(ORMStoredQuery *)query;
@@ -445,6 +451,7 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 @property (nonatomic, readwrite) BOOL isNegated;
 @property (nonatomic, readwrite, strong) ORMValueConstraint *valueConstraint;
 @property (nonatomic, readwrite, weak) ORMPathedRole *correlatedWith;
+@property (nonatomic, readwrite, copy) NSString *unifierId;
 @property (nonatomic, readwrite, weak) ORMRolePath *path;
 @end
 
@@ -453,6 +460,7 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 @property (nonatomic, readwrite, copy) NSString *rootId;
 @property (nonatomic, readwrite) BOOL rootIsNegated;
 @property (nonatomic, readwrite, strong) ORMValueConstraint *rootValueConstraint;
+@property (nonatomic, readwrite, copy) NSString *rootUnifierId;
 @property (nonatomic, readwrite, copy) NSArray<ORMPathedRole *> *pathedRoles;
 @property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *subPaths;
 @property (nonatomic, readwrite) ORMPathSplit split;

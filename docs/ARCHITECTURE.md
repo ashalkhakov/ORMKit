@@ -96,6 +96,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMConstraintSentence` | constraints as the verbalizer says them, read back: `Each Person was born in exactly one Country.` |
 | `ORMSentenceEditor` | what the Fact Editor takes: either kind of sentence, made into the model |
 | `ORMJoinPathBuilder` | join paths written as NORMA keeps them, from logic: the fact types walked and the variables playing their roles |
+| `ORMDerivationPathWriter` | a derivation query written as NORMA's role path: pathed roles, sub-paths, value restrictions, calculated values on declared functions, projections |
 | `ORMPath` | NORMA's role paths (join paths, derivation rules), calculations, sample populations, cardinality |
 | `ORMLogic` | sequences, join paths and derivations as logic: variables, fact atoms, and/or/xor/not |
 | `ORMVerbalizer` (+ `Logic`) | FORML in Halpin's wording as styled spans, each a statement, possibility, negation or example of something ([VERBALIZATION.md](VERBALIZATION.md)); plain text and HTML |
@@ -197,7 +198,8 @@ Not done yet:
   a layered layout (WorkflowKit's `WKDLayout` is the one to port) instead
   of the grid-and-spiral `arrangeDiagram:`; printing across pages.
 - **NORMA features kept but not edited**: NORMA's derivation role paths
-  (read and run as queries, not written back as paths), constraint join
+  (read and run as queries; a derivation query is written as one, but a
+  path NORMA made is not edited), constraint join
   paths, most of NORMA's model error checks (the Issues navigator has the
   basic ones, and readings that do not read). Unary facts kept on their
   player are read, not written ([POPULATIONS.md](POPULATIONS.md#not-done-yet)).

@@ -283,10 +283,27 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 
 @end
 
+/* A fact type a path is in, open until the path leaves it: the terms of
+ * its roles so far, whether it is negated or optional. A sub-path may go
+ * on in its parent's (SameFactType), whose terms it then adds to. */
+@interface ORMOpenFact : NSObject
+@property (nonatomic, strong) ORMFactType *fact;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, ORMTerm *> *terms;
+@property (nonatomic) BOOL negated;
+@property (nonatomic) BOOL optional;
+/* The pathed role it was entered by. */
+@property (nonatomic, weak) ORMPathedRole *entered;
+@end
+
+@implementation ORMOpenFact
+@end
+
 /* What building a path keeps track of: the variable each point of the
- * path stands for, by the id of the root or pathed role. */
+ * path stands for, by the id of the root or pathed role; the variable of
+ * each ObjectUnifier, by its id. */
 @interface ORMPathBuilder : NSObject
 @property (nonatomic, strong) NSMutableDictionary<NSString *, ORMVariable *> *variables;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, ORMVariable *> *unified;
 @property (nonatomic, strong) NSMutableDictionary<NSString *, ORMTerm *> *calculations;
 @end
 
@@ -296,6 +313,7 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 {
 	if ((self = [super init])) {
 		_variables = [NSMutableDictionary dictionary];
+		_unified = [NSMutableDictionary dictionary];
 		_calculations = [NSMutableDictionary dictionary];
 	}
 	return self;
@@ -313,15 +331,42 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 	return [ORMFormula fact:fact terms:terms];
 }
 
+/* The open fact type's formula, among the parts. */
+- (void)close:(ORMOpenFact *)open into:(NSMutableArray *)parts
+{
+	if (open.fact == nil) {
+		return;
+	}
+	ORMFormula *formula = [self completeFact:open.fact terms:open.terms];
+	formula.isOptional = open.optional;
+	[parts addObject:open.negated ? [ORMFormula not:formula] : formula];
+}
+
+/* The variable of an ObjectUnifier: the one it has, else the given one,
+ * which it has from now on. */
+- (ORMVariable *)unify:(NSString *)unifierId with:(ORMVariable *)variable
+{
+	if (unifierId == nil) {
+		return variable;
+	}
+	ORMVariable *had = [self.unified objectForKey:unifierId];
+	if (had != nil) {
+		return had;
+	}
+	[self.unified setObject:variable forKey:unifierId];
+	return variable;
+}
+
 /* A path from the variable it goes on from: each join opens a fact formula
  * on the current variable; the fact type's other roles bring new
- * variables; sub-paths go on from where the path ends. */
-- (ORMFormula *)build:(ORMRolePath *)path from:(ORMVariable *)start
+ * variables; sub-paths go on from where the path ends, in the fact type
+ * it is in (the parent's, which it leaves open for them). */
+- (ORMFormula *)build:(ORMRolePath *)path from:(ORMVariable *)start inherited:(ORMOpenFact *)inherited
 {
 	NSMutableArray *parts = [NSMutableArray array];
 	ORMVariable *current = start;
 	if (path.rootObjectType != nil) {
-		current = [ORMVariable variableOf:path.rootObjectType];
+		current = [self unify:path.rootUnifierId with:[ORMVariable variableOf:path.rootObjectType]];
 		if (path.rootId != nil) {
 			[self.variables setObject:current forKey:path.rootId];
 		}
@@ -329,25 +374,15 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 			[parts addObject:[ORMFormula variable:current in:path.rootValueConstraint]];
 		}
 	}
-	__block ORMFactType *fact = nil;
-	__block NSMutableDictionary *terms = nil;
-	__block BOOL negated = NO;
-	__block BOOL optional = NO;
-	/* The pathed role the open fact type was entered by. */
-	ORMPathedRole *entered = nil;
-	void (^close)(void) = ^{
-		if (fact == nil) {
-			return;
-		}
-		ORMFormula *formula = [self completeFact:fact terms:terms];
-		formula.isOptional = optional;
-		[parts addObject:negated ? [ORMFormula not:formula] : formula];
-	};
+	/* The fact type the path is in: the parent's until it leaves it,
+	 * which the parent closes. */
+	ORMOpenFact *open = inherited ?: [[ORMOpenFact alloc] init];
 	for (ORMPathedRole *pathed in path.pathedRoles) {
 		ORMRole *role = pathed.role;
 		if (role == nil) {
 			continue;
 		}
+		ORMFactType *fact = open.fact;
 		ORMVariable *variable = nil;
 		/* Into an objectification's link fact type: NORMA names the
 		 * objectified role just entered, then the link fact type's other
@@ -361,30 +396,40 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 				}
 			}
 		}
-		if (pathed.purpose == ORMPathSameFactType && role.factType != fact && entered != nil && [terms count] == 1) {
+		if (pathed.purpose == ORMPathSameFactType && role.factType != fact && open.entered != nil
+		    && [open.terms count] == 1 && open != inherited) {
 			for (ORMRole *proxy in role.factType.roles) {
-				if (proxy.proxiedRole == entered.role) {
-					ORMTerm *at = [terms objectForKey:entered.role.identifier];
-					fact = role.factType;
-					terms = [NSMutableDictionary dictionaryWithObject:at forKey:proxy.identifier];
+				if (proxy.proxiedRole == open.entered.role) {
+					ORMTerm *at = [open.terms objectForKey:open.entered.role.identifier];
+					open.fact = role.factType;
+					open.terms = [NSMutableDictionary dictionaryWithObject:at forKey:proxy.identifier];
 				}
 			}
 		}
-		if (pathed.purpose == ORMPathSameFactType && role.factType == fact) {
-			variable = [self.variables objectForKey:pathed.correlatedWith.identifier ?: @""]
+		if (pathed.purpose == ORMPathSameFactType && role.factType == open.fact) {
+			/* A role of the fact type already named is the same object. */
+			variable = [[open.terms objectForKey:role.identifier] variable]
+				?: [self.variables objectForKey:pathed.correlatedWith.identifier ?: @""]
 				?: [ORMVariable variableOf:role.player];
+			variable = [self unify:pathed.unifierId with:variable];
 		} else {
-			close();
-			fact = role.factType;
-			terms = [NSMutableDictionary dictionary];
-			entered = pathed;
-			negated = pathed.isNegated;
-			optional = pathed.purpose == ORMPathOuterJoin;
+			if (open != inherited) {
+				[self close:open into:parts];
+			}
+			open = [[ORMOpenFact alloc] init];
+			open.fact = role.factType;
+			open.terms = [NSMutableDictionary dictionary];
+			open.entered = pathed;
+			open.negated = pathed.isNegated;
+			open.optional = pathed.purpose == ORMPathOuterJoin;
 			/* Entered on what the path is at: the same instance. */
-			variable = current ?: [ORMVariable variableOf:role.player];
+			variable = current ?: [self unify:pathed.unifierId with:[ORMVariable variableOf:role.player]];
+			if (current != nil && pathed.unifierId != nil && [self.unified objectForKey:pathed.unifierId] == nil) {
+				[self.unified setObject:current forKey:pathed.unifierId];
+			}
 		}
-		negated = negated || pathed.isNegated;
-		[terms setObject:[ORMTerm termWithVariable:variable] forKey:role.identifier];
+		open.negated = open.negated || pathed.isNegated;
+		[open.terms setObject:[ORMTerm termWithVariable:variable] forKey:role.identifier];
 		if (pathed.identifier != nil) {
 			[self.variables setObject:variable forKey:pathed.identifier];
 		}
@@ -393,12 +438,16 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 		}
 		current = variable;
 	}
-	close();
-	if ([path.subPaths count] > 0) {
-		NSMutableArray *branches = [NSMutableArray array];
-		for (ORMRolePath *sub in path.subPaths) {
-			[branches addObject:[self build:sub from:current]];
-		}
+	/* What sub-paths add to the fact type they go on in is said with it:
+	 * closed after them. */
+	NSMutableArray *branches = [NSMutableArray array];
+	for (ORMRolePath *sub in path.subPaths) {
+		[branches addObject:[self build:sub from:current inherited:open.fact != nil ? open : nil]];
+	}
+	if (open != inherited) {
+		[self close:open into:parts];
+	}
+	if ([branches count] > 0) {
 		ORMFormulaKind kind = path.split == ORMPathSplitOr ? ORMFormulaOr
 			: path.split == ORMPathSplitXor ? ORMFormulaXor : ORMFormulaAnd;
 		ORMFormula *split = [ORMFormula combine:kind children:branches];
@@ -442,7 +491,18 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 			[arguments addObject:term];
 		}
 	}
-	made = [ORMTerm termWithFunction:calculation.functionName arguments:arguments aggregate:calculation.isAggregate];
+	/* An aggregate for each of its context: "for that Vehicle and Month". */
+	NSMutableArray *groups = [NSMutableArray array];
+	for (ORMPathSource *context in calculation.isAggregate ? calculation.aggregationContext : @[]) {
+		ORMTerm *term = [self termFor:context];
+		if (term != nil) {
+			[groups addObject:term];
+		}
+	}
+	ORMTerm *group = [groups count] > 1 ? [ORMTerm termWithFunction:@"groups" arguments:groups aggregate:NO]
+	                                    : [groups firstObject];
+	made = [ORMTerm termWithFunction:calculation.functionName arguments:arguments aggregate:calculation.isAggregate
+	                           group:group];
 	if (calculation.identifier != nil) {
 		[self.calculations setObject:made forKey:calculation.identifier];
 	}
@@ -455,24 +515,30 @@ ORMAddTermVariables(ORMTerm *term, NSMutableArray *variables)
 {
 	NSMutableArray *parts = [NSMutableArray array];
 	for (ORMRolePath *path in owner.paths) {
-		[parts addObject:[self build:path from:nil]];
+		[parts addObject:[self build:path from:nil inherited:nil]];
 	}
 	for (ORMCalculation *condition in owner.conditions) {
 		ORMTerm *term = [self termForCalculation:condition];
 		[parts addObject:[ORMFormula compare:term.functionName operands:term.arguments ?: @[]]];
 	}
 	ORMRelation *relation = [[ORMRelation alloc] init];
-	relation.formula = [ORMFormula combine:ORMFormulaAnd children:parts];
 	NSMutableArray *columns = [NSMutableArray array];
 	for (NSUInteger i = 0; i < [targets count]; i++) {
 		ORMTerm *term = [self termFor:[owner.projections objectForKey:[targets objectAtIndex:i]]];
 		ORMVariable *variable = term.variable;
+		/* A calculated value or a constant projected: a variable that is
+		 * it. */
+		if (variable == nil && term != nil && [players objectAtIndex:i] != [NSNull null]) {
+			variable = [ORMVariable variableOf:[players objectAtIndex:i]];
+			[parts addObject:[ORMFormula compare:@"=" operands:@[ [ORMTerm termWithVariable:variable], term ]]];
+		}
 		if (variable == nil) {
 			relation.isIncomplete = YES;
 			variable = [ORMVariable variableOf:[players objectAtIndex:i]];
 		}
 		[columns addObject:variable];
 	}
+	relation.formula = [ORMFormula combine:ORMFormulaAnd children:parts];
 	relation.columns = columns;
 	return relation;
 }

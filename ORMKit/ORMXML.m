@@ -268,7 +268,7 @@ ORMRank(NSString *local)
 	if (ranks == nil) {
 		NSArray *order = @[
 			/* An ORMModel's sections. */
-			@"Objects", @"Facts", @"Constraints", @"DataTypes", @"CustomReferenceModes", @"ModelNotes",
+			@"Objects", @"Facts", @"Constraints", @"DataTypes", @"Functions", @"CustomReferenceModes", @"ModelNotes",
 			@"ModelErrors", @"ReferenceModeKinds", @"RecognizedPhrases", @"Extensions",
 			/* An object type's. */
 			@"Definitions", @"Notes", @"Abbreviations", @"CardinalityRestriction", @"PlayedRoles",
@@ -381,6 +381,28 @@ ORMNewId(void)
 		return [NSString stringWithFormat:@"_%@.%lu", prefix, (unsigned long)count];
 	}
 	return [@"_" stringByAppendingString:[[[NSUUID UUID] UUIDString] uppercaseString]];
+}
+
+/* FNV-1a over the bytes, from the offset basis given. */
+static uint64_t
+ORMHash64(const unsigned char *bytes, NSUInteger length, uint64_t hash)
+{
+	for (NSUInteger i = 0; i < length; i++) {
+		hash ^= bytes[i];
+		hash *= 0x100000001B3ULL;
+	}
+	return hash;
+}
+
+NSString *
+ORMStableId(NSString *seed)
+{
+	NSData *data = [seed dataUsingEncoding:NSUTF8StringEncoding];
+	uint64_t high = ORMHash64([data bytes], [data length], 0xCBF29CE484222325ULL);
+	uint64_t low = ORMHash64([data bytes], [data length], 0x84222325CBF29CE4ULL);
+	return [NSString stringWithFormat:@"_%08X-%04X-%04X-%04X-%012llX", (unsigned)(high >> 32),
+	                                  (unsigned)((high >> 16) & 0xFFFF), (unsigned)(high & 0xFFFF),
+	                                  (unsigned)(low >> 48), (unsigned long long)(low & 0xFFFFFFFFFFFFULL)];
 }
 
 void

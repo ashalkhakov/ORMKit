@@ -3,6 +3,7 @@
 #import "ORMModelPriv.h"
 #import "ORMXML.h"
 #import "ORMDiagram.h"
+#import "ORMDerivationPathWriter.h"
 
 #define CORE ORMCoreNamespace
 #define DIAGRAM ORMDiagramNamespace
@@ -776,6 +777,118 @@ ORMPurposeName(ORMPathedRolePurpose purpose)
 	[self writeRule:[self.model.derivationRules objectForKey:fact.identifier] in:fact.element subtype:NO];
 }
 
+/* Whether two nodes write alike: elements of the same name, attributes
+ * and children; text the same but for whitespace between elements. */
+static BOOL
+ORMSameXML(NSXMLNode *a, NSXMLNode *b)
+{
+	if ([a kind] != [b kind]) {
+		return NO;
+	}
+	if ([a kind] != NSXMLElementKind) {
+		return [[a stringValue] isEqualToString:[b stringValue]];
+	}
+	NSXMLElement *x = (NSXMLElement *)a;
+	NSXMLElement *y = (NSXMLElement *)b;
+	if (![[x localName] isEqualToString:[y localName]] || [[x attributes] count] != [[y attributes] count]) {
+		return NO;
+	}
+	for (NSXMLNode *attribute in [x attributes]) {
+		if (![[[y attributeForName:[attribute name]] stringValue] isEqualToString:[attribute stringValue]]) {
+			return NO;
+		}
+	}
+	NSMutableArray *xs = [NSMutableArray array];
+	NSMutableArray *ys = [NSMutableArray array];
+	for (NSArray *pair in @[ @[ x, xs ], @[ y, ys ] ]) {
+		for (NSXMLNode *child in [[pair firstObject] children]) {
+			BOOL blank = [child kind] == NSXMLTextKind
+				&& [[[child stringValue] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]
+					   length] == 0;
+			if (!blank && [child kind] != NSXMLCommentKind) {
+				[[pair lastObject] addObject:child];
+			}
+		}
+	}
+	if ([xs count] != [ys count]) {
+		return NO;
+	}
+	for (NSUInteger i = 0; i < [xs count]; i++) {
+		if (!ORMSameXML([xs objectAtIndex:i], [ys objectAtIndex:i])) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
+/* The derivation query of the fact type or subtype of the id, as the model
+ * keeps it; nil for none. */
+static ORMQuery *
+ORMStoredDerivationOf(NSString *identifier, ORMModel *model)
+{
+	for (ORMStoredQuery *query in identifier != nil ? model.storedQueries : @[]) {
+		if ([query.kind isEqualToString:@"Derivation"] && [query.of isEqualToString:identifier]) {
+			return [ORMQuery queryWithId:query.identifier inModel:model];
+		}
+	}
+	return nil;
+}
+
+/* A rule's role path where the model has none of NORMA's own: its
+ * derivation query's, written as NORMA's path where one says it, with the
+ * functions it calculates with; else none, a path written of a query
+ * earlier gone. Left as it is where it writes alike. */
+- (void)writeQueryPathOf:(ORMDerivationRule *)rule into:(NSXMLElement *)path of:(NSString *)identifier
+{
+	if (path == nil || rule.hasRolePath) {
+		return;
+	}
+	ORMQuery *query = ORMStoredDerivationOf(identifier, self.model);
+	ORMDerivationPathWriter *writer = [[ORMDerivationPathWriter alloc] initWithDocument:_document];
+	NSArray *made = (query != nil ? [writer elementsOf:query reason:NULL] : nil) ?: @[];
+	NSMutableArray *had = [NSMutableArray array];
+	for (NSString *local in @[ @"PathComponents", @"DerivationProjections" ]) {
+		if (ORMChild(path, CORE, local) != nil) {
+			[had addObject:ORMChild(path, CORE, local)];
+		}
+	}
+	BOOL same = [had count] == [made count];
+	for (NSUInteger i = 0; same && i < [had count]; i++) {
+		same = ORMSameXML([had objectAtIndex:i], [made objectAtIndex:i]);
+	}
+	if (same) {
+		return;
+	}
+	for (NSXMLElement *element in had) {
+		ORMDetach(element);
+	}
+	for (NSUInteger i = 0; i < [made count]; i++) {
+		ORMInsertChildAt(path, [made objectAtIndex:i], i);
+	}
+	NSArray *functions = [writer functions];
+	NSXMLElement *container = [functions count] > 0
+		? ORMEnsureChild(_document, self.model.modelElement, CORE, @"Functions") : nil;
+	for (NSXMLElement *function in functions) {
+		BOOL declared = NO;
+		for (NSXMLElement *each in ORMChildren(container, CORE, @"Function")) {
+			declared = declared || [ORMAttribute(each, @"id") isEqualToString:ORMAttribute(function, @"id")];
+		}
+		if (!declared) {
+			ORMAddChild(container, function);
+		}
+	}
+}
+
+- (void)writeDerivationOf:(NSString *)identifier
+{
+	ORMElement *derived = [self.model elementWithId:identifier];
+	if ([derived isKindOfClass:[ORMFactType class]] && derived.element != nil) {
+		[self writeDerivationRuleOf:(ORMFactType *)derived];
+	} else if ([derived isKindOfClass:[ORMObjectType class]] && derived.element != nil) {
+		[self writeRule:[self.model.derivationRules objectForKey:identifier] in:derived.element subtype:YES];
+	}
+}
+
 /* A fact type's DerivationRule, or a subtype's SubtypeDerivationRule:
  * their path FactTypeDerivationPath or SubtypeDerivationPath, else alike. */
 - (void)writeRule:(ORMDerivationRule *)rule in:(NSXMLElement *)owner subtype:(BOOL)subtype
@@ -809,6 +922,7 @@ ORMPurposeName(ORMPathedRolePurpose purpose)
 	if (stored != rule.isStored) {
 		ORMSetAttribute(path, @"DerivationStorage", rule.isStored ? @"Stored" : nil);
 	}
+	[self writeQueryPathOf:rule into:path of:ORMAttribute(owner, @"id")];
 	NSXMLElement *informal = ORMChild(path, CORE, @"InformalRule");
 	NSXMLElement *note = ORMChild(informal, CORE, @"DerivationNote");
 	NSString *text = ORMChildText(note, CORE, @"Body") ?: ORMChildText(expression, CORE, @"Body");

@@ -287,11 +287,45 @@ That takes the place of the dependency order of step 3.
    type reaches its fact's players. ORMDeriver matches a composite
    identifier part by part, an objectified fact's players included.
    CinemaTickets' "Session has Seat" is the test.
+9. **Done: queries written as NORMA's role paths.** A derivation query is
+   written into its fact type's (or subtype's) rule as NORMA's own path
+   (`ORMDerivationPathWriter`), beside the informal rule, so that NORMA has
+   the rule and not only its words:
+   - the root is the path's `RootObjectType`; a step a `PathedRole` for its
+     entry role (`PostInnerJoin`, `PostOuterJoin` for maybe, `IsNegated`
+     for a not of its fact type alone), then its nodes' roles
+     (`SameFactType`), the one the path goes on from last;
+   - where it goes on from several nodes or steps, a `SubPath` for each
+     (`SplitCombinationOperator="Or"` for alternatives); a not over more
+     than one fact type is a negated split (`SplitIsNegated`) of one
+     sub-path;
+   - a condition on a value is a `ValueRestriction` on the node's pathed
+     role ("> 5" the range from 5, open; "<>" the ranges either side);
+   - a node compared with another, a value node, an aggregate and a step's
+     aggregate condition are `CalculatedValues` and `Conditions`, on
+     `Functions` the model declares (add, divide, count with a bag input,
+     greaterThan as a boolean ...); an aggregate's groups are its
+     `AggregationContext`;
+   - nodes with a label are one `ObjectUnifier`;
+   - each role is projected from its node, a computed one from its
+     calculated value.
+
+   The path is the query written: ids are made from the query's
+   (`ORMStableId`), so the same query writes the same bytes, and on reading
+   a rule a query derives keeps no path of its own (the query is the rule).
+   A path the query no longer writes goes. What a path cannot say is left
+   to the informal rule: a step through a link fact type, a calculation of
+   nodes under a not or an alternative (NORMA's conditions hold of the
+   whole path), a role projected from several values. ORMKit reads its own
+   paths back as it reads NORMA's (ObjectUnifiers, a sub-path that goes on
+   in its parent's fact type, an aggregate's context as its groups), and
+   says them as it says the query; `ORMDerivationPathTests` is the test,
+   and what it writes validates against NORMA's `ORM2Core.xsd`.
 
 ## Not here, for later
 
-- Writing a query back as NORMA's role path, so that NORMA runs a
-  path-shaped derivation too. NORMA reads the informal rule meanwhile.
+- A path through an objectification's link fact type, and calculations
+  under a not or an alternative (as a subquery, `SubqueryParameterInputs`).
 - Recursive derivations (a fixpoint).
 - A subtype derived and stored: Core Data cannot change an object's
   entity, so a stored subtype is mapped as an asserted one for now.

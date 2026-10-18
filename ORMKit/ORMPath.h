@@ -41,6 +41,9 @@ typedef NS_ENUM(NSInteger, ORMPathSplit) {
 @property (nonatomic, readonly, strong) ORMValueConstraint *valueConstraint;
 /* Another point of the path the same instance is at. */
 @property (nonatomic, readonly, weak) ORMPathedRole *correlatedWith;
+/* The ObjectUnifier it is in, by id: every point of the path in one is
+ * the same instance. nil for none. */
+@property (nonatomic, readonly, copy) NSString *unifierId;
 @property (nonatomic, readonly, weak) ORMRolePath *path;
 @end
 
@@ -52,6 +55,8 @@ typedef NS_ENUM(NSInteger, ORMPathSplit) {
 @property (nonatomic, readonly, copy) NSString *rootId;
 @property (nonatomic, readonly) BOOL rootIsNegated;
 @property (nonatomic, readonly, strong) ORMValueConstraint *rootValueConstraint;
+/* The ObjectUnifier the root is in, by id. */
+@property (nonatomic, readonly, copy) NSString *rootUnifierId;
 @property (nonatomic, readonly, copy) NSArray<ORMPathedRole *> *pathedRoles;
 @property (nonatomic, readonly, copy) NSArray<ORMRolePath *> *subPaths;
 @property (nonatomic, readonly) ORMPathSplit split;
