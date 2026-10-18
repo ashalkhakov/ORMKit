@@ -442,6 +442,14 @@ sorted by nr descending
 
 ## Joins through absorbed object types
 
+An object type absorbed as its identifier's value (a mapping's
+`AbsorbIdentifierTypes`: a currency kept as its code) is an attribute; a
+step from it to a fact type kept as an entity of its own is a join on that
+value, each such object bound, optional for a maybe
+(`was worth Factor in Currency2 on Date` from a cost's currency: the rates
+whose base currency is the cost's code).
+
+
 By default the mapping absorbs a value-like composite, such as City or Address,
 into the entities that use it, and its parts become their attributes. Going
 through it is then a join on those parts' values, as the paper's SQL S1 joins

@@ -1214,9 +1214,18 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		if (columns) {
 			[self column:node place:value identifier:nil];
 		}
-		if ([node.steps count] > 0) {
-			[self note:[NSString stringWithFormat:@"%@ is an attribute: what is said of it further is left out.",
-			                                      node.objectType.name]];
+		/* An object type absorbed as its identifier's value (a currency, as
+		 * its code): its steps to a fact type kept as an entity of its own
+		 * are joins on that value; others are left out. */
+		NSMutableArray *joined = [NSMutableArray array];
+		for (ORMQueryStep *further in node.steps) {
+			ORMPlanCondition *join = [self stepFromValue:further at:value columns:columns && further.operatorKind != ORMQueryNot];
+			if (join == nil) {
+				[self note:[NSString stringWithFormat:@"%@ is an attribute: what is said of it further is left out.",
+				                                      node.objectType.name]];
+				continue;
+			}
+			[joined addObject:further.operatorKind == ORMQueryNot ? [ORMPlanCondition not:join] : join];
 		}
 		if (step != nil && step.countComparison != nil && ![self tallies:step]) {
 			[self note:[NSString stringWithFormat:@"%@ is one attribute: it is not counted.", node.objectType.name]];
@@ -1226,6 +1235,10 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		if (node.comparison != nil && node.comparedNode == nil) {
 			[parts addObject:[ORMPlanCondition compare:[ORMPlanValue valueAtPath:value.path] comparison:node.comparison
 			                                      with:[self constant:node.value attribute:attribute]]];
+		}
+		if ([joined count] > 0) {
+			[parts insertObject:[ORMPlanCondition notNull:value.path] atIndex:0];
+			[parts addObjectsFromArray:node.combinesWithOr ? @[ ORMAnyOf(joined) ] : joined];
 		}
 		return ORMAllOf(parts) ?: [ORMPlanCondition notNull:value.path];
 	}
@@ -1258,6 +1271,46 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	                                    columns:columns];
 	[_scope removeLastObject];
 	return [self aggregated:reached.path variable:variable body:body member:destination through:nil from:node step:step];
+}
+
+/* A step from a value (an object type absorbed as its identifier's) to a
+ * fact type kept as an entity of its own: each of its objects whose
+ * entry role's attribute is the value, bound, its other roles' players
+ * planned from it; a maybe's optional. nil where the fact type is no
+ * entity, or keeps the entry role in no attribute. */
+- (ORMPlanCondition *)stepFromValue:(ORMQueryStep *)step at:(ORMPlannerPlace *)value columns:(BOOL)columns
+{
+	ORMCDEntity *factEntity = [_coreData entityWithSource:step.factType.identifier];
+	ORMCDProperty *entry = factEntity != nil ? [_places propertyOf:factEntity source:[ORMQueryPlaces sourceOfRole:step.entryRole]]
+	                                         : nil;
+	if (![entry isKindOfClass:[ORMCDAttribute class]] || step.countComparison != nil) {
+		return nil;
+	}
+	NSString *variable = [self nextVariable];
+	[_scope addObject:variable];
+	ORMPlannerPlace *inner = [ORMPlannerPlace variable:variable entity:factEntity trail:@[]];
+	inner.isJoined = YES;
+	NSMutableArray *parts = [NSMutableArray array];
+	for (ORMQueryNode *node in step.nodes) {
+		ORMCDProperty *rolePlace = [_places propertyOf:factEntity source:[ORMQueryPlaces sourceOfRole:node.role]];
+		if (rolePlace == nil) {
+			[self note:[NSString stringWithFormat:@"%@'s role in \"%@\" maps to nothing.", node.objectType.name,
+			                                      [step.factType displayText]]];
+			continue;
+		}
+		ORMPlanCondition *part = [self binaryStep:nil node:node property:rolePlace at:inner columns:columns];
+		if (part != nil && (node.comparison != nil || [node.steps count] > 0 || node.label != nil || node.comparedNode != nil)) {
+			[parts addObject:part];
+		}
+	}
+	[_scope removeLastObject];
+	ORMPlanDefinition *rows = [self define:@"member"
+	                                  plan:[ORMQueryPlan planReading:factEntity.name where:nil columns:@[] sorts:@[] notes:@[]]];
+	return [ORMPlanCondition matchesDefinition:rows
+	                                     pairs:@[ @[ value.path, [ORMPlanPath pathFrom:nil keys:@[ entry.name ]] ] ]
+	                                   binding:variable
+	                                     where:ORMAllOf(parts)
+	                                  optional:step.operatorKind == ORMQueryMaybe];
 }
 
 /* Through a fact type that is an entity of its own: to it, and on from it

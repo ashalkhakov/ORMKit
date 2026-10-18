@@ -252,6 +252,30 @@ As built:
   what it uses is reached, between the node's steps, so that a node its
   later steps reach may be compared with it ("the meter goes up", across
   units: `Km2 = Quantity2 * Factor2 < Km1`).
+- **Money** converts at the rate on or before the record's day: rates
+  users enter, not reference data, found as "the one before" is, an
+  aggregate of the rates' dates and then of the rate on it; a record
+  already in the currency, which has no rate, as it is:
+
+  ```
+      + cost Money
+        + has Amount
+        + is in Currency1
+          + maybe was worth Factor1 in Currency2 on Date1 <= Day
+          + maybe was worth Factor2 in Currency2 on Date2 = RateDay
+      Day: Date = date(Moment)
+      RateDay = max(Date1) for Record
+      Rate = max(Factor2) for Record
+      Converted = Amount * coalesce(Rate, 1)
+      ✓Total = total(Converted) for Vehicle, Month
+  ```
+
+  Where a mapping absorbs a currency as its code
+  (`AbsorbIdentifierTypes`), the steps from it to its rates, a fact type
+  kept as an entity of its own, are joins on the code: each rate whose
+  base is the code, bound, optional for a maybe. Each aggregate's bag
+  plans the others it uses again, so such a plan defines many sets; it
+  runs, and sharing them is for later.
 
 ### Computed facts (F)
 
@@ -397,9 +421,8 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
 5. **Reference data** (E), done: a population an app is seeded with; the
    unit factors. Conversion is then steps and arithmetic. In Logbook: the
    unit factors, the meter rule and the trip rule across units, a trip's
-   length in its driver's unit. Money in the user's currency, the rate on
-   or before a record's date, is "the one before" over rates users enter,
-   not reference data; it comes with the reports' next round.
+   length in its driver's unit; costs by month in the owner's currency,
+   each at the rate on or before its day.
 6. **Computed facts** (F), done: projections of value nodes; derived and
    stored ones computed at save. In Logbook: how long a trip lasted
    ("Trip lasted Minutes"). A service's cost, a trip's distance and a
