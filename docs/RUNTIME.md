@@ -87,6 +87,7 @@ a change to the model shows as a readable diff.
   rules = { Employee = ( { constraint = "..."; text = "..."; keys = (...); check = {...}; deontic = NO; } ); ... };
   derivations = ( { text = "..."; root = Employee; plan = {...}; target = reportsTo; kind = objects; backs = (...); } );
   joined = { Customer = { hub = CRMCustomer; members = ( { entity = BillingAccount; via = CRMCustomer; on = ((userId, userId)); outer = YES; holds = (balance); } ); }; };
+  seeds = ( { entity = DistanceUnit; key = (code); values = { code = mi; factor = "1.609344"; }; refs = {}; } );
 }
 ```
 
@@ -105,6 +106,10 @@ a change to the model shows as a readable diff.
   in dependency order.
 - **A joined type** is its members as the mapper names them, and its
   façade's properties, each the key and the entity that keeps it.
+- **A seed** is an object of the model's reference data
+  ([EXPRESSIONS.md](EXPRESSIONS.md#conversion-is-reference-data-and-arithmetic)):
+  its entity, the key that finds it, its values (a decimal as its text)
+  and the seeds its to-one relationships reach, by index.
 
 The tables are made when the code is: by Synchronize, `ormtool coredata`
 and `ormtool validation`. Planning stays in ORMKit, and the driver never
@@ -148,6 +153,10 @@ Declarations, and calls into the driver:
   request to the model's OData service.
 - `orm_prepareForSave:` loads the tables and calls `ORMSaveHook`: derive,
   prepare the joined types, check the rules, report.
+- `+[<Name>ReferenceData seedContext:error:]` puts the reference data in
+  a context: each seed found by its key or inserted, and given what the
+  reference data says, a user's change to it put right. An app calls it
+  before a store is first used, and after an update.
 
 ## Testing
 

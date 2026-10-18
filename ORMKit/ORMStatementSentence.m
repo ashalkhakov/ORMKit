@@ -337,6 +337,76 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 	return [self.editor.diagramEditor addDiagramNamed:name];
 }
 
+/* The text split at its commas outside quotes and parentheses, each part
+ * trimmed: "'gal (US)', 3.785411784" is two. */
+static NSArray<NSString *> *
+ORMStatementParts(NSString *text)
+{
+	NSMutableArray *parts = [NSMutableArray array];
+	NSUInteger start = 0;
+	NSInteger depth = 0;
+	BOOL quoted = NO;
+	for (NSUInteger i = 0; i < [text length]; i++) {
+		unichar c = [text characterAtIndex:i];
+		if (c == '\'') {
+			quoted = !quoted;
+		} else if (!quoted && c == '(') {
+			depth++;
+		} else if (!quoted && c == ')') {
+			depth--;
+		} else if (!quoted && depth == 0 && c == ',') {
+			[parts addObject:ORMStatementTrimmed([text substringWithRange:NSMakeRange(start, i - start)])];
+			start = i + 1;
+		}
+	}
+	[parts addObject:ORMStatementTrimmed([text substringFromIndex:start])];
+	return parts;
+}
+
+/* "Reference data: km, 1" after a fact type: it is reference data, and
+ * this a fact of it, each role's player named as the population table
+ * names it, in the order of its first reading's roles. */
+- (BOOL)addReferenceFact:(NSString *)text of:(ORMFactType *)fact reason:(NSString **)reason
+{
+	if (fact == nil) {
+		if (reason != NULL) {
+			*reason = @"Reference data goes after its fact type.";
+		}
+		return NO;
+	}
+	NSMutableArray *roles = [NSMutableArray array];
+	NSArray *visible = [fact visibleRoles];
+	for (ORMRole *role in [(ORMReadingOrder *)[fact.readingOrders firstObject] roles] ?: visible) {
+		if ([visible containsObject:role]) {
+			[roles addObject:role];
+		}
+	}
+	NSArray *parts = ORMStatementParts(text);
+	if ([parts count] != [roles count]) {
+		if (reason != NULL) {
+			*reason = [NSString stringWithFormat:@"A fact of it names %lu players, by commas.", (unsigned long)[roles count]];
+		}
+		return NO;
+	}
+	if (![self.editor.factTypeEditor setReferenceData:YES of:fact.identifier reason:reason]) {
+		return NO;
+	}
+	NSMutableDictionary *named = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		/* A player named by several values, in parentheses: "(10, km)". */
+		NSString *part = [parts objectAtIndex:i];
+		if ([part hasPrefix:@"("] && [part hasSuffix:@")"]) {
+			part = [part substringWithRange:NSMakeRange(1, [part length] - 2)];
+		} else if ([part hasPrefix:@"'"] && [part hasSuffix:@"'"] && [part length] >= 2) {
+			/* One value, quoted for its comma, parenthesis or quote. */
+			part = [[part substringWithRange:NSMakeRange(1, [part length] - 2)] stringByReplacingOccurrencesOfString:@"''"
+			                                                                                              withString:@"'"];
+		}
+		[named setObject:part forKey:[[roles objectAtIndex:i] identifier]];
+	}
+	return [self.editor.populationEditor addFactOf:fact.identifier named:named reason:reason] != nil;
+}
+
 - (BOOL)addFromText:(NSString *)text failures:(NSArray<NSString *> **)failures
 {
 	NSMutableArray *failed = [NSMutableArray array];
@@ -347,6 +417,8 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 		NSString *diagram = nil;
 		ORMObjectType *lastType = nil;
 		ORMFactType *lastFact = nil;
+		/* The last fact type made, past the constraints said of it. */
+		ORMFactType *lastMade = nil;
 		for (NSUInteger n = 0; n < [lines count]; n++) {
 			NSString *line = ORMStatementTrimmed([lines objectAtIndex:n]);
 			if ([line length] == 0 || [line hasPrefix:@"//"]) {
@@ -376,6 +448,8 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 				lastFact = nil;
 			} else if ([line hasPrefix:@"Reference Mode: "] || [line hasPrefix:@"Portable data type: "]) {
 				read = [self setDetail:line of:lastType reason:&why];
+			} else if ([line hasPrefix:@"Reference data: "]) {
+				read = [self addReferenceFact:[line substringFromIndex:[@"Reference data: " length]] of:lastMade reason:&why];
 			} else if ([line hasPrefix:@"Fact Type Name: "]) {
 				why = lastFact == nil ? @"A fact type's name goes after the fact type." : nil;
 				read = lastFact != nil
@@ -398,6 +472,7 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 					id element = [self.editor.model elementWithId:identifier];
 					if ([element isKindOfClass:[ORMFactType class]] && ((ORMFactType *)element).kind == ORMFactTypeOrdinary) {
 						lastFact = element;
+						lastMade = element;
 					} else if ([element isKindOfClass:[ORMObjectType class]] && [made count] == 1) {
 						lastType = element;
 					}

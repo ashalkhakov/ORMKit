@@ -179,6 +179,20 @@ type's or object type's population as a table, a column for each role
   adds the row once each is named. Removal is refused while the instance plays in a fact or
   identifies another.
 
+## Reference data
+
+A fact type may be marked as reference data (`setReferenceData:of:`,
+"Reference data: km, 1" in a schema's text): its facts in the population
+are not a sample but what every store of an app starts with, the app's own
+(units and their factors). ORMKit keeps the mark in its own namespace,
+`<ormv:ReferenceData>true</ormv:ReferenceData>` in the fact type, which a
+copy for NORMA leaves out. The generated tables carry those facts as seeds
+([RUNTIME.md](RUNTIME.md#the-tables)): each entity object a fact of them
+has, put in a store of the mapping as the population is here, with the
+key that finds it and the properties those fact types are kept in. A fact
+kept in no object a player is (a fact type's own entity) is noted, not
+seeded.
+
 ## Derived fact types
 
 A fact type a query derives ([DERIVATION.md](DERIVATION.md)) has its facts

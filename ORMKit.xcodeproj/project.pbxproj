@@ -838,6 +838,10 @@
 			fileRef = AE5251B17ACEF77C7E9086BE /* ORMConstraintQueries.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		CFD25F2B8547C66FEDF463D4 /* ORMReferenceDataTests.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 83451447FBE6DD01C162372B /* ORMReferenceDataTests.m */;
+		};
 		D168115F32EC066EDB5712D6 /* Samples */ = {
 			isa = PBXBuildFile;
 			fileRef = D711E759700637DA41F98E72 /* Samples */;
@@ -1707,6 +1711,12 @@
 			path = ORMIssuesView.xib;
 			sourceTree = "<group>";
 		};
+		83451447FBE6DD01C162372B /* ORMReferenceDataTests.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMReferenceDataTests.m;
+			sourceTree = "<group>";
+		};
 		847DE7697A93CAFCF4B1FB6D /* ORMPopulationChecker.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -2444,6 +2454,7 @@
 				CCA441C55A616D18C18A3D3A /* ORMPopulationTests.m */,
 				CD9664C53046EBB7AEC1A6B1 /* ORMQueryExpressionTests.m */,
 				99460512A004DF4683FCEF8F /* ORMQueryTests.m */,
+				83451447FBE6DD01C162372B /* ORMReferenceDataTests.m */,
 				246EACF5EDCE13A1AF8E7361 /* ORMSVGTests.m */,
 				3F80E56331C5A2FF542182AE /* ORMSubtypeDerivationTests.m */,
 				621E1F4AE899065D5EFD7FAF /* ORMTestSupport.h */,
@@ -3059,6 +3070,7 @@
 				498449F4304367F21C1AB221 /* ORMConstraintQueriesTests.m */,
 				C917DFC2EA5F780E0F3E2FB8 /* ORMSubtypeDerivationTests.m */,
 				BA5CC1CB90014A2EFE9DB267 /* ORMQueryExpressionTests.m */,
+				CFD25F2B8547C66FEDF463D4 /* ORMReferenceDataTests.m */,
 				3A9781E342C2DAA4E77B3379 /* ORMSVGTests.m */,
 				BB7D1D14489381283134B535 /* ORMVerbalizerTests.m */,
 				E7EB0C470E66130544EB303B /* ORMCoreDataTests.m */,

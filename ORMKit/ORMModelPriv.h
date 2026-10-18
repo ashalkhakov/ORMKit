@@ -72,6 +72,7 @@
  * type, nil where it keeps none. Its name is the one given, else the
  * derived one. */
 @property (nonatomic, readwrite, copy) NSString *explicitName;
+@property (nonatomic, readwrite) BOOL isReferenceData;
 /* A unary's reading as the last change left it (nil for another fact
  * type): when it is no longer that, its implicit type is named after it. */
 @property (nonatomic, readwrite, copy) NSString *lastUnaryReading;

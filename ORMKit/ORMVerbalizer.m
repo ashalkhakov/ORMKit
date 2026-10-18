@@ -690,6 +690,11 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		}
 	}
 	[self verbalizeDerivationOfFactType:fact];
+	if (fact.isReferenceData) {
+		ORMSentenceBuilder *b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"Its facts are reference data: every store starts with them"];
+		[self emit:b kind:ORMVerbalInformation];
+	}
 
 	_level++;
 	if (fact.objectifyingType != nil) {

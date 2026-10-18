@@ -218,6 +218,11 @@ typedef NS_ENUM(NSInteger, ORMFactTypeKind) {
 /* The modeller's own name for it ("ExchangeRate"); nil when it has none
  * and NORMA's derived name stands. */
 @property (nonatomic, readonly, copy) NSString *explicitName;
+/* Reference data (docs/EXPRESSIONS.md): its facts in the model's
+ * population are what every store of an app starts with, as the app's
+ * own and not its users' (units and their factors). ORMKit's, which NORMA
+ * does not keep. */
+@property (nonatomic, readonly) BOOL isReferenceData;
 @end
 
 /* How many of the other roles' players one instance of a binary fact

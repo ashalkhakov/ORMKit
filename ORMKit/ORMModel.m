@@ -392,6 +392,7 @@ ORMByPlace(id a, id b, void *list)
 	_preferredIdentificationPath = nil;
 	_saysProvidesPreferredIdentifier = NO;
 	_explicitName = nil;
+	_isReferenceData = NO;
 	_savedDerivedName = nil;
 }
 
@@ -1846,6 +1847,7 @@ ORMWithout(NSArray *array, id object)
 		}
 		fact.saysProvidesPreferredIdentifier = ORMBoolAttribute(element, @"ProvidesPreferredIdentifier", NO);
 		fact.explicitName = ORMAttribute(element, @"Name");
+		fact.isReferenceData = ORMChild(element, ORMValuesNamespace, @"ReferenceData") != nil;
 		fact.savedDerivedName = ORMAttribute(element, @"_Name");
 		[facts addObject:fact];
 		[self registerElement:fact];

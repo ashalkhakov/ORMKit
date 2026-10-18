@@ -6,8 +6,9 @@ derivation says what facts follow ([RULES.md](RULES.md),
 [DERIVATION.md](DERIVATION.md)). None of them can compute a value from
 others: a trip's length from where it started and ended, a service's cost
 less its discount, the litres per hundred kilometres between two fill-ups.
-This is the design for that, in [steps](#steps); steps 1 to 4, value
-nodes with arithmetic, aggregates, dates and grouping, are built.
+This is the design for that, in [steps](#steps); steps 1 to 5, value
+nodes with arithmetic, aggregates, dates and grouping, and reference data,
+are built.
 
 ## What needs it
 
@@ -229,6 +230,29 @@ Money is the same with the rate on the record's date, found as "the one
 before" is (B): the latest rate on or before. Neither needs a function that
 knows about units or currencies.
 
+As built:
+- **The mark** is the fact type's (`isReferenceData`), kept in ORMKit's
+  namespace; its facts are those of the model's population. In a schema's
+  text, a line after the fact type for each fact, its players as the
+  population table names them, by commas (a value quoted for a comma, a
+  parenthesis or a quote; a player of several values in parentheses):
+
+  ```
+  DistanceUnit is worth Factor km
+  Each DistanceUnit is worth exactly one Factor km.
+  Reference data: km, 1
+  Reference data: mi, 1.609344
+  ```
+- **Seeded** from the tables ([RUNTIME.md](RUNTIME.md#the-tables)): each
+  object found by its key or inserted, its reference values set again, so
+  that a user's change is put right and an update's new factors arrive.
+  "No user edits it" is that, for now: nothing refuses the edit itself.
+- **Conversion** is a step to the factor and a product, as above. A value
+  node compared with another that its node computes is planned as soon as
+  what it uses is reached, between the node's steps, so that a node its
+  later steps reach may be compared with it ("the meter goes up", across
+  units: `Km2 = Quantity2 * Factor2 < Km1`).
+
 ### Computed facts (F)
 
 A derivation's projections may name value nodes: "Trip was driven
@@ -342,9 +366,12 @@ Each function has its words (`minus`, `times`, `divided by`, `the date of`,
    sorting by a value node. OData `$apply` is for later: the bag's tuples
    are matched on the answers. In Logbook: costs by vehicle, month and
    currency (`CostsByMonth`).
-5. **Reference data** (E): a population an app is seeded with; the unit
-   factors. Conversion is then steps and arithmetic. In Logbook: the meter
-   rule across units, every report in the user's units and currency.
+5. **Reference data** (E), done: a population an app is seeded with; the
+   unit factors. Conversion is then steps and arithmetic. In Logbook: the
+   unit factors, the meter rule and the trip rule across units, a trip's
+   length in its driver's unit. Money in the user's currency, the rate on
+   or before a record's date, is "the one before" over rates users enter,
+   not reference data; it comes with the reports' next round.
 6. **Computed facts** (F): projections of value nodes; derived and stored
    ones computed at save. In Logbook: a service's cost stored, a trip's
    distance derived, a reminder's due distance and date.

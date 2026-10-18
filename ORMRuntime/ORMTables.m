@@ -445,6 +445,7 @@ ORMIsMember(id member)
 	                                       rules:self.rules
 	                                   ruleBacks:self.ruleBacks];
 	tables.joined = joined ?: @{};
+	tables.seeds = self.seeds;
 	tables.others = self.others;
 	return tables;
 }
@@ -491,6 +492,9 @@ ORMIsMember(id member)
 		[joined setObject:[[self.joined objectForKey:name] propertyList] forKey:name];
 	}
 	[list setObject:joined forKey:@"joined"];
+	if ([self.seeds count] > 0) {
+		[list setObject:self.seeds forKey:@"seeds"];
+	}
 	return list;
 }
 
@@ -580,10 +584,115 @@ ORMIsMember(id member)
 	                                  rules:rules
 	                              ruleBacks:backLists];
 	tables.joined = joined;
+	id seeds = [list objectForKey:@"seeds"] ?: @[];
+	BOOL valid = [seeds isKindOfClass:[NSArray class]];
+	for (id seed in valid ? seeds : @[]) {
+		valid = valid && [seed isKindOfClass:[NSDictionary class]] && [[seed objectForKey:@"entity"] isKindOfClass:[NSString class]]
+			&& [[seed objectForKey:@"key"] isKindOfClass:[NSArray class]]
+			&& [[seed objectForKey:@"values"] isKindOfClass:[NSDictionary class]]
+			&& [([seed objectForKey:@"refs"] ?: @{}) isKindOfClass:[NSDictionary class]];
+	}
+	if (!valid) {
+		*error = ORMTablesError(@"a seed is an entity, its key, its values and its relationships.");
+		return nil;
+	}
+	tables.seeds = seeds;
 	NSMutableDictionary *others = [NSMutableDictionary dictionaryWithDictionary:list];
-	[others removeObjectsForKeys:@[ @"format", @"model", @"queries", @"derivations", @"rules", @"ruleBacks", @"joined" ]];
+	[others removeObjectsForKeys:@[ @"format", @"model", @"queries", @"derivations", @"rules", @"ruleBacks", @"joined",
+		                            @"seeds" ]];
 	tables.others = others;
 	return tables;
+}
+
+#pragma mark Reference data
+
+/* A seed's value as the attribute holds it: a decimal from its text. */
+static id
+ORMSeedValue(id value, NSAttributeDescription *attribute)
+{
+	if (attribute.attributeType == NSDecimalAttributeType && [value isKindOfClass:[NSString class]]) {
+		return [NSDecimalNumber decimalNumberWithString:value
+		                                         locale:[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"]];
+	}
+	return value;
+}
+
+/* The seed's object in the context: the one its key finds, or a new one. */
+static NSManagedObject *
+ORMSeedObject(NSDictionary *seed, NSEntityDescription *entity, NSManagedObjectContext *context, NSError **error)
+{
+	NSDictionary *values = [seed objectForKey:@"values"];
+	NSMutableArray *parts = [NSMutableArray array];
+	NSMutableArray *arguments = [NSMutableArray array];
+	for (NSString *key in [seed objectForKey:@"key"]) {
+		NSAttributeDescription *attribute = [[entity attributesByName] objectForKey:key];
+		id value = attribute != nil ? ORMSeedValue([values objectForKey:key], attribute) : nil;
+		if (value == nil) {
+			*error = ORMTablesError([NSString stringWithFormat:@"%@ has no key %@ to find a seed by.", entity.name, key]);
+			return nil;
+		}
+		[parts addObject:[NSString stringWithFormat:@"%@ == %%@", key]];
+		[arguments addObject:value];
+	}
+	NSFetchRequest *fetch = [[NSFetchRequest alloc] initWithEntityName:entity.name];
+	fetch.predicate = [parts count] > 0 ? [NSPredicate predicateWithFormat:[parts componentsJoinedByString:@" AND "]
+	                                                         argumentArray:arguments] : nil;
+	fetch.fetchLimit = 1;
+	NSArray *found = [parts count] > 0 ? [context executeFetchRequest:fetch error:error] : @[];
+	if (found == nil) {
+		return nil;
+	}
+	return [found firstObject] ?: [NSEntityDescription insertNewObjectForEntityForName:entity.name inManagedObjectContext:context];
+}
+
+- (BOOL)seedContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+	NSError * __autoreleasing ignored = nil;
+	if (error == NULL) {
+		error = &ignored;
+	}
+	NSDictionary *entities = [[[context persistentStoreCoordinator] managedObjectModel] entitiesByName];
+	NSMutableArray *objects = [NSMutableArray array];
+	/* Each found or made, with its values; then what each reaches. */
+	for (NSDictionary *seed in self.seeds) {
+		NSEntityDescription *entity = [entities objectForKey:[seed objectForKey:@"entity"]];
+		if (entity == nil) {
+			*error = ORMTablesError([NSString stringWithFormat:@"the model has no entity %@ to seed.", [seed objectForKey:@"entity"]]);
+			return NO;
+		}
+		NSManagedObject *object = ORMSeedObject(seed, entity, context, error);
+		if (object == nil) {
+			return NO;
+		}
+		NSDictionary *values = [seed objectForKey:@"values"];
+		for (NSString *name in values) {
+			NSAttributeDescription *attribute = [[entity attributesByName] objectForKey:name];
+			if (attribute == nil) {
+				*error = ORMTablesError([NSString stringWithFormat:@"%@ has no attribute %@ to seed.", entity.name, name]);
+				return NO;
+			}
+			id value = ORMSeedValue([values objectForKey:name], attribute);
+			if (![[object valueForKey:name] isEqual:value]) {
+				[object setValue:value forKey:name];
+			}
+		}
+		[objects addObject:object];
+	}
+	for (NSUInteger i = 0; i < [self.seeds count]; i++) {
+		NSDictionary *refs = [[self.seeds objectAtIndex:i] objectForKey:@"refs"] ?: @{};
+		NSManagedObject *object = [objects objectAtIndex:i];
+		for (NSString *name in refs) {
+			NSUInteger index = [[refs objectForKey:name] unsignedIntegerValue];
+			if ([[object.entity relationshipsByName] objectForKey:name] == nil || index >= [objects count]) {
+				*error = ORMTablesError([NSString stringWithFormat:@"%@ has no relationship %@ to seed.", object.entity.name, name]);
+				return NO;
+			}
+			if ([object valueForKey:name] != [objects objectAtIndex:index]) {
+				[object setValue:[objects objectAtIndex:index] forKey:name];
+			}
+		}
+	}
+	return YES;
 }
 
 #pragma mark Queries

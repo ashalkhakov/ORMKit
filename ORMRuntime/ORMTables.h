@@ -152,6 +152,17 @@ extern const NSUInteger ORMTablesFormat;
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMQueryPlan *> *queries;
 /* In the order they run: each after those whose facts it reads. */
 @property (nonatomic, readonly, copy) NSArray<ORMStoredDerivation *> *derivations;
+/* The model's reference data (docs/EXPRESSIONS.md), the objects every store
+ * starts with, in order: each @{ "entity": its entity's name, "key": the
+ * names of the attributes that find it, "values": @{ attribute: value },
+ * "refs": @{ to-one relationship: @(index of the seed it reaches) } }. A
+ * decimal's value is its text. Set once, as the tables are made. */
+@property (nonatomic, copy) NSArray<NSDictionary *> *seeds;
+/* The seeds in the context: each found by its key, or inserted, and given
+ * its values and relationships, so that what an app's reference data says
+ * is what the store has, the next time it is saved. NO, and why, where an
+ * entity or a property the seeds name is not the context's model's. */
+- (BOOL)seedContext:(NSManagedObjectContext *)context error:(NSError **)error;
 
 /* The query of the name run against the context's store, every page;
  * a cursor over it, a page at a time; or as requests to the service of the

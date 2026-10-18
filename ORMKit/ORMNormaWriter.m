@@ -859,6 +859,11 @@ ORMPurposeName(ORMPathedRolePurpose purpose)
 	}
 	ORMWriteNested(_document, element, @"Definitions", @"Definition", fact.definitionText);
 	ORMWriteNested(_document, element, @"Notes", @"Note", fact.noteText);
+	if (!fact.isReferenceData) {
+		ORMDetach(ORMChild(element, ORMValuesNamespace, @"ReferenceData"));
+	} else if (ORMChild(element, ORMValuesNamespace, @"ReferenceData") == nil) {
+		ORMSetChildText(_document, element, ORMValuesNamespace, @"ReferenceData", @"true");
+	}
 }
 
 - (void)writeRole:(ORMRole *)role

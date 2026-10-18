@@ -13,6 +13,10 @@
 #import "ORMPath.h"
 #import "ORMConstraintQueries.h"
 #import "ORMXML.h"
+#import "ORMQueryPlaces.h"
+#import "ORMPopulationStore.h"
+#import <CoreData/CoreData.h>
+#import <ODataKit/ODataPropertyMapper.h>
 
 /* An Objective-C string literal's contents. */
 static NSString *
@@ -87,6 +91,8 @@ ORMBound(NSString *value)
 	ORMQueryPlanner *_planner;
 	ORMQueryInterpreter *_interpreter;
 	ORMEditor *_scratch;
+	/* The reference data, as the tables' seeds. */
+	NSArray<NSDictionary *> *_seeds;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model
@@ -586,6 +592,125 @@ ORMBound(NSString *value)
 	[self rules];
 	[self derivations];
 	[self queries];
+	[self referenceData];
+}
+
+#pragma mark Reference data
+
+/* A value as a seed keeps it: a decimal as its text, which a property
+ * list would round; nil for one no property list holds. */
+static id
+ORMSeedValueOf(id value)
+{
+	if ([value isKindOfClass:[NSDecimalNumber class]]) {
+		return [value descriptionWithLocale:[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"]];
+	}
+	return [value isKindOfClass:[NSString class]] || [value isKindOfClass:[NSNumber class]] || [value isKindOfClass:[NSDate class]]
+		? value : nil;
+}
+
+/* The reference data (docs/EXPRESSIONS.md): the population of the fact
+ * types marked so, put in a store of the mapping, and each entity object
+ * a fact of them has, as a seed: what finds it (its entity's key), and
+ * the properties those fact types are kept in. A fact kept elsewhere (a
+ * fact type's own entity) is noted, not seeded. */
+- (void)referenceData
+{
+	NSMutableArray *facts = [NSMutableArray array];
+	NSMutableSet *sources = [NSMutableSet set];
+	for (ORMFactType *fact in _model.factTypes) {
+		if (!fact.isReferenceData) {
+			continue;
+		}
+		[facts addObject:fact];
+		for (ORMRole *role in fact.roles) {
+			[sources addObject:[ORMQueryPlaces sourceOfRole:role]];
+		}
+	}
+	_seeds = @[];
+	if ([facts count] == 0) {
+		return;
+	}
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_model coreData:_coreData];
+	NSError *error = nil;
+	if ([store newContextWithError:&error] == nil) {
+		[_notes addObject:[NSString stringWithFormat:@"The reference data is not seeded: %@", error.localizedDescription]];
+		return;
+	}
+	NSMutableArray *objects = [NSMutableArray array];
+	for (ORMFactType *fact in facts) {
+		BOOL kept = NO;
+		for (ORMFactInstance *each in [fact instances]) {
+			for (ORMInstance *player in [each.instancesByRole allValues]) {
+				NSManagedObject *object = [store objectForInstance:player.identifier];
+				if (object != nil && [objects indexOfObjectIdenticalTo:object] == NSNotFound) {
+					[objects addObject:object];
+				}
+				kept = kept || object != nil;
+			}
+		}
+		if (!kept && [[fact instances] count] > 0) {
+			[_notes addObject:[NSString stringWithFormat:@"\"%@\": reference data kept in no object a player is, not seeded.",
+			                                             [fact displayText]]];
+		}
+	}
+	ODataPropertyMapper *keys = [[ODataPropertyMapper alloc] init];
+	NSMutableArray *seeds = [NSMutableArray array];
+	for (NSManagedObject *object in objects) {
+		NSEntityDescription *entity = object.entity;
+		NSArray *key = [[[keys keyAttributesForEntity:entity] valueForKey:@"name"] sortedArrayUsingSelector:@selector(compare:)];
+		NSMutableDictionary *values = [NSMutableDictionary dictionary];
+		NSMutableDictionary *refs = [NSMutableDictionary dictionary];
+		for (NSAttributeDescription *attribute in [[entity attributesByName] allValues]) {
+			BOOL theirs = [key containsObject:attribute.name]
+				|| [sources containsObject:[attribute.userInfo objectForKey:ORMCDSourceKey] ?: @""];
+			id value = theirs ? ORMSeedValueOf([object valueForKey:attribute.name]) : nil;
+			if (value != nil) {
+				[values setObject:value forKey:attribute.name];
+			}
+		}
+		for (NSRelationshipDescription *relationship in [[entity relationshipsByName] allValues]) {
+			NSUInteger index = !relationship.isToMany
+				&& [sources containsObject:[relationship.userInfo objectForKey:ORMCDSourceKey] ?: @""]
+				? [objects indexOfObjectIdenticalTo:[object valueForKey:relationship.name]] : NSNotFound;
+			if (index != NSNotFound) {
+				[refs setObject:@(index) forKey:relationship.name];
+			}
+		}
+		[seeds addObject:@{ @"entity": entity.name, @"key": key, @"values": values, @"refs": refs }];
+	}
+	_seeds = seeds;
+}
+
+/* <Name>ReferenceData: its one method, seeding a context. */
+- (NSString *)referenceDataInterface
+{
+	if ([_seeds count] == 0) {
+		return @"";
+	}
+	return [NSString stringWithFormat:
+		@"\n/* The model's reference data (docs/EXPRESSIONS.md), from the tables (%@.ormplans):\n"
+		@" * each object found by its key or inserted, given what the reference data\n"
+		@" * says. Call it before a store is first used, and after an update. */\n"
+		@"@interface %@ReferenceData : NSObject\n"
+		@"+ (BOOL)seedContext:(NSManagedObjectContext *)context error:(NSError **)error;\n"
+		@"@end\n",
+		_name, _name];
+}
+
+- (NSString *)referenceDataImplementation
+{
+	if ([_seeds count] == 0) {
+		return @"";
+	}
+	return [NSString stringWithFormat:
+		@"\n@implementation %@ReferenceData\n\n"
+		@"+ (BOOL)seedContext:(NSManagedObjectContext *)context error:(NSError **)error\n"
+		@"{\n"
+		@"\tORMTables *tables = [ORMTables tablesNamed:%@ error:error];\n"
+		@"\treturn tables != nil && [tables seedContext:context error:error];\n"
+		@"}\n\n@end\n",
+		_name, ORMLiteral(_name)];
 }
 
 /* The constraint queries (docs/RULES.md): each a predicate its root's
@@ -1136,6 +1261,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	}
 	[out appendString:[_joined header]];
 	[out appendString:[self queriesInterface]];
+	[out appendString:[self referenceDataInterface]];
 	if ([self hasSaveHook]) {
 		[out appendString:@"\n/* Saving (docs/DERIVATION.md): call before save:, as Core Data's will-save\n"
 		                  @" * notification cannot refuse one.\n"
@@ -1168,6 +1294,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	}
 	[out appendString:[_joined implementation]];
 	[out appendString:[self queriesImplementation]];
+	[out appendString:[self referenceDataImplementation]];
 	/* Each entity's rules, its ancestors' too, are the driver's to check:
 	 * a category on the topmost classes with rules. */
 	for (ORMCDEntity *entity in [self entitiesWithRules]) {
@@ -1198,14 +1325,16 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	for (NSString *entity in _ruleBacks) {
 		[backs setObject:[[_ruleBacks objectForKey:entity] array] forKey:entity];
 	}
-	return [[ORMTables tablesOfModel:_name queries:_queries derivations:_derivations rules:_rules ruleBacks:backs]
+	ORMTables *tables = [[ORMTables tablesOfModel:_name queries:_queries derivations:_derivations rules:_rules ruleBacks:backs]
 		tablesWithJoined:[_joined types]];
+	tables.seeds = _seeds;
+	return tables;
 }
 
 /* Whether the code reads tables: it has rules or a save hook. */
 - (BOOL)hasTables
 {
-	return [_rules count] > 0 || [_queries count] > 0 || [self hasSaveHook];
+	return [_rules count] > 0 || [_queries count] > 0 || [_seeds count] > 0 || [self hasSaveHook];
 }
 
 - (NSDictionary<NSString *, NSString *> *)files

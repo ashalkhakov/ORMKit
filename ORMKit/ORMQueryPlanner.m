@@ -290,6 +290,23 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	}
 	ORMPlanCondition *condition = [self conditionFor:root entity:entity
 	                                              at:[ORMPlannerPlace variable:nil entity:_read trail:@[]] columns:YES];
+	/* In the outline's order, whatever order they were planned in (a value
+	 * node as soon as it can be). */
+	NSArray *order = [query nodes];
+	NSMutableArray *ordered = [NSMutableArray array];
+	for (ORMQueryNode *node in order) {
+		for (NSArray *column in _columns) {
+			if ([column firstObject] == node) {
+				[ordered addObject:column];
+			}
+		}
+	}
+	for (NSArray *column in _columns) {
+		if ([ordered indexOfObjectIdenticalTo:column] == NSNotFound) {
+			[ordered addObject:column];
+		}
+	}
+	_columns = ordered;
 	/* Each column titled by its node, with its label ("Employee2"); two
 	 * still the same say whose they are ("EmployeeName of Employee2"). */
 	NSCountedSet *titles = [[NSCountedSet alloc] init];
@@ -701,6 +718,21 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			continue;
 		}
 		[steps addObject:step.operatorKind == ORMQueryNot ? [ORMPlanCondition not:condition] : condition];
+		/* Each value node as soon as what it uses is reached, so that the
+		 * steps after may be compared with it; not among alternatives. */
+		for (BOOL more = !node.combinesWithOr; more;) {
+			more = NO;
+			for (ORMQueryNode *value in [pending copy]) {
+				if ([self canPlan:value]) {
+					[pending removeObjectIdenticalTo:value];
+					ORMPlanCondition *valued = [self conditionForValue:value columns:columns];
+					if (valued != nil) {
+						[steps addObject:valued];
+					}
+					more = YES;
+				}
+			}
+		}
 	}
 	ORMPlanCondition *combined = node.combinesWithOr ? ORMAnyOf(steps) : ORMAllOf(steps);
 	if (combined != nil) {
@@ -727,10 +759,15 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 }
 
 /* Whether what a value node uses is reached: an aggregate's groups (what
- * it aggregates is its bag's), arithmetic's every node. */
+ * it aggregates is its bag's), arithmetic's every node; and the node it is
+ * compared with. */
 - (BOOL)canPlan:(ORMQueryNode *)value
 {
 	NSArray *used = value.expression.kind == ORMQueryExpressionAggregate ? value.expression.groups : [value.expression nodeIds];
+	/* And what it is compared with. */
+	if (value.comparedNode != nil) {
+		used = [used arrayByAddingObject:value.comparedNode.identifier];
+	}
 	for (NSString *nodeId in used) {
 		if ([_reached objectForKey:nodeId] == nil) {
 			return NO;
