@@ -22,7 +22,16 @@ typedef NSComparisonResult (*ORMWindowOrder)(id left, id right);
 /* The aggregate of the tuples whose key compares ("<", "<=", ">", ">=")
  * with the value; a count or a sum of none is 0, the others nil. */
 - (id)aggregateWhereKey:(NSString *)comparison than:(id)value;
+/* The same between two bounds, each a comparison and a value ("> 1000"
+ * and "<= 2100"): the tuples whose key meets both. */
+- (id)aggregateWhereKey:(NSString *)comparison than:(id)value and:(NSString *)other than:(id)otherValue;
 @end
+
+/* A partition's window of the tuples; with other columns (their indexes),
+ * a dictionary of a window for each of their values, by them (an
+ * ORMTuple). */
+id ORMWindowsOf(NSArray<NSArray *> *tuples, NSUInteger key, NSUInteger value, NSArray<NSNumber *> *also,
+                NSString *function, ORMWindowOrder order);
 
 /* Values in their own order: -compare:, nothing before anything. */
 NSComparisonResult ORMWindowCompare(id left, id right);

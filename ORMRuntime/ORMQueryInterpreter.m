@@ -1181,9 +1181,22 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	/* Over a window: the group's tuples sorted by its column once, the
 	 * object's answered by its value. */
 	if (value.windowColumn != nil) {
-		ORMWindow *window = group != nil ? [[self windowsOf:value groups:groups] objectForKey:group] : nil;
+		id windows = group != nil ? [[self windowsOf:value groups:groups] objectForKey:group] : nil;
+		/* Within the partition, of the tuples whose other columns are the
+		 * object's values. */
+		if ([value.alsoColumns count] > 0) {
+			NSMutableArray *values = [NSMutableArray array];
+			for (ORMPlanValue *each in value.alsoValues) {
+				[values addObject:[self value:each object:object bindings:bindings] ?: [NSNull null]];
+			}
+			windows = [windows objectForKey:[ORMTuple tupleWithValues:values]];
+		}
+		ORMWindow *window = windows;
 		id than = [self value:value.windowValue object:object bindings:bindings];
-		return window != nil ? [window aggregateWhereKey:value.windowComparison than:than] : ORMAggregate(value.function, @[]);
+		id otherThan = value.windowOtherValue != nil ? [self value:value.windowOtherValue object:object bindings:bindings] : nil;
+		return window != nil ? [window aggregateWhereKey:value.windowComparison than:than and:value.windowOtherComparison
+		                                            than:otherThan]
+		                     : ORMAggregate(value.function, @[]);
 	}
 	/* Of one group: each group's, made once for all of them. */
 	if ([also count] == 0) {
@@ -1226,10 +1239,14 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	NSArray *nodeIds = [value.bag.plan.columns valueForKey:@"nodeId"];
 	NSUInteger key = [nodeIds indexOfObject:value.windowColumn ?: @""];
 	NSUInteger column = [nodeIds indexOfObject:value.column ?: @""];
+	NSMutableArray *alsoIndexes = [NSMutableArray array];
+	for (NSString *each in value.alsoColumns) {
+		[alsoIndexes addObject:@([nodeIds indexOfObject:each])];
+	}
 	for (id group in groups) {
 		if ([made objectForKey:group] == nil) {
-			[made setObject:[ORMWindow windowOf:[groups objectForKey:group] key:key value:column != NSNotFound ? column : key
-			                           function:value.function order:ORMWindowCompare]
+			[made setObject:ORMWindowsOf([groups objectForKey:group], key, column != NSNotFound ? column : key, alsoIndexes,
+			                             value.function, ORMWindowCompare)
 			         forKey:group];
 		}
 	}

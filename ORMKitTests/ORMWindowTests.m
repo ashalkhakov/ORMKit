@@ -36,6 +36,26 @@
 	XCTAssertEqualWithAccuracy([[self of:@"average" where:@"<=" than:@20] doubleValue], 8.0 / 3.0, 1e-9);
 }
 
+- (id)of:(NSString *)function where:(NSString *)comparison than:(id)value and:(NSString *)other than:(id)otherValue
+{
+	ORMWindow *window = [ORMWindow windowOf:[self tuples] key:0 value:1 function:function order:ORMWindowCompare];
+	return [window aggregateWhereKey:comparison than:value and:other than:otherValue];
+}
+
+/* Between two bounds: (10, 30] is the ties at 20 and 30. */
+- (void)testBetweenTwoValues
+{
+	XCTAssertEqualObjects([self of:@"count" where:@">" than:@10 and:@"<=" than:@30], @3);
+	XCTAssertEqualObjects([[self of:@"sum" where:@">" than:@10 and:@"<=" than:@30] description], @"10");
+	XCTAssertEqualObjects([self of:@"max" where:@">=" than:@20 and:@"<" than:@40], @5);
+	XCTAssertEqualObjects([self of:@"min" where:@">" than:@20 and:@"<=" than:@40], @3);
+	XCTAssertEqualObjects([self of:@"max" where:@">=" than:@10 and:@"<=" than:@40], @5);
+	/* Bounds that admit nothing. */
+	XCTAssertEqualObjects([self of:@"count" where:@">" than:@30 and:@"<" than:@20], @0);
+	XCTAssertNil([self of:@"min" where:@">" than:@30 and:@"<" than:@40]);
+	XCTAssertNil([self of:@"max" where:@">" than:@10 and:@"<" than:[NSNull null]]);
+}
+
 - (void)testNoneOnASide
 {
 	XCTAssertNil([self of:@"max" where:@"<" than:@10]);

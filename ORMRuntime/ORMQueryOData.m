@@ -761,12 +761,16 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 				made = [NSMutableDictionary dictionary];
 				[_windows setObject:made forKey:value];
 			}
-			ORMWindow *window = group != nil ? [made objectForKey:group] : nil;
-			if (window == nil && group != nil) {
+			id windows = group != nil ? [made objectForKey:group] : nil;
+			if (windows == nil && group != nil) {
 				NSUInteger key = [nodeIds indexOfObject:value.windowColumn];
-				window = [ORMWindow windowOf:[self rowsOf:value group:group] key:key value:column != NSNotFound ? column : key
-				                    function:value.function order:ORMJSONOrder];
-				[made setObject:window forKey:group];
+				NSMutableArray *alsoIndexes = [NSMutableArray array];
+				for (NSString *each in value.alsoColumns) {
+					[alsoIndexes addObject:@([nodeIds indexOfObject:each])];
+				}
+				windows = ORMWindowsOf([self rowsOf:value group:group], key, column != NSNotFound ? column : key, alsoIndexes,
+				                       value.function, ORMJSONOrder);
+				[made setObject:windows forKey:group];
 				NSMutableSet *groups = [_windowedGroups objectForKey:value.bag.name];
 				if (groups == nil) {
 					groups = [NSMutableSet set];
@@ -774,8 +778,24 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 				}
 				[groups addObject:group];
 			}
+			/* Within the partition, of the rows whose other columns are the
+			 * object's values. */
+			if ([value.alsoColumns count] > 0) {
+				NSMutableArray *values = [NSMutableArray array];
+				for (ORMPlanValue *each in value.alsoValues) {
+					[values addObject:[self firstAt:each object:read bindings:bindings] ?: [NSNull null]];
+				}
+				windows = [windows objectForKey:[ORMTuple tupleWithValues:values]];
+			}
+			ORMWindow *window = windows;
+			if (window == nil) {
+				return [@[ @"count", @"sum" ] containsObject:value.function] ? @0 : nil;
+			}
 			return [window aggregateWhereKey:value.windowComparison
-			                            than:[self firstAt:value.windowValue object:read bindings:bindings]];
+			                            than:[self firstAt:value.windowValue object:read bindings:bindings]
+			                             and:value.windowOtherComparison
+			                            than:value.windowOtherValue != nil
+			                                     ? [self firstAt:value.windowOtherValue object:read bindings:bindings] : nil];
 		}
 		if (_plainBags == nil) {
 			_plainBags = [NSMutableSet set];

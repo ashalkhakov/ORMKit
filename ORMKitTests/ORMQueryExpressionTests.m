@@ -367,6 +367,26 @@
 	                 @"  Previous = max(Odometer2) for FillUp1\n"
 	                 @"  ✓Since = total(Litres3) for FillUp1\n"
 	                 @"\n"
+	                 @"Query Shifted:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + FillUp2 is of that Vehicle\n"
+	                 @"      + was at Odometer2\n"
+	                 @"      + took Litres2\n"
+	                 @"      Later: Odometer = Odometer2 + 500 < Odometer1\n"
+	                 @"  ✓Most = max(Litres2) for FillUp1\n"
+	                 @"\n"
+	                 @"Query SameLitres:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + took Litres1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + FillUp2 is of that Vehicle\n"
+	                 @"      + took Litres2 = Litres1\n"
+	                 @"      + was at Odometer2 < Odometer1\n"
+	                 @"  ✓Prior = max(Odometer2) for FillUp1\n"
+	                 @"\n"
 	                 @"Query First:\n"
 	                 @"✓FillUp1\n"
 	                 @"  + was at Odometer1\n"
@@ -486,11 +506,24 @@
 	 * another aggregate, whose bag computes that one. */
 	plan = [planner planForQuery:[self query:@"Since" in:model]];
 	XCTAssertEqualObjects(plan.notes, @[]);
+	/* A window between two bounds, the lower itself a window. */
+	XCTAssertTrue([[plan text] rangeOfString:@"Odometer3 > max of Odometer2 in bag1 where Vehicle is vehicle.id, Odometer2 < odometer, Odometer3 <= odometer"].location
+	                  != NSNotFound, @"%@", [plan text]);
 	result = [interpreter executePlan:plan inContext:context error:&error];
 	XCTAssertNotNil(result, @"%@", error);
 	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"2 30", @"3 36" ]), @"%@", [plan text]);
 	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"2 30", @"3 36" ]), @"%@", [odata requestText]);
+	/* The most litres of a fill-up 500 km or more before: a window over a
+	 * key computed of each fill-up, its existence the window's count. */
+	plan = [planner planForQuery:[self query:@"Shifted" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertTrue([[plan text] rangeOfString:@"max of Litres2 in bag"].location != NSNotFound, @"%@", [plan text]);
+	XCTAssertTrue([[plan text] rangeOfString:@"Later < odometer"].location != NSNotFound, @"%@", [plan text]);
+	result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"3 40" ]), @"%@", [plan text]);
+	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"3 40" ]), @"%@", [odata requestText]);
 	/* Each vehicle's first: none of its fill-ups below, a window's count. */
 	plan = [planner planForQuery:[self query:@"First" in:model]];
 	XCTAssertEqualObjects(plan.notes, @[]);
@@ -507,6 +540,16 @@
 - (NSManagedObjectContext *)storeOf:(NSUInteger)count fillUpsOf:(ORMModel *)model planner:(ORMQueryPlanner *)planner
                            expected:(NSMutableArray *)expected
 {
+	return [self storeOf:count fillUpsOf:model planner:planner expected:expected alternating:NO];
+}
+
+/* The same, the litres 30 and 40 by turns where they alternate. */
+- (NSManagedObjectContext *)storeOf:(NSUInteger)count
+                          fillUpsOf:(ORMModel *)model
+                            planner:(ORMQueryPlanner *)planner
+                           expected:(NSMutableArray *)expected
+                        alternating:(BOOL)alternating
+{
 	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
 	NSError *error = nil;
 	NSManagedObjectContext *context = [store newContextWithError:&error];
@@ -519,7 +562,7 @@
 			[fillUp setValue:@(i) forKey:@"id"];
 			[fillUp setValue:vehicle forKey:@"vehicle"];
 			[fillUp setValue:[NSDecimalNumber numberWithUnsignedInteger:1000 + 10 * i] forKey:@"odometer"];
-			[fillUp setValue:[NSDecimalNumber numberWithUnsignedInteger:30] forKey:@"litres"];
+			[fillUp setValue:[NSDecimalNumber numberWithUnsignedInteger:alternating && i % 2 == 0 ? 40 : 30] forKey:@"litres"];
 			if (i > 1) {
 				[expected addObject:@[ @(i), @(i - 1) ]];
 			}
@@ -528,6 +571,33 @@
 		XCTAssertTrue([context save:&saved], @"%@", saved);
 	}];
 	return context;
+}
+
+/* A window within each value equal to the object's: the greatest odometer
+ * below this one's among the vehicle's fill-ups of the same litres, the
+ * one two before. */
+- (void)testAWindowWithinEqualValues
+{
+	ORMEditor *editor = [self fillUps];
+	ORMModel *model = editor.model;
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"SameLitres" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertTrue([[plan text] rangeOfString:@"where Vehicle is vehicle.id, Litres2 is litres, Odometer2 < odometer"].location
+	                  != NSNotFound, @"%@", [plan text]);
+	NSManagedObjectContext *context = [self storeOf:8 fillUpsOf:model planner:planner expected:[NSMutableArray array]
+	                                    alternating:YES];
+	NSMutableArray *expected = [NSMutableArray array];
+	for (NSUInteger i = 3; i <= 8; i++) {
+		[expected addObject:@[ @(i), @(1000 + 10 * (i - 2)) ]];
+	}
+	NSError *error = nil;
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], [self sorted:expected], @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], [self sorted:expected], @"%@", [odata requestText]);
 }
 
 /* A window whose partition is read over many batches (and pages): made

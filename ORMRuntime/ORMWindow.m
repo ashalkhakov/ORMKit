@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMWindow.h"
+#import "ORMTuple.h"
 
 NSComparisonResult
 ORMWindowCompare(id left, id right)
@@ -16,11 +17,16 @@ ORMWindowCompare(id left, id right)
 {
 	NSString *_function;
 	ORMWindowOrder _order;
-	/* The keys, sorted; for each i, the aggregate of the first i tuples and
-	 * of those from i on. */
+	/* The keys and values, sorted by key. */
 	NSArray *_keys;
-	NSArray *_before;
-	NSArray *_after;
+	NSArray *_values;
+	/* For each i, how many values (and their sum) among the first i. */
+	NSUInteger *_counts;
+	NSDecimal *_sums;
+	/* For max and min: for each level k and i, the index of the best value
+	 * of the 2^k from i (NSNotFound for none); its levels. */
+	NSUInteger **_best;
+	NSUInteger _levels;
 }
 
 /* A tuple's key, for sorting: @[ key, value ]. */
@@ -30,56 +36,25 @@ ORMByKey(id left, id right, void *context)
 	return ((ORMWindowOrder)context)([left firstObject], [right firstObject]);
 }
 
-- (id)resultOf:(NSUInteger)count sum:(NSDecimal)sum best:(id)best
+- (void)dealloc
 {
-	if ([_function isEqualToString:@"count"]) {
-		return @(count);
+	free(_counts);
+	free(_sums);
+	for (NSUInteger k = 0; k < _levels; k++) {
+		free(_best[k]);
 	}
-	if ([_function isEqualToString:@"sum"]) {
-		return [NSDecimalNumber decimalNumberWithDecimal:sum];
-	}
-	if ([_function isEqualToString:@"average"]) {
-		if (count == 0) {
-			return nil;
-		}
-		NSDecimalNumber *total = [NSDecimalNumber decimalNumberWithDecimal:sum];
-		return [total decimalNumberByDividingBy:[NSDecimalNumber decimalNumberWithMantissa:count exponent:0 isNegative:NO]];
-	}
-	return best;
+	free(_best);
 }
 
-/* The aggregates of the entries in order, the first n of them for each n
- * (from the end, backwards). */
-- (NSArray *)runningOver:(NSArray<NSArray *> *)entries backwards:(BOOL)backwards
+/* The better of two values' indices, for max or min. */
+- (NSUInteger)better:(NSUInteger)left or:(NSUInteger)right
 {
+	if (left == NSNotFound || right == NSNotFound) {
+		return left == NSNotFound ? right : left;
+	}
+	NSComparisonResult order = _order([_values objectAtIndex:left], [_values objectAtIndex:right]);
 	BOOL greatest = [_function isEqualToString:@"max"];
-	BOOL least = [_function isEqualToString:@"min"];
-	NSUInteger n = [entries count];
-	NSMutableArray *results = [NSMutableArray arrayWithCapacity:n + 1];
-	NSUInteger count = 0;
-	NSDecimal sum = [[NSDecimalNumber zero] decimalValue];
-	id best = nil;
-	[results addObject:[self resultOf:count sum:sum best:best] ?: [NSNull null]];
-	for (NSUInteger i = 0; i < n; i++) {
-		id value = [[entries objectAtIndex:backwards ? n - 1 - i : i] lastObject];
-		if (value != [NSNull null]) {
-			count++;
-			if ([value isKindOfClass:[NSNumber class]]) {
-				NSDecimal add = [value decimalValue];
-				NSDecimalAdd(&sum, &sum, &add, NSRoundPlain);
-			}
-			if (best == nil || (greatest && _order(value, best) == NSOrderedDescending)
-			    || (least && _order(value, best) == NSOrderedAscending)) {
-				best = value;
-			}
-		}
-		[results addObject:[self resultOf:count sum:sum best:best] ?: [NSNull null]];
-	}
-	if (!backwards) {
-		return results;
-	}
-	/* From the end: the aggregate of those from i on, at i. */
-	return [[results reverseObjectEnumerator] allObjects];
+	return (greatest ? order != NSOrderedAscending : order != NSOrderedDescending) ? left : right;
 }
 
 + (instancetype)windowOf:(NSArray<NSArray *> *)tuples
@@ -100,13 +75,46 @@ ORMByKey(id left, id right, void *context)
 		}
 	}
 	[entries sortUsingFunction:ORMByKey context:(void *)order];
-	NSMutableArray *keys = [NSMutableArray arrayWithCapacity:[entries count]];
+	NSUInteger n = [entries count];
+	NSMutableArray *keys = [NSMutableArray arrayWithCapacity:n];
+	NSMutableArray *values = [NSMutableArray arrayWithCapacity:n];
 	for (NSArray *entry in entries) {
 		[keys addObject:[entry firstObject]];
+		[values addObject:[entry lastObject]];
 	}
 	window->_keys = keys;
-	window->_before = [window runningOver:entries backwards:NO];
-	window->_after = [window runningOver:entries backwards:YES];
+	window->_values = values;
+	window->_counts = calloc(n + 1, sizeof(NSUInteger));
+	window->_sums = calloc(n + 1, sizeof(NSDecimal));
+	window->_sums[0] = [[NSDecimalNumber zero] decimalValue];
+	for (NSUInteger i = 0; i < n; i++) {
+		id value = [values objectAtIndex:i];
+		window->_counts[i + 1] = window->_counts[i] + (value != [NSNull null]);
+		window->_sums[i + 1] = window->_sums[i];
+		if ([value isKindOfClass:[NSNumber class]]) {
+			NSDecimal add = [value decimalValue];
+			NSDecimalAdd(&window->_sums[i + 1], &window->_sums[i], &add, NSRoundPlain);
+		}
+	}
+	if ([function isEqualToString:@"max"] || [function isEqualToString:@"min"]) {
+		NSUInteger levels = 1;
+		while (((NSUInteger)1 << levels) <= n) {
+			levels++;
+		}
+		window->_levels = levels;
+		window->_best = calloc(levels, sizeof(NSUInteger *));
+		window->_best[0] = calloc(n + 1, sizeof(NSUInteger));
+		for (NSUInteger i = 0; i < n; i++) {
+			window->_best[0][i] = [values objectAtIndex:i] != [NSNull null] ? i : NSNotFound;
+		}
+		for (NSUInteger k = 1; k < levels; k++) {
+			NSUInteger half = (NSUInteger)1 << (k - 1);
+			window->_best[k] = calloc(n + 1, sizeof(NSUInteger));
+			for (NSUInteger i = 0; i + ((NSUInteger)1 << k) <= n; i++) {
+				window->_best[k][i] = [window better:window->_best[k - 1][i] or:window->_best[k - 1][i + half]];
+			}
+		}
+	}
 	return window;
 }
 
@@ -126,22 +134,103 @@ ORMByKey(id left, id right, void *context)
 	return low;
 }
 
+/* The aggregate of the sorted entries from low up to high. */
+- (id)aggregateFrom:(NSUInteger)low to:(NSUInteger)high
+{
+	if (high < low) {
+		high = low;
+	}
+	NSUInteger count = _counts[high] - _counts[low];
+	if ([_function isEqualToString:@"count"]) {
+		return @(count);
+	}
+	NSDecimal sum;
+	NSDecimalSubtract(&sum, &_sums[high], &_sums[low], NSRoundPlain);
+	if ([_function isEqualToString:@"sum"]) {
+		return [NSDecimalNumber decimalNumberWithDecimal:sum];
+	}
+	if ([_function isEqualToString:@"average"]) {
+		return count > 0 ? [[NSDecimalNumber decimalNumberWithDecimal:sum]
+		                       decimalNumberByDividingBy:[NSDecimalNumber decimalNumberWithMantissa:count exponent:0
+		                                                                                 isNegative:NO]]
+		                 : nil;
+	}
+	if (_best == nil || high == low) {
+		return nil;
+	}
+	NSUInteger k = 0;
+	while (((NSUInteger)1 << (k + 1)) <= high - low) {
+		k++;
+	}
+	NSUInteger best = [self better:_best[k][low] or:_best[k][high - ((NSUInteger)1 << k)]];
+	return best != NSNotFound ? [_values objectAtIndex:best] : nil;
+}
+
+/* Where the entries a bound admits start (a lower bound) or end. */
+- (NSUInteger)edgeOf:(NSString *)comparison than:(id)value lower:(BOOL *)lower
+{
+	*lower = [comparison hasPrefix:@">"];
+	if ([comparison isEqualToString:@"<"] || [comparison isEqualToString:@">="]) {
+		return [self boundOf:value above:NO];
+	}
+	return [self boundOf:value above:YES];
+}
+
 - (id)aggregateWhereKey:(NSString *)comparison than:(id)value
 {
-	id result = nil;
-	if (value == nil || value == [NSNull null]) {
-		/* No comparison holds: of none. */
-		result = [_before firstObject];
-	} else if ([comparison isEqualToString:@"<"]) {
-		result = [_before objectAtIndex:[self boundOf:value above:NO]];
-	} else if ([comparison isEqualToString:@"<="]) {
-		result = [_before objectAtIndex:[self boundOf:value above:YES]];
-	} else if ([comparison isEqualToString:@">"]) {
-		result = [_after objectAtIndex:[self boundOf:value above:YES]];
-	} else if ([comparison isEqualToString:@">="]) {
-		result = [_after objectAtIndex:[self boundOf:value above:NO]];
+	return [self aggregateWhereKey:comparison than:value and:nil than:nil];
+}
+
+- (id)aggregateWhereKey:(NSString *)comparison than:(id)value and:(NSString *)other than:(id)otherValue
+{
+	NSUInteger low = 0, high = [_keys count];
+	NSArray *bounds = other != nil ? @[ @[ comparison ?: @"", value ?: [NSNull null] ], @[ other, otherValue ?: [NSNull null] ] ]
+	                               : @[ @[ comparison ?: @"", value ?: [NSNull null] ] ];
+	for (NSArray *bound in bounds) {
+		if (![@[ @"<", @"<=", @">", @">=" ] containsObject:[bound firstObject]] || [bound lastObject] == [NSNull null]) {
+			/* No comparison holds: of none. */
+			return [self aggregateFrom:0 to:0];
+		}
+		BOOL lower = NO;
+		NSUInteger edge = [self edgeOf:[bound firstObject] than:[bound lastObject] lower:&lower];
+		if (lower) {
+			low = MAX(low, edge);
+		} else {
+			high = MIN(high, edge);
+		}
 	}
-	return result != [NSNull null] ? result : nil;
+	return [self aggregateFrom:low to:high];
 }
 
 @end
+
+/* A partition's window; with other columns, a window of the tuples of each
+ * of their values, by them (a tuple). */
+id
+ORMWindowsOf(NSArray *tuples, NSUInteger key, NSUInteger value, NSArray<NSNumber *> *also, NSString *function, ORMWindowOrder order)
+{
+	if ([also count] == 0) {
+		return [ORMWindow windowOf:tuples key:key value:value function:function order:order];
+	}
+	NSMutableDictionary *parts = [NSMutableDictionary dictionary];
+	for (NSArray *tuple in tuples) {
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSNumber *index in also) {
+			NSUInteger at = [index unsignedIntegerValue];
+			[values addObject:at < [tuple count] ? [tuple objectAtIndex:at] : [NSNull null]];
+		}
+		ORMTuple *part = [ORMTuple tupleWithValues:values];
+		NSMutableArray *list = [parts objectForKey:part];
+		if (list == nil) {
+			list = [NSMutableArray array];
+			[parts setObject:list forKey:part];
+		}
+		[list addObject:tuple];
+	}
+	NSMutableDictionary *windows = [NSMutableDictionary dictionary];
+	for (ORMTuple *part in parts) {
+		[windows setObject:[ORMWindow windowOf:[parts objectForKey:part] key:key value:value function:function order:order]
+		            forKey:part];
+	}
+	return windows;
+}

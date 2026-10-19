@@ -399,8 +399,21 @@ planned and run otherwise, as databases unnest a correlated subquery
   aggregated (its node the member, its parent the partition, reached from
   the group through to-ones); the member's own steps only to its
   attributes, with conditions on values; and one of them compared (<, <=,
-  >, >=) with an attribute reached from the group through to-ones. Any
-  other is the whole query's bag, as before.
+  >, >=) with an attribute reached from the group through to-ones. Also:
+  - **two bounds** on one key, a range ("since the one before, up to this
+    one": `Odometer3 > Previous, Odometer3 <= odometer`), the key's nodes
+    one object by their label; counts, totals and averages come from
+    running sums, the greatest and least from a sparse table;
+  - **a bound computed**: a value node of the group, itself a window
+    perhaps (`Previous`);
+  - **a key or value computed** of the member's attributes alone (`Later
+    = Odometer2 + 500 < Odometer1`), a column of the bag;
+  - **an equality** with what the group has (`Litres2 = Litres1`): within
+    the partition, the window of the tuples of the object's value
+    (`where Vehicle is vehicle.id, Litres2 is litres, Odometer2 <
+    odometer`).
+
+  Any other shape is the whole query's bag, as before.
 - **An existence with an inequality is a window's count.** A step to
   such a member ("some earlier fill-up of the vehicle"), whose nodes are
   listed nowhere and used by nothing computed, is the window's count

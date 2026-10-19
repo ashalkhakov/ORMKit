@@ -1081,6 +1081,20 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	return keys;
 }
 
+/* Whether every node that is the same object as it (by its label) is of
+ * the nodes given and the same attribute of its parent: one value. */
+- (BOOL)isOne:(ORMQueryNode *)node among:(NSSet *)own
+{
+	ORMCDAttribute *attribute = [self attributeOfNode:node];
+	for (ORMQueryNode *each in node.label != nil ? [_query nodes] : @[]) {
+		if (each != node && each.objectType == node.objectType && [each.label isEqualToString:node.label]
+		    && (![own containsObject:each.identifier] || ![[self attributeOfNode:each].name isEqualToString:attribute.name ?: @""])) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
 /* Whether no other node is the same object as it (by its label). */
 - (BOOL)isAlone:(ORMQueryNode *)node
 {
@@ -1129,13 +1143,15 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
                       at:(ORMPlannerPlace *)place
                 counting:(BOOL)counting
 {
-	if (![@[ @"count", @"sum", @"average", @"max", @"min" ] containsObject:function ?: @""] || node.isValue) {
+	if (![@[ @"count", @"sum", @"average", @"max", @"min" ] containsObject:function ?: @""]
+	    || (node.isValue && node.expression.kind == ORMQueryExpressionAggregate)) {
 		return nil;
 	}
-	/* The member: entered by the one to-many from the group down. */
+	/* The member: entered by the one to-many from the group down (a value
+	 * node computed of it: from what it is of). */
 	ORMQueryNode *member = nil;
 	ORMCDRelationship *members = nil;
-	ORMQueryNode *at = node;
+	ORMQueryNode *at = node.isValue ? node.valueOf : node;
 	for (; at != nil && at != group; at = at.step.parent) {
 		ORMQueryNode *parent = at.step.parent;
 		ORMCDEntity *entity = parent != nil ? [_places entityOf:parent.objectType] : nil;
@@ -1150,7 +1166,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		}
 	}
 	BOOL plain = member.step.operatorKind == ORMQueryAnd || (counting && member.step.operatorKind == ORMQueryNot);
-	if (at != group || member == nil || !plain || (node != member && node.step.parent != member)) {
+	if (at != group || member == nil || !plain || (node != member && node.step.parent != member && node.valueOf != member)) {
 		return nil;
 	}
 	ORMQueryNode *partition = member.step.parent;
@@ -1162,54 +1178,102 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	ORMCDProperty *inverse = memberEntity != nil && [members.inverseName length] > 0
 		? [_places property:members.inverseName of:memberEntity] : nil;
 	if (toPartition == nil || partitionKey == nil || memberKey == nil || ![inverse isKindOfClass:[ORMCDRelationship class]]
-	    || ((ORMCDRelationship *)inverse).toMany || ![self isAlone:member] || member.comparison != nil || [member.values count] > 0) {
+	    || ((ORMCDRelationship *)inverse).toMany || ![self isAlone:member] || member.comparison != nil) {
 		return nil;
 	}
-	/* The member's attributes: what it is said of them, and the one compared
-	 * with the group's. */
+	/* The member's attributes: what it is said of them, and the bounds
+	 * (one or two, of one key) comparing one with what the group has. Nodes
+	 * of one label are one object: the member's own attributes only, of one
+	 * attribute ("was at Odometer3 > Previous", "was at Odometer3 <=
+	 * Odometer1"). */
 	NSMutableSet *own = [NSMutableSet setWithObject:member.identifier];
+	for (ORMQueryStep *step in member.steps) {
+		for (ORMQueryNode *each in step.nodes) {
+			[own addObject:each.identifier];
+		}
+	}
+	for (ORMQueryNode *each in member.values) {
+		[own addObject:each.identifier];
+	}
 	NSMutableArray *conditions = [NSMutableArray array];
-	ORMQueryNode *key = nil, *other = nil;
-	NSString *comparison = nil;
+	NSMutableArray *bounds = [NSMutableArray array];
+	/* What is equal to what the group has partitions the partition more:
+	 * @[ the member's node, the other ]. */
+	NSMutableArray *equalities = [NSMutableArray array];
 	for (ORMQueryStep *step in member.steps) {
 		ORMQueryNode *attribute = [step.nodes count] == 1 ? [step.nodes firstObject] : nil;
 		ORMCDAttribute *property = attribute != nil ? [self attributeOfNode:attribute] : nil;
 		if (property == nil || step.operatorKind != ORMQueryAnd || step.countComparison != nil || [attribute.steps count] > 0
-		    || [attribute.values count] > 0 || ![self isAlone:attribute]) {
+		    || [attribute.values count] > 0 || ![self isOne:attribute among:own]) {
 			return nil;
 		}
-		[own addObject:attribute.identifier];
 		if (attribute.comparison != nil && attribute.comparedNode == nil) {
 			[conditions addObject:[ORMPlanCondition compare:[ORMPlanValue valueAtPath:[ORMPlanPath pathFrom:nil keys:@[ property.name ]]]
 			                                     comparison:attribute.comparison
 			                                           with:[self constant:attribute.value attribute:property]]];
+		} else if ([attribute.comparison isEqualToString:@"="]) {
+			[equalities addObject:@[ attribute, attribute.comparedNode ]];
 		} else if (attribute.comparison != nil) {
-			if (key != nil) {
-				return nil;
-			}
-			key = attribute;
-			other = attribute.comparedNode;
-			comparison = attribute.comparison;
+			[bounds addObject:@[ attribute, attribute.comparison, attribute.comparedNode ]];
+		}
+	}
+	/* What is computed of the member, from its attributes alone: a column
+	 * of the bag, compared or aggregated as an attribute is. */
+	for (ORMQueryNode *computed in member.values) {
+		ORMPlanValue *its = [self memberValueOf:computed own:own];
+		if (its == nil) {
+			return nil;
+		}
+		if (computed.comparison != nil && computed.comparedNode == nil) {
+			[conditions addObject:[ORMPlanCondition compare:its comparison:computed.comparison
+			                                           with:[ORMPlanValue constant:computed.value ?: @""
+			                                                                  type:[computed isNumeric] ? @"Decimal" : @"String"]]];
+		} else if ([computed.comparison isEqualToString:@"="]) {
+			[equalities addObject:@[ computed, computed.comparedNode ]];
+		} else if (computed.comparison != nil) {
+			[bounds addObject:@[ computed, computed.comparison, computed.comparedNode ]];
 		}
 	}
 	/* Or another node compared with one of them: the other way round. */
 	NSDictionary *flipped = @{ @"<": @">", @"<=": @">=", @">": @"<", @">=": @"<=" };
 	for (ORMQueryNode *each in [_query nodes]) {
 		if (each.comparedNode != nil && [own containsObject:each.comparedNode.identifier] && ![own containsObject:each.identifier]) {
-			if (key != nil || each.comparison == nil) {
+			if ([each.comparison isEqualToString:@"="]) {
+				[equalities addObject:@[ each.comparedNode, each ]];
+				continue;
+			}
+			if (each.comparison == nil || [flipped objectForKey:each.comparison] == nil) {
 				return nil;
 			}
-			key = each.comparedNode;
-			other = each;
-			comparison = [flipped objectForKey:each.comparison];
+			[bounds addObject:@[ each.comparedNode, [flipped objectForKey:each.comparison], each ]];
 		}
 	}
-	ORMCDAttribute *keyAttribute = key != nil ? [self attributeOfNode:key] : nil;
-	NSArray *toOther = other != nil && !other.isValue && ![own containsObject:other.identifier]
-		? [self toOneKeysFrom:group to:other] : nil;
-	ORMCDAttribute *valueAttribute = node != member ? [self attributeOfNode:node] : nil;
-	if (keyAttribute == nil || [toOther count] == 0 || [flipped objectForKey:comparison ?: @""] == nil
-	    || (node == member && ![function isEqualToString:@"count"]) || (node != member && valueAttribute == nil)) {
+	ORMQueryNode *key = [[bounds firstObject] firstObject];
+	ORMPlanColumn *keyColumn = key != nil ? [self memberColumn:key own:own] : nil;
+	NSUInteger lower = 0;
+	NSMutableArray *values = [NSMutableArray array];
+	for (NSArray *bound in [bounds count] <= 2 ? bounds : @[]) {
+		ORMPlanValue *than = [self windowBound:[bound lastObject] for:group at:place own:own];
+		if (than == nil || [flipped objectForKey:[bound objectAtIndex:1]] == nil || ![self isKey:[bound firstObject] sameAs:key]) {
+			return nil;
+		}
+		lower += [[bound objectAtIndex:1] hasPrefix:@">"];
+		[values addObject:than];
+	}
+	NSMutableArray *equalColumns = [NSMutableArray array];
+	NSMutableArray *equalValues = [NSMutableArray array];
+	for (NSArray *equality in equalities) {
+		ORMPlanColumn *column = [self memberColumn:[equality firstObject] own:own];
+		ORMPlanValue *than = [self windowBound:[equality lastObject] for:group at:place own:own];
+		if (column == nil || than == nil) {
+			return nil;
+		}
+		[equalColumns addObject:column];
+		[equalValues addObject:than];
+	}
+	ORMPlanColumn *valueColumn = node != member ? [self memberColumn:node own:own] : nil;
+	if (keyColumn == nil || [values count] != [bounds count] || [bounds count] > 2 || ([bounds count] == 2 && lower != 1)
+	    || (node == member && ![function isEqualToString:@"count"]) || (node != member && valueColumn == nil)) {
 		return nil;
 	}
 	/* The bag: each member of the partitions once. */
@@ -1218,12 +1282,12 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		[ORMPlanColumn columnTitled:[partition designation] node:partition.identifier
 		                       path:[ORMPlanPath pathFrom:nil keys:@[ inverse.name ]] identifier:partitionKey.name],
 		[ORMPlanColumn columnTitled:[member designation] node:member.identifier path:itself identifier:memberKey.name],
-		[ORMPlanColumn columnTitled:[key designation] node:key.identifier path:[ORMPlanPath pathFrom:nil keys:@[ keyAttribute.name ]]
-		                 identifier:nil], nil];
-	if (valueAttribute != nil && node != key) {
-		[columns addObject:[ORMPlanColumn columnTitled:[node designation] node:node.identifier
-		                                          path:[ORMPlanPath pathFrom:nil keys:@[ valueAttribute.name ]] identifier:nil]];
+		keyColumn, nil];
+	BOOL valued = valueColumn != nil && ![self isKey:node sameAs:key];
+	if (valued) {
+		[columns addObject:valueColumn];
 	}
+	[columns addObjectsFromArray:equalColumns];
 	ORMPlanCondition *condition = [conditions count] > 1 ? [ORMPlanCondition all:conditions] : [conditions firstObject];
 	ORMQueryPlan *plan = [ORMQueryPlan planReading:memberEntity.name where:condition columns:columns sorts:@[] notes:@[]];
 	ORMPlanDefinition *bag = [self define:@"bag" plan:plan];
@@ -1231,12 +1295,130 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	for (NSString *each in [toPartition arrayByAddingObject:partitionKey.name]) {
 		groupPath = [groupPath pathByAddingKey:each];
 	}
-	ORMPlanPath *otherPath = [self pathOf:place];
-	for (NSString *each in toOther) {
-		otherPath = [otherPath pathByAddingKey:each];
+	/* The same bag another window defined: its columns, by place (the
+	 * partition, the member, the key, the value). */
+	NSArray *ids = [bag.plan.columns valueForKey:@"nodeId"];
+	NSString *partitionId = [ids firstObject];
+	NSString *keyId = [ids objectAtIndex:2];
+	NSString *valueId = node == member ? [ids objectAtIndex:1] : valued ? [ids objectAtIndex:3] : keyId;
+	ORMPlanValue *windowed = [ORMPlanValue aggregate:function of:valueId in:bag where:partitionId
+	                                              is:groupPath window:keyId
+	                                      comparison:[[bounds firstObject] objectAtIndex:1] than:[values firstObject]];
+	if ([bounds count] == 2) {
+		windowed = [windowed valueBoundedAlso:[[bounds lastObject] objectAtIndex:1] than:[values lastObject]];
 	}
-	return [ORMPlanValue aggregate:function of:node.identifier in:bag where:partition.identifier is:groupPath
-	                        window:key.identifier comparison:comparison than:[ORMPlanValue valueAtPath:otherPath]];
+	if ([equalColumns count] > 0) {
+		windowed = [windowed valueAlso:[ids subarrayWithRange:NSMakeRange(valued ? 4 : 3, [equalColumns count])] are:equalValues];
+	}
+	return windowed;
+}
+
+/* A member's attribute, or a value computed of its attributes alone, as
+ * a column of its bag; nil for another node. */
+- (ORMPlanColumn *)memberColumn:(ORMQueryNode *)node own:(NSSet *)own
+{
+	if (node.isValue) {
+		ORMPlanValue *value = [self memberValueOf:node own:own];
+		return value != nil ? [ORMPlanColumn columnTitled:[node designation] node:node.identifier value:value] : nil;
+	}
+	ORMCDAttribute *attribute = [self attributeOfNode:node];
+	return attribute != nil ? [ORMPlanColumn columnTitled:[node designation] node:node.identifier
+	                                                 path:[ORMPlanPath pathFrom:nil keys:@[ attribute.name ]] identifier:nil]
+	                        : nil;
+}
+
+/* Whether two of a member's nodes are one key: the same node, or the
+ * same attribute (nodes of one label). */
+- (BOOL)isKey:(ORMQueryNode *)node sameAs:(ORMQueryNode *)other
+{
+	if (node == other) {
+		return YES;
+	}
+	if (node.isValue || other.isValue) {
+		return NO;
+	}
+	ORMCDAttribute *attribute = [self attributeOfNode:node];
+	return attribute != nil && [attribute.name isEqualToString:[self attributeOfNode:other].name ?: @""];
+}
+
+/* A value node of the member, computed from its attributes (and other such
+ * values) alone, as a value of the member read; nil for another. */
+- (ORMPlanValue *)memberValueOf:(ORMQueryNode *)value own:(NSSet *)own
+{
+	return value.isValue && value.expression.kind != ORMQueryExpressionAggregate
+		? [self memberValueOfExpression:value.expression in:value own:own] : nil;
+}
+
+- (ORMPlanValue *)memberValueOfExpression:(ORMQueryExpression *)expression in:(ORMQueryNode *)value own:(NSSet *)own
+{
+	switch (expression.kind) {
+	case ORMQueryExpressionConstant:
+		return [self valueOfExpression:expression in:value];
+	case ORMQueryExpressionNode: {
+		if (![own containsObject:expression.nodeId ?: @""]) {
+			return nil;
+		}
+		ORMQueryNode *used = nil;
+		for (ORMQueryNode *each in [_query nodes]) {
+			used = [each.identifier isEqualToString:expression.nodeId] ? each : used;
+		}
+		if (used.isValue) {
+			return [self memberValueOf:used own:own];
+		}
+		ORMCDAttribute *attribute = used != nil ? [self attributeOfNode:used] : nil;
+		return attribute != nil ? [ORMPlanValue valueAtPath:[ORMPlanPath pathFrom:nil keys:@[ attribute.name ]]] : nil;
+	}
+	case ORMQueryExpressionFunction: {
+		NSMutableArray *operands = [NSMutableArray array];
+		for (ORMQueryExpression *argument in expression.arguments) {
+			ORMPlanValue *operand = [self memberValueOfExpression:argument in:value own:own];
+			if (operand == nil) {
+				return nil;
+			}
+			[operands addObject:operand];
+		}
+		return [ORMPlanValue apply:expression.function to:operands];
+	}
+	case ORMQueryExpressionAggregate:
+		break;
+	}
+	return nil;
+}
+
+/* What a window's bound compares the key with, for each object of the
+ * group: an attribute reached from it through to-ones, or a value node of
+ * it (computed, or itself a window: "Previous"). nil where it is neither,
+ * or the member's own; notes made trying it taken back. */
+- (ORMPlanValue *)windowBound:(ORMQueryNode *)other for:(ORMQueryNode *)group at:(ORMPlannerPlace *)place own:(NSSet *)own
+{
+	if (other == nil || [own containsObject:other.identifier]) {
+		return nil;
+	}
+	if (other.isValue) {
+		for (NSString *used in [other.expression nodeIds]) {
+			if ([own containsObject:used]) {
+				return nil;
+			}
+		}
+		if (other.valueOf != group) {
+			return nil;
+		}
+		NSUInteger noted = [_notes count];
+		ORMPlanValue *value = [self valueOfExpression:other.expression in:other];
+		if (value == nil && [_notes count] > noted) {
+			[_notes removeObjectsInRange:NSMakeRange(noted, [_notes count] - noted)];
+		}
+		return value;
+	}
+	NSArray *keys = [self toOneKeysFrom:group to:other];
+	if ([keys count] == 0) {
+		return nil;
+	}
+	ORMPlanPath *path = [self pathOf:place];
+	for (NSString *each in keys) {
+		path = [path pathByAddingKey:each];
+	}
+	return [ORMPlanValue valueAtPath:path];
 }
 
 /* A step to a member some other of whose attributes an inequality
@@ -1259,11 +1441,16 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			[own addObject:attribute.identifier];
 		}
 	}
+	for (ORMQueryNode *computed in member.values) {
+		[own addObject:computed.identifier];
+	}
 	for (ORMQueryNode *each in [_query nodes]) {
 		if ([own containsObject:each.identifier] && (each.isProjected || each.sortOrder != ORMQueryUnsorted)) {
 			return nil;
 		}
-		if (each.isValue && each.expression.kind != ORMQueryExpressionAggregate) {
+		/* A value computed from them elsewhere needs the member bound; the
+		 * member's own are the window's. */
+		if (each.isValue && each.expression.kind != ORMQueryExpressionAggregate && each.valueOf != member) {
 			for (NSString *used in [each.expression nodeIds]) {
 				if ([own containsObject:used]) {
 					return nil;

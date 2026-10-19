@@ -224,9 +224,9 @@ fill-up at the previous odometer looked up by it: 5 s for 100,000 where it
 took 480 s, 0.58 s for one vehicle of 10,000.
 
 Not yet:
-- **More decorrelation.** Windows over several groups (`also`), over a
-  computed key, or with two inequalities ("since the one before, up to
-  this one") are bags still.
+- **More decorrelation.** A window over what a member reaches through a
+  further step, and an aggregate for several groups above it (ConQuer-II's
+  "for Branch, Year"), are bags still.
 - **A service's to-many predicates.** FreeCoreData's SQLite store
   translates only comparisons of a key path with a constant; a filter's
   `any()` through a to-many (`Vehicle/FillUps/any()`) is evaluated in

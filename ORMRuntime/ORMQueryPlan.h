@@ -136,6 +136,15 @@
 @property (nonatomic, readonly, copy) NSString *windowColumn;
 @property (nonatomic, readonly, copy) NSString *windowComparison;
 @property (nonatomic, readonly, strong) ORMPlanValue *windowValue;
+/* A window between two bounds ("Odometer3 > Previous, Odometer3 <=
+ * odometer"): the same aggregate with its other bound; nil for none. */
+- (instancetype)valueBoundedAlso:(NSString *)comparison than:(ORMPlanValue *)value;
+/* A window within each partition's tuples whose other columns are the
+ * values given too ("where Vehicle is vehicle.id, Month2 is month(day),
+ * Day2 < day"): the same aggregate with those. */
+- (instancetype)valueAlso:(NSArray<NSString *> *)columns are:(NSArray<ORMPlanValue *> *)values;
+@property (nonatomic, readonly, copy) NSString *windowOtherComparison;
+@property (nonatomic, readonly, strong) ORMPlanValue *windowOtherValue;
 @end
 
 typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {

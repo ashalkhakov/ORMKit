@@ -210,6 +210,33 @@ ORMPlanKindNames(void)
 	return value;
 }
 
+- (ORMPlanValue *)windowCopy
+{
+	ORMPlanValue *value = [ORMPlanValue aggregate:_function of:_column in:_bag where:_groupColumn is:_groupPath
+	                                       window:_windowColumn comparison:_windowComparison than:_windowValue];
+	value->_windowOtherComparison = _windowOtherComparison;
+	value->_windowOtherValue = _windowOtherValue;
+	value->_alsoColumns = _alsoColumns;
+	value->_alsoValues = _alsoValues;
+	return value;
+}
+
+- (instancetype)valueBoundedAlso:(NSString *)comparison than:(ORMPlanValue *)than
+{
+	ORMPlanValue *value = [self windowCopy];
+	value->_windowOtherComparison = [comparison copy];
+	value->_windowOtherValue = than;
+	return value;
+}
+
+- (instancetype)valueAlso:(NSArray<NSString *> *)columns are:(NSArray<ORMPlanValue *> *)values
+{
+	ORMPlanValue *value = [self windowCopy];
+	value->_alsoColumns = [columns count] > 0 ? [columns copy] : nil;
+	value->_alsoValues = [columns count] > 0 ? [values copy] : nil;
+	return value;
+}
+
 + (instancetype)apply:(NSString *)function to:(NSArray<ORMPlanValue *> *)operands
 {
 	ORMPlanValue *value = [[self alloc] init];
@@ -231,6 +258,7 @@ ORMPlanKindNames(void)
 		[paths addObjectsFromArray:[operand paths]];
 	}
 	[paths addObjectsFromArray:[_windowValue paths] ?: @[]];
+	[paths addObjectsFromArray:[_windowOtherValue paths] ?: @[]];
 	return paths;
 }
 
@@ -282,6 +310,9 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 		}
 		if (_windowColumn != nil) {
 			[where appendFormat:@", %@ %@ %@", ORMColumnTitle(_bag, _windowColumn), _windowComparison, _windowValue];
+		}
+		if (_windowOtherComparison != nil) {
+			[where appendFormat:@", %@ %@ %@", ORMColumnTitle(_bag, _windowColumn), _windowOtherComparison, _windowOtherValue];
 		}
 		return [NSString stringWithFormat:@"%@ in %@ where %@", of, _bag.name, where];
 	}
@@ -1278,6 +1309,10 @@ ORMValueList(ORMPlanValue *value)
 			[list setObject:value.windowComparison forKey:@"windowIs"];
 			[list setObject:ORMValueList(value.windowValue) forKey:@"than"];
 		}
+		if (value.windowOtherComparison != nil) {
+			[list setObject:value.windowOtherComparison forKey:@"windowAlsoIs"];
+			[list setObject:ORMValueList(value.windowOtherValue) forKey:@"alsoThan"];
+		}
 		return list;
 	}
 	return value.path != nil ? @{ @"path": ORMPathList(value.path) }
@@ -1732,8 +1767,7 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 		id window = [list objectForKey:@"window"];
 		if (window != nil) {
 			id comparison = [list objectForKey:@"windowIs"];
-			if (![window isKindOfClass:[NSString class]] || [values count] > 0
-			    || ![@[ @"<", @"<=", @">", @">=" ] containsObject:comparison ?: @""]) {
+			if (![window isKindOfClass:[NSString class]] || ![@[ @"<", @"<=", @">", @">=" ] containsObject:comparison ?: @""]) {
 				*error = ORMPlanError(@"an aggregate's window is a column, compared (<, <=, >, >=) with a value.");
 				return nil;
 			}
@@ -1741,7 +1775,21 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 			if (than == nil) {
 				return nil;
 			}
-			return [ORMPlanValue aggregate:function of:of in:bag where:where is:is window:window comparison:comparison than:than];
+			ORMPlanValue *windowed = [ORMPlanValue aggregate:function of:of in:bag where:where is:is window:window
+			                                      comparison:comparison than:than];
+			if ([values count] > 0) {
+				windowed = [windowed valueAlso:alsoWhere are:values];
+			}
+			id other = [list objectForKey:@"windowAlsoIs"];
+			if (other == nil) {
+				return windowed;
+			}
+			if (![@[ @"<", @"<=", @">", @">=" ] containsObject:other]) {
+				*error = ORMPlanError(@"an aggregate's window's other bound is compared with <, <=, > or >=.");
+				return nil;
+			}
+			ORMPlanValue *otherThan = ORMReadValueIn([list objectForKey:@"alsoThan"], defined, error);
+			return otherThan != nil ? [windowed valueBoundedAlso:other than:otherThan] : nil;
 		}
 		return [ORMPlanValue aggregate:function of:of in:bag where:where is:is also:alsoWhere are:values];
 	}
