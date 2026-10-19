@@ -221,12 +221,20 @@ earlier ones of the same vehicle) is decorrelated
 ([QUERIES.md](QUERIES.md#decorrelation)): a window over each vehicle's
 fill-ups, made once in a run, its existence a window's count, and the
 fill-up at the previous odometer looked up by it: 5 s for 100,000 where it
-took 480 s, 0.58 s for one vehicle of 10,000.
+took 480 s, 0.58 s for one vehicle of 10,000. The same where the member is
+reached as a supertype and taken down to a subtype ("Record is of that
+Vehicle, is Event, is FillUp2"), its values are parts of a type absorbed
+into it (a distance's quantity and unit), and it is partitioned further
+by what equals the object's (the same unit): one vehicle of 3,000 such
+records, 92 s to 0.17 s against Core Data. A stored derivation over a
+window is worked out at save the same way.
 
 Not yet:
-- **More decorrelation.** A window over what a member reaches through a
-  further step to another entity, and an aggregate for several groups
-  above it (ConQuer-II's "for Branch, Year"), are bags still.
+- **More decorrelation.** Still a bag of the whole query, read for each
+  object: a window whose key or value is of another entity the member
+  reaches (a fill-up's station's price), one whose member is reached
+  through more than one to-many, and an aggregate for several groups
+  above it (ConQuer-II's "for Branch, Year").
 - **An existence the service asks of a grafted collection.** "The one
   before" down subtypes still has the service check that some record of
   the vehicle is such a fill-up (`Vehicle/Records/any(...)`), which Core
