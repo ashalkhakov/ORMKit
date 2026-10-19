@@ -137,8 +137,9 @@ and a subtype's (a Trip's end and an Event's start), it is "For each" the
 subtype.
 
 Of an object type, read back (`-[ORMSentenceEditor addStatement:...]`):
-"Person is an entity type.", "Rating is a value type.", "Each Male is a
-Person.", "Enrolment is where Student enrolled in Course." and "This
+"Person is an entity type." (with its reference mode as a fact sentence
+writes it: "Vehicle(.id) is an entity type.", "Mass(kg:) ...", "Country(Code)
+..."), "Rating is a value type.", "Each Male is a Person.", "Enrolment is where Student enrolled in Course." and "This
 association with ... provides the preferred identification scheme for
 ...", the uniqueness constraint over those players' roles said before it.
 "Each Male is by definition a Person who ..." makes the subtype and its

@@ -70,12 +70,33 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 	return identifier;
 }
 
-/* "Person is an entity type", "Rating is a value type". */
+/* "Person is an entity type", "Rating is a value type"; an entity type
+ * with its reference mode as a fact sentence writes it after the name:
+ * "Vehicle(.id)" (popular), "Mass(kg:)" (unit-based), "Country(Code)"
+ * (general). */
 - (NSArray<NSString *> *)addObjectType:(NSString *)text onDiagram:(NSString *)diagramId reason:(NSString **)reason
 {
 	BOOL value = [text hasSuffix:@" is a value type"];
 	NSString *suffix = value ? @" is a value type" : @" is an entity type";
-	NSString *name = ORMStatementName([text substringToIndex:[text length] - [suffix length]]);
+	NSString *head = ORMStatementTrimmed([text substringToIndex:[text length] - [suffix length]]);
+	NSString *mode = nil;
+	ORMReferenceModeKind kind = ORMReferenceModeNone;
+	NSRange open = [head rangeOfString:@"(" options:NSBackwardsSearch];
+	if ([head hasSuffix:@")"] && open.location != NSNotFound && open.location > 0) {
+		NSString *inside = ORMStatementTrimmed([head substringWithRange:NSMakeRange(open.location + 1,
+		                                                                            [head length] - open.location - 2)]);
+		head = [head substringToIndex:open.location];
+		if ([inside length] == 0 || value) {
+			*reason = value ? @"A value type has no reference mode: an entity type does."
+			                : @"Name() is a value type: say \"is a value type\".";
+			return nil;
+		}
+		mode = [inside hasPrefix:@"."] ? [inside substringFromIndex:1]
+			: [inside hasSuffix:@":"] ? [inside substringToIndex:[inside length] - 1] : inside;
+		kind = [inside hasPrefix:@"."] ? ORMReferenceModePopular
+			: [inside hasSuffix:@":"] ? ORMReferenceModeUnitBased : ORMReferenceModeGeneral;
+	}
+	NSString *name = ORMStatementName(head);
 	if (name == nil) {
 		return nil;
 	}
@@ -89,7 +110,7 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 	}
 	NSString *made = value ? [self.editor.objectTypeEditor addValueTypeNamed:name dataType:nil onDiagram:diagramId
 	                                                                       at:ORMAutomaticPlacement reason:reason]
-	                       : [self.editor.objectTypeEditor addEntityTypeNamed:name referenceMode:nil kind:ORMReferenceModeNone
+	                       : [self.editor.objectTypeEditor addEntityTypeNamed:name referenceMode:mode kind:kind
 	                                                                onDiagram:diagramId at:ORMAutomaticPlacement
 	                                                                   reason:reason];
 	return made != nil ? @[ made ] : nil;

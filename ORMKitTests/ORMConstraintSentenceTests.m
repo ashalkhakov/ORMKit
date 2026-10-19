@@ -463,6 +463,30 @@ ORMRoleNameShapes(ORMShape *factShape)
 	XCTAssertTrue([reason length] > 0);
 }
 
+/* An entity type with its reference mode, as a fact sentence writes one:
+ * the entity type and its identifier, no unary "is an entity type". */
+- (void)testAnEntityTypeWithItsReferenceMode
+{
+	ORMEditor *editor = [self editorWith:@[ @"Vehicle(.id) is an entity type.", @"Mass(kg:) is an entity type.",
+	                                        @"Country(Code) is an entity type." ]];
+	ORMModel *model = editor.model;
+	ORMObjectType *vehicle = [model objectTypeNamed:@"Vehicle"];
+	XCTAssertTrue([vehicle isEntity]);
+	XCTAssertEqual([[model objectTypeNamed:@"Vehicle_id"] kind], ORMValueType);
+	XCTAssertEqual([[[vehicle preferredIdentifier] allRoles] count], (NSUInteger)1);
+	XCTAssertNotNil([model objectTypeNamed:@"kgValue"]);
+	XCTAssertNotNil([model objectTypeNamed:@"Code"]);
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		XCTAssertTrue([[[fact primaryReading] expandedText] rangeOfString:@"entity type"].location == NSNotFound,
+		              @"%@", [[fact primaryReading] expandedText]);
+	}
+	NSString *reason = nil;
+	XCTAssertNil(([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:@"Rating(.nr) is a value type."
+	                                                                       onDiagram:nil at:ORMAutomaticPlacement
+	                                                                          reason:&reason]));
+	XCTAssertTrue([reason rangeOfString:@"reference mode"].location != NSNotFound, @"%@", reason);
+}
+
 /* A schema as text: diagrams by heading, details and derivations going on
  * from the line before, every line not read said with its number. */
 - (void)testASchemaFromText
