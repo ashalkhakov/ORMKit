@@ -838,6 +838,88 @@
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], expected, @"%@", [odata requestText]);
 }
 
+/* A derivation stored, of the one before: worked out at save over a
+ * window of the vehicle's fill-ups, read from the context with what it
+ * has not saved; a fill-up moved changes those of every fill-up of its
+ * vehicle, which a change to one reaches by its vehicle. */
+- (void)testTheOneBeforeIsStoredAtSave
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Odometer is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Litres is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Vehicle(.id) is an entity type.\n"
+	                 @"FillUp(.id) is of Vehicle\n"
+	                 @"Each FillUp is of exactly one Vehicle.\n"
+	                 @"FillUp was at Odometer\n"
+	                 @"Each FillUp was at exactly one Odometer.\n"
+	                 @"FillUp took Litres\n"
+	                 @"Each FillUp took exactly one Litres.\n"
+	                 @"FillUp followed Litres\n"
+	                 @"** The litres of the vehicle's fill-up before.\n"
+	                 @"Each FillUp followed at most one Litres.\n"
+	                 @"\n"
+	                 @"Query Followed:\n"
+	                 @"Derivation of \"FillUp followed Litres\":\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + FillUp2 is of that Vehicle\n"
+	                 @"      + was at Odometer2 < Odometer1\n"
+	                 @"    + FillUp3 is of that Vehicle\n"
+	                 @"      + was at Odometer3 = Previous\n"
+	                 @"      + took ✓Litres\n"
+	                 @"  Previous = max(Odometer2) for FillUp1\n"
+	                 @"\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:editor.model mapping:nil name:@"Fuel"];
+	NSDictionary *files = [generator files];
+	NSData *data = [[files objectForKey:@"Fuel.ormplans"] dataUsingEncoding:NSUTF8StringEncoding];
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+	NSError *error = nil;
+	ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+	XCTAssertNotNil(tables, @"%@", error);
+	XCTAssertEqual([tables.derivations count], 1u, @"%@", generator.notes);
+	ORMStoredDerivation *derivation = [tables.derivations firstObject];
+	XCTAssertTrue([[derivation.plan text] rangeOfString:@"Odometer2 < odometer"].location != NSNotFound, @"%@", [derivation.plan text]);
+	XCTAssertTrue([derivation.backs containsObject:(@[ @"FillUp", @[ @"vehicle", @"fillUps" ] ])], @"%@", derivation.backs);
+	NSString *target = derivation.target;
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:editor.model mapping:nil];
+	NSManagedObjectContext *context = [[[ORMPopulationStore alloc] initWithModel:editor.model coreData:planner.coreData]
+		newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	[context performBlockAndWait:^{
+		NSManagedObject *vehicle = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:context];
+		[vehicle setValue:@1 forKey:@"id"];
+		NSMutableArray *fillUps = [NSMutableArray array];
+		for (NSArray *each in @[ @[ @1, @1000, @40 ], @[ @2, @1500, @30 ], @[ @3, @2100, @36 ] ]) {
+			NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+			[fillUp setValue:each[0] forKey:@"id"];
+			[fillUp setValue:vehicle forKey:@"vehicle"];
+			[fillUp setValue:[NSDecimalNumber numberWithInteger:[each[1] integerValue]] forKey:@"odometer"];
+			[fillUp setValue:[NSDecimalNumber numberWithInteger:[each[2] integerValue]] forKey:@"litres"];
+			[fillUps addObject:fillUp];
+		}
+		NSError *derived = nil;
+		XCTAssertTrue([hook deriveInContext:context changed:[NSMutableSet setWithSet:[context insertedObjects]] error:&derived],
+		              @"%@", derived);
+		XCTAssertNil([fillUps[0] valueForKey:target]);
+		XCTAssertEqualObjects([[fillUps[1] valueForKey:target] description], @"40");
+		XCTAssertEqualObjects([[fillUps[2] valueForKey:target] description], @"30");
+		XCTAssertTrue([context save:&derived], @"%@", derived);
+		/* The second moved past the third: each one's before is another. */
+		[fillUps[1] setValue:[NSDecimalNumber numberWithInteger:2200] forKey:@"odometer"];
+		XCTAssertTrue([hook deriveInContext:context changed:[NSMutableSet setWithSet:[context updatedObjects]] error:&derived],
+		              @"%@", derived);
+		XCTAssertEqualObjects([[fillUps[1] valueForKey:target] description], @"36");
+		XCTAssertEqualObjects([[fillUps[2] valueForKey:target] description], @"40");
+		XCTAssertTrue([context save:&derived], @"%@", derived);
+	}];
+}
+
 #pragma mark Dates
 
 /* Durations and dates, in UTC: across midnight, at a month's end; a

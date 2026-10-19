@@ -224,6 +224,9 @@ static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
 - (NSArray<ORMPlanValue *> *)bagValues;
 /* A bag's tuples, by group, worked out elsewhere (in memory). */
 - (void)keepGroups:(NSMapTable *)groups ofBag:(ORMPlanValue *)value;
+/* The bag run, for the groups among those given (all, for nil): its
+ * tuples by group, each once. */
+- (NSMapTable *)groupsOf:(ORMPlanValue *)value among:(NSArray *)among;
 /* A window value's windows made so far, by partition. */
 - (NSMapTable *)windowsMadeOf:(ORMPlanValue *)value;
 /* Whether it reads a bag, or a join it probes or fetches. */
@@ -2099,8 +2102,28 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		return nil;
 	}
 	/* A bag of the object read: its plan asked of the same objects, its
-	 * tuples by each one. Another is read from the store. */
+	 * tuples by each one. A window's, its partitions of the objects read
+	 * from the context (with what it has not saved), as a batch reads
+	 * them. Another is read from the store. */
 	for (ORMPlanValue *value in [run bagValues]) {
+		if (value.windowColumn != nil) {
+			NSMutableOrderedSet *partitions = [NSMutableOrderedSet orderedSet];
+			for (NSManagedObject *object in objects) {
+				id group = [[object entity] isKindOfEntity:run.read] ? [run valueOf:value.groupPath object:object bindings:run.bindings] : nil;
+				if (group != nil && group != [NSNull null]) {
+					[partitions addObject:group];
+				}
+			}
+			NSMapTable *groups = [run groupsOf:value among:[partitions array]];
+			if (groups == nil) {
+				if (error != NULL) {
+					*error = run.error;
+				}
+				return nil;
+			}
+			[run keepGroups:groups ofBag:value];
+			continue;
+		}
 		if (![plan bagIsOfTheObjectRead:value]) {
 			if (error != NULL) {
 				*error = ORMInterpreterError(@"The plan aggregates a set it defines, which is read from the store, not "

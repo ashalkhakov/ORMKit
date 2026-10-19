@@ -145,6 +145,10 @@
 - (instancetype)valueAlso:(NSArray<NSString *> *)columns are:(NSArray<ORMPlanValue *> *)values;
 @property (nonatomic, readonly, copy) NSString *windowOtherComparison;
 @property (nonatomic, readonly, strong) ORMPlanValue *windowOtherValue;
+/* The to-many from the partition to its members ("records"): what a
+ * change to a member reaches the objects whose window it is in by. */
+- (instancetype)valueOfMembers:(NSString *)key;
+@property (nonatomic, readonly, copy) NSString *membersKey;
 @end
 
 typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {

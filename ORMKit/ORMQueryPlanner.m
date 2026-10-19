@@ -1472,7 +1472,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	if ([equalColumns count] > 0) {
 		windowed = [windowed valueAlso:[ids subarrayWithRange:NSMakeRange(valued ? 4 : 3, [equalColumns count])] are:equalValues];
 	}
-	return windowed;
+	return [windowed valueOfMembers:members.name];
 }
 
 /* A member's attribute, or a value computed of its attributes alone, as

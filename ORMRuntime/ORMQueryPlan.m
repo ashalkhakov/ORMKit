@@ -218,6 +218,14 @@ ORMPlanKindNames(void)
 	value->_windowOtherValue = _windowOtherValue;
 	value->_alsoColumns = _alsoColumns;
 	value->_alsoValues = _alsoValues;
+	value->_membersKey = _membersKey;
+	return value;
+}
+
+- (instancetype)valueOfMembers:(NSString *)key
+{
+	ORMPlanValue *value = [self windowCopy];
+	value->_membersKey = [key copy];
 	return value;
 }
 
@@ -1114,6 +1122,12 @@ ORMBagValuesOf(ORMPlanValue *value, NSMutableArray *into)
 	for (ORMPlanValue *operand in [(value.operands ?: @[]) arrayByAddingObjectsFromArray:value.alsoValues ?: @[]]) {
 		ORMBagValuesOf(operand, into);
 	}
+	if (value.windowValue != nil) {
+		ORMBagValuesOf(value.windowValue, into);
+	}
+	if (value.windowOtherValue != nil) {
+		ORMBagValuesOf(value.windowOtherValue, into);
+	}
 }
 
 static void
@@ -1146,6 +1160,51 @@ ORMBagValuesIn(ORMPlanCondition *condition, NSMutableArray *into)
 		&& [value.alsoColumns count] == 0 && value.windowColumn == nil;
 }
 
+/* A window's trails from the object read: to its partition, and down to
+ * the members and what its bag reads of each (a member changed changes
+ * the window of every object of its partition); and what its bounds and
+ * equalities read here. nil where its partition is not reached from the
+ * object read, or its members are not named. */
+- (NSArray<NSArray<NSString *> *> *)trailsOfWindow:(ORMPlanValue *)value
+{
+	NSArray *keys = value.groupPath.keys;
+	NSArray *theirs = [value.bag.plan trailsFromRead];
+	if (value.groupPath.variable != nil || [keys count] == 0 || value.membersKey == nil || theirs == nil) {
+		return nil;
+	}
+	NSArray *partition = [keys subarrayWithRange:NSMakeRange(0, [keys count] - 1)];
+	NSArray *down = [partition arrayByAddingObject:value.membersKey];
+	NSArray *up = [[value.bag.plan columnOfNode:value.groupColumn ?: @""] path].keys;
+	NSMutableArray *trails = [NSMutableArray arrayWithObjects:keys, down, nil];
+	for (NSArray *trail in theirs) {
+		/* Back up to the partition from a member: from the partition. */
+		if ([up count] > 0 && [trail count] >= [up count] && [[trail subarrayWithRange:NSMakeRange(0, [up count])] isEqualToArray:up]) {
+			NSArray *rest = [trail subarrayWithRange:NSMakeRange([up count], [trail count] - [up count])];
+			if ([partition count] + [rest count] > 0) {
+				[trails addObject:[partition arrayByAddingObjectsFromArray:rest]];
+			}
+			continue;
+		}
+		[trails addObject:[down arrayByAddingObjectsFromArray:trail]];
+	}
+	NSMutableArray *here = [NSMutableArray arrayWithArray:value.alsoValues ?: @[]];
+	[here addObject:value.windowValue];
+	if (value.windowOtherValue != nil) {
+		[here addObject:value.windowOtherValue];
+	}
+	for (ORMPlanValue *each in here) {
+		for (ORMPlanPath *path in [each paths]) {
+			if (path.variable != nil) {
+				return nil;
+			}
+			if ([path.keys count] > 0) {
+				[trails addObject:path.keys];
+			}
+		}
+	}
+	return trails;
+}
+
 - (NSArray<NSArray<NSString *> *> *)trailsFromRead
 {
 	NSMutableSet *trails = [NSMutableSet set];
@@ -1159,7 +1218,8 @@ ORMBagValuesIn(ORMPlanCondition *condition, NSMutableArray *into)
 	}
 	NSMutableSet *bags = [NSMutableSet set];
 	for (ORMPlanValue *value in bagged) {
-		NSArray *theirs = [self bagIsOfTheObjectRead:value] ? [value.bag.plan trailsFromRead] : nil;
+		NSArray *theirs = value.windowColumn != nil ? [self trailsOfWindow:value]
+			: [self bagIsOfTheObjectRead:value] ? [value.bag.plan trailsFromRead] : nil;
 		if (theirs == nil) {
 			return nil;
 		}
@@ -1358,6 +1418,9 @@ ORMValueList(ORMPlanValue *value)
 			[list setObject:value.windowColumn forKey:@"window"];
 			[list setObject:value.windowComparison forKey:@"windowIs"];
 			[list setObject:ORMValueList(value.windowValue) forKey:@"than"];
+			if (value.membersKey != nil) {
+				[list setObject:value.membersKey forKey:@"members"];
+			}
 		}
 		if (value.windowOtherComparison != nil) {
 			[list setObject:value.windowOtherComparison forKey:@"windowAlsoIs"];
@@ -1829,6 +1892,14 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 			                                      comparison:comparison than:than];
 			if ([values count] > 0) {
 				windowed = [windowed valueAlso:alsoWhere are:values];
+			}
+			id members = [list objectForKey:@"members"];
+			if (members != nil && ![members isKindOfClass:[NSString class]]) {
+				*error = ORMPlanError(@"a window's members are a key.");
+				return nil;
+			}
+			if (members != nil) {
+				windowed = [windowed valueOfMembers:members];
 			}
 			id other = [list objectForKey:@"windowAlsoIs"];
 			if (other == nil) {

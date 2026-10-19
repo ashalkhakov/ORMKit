@@ -258,8 +258,12 @@ That takes the place of the dependency order of step 3.
      property (kind `values`).
    - **An aggregate grouped by the object itself** (the sum of a service's
      items) is asked of the same objects in memory: its bag's plan run over
-     them, its trails the bag's. One grouped otherwise, which only the
-     store can read, is in the generator's notes.
+     them, its trails the bag's. **A window** ("the one before",
+     [QUERIES.md](QUERIES.md#decorrelation)) reads the partitions of the
+     roots from the context, unsaved changes counted; its trails go to the
+     partition and down to its members (a fill-up moved reaches every
+     fill-up of its vehicle). One grouped otherwise, which only the store
+     can read, is in the generator's notes.
    - **A rule that reads a subentity** of the property's entity (a
      service's cost, kept on Record) is rooted there: those objects have
      the property too.
