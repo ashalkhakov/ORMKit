@@ -1270,6 +1270,72 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 	return nil;
 }
 
+/* Fresh ids for a copy of a part and all under it, what is under it
+ * named by them; its labels kept, the same objects by them as before. */
+static void
+ORMFreshIds(ORMQueryPart *tree, NSUInteger round)
+{
+	for (ORMQueryPart *part in [tree tree]) {
+		NSString *was = part.identifier;
+		part.identifier = was != nil ? [NSString stringWithFormat:@"%@_or%lu", was, (unsigned long)round] : ORMNewId();
+		if (was != nil) {
+			ORMRenameNode(tree, was, part.identifier);
+		}
+	}
+}
+
+/* A step through a fact type partly derived and not stored: its facts
+ * entered (the step as it is, kept, the rows stored) or derived (its
+ * rule's path, beside it). Under a not, neither: each negated, both
+ * holding. Else either: an or, where the node's steps are alternatives
+ * already or this is its only one, and nothing under it listed or sorted
+ * (the rule's side would list none of it). Why not, where not. */
+static NSString *
+ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMStoredQuery *rule,
+                     NSUInteger round, ORMModel *model, NSMutableSet *kept)
+{
+	NSString *what = [fact displayText];
+	ORMQueryPart *from = [step parent];
+	BOOL negated = [step.operatorName isEqualToString:@"Not"];
+	for (NSString *key in ORMStepQualifiers()) {
+		if ([step valueForKey:key] != nil && !(negated && [key isEqualToString:@"operatorName"])) {
+			return [NSString stringWithFormat:@"\"%@\" is partly derived and not stored: queries go through it "
+			                                  @"plainly or with not, not with maybe or a count.",
+			                                  what];
+		}
+	}
+	BOOL alone = [[from steps] count] == 1;
+	if (negated && ORMCombinesWithOr(from) && !alone) {
+		return [NSString stringWithFormat:@"\"%@\" is partly derived and not stored: queries go through it with not "
+		                                  @"where steps are combined with and.",
+		                                  what];
+	}
+	if (!negated) {
+		for (ORMQueryPart *part in [step tree]) {
+			if (part.projected != nil || part.sort != nil) {
+				return [NSString stringWithFormat:@"\"%@\" is partly derived and not stored: what is listed or "
+				                                  @"sorted past it is not.",
+				                                  what];
+			}
+		}
+		if (!alone && !ORMCombinesWithOr(from)) {
+			return [NSString stringWithFormat:@"\"%@\" is partly derived and not stored: queries go through it "
+			                                  @"where steps are alternatives, or with not.",
+			                                  what];
+		}
+	}
+	ORMQueryPart *derived = [step copy];
+	ORMFreshIds(derived, round);
+	[from insertPart:derived atIndex:[step index] + 1];
+	[kept addObject:step.identifier];
+	if (!negated) {
+		from.combine = @"Or";
+	} else if (alone) {
+		from.combine = nil;
+	}
+	return ORMExpandStep(derived, fact, derivation, rule, round, model);
+}
+
 - (ORMQuery *)expandedInModel:(ORMModel *)model notes:(NSMutableArray<NSString *> *)notes
 {
 	ORMStoredQuery *stored = nil;
@@ -1285,11 +1351,14 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 		return self;
 	}
 	ORMStoredQuery *copy = nil;
+	/* The steps through a partly derived fact type kept for its facts
+	 * entered: gone through as they are. */
+	NSMutableSet *kept = [NSMutableSet set];
 	for (NSUInteger round = 1;; round++) {
 		ORMQueryPart *step = nil;
 		ORMFactType *fact = nil;
 		for (ORMQueryPart *each in [(copy ?: stored).root tree]) {
-			ORMFactType *through = each.isStep ? [model elementWithId:each.ref] : nil;
+			ORMFactType *through = each.isStep && ![kept containsObject:each.identifier] ? [model elementWithId:each.ref] : nil;
 			if ([through isKindOfClass:[ORMFactType class]] && through.isDerived && ![through derivationRule].isStored) {
 				step = each;
 				fact = through;
@@ -1351,12 +1420,7 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 		ORMStoredQuery *rule = ORMDerivationQuery(fact, model, &unplain);
 		ORMQuery *derivation = rule != nil ? [ORMQuery queryOf:rule model:model] : nil;
 		NSString *why = nil;
-		if ([fact derivationRule].isPartial) {
-			/* Its asserted facts and its derived ones: an or the expansion
-			 * cannot say yet. */
-			why = [NSString stringWithFormat:@"\"%@\" is partly derived and not stored: queries do not go through it yet.",
-			                                 what];
-		} else if (rule == nil) {
+		if (rule == nil) {
 			why = [NSString stringWithFormat:@"\"%@\" is derived by NORMA's rule, which queries cannot run: %@.", what,
 			                                 unplain ?: @"it has no path"];
 		} else if (round > 16) {
@@ -1370,7 +1434,8 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 					step = [each.identifier isEqualToString:step.identifier] ? each : step;
 				}
 			}
-			why = ORMExpandStep(step, fact, derivation, rule, round, model);
+			why = [fact derivationRule].isPartial ? ORMExpandPartialStep(step, fact, derivation, rule, round, model, kept)
+			                                      : ORMExpandStep(step, fact, derivation, rule, round, model);
 		}
 		if (why != nil) {
 			[notes addObject:why];

@@ -971,9 +971,11 @@ ORMGoesOnPastACast(ORMPlanPath *path)
 		                                                           [inverses componentsJoinedByString:@"."], target]
 		                      arguments:arguments inStore:YES];
 	}
+	/* A key path IN a key path the SQLite store does not say at all: asked
+	 * of the objects fetched. */
 	NSString *trail = [condition.trail count] > 0 ? [condition.trail componentsJoinedByString:@"."] : @"SELF";
 	return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %@", path, trail] arguments:arguments
-	                        inStore:!bound && condition.otherPath == nil && _depth == 0];
+	                        inStore:!bound && condition.otherPath == nil && _depth == 0 && [condition.trail count] == 0];
 }
 
 /* A join: said in the predicate where its plan is the store's entirely,

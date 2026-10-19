@@ -106,6 +106,16 @@ columns past the step, sorting, not and maybe, OData.
   other nodes are its own: fresh ids, its labels apart from the query's,
   and a label only one of its nodes has is dropped.
 - **Not, maybe, a count** on the step go to the first step of the path.
+- **Partly derived, not stored** ("a vehicle's owner drives it; the
+  others are entered"): the facts entered are rows, and the step is
+  either. The step is kept for them, and a copy of it beside it is put as
+  the derivation's path, its nodes the same objects by their labels.
+  Under a not, neither holds: both steps negated, side by side ("a trip's
+  driver who does not drive its car": no row, and not its owner). Without
+  one, either does: the node's steps become alternatives, where they are
+  already or the step is its only one, and nothing past it is listed or
+  sorted (the rule's side would list none of it). Otherwise it is
+  refused, with a note.
 
 Refused, with a note, and not run:
 - a path that is not plain binary steps where it has to be turned around,
@@ -230,7 +240,7 @@ That takes the place of the dependency order of step 3.
    can say the rule: a key path through one to-one relationship, which is
    as far as Core Data goes ("currently unsupported (too many steps)"
    beyond). Partly derived ones not stored are mapped for their asserted
-   facts; queries do not go through them yet (an or of the two).
+   facts; queries go through them as either, the rows or the rule (above).
 6. **Done: saving, derive then check.** `-[NSManagedObjectContext
    orm_prepareForSave:]` in the generated code (`ORMValidationGenerator`).
    The derivations are tables, not code ([RUNTIME.md](RUNTIME.md)):

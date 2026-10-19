@@ -994,6 +994,91 @@
 	}];
 }
 
+/* A fact type partly derived and not stored: its facts entered are rows,
+ * its rule derives the rest, and a query goes through both, as one with
+ * or: with not, through neither. A car's owner drives it; others are
+ * entered. A trip's driver drives its car, a rule that reads both. */
+- (void)testAQueryGoesThroughAPartlyDerivedFactType
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Person(.name) is an entity type.\n"
+	                 @"Car(.reg) is an entity type.\n"
+	                 @"Car is owned by Person\n"
+	                 @"Each Car is owned by exactly one Person.\n"
+	                 @"Person drives Car\n"
+	                 @"+ The car's owner drives it; the others are entered.\n"
+	                 @"Trip(.nr) is of Car\n"
+	                 @"Each Trip is of exactly one Car.\n"
+	                 @"Trip had driver Person\n"
+	                 @"Each Trip had driver exactly one Person.\n"
+	                 @"\n"
+	                 @"Query OwnerDrives:\n"
+	                 @"Derivation of \"Person drives Car\":\n"
+	                 @"✓Person\n"
+	                 @"  + ✓Car is owned by that Person\n"
+	                 @"\n"
+	                 @"Query Drivers:\n"
+	                 @"✓Person\n"
+	                 @"  + drives Car\n"
+	                 @"\n"
+	                 @"Query Idle:\n"
+	                 @"✓Person\n"
+	                 @"  + not drives Car\n"
+	                 @"\n"
+	                 @"Query DriverDrives:\n"
+	                 @"It is impossible that:\n"
+	                 @"✓Trip\n"
+	                 @"  + is of Car1\n"
+	                 @"  + had driver Person\n"
+	                 @"    + not drives Car1\n"
+	                 @"\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	XCTAssertTrue([[facts objectForKey:@"Person drives Car"] derivationRule].isPartial);
+	XCTAssertFalse([[facts objectForKey:@"Person drives Car"] derivationRule].isStored);
+	/* Ann owns c1 and drives c2 (entered); Bob owns c2; Dee drives c1
+	 * (entered); Cid neither. */
+	NSArray *given = @[ @[ @"Car is owned by Person", @"c1", @"Ann" ], @[ @"Car is owned by Person", @"c2", @"Bob" ],
+		                @[ @"Person drives Car", @"Ann", @"c2" ], @[ @"Person drives Car", @"Dee", @"c1" ],
+		                @[ @"Trip is of Car", @"1", @"c1" ], @[ @"Trip had driver Person", @"1", @"Ann" ],
+		                @[ @"Trip is of Car", @"2", @"c2" ], @[ @"Trip had driver Person", @"2", @"Ann" ],
+		                @[ @"Trip is of Car", @"3", @"c1" ], @[ @"Trip had driver Person", @"3", @"Bob" ],
+		                @[ @"Trip is of Car", @"4", @"c2" ], @[ @"Trip had driver Person", @"4", @"Dee" ],
+		                @[ @"Trip is of Car", @"5", @"c1" ], @[ @"Trip had driver Person", @"5", @"Dee" ] ];
+	NSString *reason = nil;
+	XCTAssertNotNil([editor.populationEditor addInstanceOf:[[model objectTypeNamed:@"Person"] identifier] named:@"Cid"
+	                                                reason:&reason], @"%@", reason);
+	for (NSArray *each in given) {
+		NSArray *roles = [[facts objectForKey:each[0]] visibleRoles];
+		XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:each[0]] identifier]
+		                                              named:@{ [roles[0] identifier]: each[1], [roles[1] identifier]: each[2] }
+		                                             reason:&reason]), @"%@ %@", each, reason);
+	}
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	NSDictionary *expected = @{ @"Drivers": @[ @"Ann", @"Bob", @"Dee" ], @"Idle": @[ @"Cid" ], @"DriverDrives": @[ @"3", @"4" ] };
+	for (NSString *name in @[ @"Drivers", @"Idle", @"DriverDrives" ]) {
+		ORMQueryPlan *plan = [planner planForQuery:[self query:name in:model]];
+		XCTAssertEqualObjects(plan.notes, @[], @"%@", name);
+		ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+		XCTAssertNotNil(result, @"%@ %@", name, error);
+		XCTAssertEqualObjects([self sorted:result.rows], [expected objectForKey:name], @"%@\n%@", name, [plan text]);
+		ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+		XCTAssertNotNil(odata, @"%@ %@", name, error);
+		XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], [expected objectForKey:name], @"%@\n%@", name,
+		                      [odata requestText]);
+	}
+}
+
 /* The same in a service (docs/RULES.md): a client's save is one change
  * set, and the service, before it saves it, works out what is derived and
  * checks the rules for what the change reaches (-[ODataService willSave],
