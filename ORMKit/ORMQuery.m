@@ -10,7 +10,56 @@
 static NSArray<NSString *> *
 ORMQueryComparisons(void)
 {
-	return @[ @"=", @"<>", @"<", @"<=", @">", @">=" ];
+	return @[ @"=", @"<>", @"<", @"<=", @">", @">=", @"in" ];
+}
+
+/* A list's values, as typed between its parentheses: each quoted (a
+ * quote in it doubled) or not, comma separated; nil where it is no list. */
+static NSArray<NSString *> *
+ORMQueryListValues(NSString *text)
+{
+	NSMutableArray *values = [NSMutableArray array];
+	NSUInteger i = 0, n = [text length];
+	while (i < n) {
+		while (i < n && [text characterAtIndex:i] == ' ') {
+			i++;
+		}
+		if (i >= n) {
+			return nil;
+		}
+		NSMutableString *value = [NSMutableString string];
+		if ([text characterAtIndex:i] == '\'') {
+			for (i++; i < n; i++) {
+				unichar c = [text characterAtIndex:i];
+				if (c == '\'' && i + 1 < n && [text characterAtIndex:i + 1] == '\'') {
+					[value appendString:@"'"];
+					i++;
+				} else if (c == '\'') {
+					i++;
+					break;
+				} else {
+					[value appendFormat:@"%C", c];
+				}
+			}
+		} else {
+			for (; i < n && [text characterAtIndex:i] != ','; i++) {
+				[value appendFormat:@"%C", [text characterAtIndex:i]];
+			}
+			[value setString:[value stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]];
+			if ([value length] == 0) {
+				return nil;
+			}
+		}
+		[values addObject:value];
+		while (i < n && [text characterAtIndex:i] == ' ') {
+			i++;
+		}
+		if (i < n && [text characterAtIndex:i] != ',') {
+			return nil;
+		}
+		i++;
+	}
+	return [values count] > 0 ? values : nil;
 }
 
 /* The text with each {n} replaced by the nth replacement; one past them,
@@ -472,6 +521,14 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 @end
 
 @implementation ORMQueryNode
+
+- (NSArray<NSString *> *)comparedValues
+{
+	if (self.value == nil) {
+		return @[];
+	}
+	return [self.comparison isEqualToString:@"in"] ? ORMQueryListValues(self.value) ?: @[] : @[ self.value ];
+}
 
 - (BOOL)isNumeric
 {
@@ -1639,6 +1696,9 @@ ORMExpandStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation, ORMSt
 		return [NSString stringWithFormat:@" %@ %@", node.comparison, [node.comparedNode designation]];
 	}
 	NSString *value = node.value ?: @"";
+	if ([node.comparison isEqualToString:@"in"]) {
+		return [NSString stringWithFormat:@" in (%@)", value];
+	}
 	if (![node isNumeric]) {
 		/* Quoted, a quote in it doubled, as SQL does. */
 		value = [NSString stringWithFormat:@"'%@'", [value stringByReplacingOccurrencesOfString:@"'" withString:@"''"]];
@@ -1872,11 +1932,16 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		                  operands:@[ [ORMTerm termWithVariable:[variables objectForKey:node.identifier]],
 		                              [ORMTerm termWithVariable:[variables objectForKey:node.comparedNode.identifier]] ]];
 	}
-	/* A value as FORML writes one: text quoted, numbers not. */
-	NSString *value = [node isNumeric] ? node.value ?: @"" : [NSString stringWithFormat:@"'%@'", node.value ?: @""];
-	return [ORMFormula compare:node.comparison
-	                  operands:@[ [ORMTerm termWithVariable:[variables objectForKey:node.identifier]],
-	                              [ORMTerm termWithConstant:value] ]];
+	/* A value as FORML writes one: text quoted, numbers not; one of a list
+	 * as any of them. */
+	NSMutableArray *alternatives = [NSMutableArray array];
+	for (NSString *each in [node comparedValues]) {
+		NSString *value = [node isNumeric] ? each : [NSString stringWithFormat:@"'%@'", each];
+		[alternatives addObject:[ORMFormula compare:[node.comparison isEqualToString:@"in"] ? @"=" : node.comparison
+		                                   operands:@[ [ORMTerm termWithVariable:[variables objectForKey:node.identifier]],
+		                                               [ORMTerm termWithConstant:value] ]]];
+	}
+	return [alternatives count] == 1 ? [alternatives firstObject] : [ORMFormula combine:ORMFormulaOr children:alternatives];
 }
 
 - (ORMFormula *)formulaOf:(ORMQueryNode *)node variables:(NSDictionary *)variables
@@ -2366,6 +2431,12 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		}
 		return NO;
 	}
+	if ([comparison isEqualToString:@"in"] && ORMQueryListValues(value ?: @"") == nil) {
+		if (reason != NULL) {
+			*reason = @"\"in\" takes a list of values: 'Maintenance', 'Repair'.";
+		}
+		return NO;
+	}
 	[self change:@"Set Query Condition" part:node with:^{
 		node.comparison = comparison;
 		node.value = comparison != nil ? (value ?: @"") : nil;
@@ -2387,7 +2458,7 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		}
 		return NO;
 	}
-	if (![ORMQueryComparisons() containsObject:comparison ?: @""]) {
+	if (![ORMQueryComparisons() containsObject:comparison ?: @""] || [comparison isEqualToString:@"in"]) {
 		if (reason != NULL) {
 			*reason = [NSString stringWithFormat:@"A condition compares with %@.",
 			                                     [ORMQueryComparisons() componentsJoinedByString:@", "]];

@@ -45,7 +45,8 @@ static NSString *const ORMComparisons = @"<>|<=|>=|=|<|>";
 static NSString *
 ORMNodeTail(void)
 {
-	return [NSString stringWithFormat:@"(\\d*)(?: (%@) ('(?:[^']|'')*'|[^ ]+))?(?: ([↑↓]))?", ORMComparisons];
+	return [NSString stringWithFormat:@"(\\d*)(?: (%@|in) (\\((?:'(?:[^']|'')*'|[^)'])*\\)|'(?:[^']|'')*'|[^ ]+))?(?: ([↑↓]))?",
+	                                  ORMComparisons];
 }
 
 static NSString *
@@ -208,7 +209,11 @@ ORMAggregateNames(void)
 		return YES;
 	}
 	NSString *value = said.value;
-	if ([value hasPrefix:@"'"] && [value hasSuffix:@"'"] && [value length] >= 2) {
+	if ([said.comparison isEqualToString:@"in"]) {
+		/* One of a list: what is between its parentheses. */
+		value = [value hasPrefix:@"("] && [value hasSuffix:@")"] ? [value substringWithRange:NSMakeRange(1, [value length] - 2)]
+		                                                         : value;
+	} else if ([value hasPrefix:@"'"] && [value hasSuffix:@"'"] && [value length] >= 2) {
 		/* Quoted, a quote in it doubled: "'O''Brien'". */
 		value = [[value substringWithRange:NSMakeRange(1, [value length] - 2)] stringByReplacingOccurrencesOfString:@"''"
 		                                                                                                withString:@"'"];

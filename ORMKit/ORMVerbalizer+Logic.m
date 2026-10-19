@@ -461,6 +461,22 @@ ORMArithmeticPrecedence(ORMTerm *term)
 	}
 }
 
+/* Whether an or is one variable equal to each of several constants. */
+- (BOOL)isOneOf:(ORMFormula *)formula
+{
+	ORMVariable *variable = nil;
+	for (ORMFormula *child in formula.children) {
+		ORMTerm *left = [child.operands firstObject];
+		ORMTerm *right = [child.operands lastObject];
+		if (child.kind != ORMFormulaComparison || ![child.comparison isEqualToString:@"="] || [child.operands count] != 2
+		    || left.variable == nil || right.constant == nil || (variable != nil && left.variable != variable)) {
+			return NO;
+		}
+		variable = left.variable;
+	}
+	return [formula.children count] > 1;
+}
+
 /* Anything but a fact: a negation, a choice, a comparison. */
 - (void)sayOther:(ORMFormula *)formula into:(ORMSentenceBuilder *)b
 {
@@ -471,6 +487,20 @@ ORMArithmeticPrecedence(ORMTerm *term)
 		break;
 	case ORMFormulaOr:
 	case ORMFormulaXor: {
+		/* One term equal to any of several values ("in"): said once, "that
+		 * CostKind is 'Maintenance' or 'Repair'". */
+		if (formula.kind == ORMFormulaOr && [self isOneOf:formula]) {
+			ORMFormula *first = [formula.children firstObject];
+			[self sayTerm:[first.operands firstObject] into:b];
+			[b keyword:@" is "];
+			for (NSUInteger i = 0; i < [formula.children count]; i++) {
+				if (i > 0) {
+					[b keyword:i + 1 == [formula.children count] ? @" or " : @", "];
+				}
+				[self sayTerm:[[[formula.children objectAtIndex:i] operands] lastObject] into:b];
+			}
+			break;
+		}
 		BOOL xor = formula.kind == ORMFormulaXor;
 		if (xor && [formula.children count] > 2) {
 			[b keyword:@"exactly one of the following holds: "];

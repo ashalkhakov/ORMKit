@@ -209,6 +209,10 @@ ORMSourceElement(NSXMLDocument *document, NSArray<NSString *> *source)
 	NSMutableArray *ranges = [NSMutableArray array];
 	if ([comparison isEqualToString:@"="]) {
 		[ranges addObject:@[ value, value, @"NotSet", @"NotSet" ]];
+	} else if ([comparison isEqualToString:@"in"]) {
+		for (NSString *each in [node comparedValues]) {
+			[ranges addObject:@[ each, each, @"NotSet", @"NotSet" ]];
+		}
 	} else if ([comparison isEqualToString:@"<"] || [comparison isEqualToString:@"<="]) {
 		[ranges addObject:@[ @"", value, @"NotSet", [comparison isEqualToString:@"<"] ? @"Open" : @"Closed" ]];
 	} else if ([comparison isEqualToString:@">"] || [comparison isEqualToString:@">="]) {

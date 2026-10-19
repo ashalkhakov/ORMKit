@@ -536,6 +536,19 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	return [ORMPlanValue constant:text type:attribute.attributeType ?: @"String"];
 }
 
+/* A node's condition on a value, of what is at the left: the comparison
+ * with its value; one of a list ("in"), equal to any of them. */
+- (ORMPlanCondition *)condition:(ORMQueryNode *)node of:(ORMPlanValue *)left type:(NSString *)attributeType
+{
+	NSMutableArray *alternatives = [NSMutableArray array];
+	BOOL among = [node.comparison isEqualToString:@"in"];
+	for (NSString *each in [node comparedValues]) {
+		[alternatives addObject:[ORMPlanCondition compare:left comparison:among ? @"=" : node.comparison
+		                                             with:[ORMPlanValue constant:each type:attributeType ?: @"String"]]];
+	}
+	return [alternatives count] == 1 ? [alternatives firstObject] : ORMAnyOf(alternatives);
+}
+
 #pragma mark Correlating
 
 /* The place compared with the node reached before: directly, where that is
@@ -700,9 +713,8 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	[parts addObjectsFromArray:correlations];
 	if (node.comparison != nil && node.comparedNode == nil) {
 		if (identifier != nil) {
-			[parts addObject:[ORMPlanCondition compare:[ORMPlanValue valueAtPath:[at.path pathByAddingKey:identifier.name]]
-			                                comparison:node.comparison
-			                                      with:[self constant:node.value attribute:identifier]]];
+			[parts addObject:[self condition:node of:[ORMPlanValue valueAtPath:[at.path pathByAddingKey:identifier.name]]
+			                            type:identifier.attributeType]];
 		} else {
 			[self note:[NSString stringWithFormat:@"%@ has no simple identifier to compare with %@.",
 			                                      node.objectType.name, node.value ?: @""]];
@@ -825,8 +837,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	if (value.comparison != nil && value.comparedNode == nil) {
 		ORMObjectType *type = [value.objectType valueType];
 		NSString *attributeType = type.dataType != nil ? [ORMCoreDataMapper attributeTypeFor:type.dataType] : @"String";
-		[parts addObject:[ORMPlanCondition compare:computed comparison:value.comparison
-		                                      with:[ORMPlanValue constant:value.value ?: @"" type:attributeType]]];
+		[parts addObject:[self condition:value of:computed type:attributeType]];
 	}
 	return ORMAllOf(parts);
 }
@@ -1208,9 +1219,8 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			return nil;
 		}
 		if (attribute.comparison != nil && attribute.comparedNode == nil) {
-			[conditions addObject:[ORMPlanCondition compare:[ORMPlanValue valueAtPath:[ORMPlanPath pathFrom:nil keys:@[ property.name ]]]
-			                                     comparison:attribute.comparison
-			                                           with:[self constant:attribute.value attribute:property]]];
+			[conditions addObject:[self condition:attribute of:[ORMPlanValue valueAtPath:[ORMPlanPath pathFrom:nil keys:@[ property.name ]]]
+			                                 type:property.attributeType]];
 		} else if ([attribute.comparison isEqualToString:@"="]) {
 			[equalities addObject:@[ attribute, attribute.comparedNode ]];
 		} else if (attribute.comparison != nil) {
@@ -1225,9 +1235,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			return nil;
 		}
 		if (computed.comparison != nil && computed.comparedNode == nil) {
-			[conditions addObject:[ORMPlanCondition compare:its comparison:computed.comparison
-			                                           with:[ORMPlanValue constant:computed.value ?: @""
-			                                                                  type:[computed isNumeric] ? @"Decimal" : @"String"]]];
+			[conditions addObject:[self condition:computed of:its type:[computed isNumeric] ? @"Decimal" : @"String"]];
 		} else if ([computed.comparison isEqualToString:@"="]) {
 			[equalities addObject:@[ computed, computed.comparedNode ]];
 		} else if (computed.comparison != nil) {
@@ -1720,8 +1728,8 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		NSMutableArray *parts = [NSMutableArray arrayWithArray:[self correlationsOf:node place:at]];
 		[self reach:node place:at];
 		if (node.comparison != nil && node.comparedNode == nil) {
-			[parts addObject:[ORMPlanCondition compare:[ORMPlanValue valueAtPath:at.path] comparison:node.comparison
-			                                      with:[self constant:node.value attribute:(ORMCDAttribute *)property]]];
+			[parts addObject:[self condition:node of:[ORMPlanValue valueAtPath:at.path]
+			                            type:((ORMCDAttribute *)property).attributeType]];
 		}
 		return ORMAllOf(parts);
 	}
@@ -1760,8 +1768,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		NSMutableArray *parts = [NSMutableArray arrayWithArray:[self correlationsOf:node place:value]];
 		[self reach:node place:value];
 		if (node.comparison != nil && node.comparedNode == nil) {
-			[parts addObject:[ORMPlanCondition compare:[ORMPlanValue valueAtPath:value.path] comparison:node.comparison
-			                                      with:[self constant:node.value attribute:attribute]]];
+			[parts addObject:[self condition:node of:[ORMPlanValue valueAtPath:value.path] type:attribute.attributeType]];
 		}
 		if ([joined count] > 0) {
 			[parts insertObject:[ORMPlanCondition notNull:value.path] atIndex:0];

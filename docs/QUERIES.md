@@ -184,6 +184,7 @@ identified (a name, a state, a country).
 | --- | --- |
 | `✓X` | X is listed |
 | `X = v`, `<>`, `<`, `<=`, `>`, `>=` | a condition on X's value, or on its identifier |
+| `X in ('Maintenance', 'Repair')`, `X in (4, 5)` | X is one of a list: any of its values (planned as equalities, any of them; in NORMA's path, a value range for each) |
 | `+ not ...` | there is no such step |
 | `+ maybe ...` | the step if there is one: listed, but leaves nothing out (the outer join) |
 | `+ count(X) for Y > n` | how many X each Y has, compared |

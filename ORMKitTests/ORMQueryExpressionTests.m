@@ -377,6 +377,10 @@
 	                 @"      Later: Odometer = Odometer2 + 500 < Odometer1\n"
 	                 @"  ✓Most = max(Litres2) for FillUp1\n"
 	                 @"\n"
+	                 @"Query Among:\n"
+	                 @"✓FillUp\n"
+	                 @"  + took Litres in (30, 36)\n"
+	                 @"\n"
 	                 @"Query SameLitres:\n"
 	                 @"✓FillUp1\n"
 	                 @"  + was at Odometer1\n"
@@ -524,6 +528,24 @@
 	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"3 40" ]), @"%@", [plan text]);
 	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"3 40" ]), @"%@", [odata requestText]);
+	/* One of a list: any of its values. */
+	ORMQuery *among = [self query:@"Among" in:model];
+	XCTAssertEqualObjects([among outlineText], @"✓FillUp\n  + took Litres in (30, 36)\n");
+	XCTAssertEqualObjects([[self node:@"Litres" of:among] comparedValues], (@[ @"30", @"36" ]));
+	said = [[[[ORMVerbalizer alloc] initWithModel:model] sentencesForQuery:among] valueForKey:@"text"];
+	XCTAssertTrue([[said firstObject] rangeOfString:@" or "].location != NSNotFound, @"%@", said);
+	plan = [planner planForQuery:among];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertTrue([[plan text] rangeOfString:@"litres = 30 or litres = 36"].location != NSNotFound, @"%@", [plan text]);
+	result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"2", @"3" ]), @"%@", [plan text]);
+	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"2", @"3" ]), @"%@", [odata requestText]);
+	/* No list, no condition. */
+	ORMQueryEditor *editing = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *refused = nil;
+	XCTAssertFalse([editing setCondition:@"in" value:@"" ofNode:[self node:@"Litres" of:among].identifier reason:&refused]);
+	XCTAssertTrue([refused rangeOfString:@"list"].location != NSNotFound, @"%@", refused);
 	/* Each vehicle's first: none of its fill-ups below, a window's count. */
 	plan = [planner planForQuery:[self query:@"First" in:model]];
 	XCTAssertEqualObjects(plan.notes, @[]);

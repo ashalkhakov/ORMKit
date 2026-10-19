@@ -95,9 +95,13 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * role at its place. */
 @property (nonatomic, readonly, weak) ORMRole *derivedRole;
 /* A condition on it: "=", "<>", "<", "<=", ">", ">=", and the value, as
- * typed (an entity's is its identifier's). nil for none. */
+ * typed (an entity's is its identifier's); or "in", one of a list ("in
+ * ('Maintenance', 'Repair')"), the value the list. nil for none. */
 @property (nonatomic, readonly, copy) NSString *comparison;
 @property (nonatomic, readonly, copy) NSString *value;
+/* The values it is compared with: the value; for "in", each of the list
+ * the value is ("'Maintenance', 'Repair'", "4, 5"), unquoted. */
+- (NSArray<NSString *> *)comparedValues;
 /* A condition comparing it with another node instead of a value: "Country2
  * <> Country1". */
 @property (nonatomic, readonly, weak) ORMQueryNode *comparedNode;
