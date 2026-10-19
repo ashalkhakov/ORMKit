@@ -234,6 +234,15 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* The variables the condition names that it does not bind itself: those
  * bound around it, or an enclosing plan's object. */
 - (NSSet<NSString *> *)freeVariables;
+/* The variables it binds, and those under it. */
+- (NSSet<NSString *> *)boundVariables;
+/* An exists', a count's or an aggregate's equality on its member: @[ the
+ * member's key, the value it equals, the subtype the key is of (cast to
+ * on the way: "x1.(Event).(FillUp).odometer") or null ], where that value
+ * names nothing the condition binds (it is the same for every member);
+ * nil for none. Its members can be looked up by the key, not each tried;
+ * one not of the subtype has no key. */
+- (NSArray *)memberProbe;
 
 @property (nonatomic, readonly) ORMPlanConditionKind kind;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanCondition *> *operands;

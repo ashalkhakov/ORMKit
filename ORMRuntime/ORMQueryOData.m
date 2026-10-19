@@ -218,6 +218,12 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 	NSMapTable<ORMPlanValue *, NSMutableDictionary *> *_windows;
 	NSMutableDictionary<NSString *, NSMutableSet *> *_windowedGroups;
 	NSMutableSet<NSString *> *_plainBags;
+	/* The equality on its member of each exists, count and aggregate
+	 * with one (-[ORMPlanCondition memberProbe]); the members of each
+	 * collection answered by their key, made once in the run, by the
+	 * collection (a graft's, the same for each object of its owner). */
+	NSMapTable<ORMPlanCondition *, NSArray *> *_memberProbes;
+	NSMapTable<NSArray *, NSMutableDictionary *> *_memberIndexes;
 }
 
 /* A join that binds: the joined objects read for the page with the pairs'
@@ -347,8 +353,25 @@ static BOOL ORMJSONCompare(id left, NSString *comparison, id right);
 			}
 		}
 		_listed = listed;
+		_memberProbes = [NSMapTable strongToStrongObjectsMapTable];
+		[self findProbes:plan.condition];
 	}
 	return self;
+}
+
+- (void)findProbes:(ORMPlanCondition *)condition
+{
+	if (condition == nil) {
+		return;
+	}
+	NSArray *probe = [condition memberProbe];
+	if (probe != nil) {
+		[_memberProbes setObject:probe forKey:condition];
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		[self findProbes:operand];
+	}
+	[self findProbes:condition.operand];
 }
 
 /* Whether the condition binds a variable a column lists from. */
@@ -553,6 +576,88 @@ ORMVariableKeys(ORMPlanCondition *condition, NSMutableDictionary<NSString *, NSA
 	return [values count] > 0 ? values : @[ [NSNull null] ];
 }
 
+/* A value as a key of a probe's index: a number, or text that is one, by
+ * its double, so that what compares equal meets (more may meet: the
+ * equality is still asked of what is found). */
+static id
+ORMJSONProbeKey(id value)
+{
+	if ([value isKindOfClass:[NSNumber class]]) {
+		return @([value doubleValue]);
+	}
+	if ([value isKindOfClass:[NSString class]]) {
+		NSScanner *scanner = [NSScanner scannerWithString:value];
+		double number = 0;
+		if ([scanner scanDouble:&number] && [scanner isAtEnd]) {
+			return @(number);
+		}
+	}
+	return value;
+}
+
+/* The members a condition asks of: where it has an equality on its
+ * member, those with the value, by an index of the owner's members made
+ * once in the run; else every one. */
+- (NSArray *)membersOf:(ORMPlanCondition *)condition object:(ORMODataObject *)read bindings:(NSDictionary *)bindings
+{
+	NSArray *probe = [_memberProbes objectForKey:condition];
+	NSArray *steps = condition.path.steps;
+	NSString *key = [(ORMPlanStep *)[steps lastObject] key];
+	if (probe == nil || key == nil) {
+		return [self membersAt:condition.path object:read bindings:bindings];
+	}
+	ORMPlanPath *to = [ORMPlanPath pathFrom:condition.path.variable steps:[steps subarrayWithRange:NSMakeRange(0, [steps count] - 1)]];
+	NSArray *owners = [self valuesAt:to object:read bindings:bindings];
+	ORMODataObject *owner = [owners count] == 1 && [[owners firstObject] isKindOfClass:[ORMODataObject class]] ? [owners firstObject] : nil;
+	NSPropertyDescription *relationship = [[owner.entity propertiesByName] objectForKey:key];
+	id collection = [relationship isKindOfClass:[NSRelationshipDescription class]] ? [owner.json objectForKey:[self wireOf:relationship]] : nil;
+	id wanted = [self firstAt:[probe objectAtIndex:1] object:read bindings:bindings];
+	if (![collection isKindOfClass:[NSArray class]] || wanted == nil || wanted == [NSNull null]
+	    || [wanted isKindOfClass:[ORMODataObject class]]) {
+		return [self membersAt:condition.path object:read bindings:bindings];
+	}
+	if (_memberIndexes == nil) {
+		_memberIndexes = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality
+		                                       valueOptions:NSPointerFunctionsStrongMemory];
+	}
+	NSMutableDictionary *indexes = [_memberIndexes objectForKey:collection];
+	if (indexes == nil) {
+		indexes = [NSMutableDictionary dictionary];
+		[_memberIndexes setObject:indexes forKey:collection];
+	}
+	NSString *subtype = [probe lastObject] != [NSNull null] ? [probe lastObject] : nil;
+	NSString *name = [NSString stringWithFormat:@"%@.%@", subtype ?: @"", [probe firstObject]];
+	NSDictionary *index = [indexes objectForKey:name];
+	if (index == nil) {
+		NSEntityDescription *destination = ((NSRelationshipDescription *)relationship).destinationEntity;
+		NSEntityDescription *keyed = subtype != nil ? [[destination.managedObjectModel entitiesByName] objectForKey:subtype] : destination;
+		ORMPlanPath *keyPath = [ORMPlanPath pathFrom:nil keys:@[ [probe firstObject] ]];
+		NSMutableDictionary *made = [NSMutableDictionary dictionary];
+		for (id json in collection) {
+			if (![json isKindOfClass:[NSDictionary class]]) {
+				continue;
+			}
+			ORMODataObject *member = ORMODataObjectOf(json, destination);
+			if (keyed == nil || (subtype != nil && ![self object:member isOf:subtype])) {
+				continue;
+			}
+			id value = [[self valuesAt:keyPath object:ORMODataObjectOf(json, keyed) bindings:@{}] firstObject];
+			if (value == nil || value == [NSNull null] || [value isKindOfClass:[ORMODataObject class]]) {
+				continue;
+			}
+			NSMutableArray *same = [made objectForKey:ORMJSONProbeKey(value)];
+			if (same == nil) {
+				same = [NSMutableArray array];
+				[made setObject:same forKey:ORMJSONProbeKey(value)];
+			}
+			[same addObject:member];
+		}
+		index = made;
+		[indexes setObject:index forKey:name];
+	}
+	return [index objectForKey:ORMJSONProbeKey(wanted)] ?: @[];
+}
+
 - (NSArray *)membersAt:(ORMPlanPath *)path object:(ORMODataObject *)read bindings:(NSDictionary *)bindings
 {
 	NSMutableArray *members = [NSMutableArray array];
@@ -696,6 +801,29 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 }
 
 /* Two objects one: their keys equal. */
+/* Whether a value is an object of the entity named, or of one under it.
+ * Its type: what @odata.type names, which a service writes only where it
+ * is not the one expected; else the one it was read as. */
+- (BOOL)object:(id)value isOf:(NSString *)entityName
+{
+	if (![value isKindOfClass:[ORMODataObject class]]) {
+		return NO;
+	}
+	ORMODataObject *object = value;
+	NSEntityDescription *entity = object.entity;
+	NSString *named = [object.json objectForKey:@"@odata.type"];
+	if ([named isKindOfClass:[NSString class]]) {
+		NSString *name = [[named componentsSeparatedByString:@"."] lastObject];
+		entity = [[[object.entity managedObjectModel] entitiesByName] objectForKey:name] ?: entity;
+	}
+	for (NSEntityDescription *at = entity; at != nil; at = [at superentity]) {
+		if ([[at name] isEqualToString:entityName]) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 - (BOOL)object:(id)left is:(id)right
 {
 	if (![left isKindOfClass:[ORMODataObject class]] || ![right isKindOfClass:[ORMODataObject class]]) {
@@ -721,6 +849,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	_windows = nil;
 	_windowedGroups = nil;
 	_plainBags = nil;
+	_memberIndexes = nil;
 }
 
 - (BOOL)hasWindowsOfBag:(NSString *)name group:(id)group
@@ -886,7 +1015,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	case ORMPlanCount:
 	case ORMPlanAggregate: {
 		NSMutableArray *kept = [NSMutableArray array];
-		for (id member in [self membersAt:condition.path object:read bindings:bindings]) {
+		for (id member in [self membersOf:condition object:read bindings:bindings]) {
 			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
 			if (condition.variable != nil) {
 				[inner setObject:member forKey:condition.variable];
@@ -928,28 +1057,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 		}
 		return NO;
 	}
-	case ORMPlanIsOf: {
-		id value = [[self valuesAt:condition.path object:read bindings:bindings] firstObject];
-		if (![value isKindOfClass:[ORMODataObject class]]) {
-			return NO;
-		}
-		/* Its type: what @odata.type names, which a service writes only
-		 * where it is not the one expected; else the one it was read as.
-		 * It is one of the entity's, or of one of its subentities. */
-		ORMODataObject *object = value;
-		NSEntityDescription *entity = object.entity;
-		NSString *named = [object.json objectForKey:@"@odata.type"];
-		if ([named isKindOfClass:[NSString class]]) {
-			NSString *name = [[named componentsSeparatedByString:@"."] lastObject];
-			entity = [[[object.entity managedObjectModel] entitiesByName] objectForKey:name] ?: entity;
-		}
-		for (NSEntityDescription *at = entity; at != nil; at = [at superentity]) {
-			if ([[at name] isEqualToString:condition.entityName]) {
-				return YES;
-			}
-		}
-		return NO;
-	}
+	case ORMPlanIsOf:
+		return [self object:[[self valuesAt:condition.path object:read bindings:bindings] firstObject] isOf:condition.entityName];
 	case ORMPlanMatches:
 		if (condition.boundVariable != nil) {
 			if (condition.isOptional) {
@@ -1006,7 +1115,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 			return @[ bindings ];
 		}
 		NSMutableArray *ways = [NSMutableArray array];
-		for (id member in [self membersAt:condition.path object:read bindings:bindings]) {
+		for (id member in [self membersOf:condition object:read bindings:bindings]) {
 			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
 			if (condition.variable != nil) {
 				[inner setObject:member forKey:condition.variable];

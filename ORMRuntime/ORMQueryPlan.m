@@ -575,6 +575,56 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	return free;
 }
 
+- (NSSet<NSString *> *)boundVariables
+{
+	NSMutableSet *bound = [NSMutableSet set];
+	if ((self.kind == ORMPlanExists || self.kind == ORMPlanMaybe) && self.variable != nil) {
+		[bound addObject:self.variable];
+	}
+	if (self.kind == ORMPlanMatches && self.boundVariable != nil) {
+		[bound addObject:self.boundVariable];
+	}
+	for (ORMPlanCondition *operand in self.operands) {
+		[bound unionSet:[operand boundVariables]];
+	}
+	if (self.operand != nil) {
+		[bound unionSet:[self.operand boundVariables]];
+	}
+	return bound;
+}
+
+- (NSArray *)memberProbe
+{
+	if ((self.kind != ORMPlanExists && self.kind != ORMPlanCount && self.kind != ORMPlanAggregate && self.kind != ORMPlanMaybe)
+	    || self.variable == nil || self.operand == nil || [self.path.steps count] == 0) {
+		return nil;
+	}
+	NSArray *conjuncts = self.operand.kind == ORMPlanAnd ? self.operand.operands : @[ self.operand ];
+	NSSet *bound = [self boundVariables];
+	for (ORMPlanCondition *each in conjuncts) {
+		if (each.kind != ORMPlanCompare || ![each.comparison isEqualToString:@"="] || each.left == nil || each.right == nil) {
+			continue;
+		}
+		for (NSArray *sides in @[ @[ each.left, each.right ], @[ each.right, each.left ] ]) {
+			ORMPlanPath *path = [(ORMPlanValue *)[sides firstObject] path];
+			ORMPlanValue *theirs = [sides lastObject];
+			ORMPlanStep *cast = [path.steps count] > 1 ? [path.steps objectAtIndex:[path.steps count] - 2] : nil;
+			if (path == nil || ![path.variable isEqualToString:self.variable] || [path.keys count] != 1
+			    || [(ORMPlanStep *)[path.steps lastObject] key] == nil || ([path.steps count] > 1 && cast.entityName == nil)) {
+				continue;
+			}
+			BOOL invariant = YES;
+			for (ORMPlanPath *used in [theirs paths]) {
+				invariant = invariant && (used.variable == nil || ![bound containsObject:used.variable]);
+			}
+			if (invariant) {
+				return @[ [path.keys firstObject], theirs, cast.entityName ?: (id)[NSNull null] ];
+			}
+		}
+	}
+	return nil;
+}
+
 - (id)copyWithZone:(NSZone *)zone
 {
 	(void)zone;

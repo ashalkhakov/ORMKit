@@ -266,25 +266,6 @@ ORMCountVariables(ORMPlanCondition *condition, NSCountedSet *counts)
 	}
 }
 
-/* The variables bound in the condition. */
-static void
-ORMBoundVariables(ORMPlanCondition *condition, NSMutableSet *bound)
-{
-	if (condition == nil) {
-		return;
-	}
-	if ((condition.kind == ORMPlanExists || condition.kind == ORMPlanMaybe) && condition.variable != nil) {
-		[bound addObject:condition.variable];
-	}
-	if (condition.kind == ORMPlanMatches && condition.boundVariable != nil) {
-		[bound addObject:condition.boundVariable];
-	}
-	for (ORMPlanCondition *operand in condition.operands) {
-		ORMBoundVariables(operand, bound);
-	}
-	ORMBoundVariables(condition.operand, bound);
-}
-
 /* The exists under the condition that are semi-joins: what they bind is
  * named nowhere but in them, and listed by no column. */
 static void
@@ -294,8 +275,7 @@ ORMFindSemiJoins(ORMPlanCondition *condition, NSCountedSet *all, NSSet *listed, 
 		return;
 	}
 	if (condition.kind == ORMPlanExists && condition.variable != nil) {
-		NSMutableSet *bound = [NSMutableSet set];
-		ORMBoundVariables(condition, bound);
+		NSSet *bound = [condition boundVariables];
 		NSCountedSet *inside = [NSCountedSet set];
 		ORMCountVariables(condition.operand, inside);
 		BOOL semi = YES;
@@ -313,45 +293,17 @@ ORMFindSemiJoins(ORMPlanCondition *condition, NSCountedSet *all, NSSet *listed, 
 	ORMFindSemiJoins(condition.operand, all, listed, found);
 }
 
-/* An exists' (a count's, an aggregate's) equality on its member: @[ the
- * member's key, the value it equals ], where that value names nothing the
- * condition binds (it is the same for every member); nil for none. Its
- * members are then looked up by the key, not each tried. */
-static NSArray *
-ORMProbeOf(ORMPlanCondition *condition)
+/* Whether a value is an object of the entity named, or of one under it. */
+static BOOL
+ORMIsOfEntity(id value, NSString *name)
 {
-	if (condition.variable == nil || condition.operand == nil || [condition.path.steps count] == 0) {
-		return nil;
-	}
-	NSArray *conjuncts = condition.operand.kind == ORMPlanAnd ? condition.operand.operands : @[ condition.operand ];
-	NSMutableSet *bound = [NSMutableSet set];
-	ORMBoundVariables(condition, bound);
-	for (ORMPlanCondition *each in conjuncts) {
-		if (each.kind != ORMPlanCompare || ![each.comparison isEqualToString:@"="]) {
-			continue;
-		}
-		for (NSArray *sides in @[ @[ each.left ?: (id)[NSNull null], each.right ?: (id)[NSNull null] ],
-		                          @[ each.right ?: (id)[NSNull null], each.left ?: (id)[NSNull null] ] ]) {
-			ORMPlanValue *mine = [sides firstObject];
-			ORMPlanValue *theirs = [sides lastObject];
-			if ((id)mine == [NSNull null] || (id)theirs == [NSNull null]) {
-				continue;
-			}
-			ORMPlanPath *path = mine.path;
-			if (path == nil || ![path.variable isEqualToString:condition.variable] || [path.steps count] != 1
-			    || [path.keys count] != 1) {
-				continue;
-			}
-			BOOL invariant = YES;
-			for (ORMPlanPath *used in [theirs paths]) {
-				invariant = invariant && (used.variable == nil || ![bound containsObject:used.variable]);
-			}
-			if (invariant) {
-				return @[ [path.keys firstObject], theirs ];
-			}
+	NSEntityDescription *entity = [value isKindOfClass:[NSManagedObject class]] ? ((NSManagedObject *)value).entity : nil;
+	for (; entity != nil; entity = entity.superentity) {
+		if ([entity.name isEqualToString:name]) {
+			return YES;
 		}
 	}
-	return nil;
+	return NO;
 }
 
 /* Every exists, count and aggregate under the condition with an equality
@@ -362,12 +314,9 @@ ORMFindProbes(ORMPlanCondition *condition, NSMapTable *found)
 	if (condition == nil) {
 		return;
 	}
-	if (condition.kind == ORMPlanExists || condition.kind == ORMPlanCount || condition.kind == ORMPlanAggregate
-	    || condition.kind == ORMPlanMaybe) {
-		NSArray *probe = ORMProbeOf(condition);
-		if (probe != nil) {
-			[found setObject:probe forKey:condition];
-		}
+	NSArray *probe = [condition memberProbe];
+	if (probe != nil) {
+		[found setObject:probe forKey:condition];
 	}
 	for (ORMPlanCondition *operand in condition.operands) {
 		ORMFindProbes(operand, found);
@@ -1317,25 +1266,28 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	                                inContext:self.context error:&error];
 	NSMutableSet *given = [NSMutableSet set];
 	while (run != nil && !run.atEnd) {
-		NSArray *objects = [run next:256];
-		if (run.error != nil) {
-			error = run.error;
-			run = nil;
-			break;
-		}
-		for (id object in objects) {
-			for (ORMTuple *tuple in [run rowsOf:object]) {
-				if ([given containsObject:tuple]) {
-					continue;
+		/* Each batch's own, gone with it. */
+		@autoreleasepool {
+			NSArray *objects = [run next:256];
+			if (run.error != nil) {
+				error = run.error;
+				run = nil;
+				break;
+			}
+			for (id object in objects) {
+				for (ORMTuple *tuple in [run rowsOf:object]) {
+					if ([given containsObject:tuple]) {
+						continue;
+					}
+					[given addObject:tuple];
+					id each = [tuple objectAtIndex:column];
+					NSMutableArray *tuples = [groups objectForKey:each];
+					if (tuples == nil) {
+						tuples = [NSMutableArray array];
+						[groups setObject:tuples forKey:each];
+					}
+					[tuples addObject:tuple];
 				}
-				[given addObject:tuple];
-				id each = [tuple objectAtIndex:column];
-				NSMutableArray *tuples = [groups objectForKey:each];
-				if (tuples == nil) {
-					tuples = [NSMutableArray array];
-					[groups setObject:tuples forKey:each];
-				}
-				[tuples addObject:tuple];
 			}
 		}
 	}
@@ -1359,7 +1311,8 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	NSArray *steps = condition.path.steps;
 	ORMPlanPath *to = [ORMPlanPath pathFrom:condition.path.variable steps:[steps subarrayWithRange:NSMakeRange(0, [steps count] - 1)]];
 	id owner = [steps count] > 1 || condition.path.variable != nil ? [self valueOf:to object:object bindings:bindings] : object;
-	id wanted = [self value:[probe lastObject] object:object bindings:bindings];
+	id wanted = [self value:[probe objectAtIndex:1] object:object bindings:bindings];
+	NSString *subtype = [probe lastObject] != [NSNull null] ? [probe lastObject] : nil;
 	NSString *relationship = [(ORMPlanStep *)[steps lastObject] key];
 	if (owner == nil || owner == [NSNull null] || [owner isKindOfClass:[NSSet class]] || [owner isKindOfClass:[NSArray class]]
 	    || wanted == nil || wanted == [NSNull null] || relationship == nil) {
@@ -1374,11 +1327,14 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		indexes = [NSMutableDictionary dictionary];
 		[_memberIndexes setObject:indexes forKey:owner];
 	}
-	NSString *name = [NSString stringWithFormat:@"%@.%@", [probe firstObject], relationship];
+	NSString *name = [NSString stringWithFormat:@"%@.%@.%@", subtype ?: @"", [probe firstObject], relationship];
 	NSDictionary *index = [indexes objectForKey:name];
 	if (index == nil) {
 		NSMutableDictionary *made = [NSMutableDictionary dictionary];
 		for (id member in ORMMembers([owner valueForKey:relationship])) {
+			if (subtype != nil && !ORMIsOfEntity(member, subtype)) {
+				continue;
+			}
 			id key = [member valueForKey:[probe firstObject]];
 			if (key == nil || key == [NSNull null]) {
 				continue;
@@ -1455,16 +1411,8 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 			? [members valueForKeyPath:function] : nil;
 		return ORMCompare(aggregate, condition.comparison, [self constant:condition.constant]);
 	}
-	case ORMPlanIsOf: {
-		id value = [self valueOf:condition.path object:object bindings:bindings];
-		NSEntityDescription *entity = [value isKindOfClass:[NSManagedObject class]] ? ((NSManagedObject *)value).entity : nil;
-		for (; entity != nil; entity = entity.superentity) {
-			if ([entity.name isEqualToString:condition.entityName]) {
-				return YES;
-			}
-		}
-		return NO;
-	}
+	case ORMPlanIsOf:
+		return ORMIsOfEntity([self valueOf:condition.path object:object bindings:bindings], condition.entityName);
 	case ORMPlanSame: {
 		id left = [self valueOf:condition.path object:object bindings:bindings];
 		id right = [self valueOf:condition.otherPath object:object bindings:bindings];
@@ -2116,16 +2064,23 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	}
 	NSMutableArray *objects = [NSMutableArray array];
 	NSMutableArray *rows = [NSMutableArray array];
-	while (![cursor atEnd]) {
-		ORMQueryResult *page = [cursor nextPage:256 error:error];
-		if (page == nil) {
-			return nil;
+	/* What a page makes on the way to its rows goes with it, each page: on
+	 * GNUstep nothing else lets it go until the caller's pool does. */
+	NSError *failed = nil;
+	BOOL more = YES;
+	while (more && ![cursor atEnd]) {
+		@autoreleasepool {
+			ORMQueryResult *page = [cursor nextPage:256 error:&failed];
+			more = page != nil && [page.objects count] > 0;
+			[objects addObjectsFromArray:page.objects ?: @[]];
+			[rows addObjectsFromArray:page.rows ?: @[]];
 		}
-		if ([page.objects count] == 0) {
-			break;
+	}
+	if (failed != nil) {
+		if (error != NULL) {
+			*error = failed;
 		}
-		[objects addObjectsFromArray:page.objects];
-		[rows addObjectsFromArray:page.rows];
+		return nil;
 	}
 	ORMQueryResult *result = [[ORMQueryResult alloc] init];
 	result.objects = objects;
@@ -2181,17 +2136,23 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		if (![[object entity] isKindOfEntity:run.read]) {
 			continue;
 		}
-		BOOL holds = plan.condition == nil || [run holds:plan.condition object:object bindings:run.bindings];
-		if (run.error != nil) {
-			if (error != NULL) {
-				*error = run.error;
+		/* Each object's own, gone with it; the run's error kept by the run. */
+		@autoreleasepool {
+			BOOL holds = plan.condition == nil || [run holds:plan.condition object:object bindings:run.bindings];
+			if (run.error != nil) {
+				break;
 			}
-			return nil;
+			if (holds) {
+				[kept addObject:object];
+				[rows addObjectsFromArray:[run rowsOf:object]];
+			}
 		}
-		if (holds) {
-			[kept addObject:object];
-			[rows addObjectsFromArray:[run rowsOf:object]];
+	}
+	if (run.error != nil) {
+		if (error != NULL) {
+			*error = run.error;
 		}
+		return nil;
 	}
 	return [ORMQueryResult resultWithObjects:kept columnTitles:[plan.columns valueForKey:@"title"] rows:rows];
 }

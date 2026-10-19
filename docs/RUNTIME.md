@@ -225,8 +225,14 @@ took 480 s, 0.58 s for one vehicle of 10,000.
 
 Not yet:
 - **More decorrelation.** A window over what a member reaches through a
-  further step, and an aggregate for several groups above it (ConQuer-II's
-  "for Branch, Year"), are bags still.
+  further step to another entity, and an aggregate for several groups
+  above it (ConQuer-II's "for Branch, Year"), are bags still.
+- **An existence the service asks of a grafted collection.** "The one
+  before" down subtypes still has the service check that some record of
+  the vehicle is such a fill-up (`Vehicle/Records/any(...)`), which Core
+  Data on the Mac says as a correlated `COUNT`: a vehicle of 3,000
+  fill-ups takes 65 s there (FreeCoreData's `EXISTS`, and the runner's
+  own lookup over the graft, are fast).
 - **Flat typed values.** Values boxed as objects (NSNumber, NSDecimalNumber,
   key-value coding for each path) are most of what a row costs now. Column
   kinds are known when a plan is made: a tuple can be a flat array of

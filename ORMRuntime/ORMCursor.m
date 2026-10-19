@@ -184,18 +184,21 @@
 {
 	_evaluator.answers = batch.answers;
 	for (id object in batch.objects) {
-		BOOL own = _objectsApart || _rowsInOrder;
-		NSMutableSet *given = own ? [NSMutableSet set] : _given;
-		for (ORMTuple *tuple in [_evaluator rowsOf:object]) {
-			if (![given containsObject:tuple] && !(_rowsInOrder && !_objectsApart && [_previous containsObject:tuple])) {
-				/* The row given: its values, a plain array. */
-				[rows addObject:[tuple values]];
-				[_owned addObject:@[ object, tuple ]];
+		/* What making an object's rows makes, gone with it. */
+		@autoreleasepool {
+			BOOL own = _objectsApart || _rowsInOrder;
+			NSMutableSet *given = own ? [NSMutableSet set] : _given;
+			for (ORMTuple *tuple in [_evaluator rowsOf:object]) {
+				if (![given containsObject:tuple] && !(_rowsInOrder && !_objectsApart && [_previous containsObject:tuple])) {
+					/* The row given: its values, a plain array. */
+					[rows addObject:[tuple values]];
+					[_owned addObject:@[ object, tuple ]];
+				}
+				[given addObject:tuple];
 			}
-			[given addObject:tuple];
-		}
-		if (_rowsInOrder && !_objectsApart && [given count] > 0) {
-			_previous = given;
+			if (_rowsInOrder && !_objectsApart && [given count] > 0) {
+				_previous = given;
+			}
 		}
 	}
 	_evaluator.answers = nil;

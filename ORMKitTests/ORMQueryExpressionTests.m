@@ -708,6 +708,136 @@
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"3 1000" ]), @"%@", [odata requestText]);
 }
 
+/* The one before down a chain of subtypes, at a distance absorbed into
+ * the record (its quantity and unit), of full tanks only, in the same
+ * unit: a window, partitioned by vehicle and unit. A trip is an event but
+ * no fill-up; a repair no event. And the one there, of any unit: looked
+ * up by its quantity among the vehicle's fill-ups, the trip at the same
+ * quantity not one. */
+- (void)testTheOneBeforeDownSubtypesAndParts
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Quantity is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Vehicle(.id) is an entity type.\n"
+	                 @"DistanceUnit(.code) is an entity type.\n"
+	                 @"Record(.id) is of Vehicle\n"
+	                 @"Each Record is of exactly one Vehicle.\n"
+	                 @"Each Event is a Record.\n"
+	                 @"Each Repair is a Record.\n"
+	                 @"Each FillUp is an Event.\n"
+	                 @"Each Trip is an Event.\n"
+	                 @"Distance has Quantity\n"
+	                 @"Each Distance has exactly one Quantity.\n"
+	                 @"Distance is in DistanceUnit\n"
+	                 @"Each Distance is in exactly one DistanceUnit.\n"
+	                 @"For each Quantity and DistanceUnit, at most one Distance has that Quantity and is in that DistanceUnit.\n"
+	                 @"This association with Quantity and DistanceUnit provides the preferred identification scheme for Distance.\n"
+	                 @"Event was at Distance\n"
+	                 @"Each Event was at exactly one Distance.\n"
+	                 @"FillUp filled the tank\n"
+	                 @"\n"
+	                 @"Query Before:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Distance1\n"
+	                 @"    + has Quantity1\n"
+	                 @"    + is in ✓DistanceUnit1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + Record is of that Vehicle\n"
+	                 @"      + is Event\n"
+	                 @"        + is FillUp2\n"
+	                 @"          + filled the tank\n"
+	                 @"          + was at Distance2\n"
+	                 @"            + has Quantity2 < Quantity1\n"
+	                 @"            + is in DistanceUnit1\n"
+	                 @"  ✓Previous = max(Quantity2) for FillUp1\n"
+	                 @"\n"
+	                 @"Query Prior:\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Distance1\n"
+	                 @"    + has Quantity1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + Record is of that Vehicle\n"
+	                 @"      + is Event\n"
+	                 @"        + is FillUp2\n"
+	                 @"          + was at Distance2\n"
+	                 @"            + has Quantity2 < Quantity1\n"
+	                 @"    + Record is of that Vehicle\n"
+	                 @"      + is Event\n"
+	                 @"        + is ✓FillUp3\n"
+	                 @"          + was at Distance3\n"
+	                 @"            + has Quantity3 = Previous\n"
+	                 @"  Previous = max(Quantity2) for FillUp1\n"
+	                 @"\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Before" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertTrue([[plan text] rangeOfString:@"max of Quantity2 in bag1 where Vehicle is vehicle.id, DistanceUnit1 is "].location
+	                  != NSNotFound, @"%@", [plan text]);
+	XCTAssertTrue([[plan text] rangeOfString:@"SUBQUERY"].location == NSNotFound, @"%@", [plan text]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	/* Id, vehicle, kind, quantity, unit, full. */
+	NSArray *records = @[ @[ @1, @1, @"FillUp", @1000, @"km", @YES ], @[ @2, @1, @"Repair" ], @[ @3, @1, @"FillUp", @1300, @"mi", @YES ],
+		                  @[ @4, @1, @"FillUp", @1500, @"km", @YES ], @[ @5, @1, @"FillUp", @1200, @"km", @NO ],
+		                  @[ @6, @1, @"FillUp", @2000, @"km", @YES ], @[ @7, @2, @"FillUp", @500, @"km", @YES ],
+		                  @[ @8, @1, @"Trip", @1500, @"km" ], @[ @9, @1, @"FillUp", @1400, @"mi", @YES ] ];
+	ORMCDEntity *event = [planner.coreData entityNamed:@"Event"];
+	NSString *quantity = nil;
+	NSString *unit = nil;
+	for (ORMCDProperty *property in event.properties) {
+		quantity = [property.name hasSuffix:@"Quantity"] ? property.name : quantity;
+		unit = [property.name hasSuffix:@"DistanceUnit"] ? property.name : unit;
+	}
+	XCTAssertNotNil(quantity);
+	XCTAssertNotNil(unit);
+	[context performBlockAndWait:^{
+		NSMutableDictionary *made = [NSMutableDictionary dictionary];
+		for (NSArray *each in @[ @[ @"Vehicle", @"id", @1 ], @[ @"Vehicle", @"id", @2 ], @[ @"DistanceUnit", @"code", @"km" ],
+		                         @[ @"DistanceUnit", @"code", @"mi" ] ]) {
+			NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:each[0] inManagedObjectContext:context];
+			[object setValue:each[2] forKey:each[1]];
+			[made setObject:object forKey:each[2]];
+		}
+		for (NSArray *each in records) {
+			NSManagedObject *record = [NSEntityDescription insertNewObjectForEntityForName:each[2] inManagedObjectContext:context];
+			[record setValue:each[0] forKey:@"id"];
+			[record setValue:[made objectForKey:each[1]] forKey:@"vehicle"];
+			if ([each count] > 3) {
+				[record setValue:[NSDecimalNumber numberWithInteger:[each[3] integerValue]] forKey:quantity];
+				[record setValue:[made objectForKey:each[4]] forKey:unit];
+			}
+			if ([each count] > 5) {
+				[record setValue:each[5] forKey:@"filledTheTank"];
+			}
+		}
+		NSError *saved = nil;
+		XCTAssertTrue([context save:&saved], @"%@", saved);
+	}];
+	NSArray *expected = @[ @"4 km 1000", @"5 km 1000", @"6 km 1500", @"9 mi 1300" ];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], expected, @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], expected, @"%@", [odata requestText]);
+	plan = [planner planForQuery:[self query:@"Prior" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	expected = @[ @"3 5", @"4 9", @"5 1", @"6 4", @"9 3" ];
+	result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	XCTAssertEqualObjects([self sorted:result.rows], expected, @"%@", [plan text]);
+	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], expected, @"%@", [odata requestText]);
+}
+
 #pragma mark Dates
 
 /* Durations and dates, in UTC: across midnight, at a month's end; a

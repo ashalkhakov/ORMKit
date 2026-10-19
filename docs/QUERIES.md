@@ -412,7 +412,16 @@ planned and run otherwise, as databases unnest a correlated subquery
   - **an equality** with what the group has (`Litres2 = Litres1`): within
     the partition, the window of the tuples of the object's value
     (`where Vehicle is vehicle.id, Litres2 is litres, Odometer2 <
-    odometer`).
+    odometer`); also a node the same object as one of the group's, by its
+    label (`is in DistanceUnit1`), a to-one by what identifies it
+    (`DistanceUnit1 is mileageDistanceUnit.code`);
+  - **down subtypes**: a member reached as its supertype and taken down
+    to a subtype by links alone (`Record is of that Vehicle`, `is Event`,
+    `is FillUp2`), the bag the subtype's;
+  - **through what is absorbed**: the member's attributes through an
+    object type absorbed into it (`was at Distance2`, `has Quantity2`:
+    `mileageQuantity`), and a unary of it a condition (`filled the
+    tank`).
 
   Any other shape is the whole query's bag, as before.
 - **An existence with an inequality is a window's count.** A step to
@@ -429,8 +438,11 @@ planned and run otherwise, as databases unnest a correlated subquery
   collection, with a conjunct `x.key = v` whose v names nothing the
   condition binds, takes its members from an index of the collection by
   the key, made once for the collection's owner, rather than trying each
-  ("the fill-up of this vehicle at the previous odometer"). What the
-  index finds is still asked the whole condition.
+  ("the fill-up of this vehicle at the previous odometer"); the key may be
+  a subtype's (`x.(Event).(FillUp).odometer`), and a member not of it is
+  in no index. What the index finds is still asked the whole condition.
+  Both backends: the service's runner indexes the collection a graft
+  gave, once in the run.
 
 "The one before" at 100,000 fill-ups (100 to a vehicle) went from 480 s to
 5 s with these, and one vehicle of 3,000 fill-ups from 76 s to 0.17 s:

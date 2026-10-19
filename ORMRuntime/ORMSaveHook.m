@@ -146,55 +146,78 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
 - (BOOL)deriveInContext:(NSManagedObjectContext *)context changed:(NSMutableSet *)changed error:(NSError **)error
 {
 	ORMQueryInterpreter *interpreter = [self interpreterFor:context];
+	NSError *failed = nil;
 	for (ORMStoredDerivation *derivation in self.tables.derivations) {
-		NSMutableArray *roots = [NSMutableArray array];
-		for (NSManagedObject *root in [ORMSaveHook rootsOf:derivation.root backs:derivation.backs changed:changed
-		                                         inContext:context]) {
-			if (![root isDeleted]) {
-				[roots addObject:root];
+		/* What a derivation makes on the way, gone with it. */
+		@autoreleasepool {
+			if (![self derive:derivation interpreter:interpreter inContext:context changed:changed error:&failed]) {
+				break;
 			}
 		}
-		if ([roots count] == 0) {
+	}
+	if (failed != nil) {
+		if (error != NULL) {
+			*error = failed;
+		}
+		return NO;
+	}
+	return YES;
+}
+
+/* One derivation brought up to date for the roots a change reaches. */
+- (BOOL)derive:(ORMStoredDerivation *)derivation
+   interpreter:(ORMQueryInterpreter *)interpreter
+     inContext:(NSManagedObjectContext *)context
+       changed:(NSMutableSet *)changed
+         error:(NSError **)error
+{
+	NSMutableArray *roots = [NSMutableArray array];
+	for (NSManagedObject *root in [ORMSaveHook rootsOf:derivation.root backs:derivation.backs changed:changed
+	                                         inContext:context]) {
+		if (![root isDeleted]) {
+			[roots addObject:root];
+		}
+	}
+	if ([roots count] == 0) {
+		return YES;
+	}
+	ORMQueryResult *result = [interpreter executePlan:derivation.plan ofObjects:roots inContext:context error:error];
+	if (result == nil) {
+		return NO;
+	}
+	/* Each root's rows: those whose first column is it. */
+	NSMapTable *rowsOf = [NSMapTable strongToStrongObjectsMapTable];
+	for (NSArray *row in result.rows) {
+		NSMutableArray *rows = [rowsOf objectForKey:[row firstObject]];
+		if (rows == nil) {
+			rows = [NSMutableArray array];
+			[rowsOf setObject:rows forKey:[row firstObject]];
+		}
+		[rows addObject:row];
+	}
+	for (NSManagedObject *root in roots) {
+		NSArray *rows = [rowsOf objectForKey:root] ?: @[];
+		if ([derivation.kind isEqualToString:@"values"]) {
+			/* Each part's property its column: one tuple, or none. */
+			NSArray *tuple = ORMDerivedTuple(rows);
+			if (tuple == nil && derivation.partial) {
+				continue;
+			}
+			for (NSUInteger i = 0; i < [derivation.targets count]; i++) {
+				id part = tuple != nil ? [tuple objectAtIndex:i] : nil;
+				if (ORMSetDerived(root, [derivation.targets objectAtIndex:i], part == [NSNull null] ? nil : part, @"value")) {
+					[changed addObject:root];
+				}
+			}
 			continue;
 		}
-		ORMQueryResult *result = [interpreter executePlan:derivation.plan ofObjects:roots inContext:context error:error];
-		if (result == nil) {
-			return NO;
+		id value = ORMDerivedValue(rows, derivation.kind);
+		/* Partly derived: what was asserted stays where nothing is. */
+		if (derivation.partial && (value == nil || ([value isKindOfClass:[NSSet class]] && [value count] == 0))) {
+			continue;
 		}
-		/* Each root's rows: those whose first column is it. */
-		NSMapTable *rowsOf = [NSMapTable strongToStrongObjectsMapTable];
-		for (NSArray *row in result.rows) {
-			NSMutableArray *rows = [rowsOf objectForKey:[row firstObject]];
-			if (rows == nil) {
-				rows = [NSMutableArray array];
-				[rowsOf setObject:rows forKey:[row firstObject]];
-			}
-			[rows addObject:row];
-		}
-		for (NSManagedObject *root in roots) {
-			NSArray *rows = [rowsOf objectForKey:root] ?: @[];
-			if ([derivation.kind isEqualToString:@"values"]) {
-				/* Each part's property its column: one tuple, or none. */
-				NSArray *tuple = ORMDerivedTuple(rows);
-				if (tuple == nil && derivation.partial) {
-					continue;
-				}
-				for (NSUInteger i = 0; i < [derivation.targets count]; i++) {
-					id part = tuple != nil ? [tuple objectAtIndex:i] : nil;
-					if (ORMSetDerived(root, [derivation.targets objectAtIndex:i], part == [NSNull null] ? nil : part, @"value")) {
-						[changed addObject:root];
-					}
-				}
-				continue;
-			}
-			id value = ORMDerivedValue(rows, derivation.kind);
-			/* Partly derived: what was asserted stays where nothing is. */
-			if (derivation.partial && (value == nil || ([value isKindOfClass:[NSSet class]] && [value count] == 0))) {
-				continue;
-			}
-			if (ORMSetDerived(root, derivation.target, value, derivation.kind)) {
-				[changed addObject:root];
-			}
+		if (ORMSetDerived(root, derivation.target, value, derivation.kind)) {
+			[changed addObject:root];
 		}
 	}
 	return YES;
@@ -220,7 +243,9 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
 		                                           changed:changed
 		                                         inContext:context]) {
 			if (![root isDeleted]) {
+				@autoreleasepool {
 				[violations addObjectsFromArray:[validator violationsOf:root deontic:NO]];
+			}
 			}
 		}
 	}
