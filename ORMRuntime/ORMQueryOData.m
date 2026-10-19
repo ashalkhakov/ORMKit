@@ -78,6 +78,29 @@ ORMODataError(NSString *text)
 @property (nonatomic, strong) NSMutableDictionary<NSString *, ORMODataLevel *> *expand;
 /* An entity listed with no identifier: all of it. */
 @property (nonatomic) BOOL all;
+/* The relationship it is expanded by; nil at the top. */
+@property (nonatomic, strong) NSRelationshipDescription *relationship;
+@end
+
+/* A collection reached through a to-one, shared by the objects read that
+ * reach the same owner ("Vehicle/FillUps"): not expanded with each one,
+ * which is quadratic in what comes over the wire, but read once for each
+ * page's owners and put in their JSON (ORMQueryODataCursor -graft:). */
+@interface ORMODataGraft : NSObject
+/* From the object read to the owner, the owner's key, and the collection
+ * on it, by their wire names. */
+@property (nonatomic, copy) NSArray<NSString *> *ownerWire;
+@property (nonatomic, copy) NSString *ownerKey;
+@property (nonatomic, copy) NSString *name;
+/* The members: their collection, their way back to the owner, and what is
+ * read of them (the owner's key through that way too). */
+@property (nonatomic, copy) NSString *collectionPath;
+@property (nonatomic, copy) NSString *inverse;
+@property (nonatomic, strong) NSEntityDescription *member;
+@property (nonatomic, strong) ODataQueryOptions *options;
+@end
+
+@implementation ORMODataGraft
 @end
 
 @implementation ORMODataLevel
@@ -92,11 +115,12 @@ ORMODataError(NSString *text)
 	return level;
 }
 
-- (ORMODataLevel *)expanding:(NSString *)name entity:(NSEntityDescription *)entity
+- (ORMODataLevel *)expanding:(NSString *)name entity:(NSEntityDescription *)entity relationship:(NSRelationshipDescription *)relationship
 {
 	ORMODataLevel *level = [self.expand objectForKey:name];
 	if (level == nil) {
 		level = [ORMODataLevel levelOf:entity];
+		level.relationship = relationship;
 		[self.expand setObject:level forKey:name];
 		[self.expandNames addObject:name];
 	}
@@ -115,6 +139,8 @@ ORMODataError(NSString *text)
        after:(NSArray *)last
   completion:(void (^)(NSArray *values, BOOL more, NSError *error))completion;
 - (void)keep:(NSArray *)rows join:(ORMQueryODataJoin *)join completion:(void (^)(NSArray *kept, NSError *error))completion;
+/* The page with each graft's members put in its owners' JSON. */
+- (void)graft:(NSArray *)values completion:(void (^)(NSArray *grafted, NSError *error))completion;
 @end
 
 #pragma mark Rows from the service
@@ -1044,6 +1070,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 /* The request evaluates on the service's answers, a batch at a time. */
 @interface ORMQueryOData () <ORMBatchEvaluator>
 - (NSArray<NSArray<NSString *> *> *)columnWire;
+/* The collections read for each page's owners. */
+- (NSArray<ORMODataGraft *> *)grafts;
 - (ODataPropertyMapper *)mapper;
 - (NSArray<ORMTuple *> *)rowsOf:(NSDictionary *)json;
 - (NSEntityDescription *)readEntity;
@@ -1104,6 +1132,8 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	/* The bags whose rows are read: an aggregate of them the service does
 	 * not compute. */
 	NSMutableSet<NSString *> *_bagRows;
+	/* The collections read for each page's owners, not expanded. */
+	NSMutableArray<ORMODataGraft *> *_grafts;
 }
 
 + (instancetype)requestForPlan:(ORMQueryPlan *)plan model:(NSManagedObjectModel *)model error:(NSError **)error
@@ -1115,6 +1145,7 @@ ORMJSONCompare(id left, NSString *comparison, id right)
 	request->_notes = [NSMutableArray arrayWithArray:plan.notes ?: @[]];
 	request->_joins = [NSMutableArray array];
 	request->_pageJoins = [NSMutableArray array];
+	request->_grafts = [NSMutableArray array];
 	request->_columnWire = [NSMutableArray array];
 	request->_bound = [NSMutableDictionary dictionary];
 	request->_written = [NSMutableDictionary dictionary];
@@ -2698,7 +2729,7 @@ ORMJoinedVariables(ORMPlanCondition *condition, BOOL inside, NSMutableSet *varia
 			}
 			if ([property isKindOfClass:[NSRelationshipDescription class]]) {
 				at = ((NSRelationshipDescription *)property).destinationEntity;
-				level = [level expanding:[self wireOf:property] entity:at];
+				level = [level expanding:[self wireOf:property] entity:at relationship:(NSRelationshipDescription *)property];
 			} else if (i + 1 == [keys count]) {
 				[level.select addObject:[self wireOf:property]];
 				at = nil;
@@ -2734,9 +2765,58 @@ ORMJoinedVariables(ORMPlanCondition *condition, BOOL inside, NSMutableSet *varia
 		[read addObjectsFromArray:join.outerKeys ?: @[]];
 	}
 	[self need:read from:_read into:top];
+	if (![self graftUnder:top wire:@[]]) {
+		return NO;
+	}
 	options.compute = computeItems;
 	_rows.computedAliases = aliases;
 	return [self level:top into:options];
+}
+
+- (NSArray<ORMODataGraft *> *)grafts
+{
+	return _grafts;
+}
+
+/* The collections under a to-one, each a graft rather than expanded with
+ * every object read; the object read's own collections stay expanded (each
+ * object's its own). One whose owner has no one key, or whose members no
+ * to-one back, stays expanded too. */
+- (BOOL)graftUnder:(ORMODataLevel *)level wire:(NSArray<NSString *> *)wire
+{
+	for (NSString *name in [level.expandNames copy]) {
+		ORMODataLevel *child = [level.expand objectForKey:name];
+		NSRelationshipDescription *relationship = child.relationship;
+		if (!relationship.isToMany) {
+			if (![self graftUnder:child wire:[wire arrayByAddingObject:name]]) {
+				return NO;
+			}
+			continue;
+		}
+		NSRelationshipDescription *inverse = relationship.inverseRelationship;
+		NSArray *key = [self keyOf:level.entity];
+		NSString *collection = [_mapper collectionPathForEntity:child.entity];
+		if ([wire count] == 0 || inverse == nil || inverse.isToMany || [key count] != 1 || collection == nil) {
+			continue;
+		}
+		[child expanding:[self wireOf:inverse] entity:level.entity relationship:inverse];
+		ODataMutableQueryOptions *options = [[ODataMutableQueryOptions alloc] init];
+		if (![self level:child into:options]) {
+			return NO;
+		}
+		ORMODataGraft *graft = [[ORMODataGraft alloc] init];
+		graft.ownerWire = wire;
+		graft.ownerKey = [key firstObject];
+		graft.name = name;
+		graft.collectionPath = collection;
+		graft.inverse = [self wireOf:inverse];
+		graft.member = child.entity;
+		graft.options = options;
+		[_grafts addObject:graft];
+		[level.expandNames removeObject:name];
+		[level.expand removeObjectForKey:name];
+	}
+	return YES;
 }
 
 /* Each key path selected, or expanded, at its level. */
@@ -2753,7 +2833,7 @@ ORMJoinedVariables(ORMPlanCondition *condition, BOOL inside, NSMutableSet *varia
 			}
 			if ([property isKindOfClass:[NSRelationshipDescription class]]) {
 				at = ((NSRelationshipDescription *)property).destinationEntity;
-				level = [level expanding:[self wireOf:property] entity:at];
+				level = [level expanding:[self wireOf:property] entity:at relationship:(NSRelationshipDescription *)property];
 			} else if (property != nil && ![level.select containsObject:[self wireOf:property]]) {
 				[level.select addObject:[self wireOf:property]];
 			}
@@ -2897,6 +2977,10 @@ ORMRequestLine(NSString *path, ODataQueryOptions *options)
 	}
 	if ([_joins count] > 0) {
 		[text appendString:@"then, each @join its rows' parts:\n"];
+	}
+	for (ORMODataGraft *graft in _grafts) {
+		[text appendFormat:@"%@ of each page's %@, once each: %@", graft.name, [graft.ownerWire componentsJoinedByString:@"/"],
+		                   ORMRequestLine(graft.collectionPath, graft.options)];
 	}
 	[text appendString:ORMRequestLine(_collectionPath, _options)];
 	ORMSeek *seek = [self seek];
@@ -3068,6 +3152,9 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	ODataQueryOptions *_options;
 	/* Pages of what the cursors read (docs/CURSORS.md). */
 	ORMPageReader *_reader;
+	/* Each graft's members read in this run, by its owner's key, by the
+	 * graft's place among the request's. */
+	NSMutableDictionary<NSNumber *, NSMutableDictionary *> *_grafted;
 }
 
 - (instancetype)initWithRequest:(ORMQueryOData *)request transport:(id<ODataTransport>)transport serviceRoot:(NSURL *)root
@@ -3374,6 +3461,127 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 	more();
 }
 
+/* The owner an object read reaches by the wire path: its JSON; nil for
+ * none. */
+static NSDictionary *
+ORMGraftOwner(id json, NSArray<NSString *> *wire)
+{
+	for (NSString *name in wire) {
+		json = [json isKindOfClass:[NSDictionary class]] ? [json objectForKey:name] : nil;
+	}
+	return [json isKindOfClass:[NSDictionary class]] ? json : nil;
+}
+
+/* The JSON with its owner's members put in, the owner's copy and those on
+ * the way to it; the rest shared. */
+static id
+ORMWithGraft(id json, NSUInteger depth, ORMODataGraft *graft, NSDictionary *members)
+{
+	if (![json isKindOfClass:[NSDictionary class]]) {
+		return json;
+	}
+	NSMutableDictionary *copy = [json mutableCopy];
+	if (depth == [graft.ownerWire count]) {
+		id key = [json objectForKey:graft.ownerKey];
+		[copy setObject:(key != nil ? [members objectForKey:key] : nil) ?: @[] forKey:graft.name];
+		return copy;
+	}
+	NSString *name = [graft.ownerWire objectAtIndex:depth];
+	id inner = [json objectForKey:name];
+	if (inner == nil || inner == [NSNull null]) {
+		return json;
+	}
+	[copy setObject:ORMWithGraft(inner, depth + 1, graft, members) forKey:name];
+	return copy;
+}
+
+- (void)graft:(NSArray *)values completion:(void (^)(NSArray *grafted, NSError *error))completion
+{
+	[self graft:values from:0 completion:completion];
+}
+
+/* The grafts from the one at index on: the members of owners not yet read
+ * in this run read at once, by the owners' keys; then each object read's
+ * owner given its members. */
+- (void)graft:(NSArray *)values from:(NSUInteger)index completion:(void (^)(NSArray *grafted, NSError *error))completion
+{
+	NSArray *grafts = [_request grafts];
+	if (index >= [grafts count] || [values count] == 0) {
+		completion(values, nil);
+		return;
+	}
+	ORMODataGraft *graft = [grafts objectAtIndex:index];
+	if (_grafted == nil) {
+		_grafted = [NSMutableDictionary dictionary];
+	}
+	NSMutableDictionary *had = [_grafted objectForKey:@(index)];
+	if (had == nil) {
+		had = [NSMutableDictionary dictionary];
+		[_grafted setObject:had forKey:@(index)];
+	}
+	NSMutableOrderedSet *wanted = [NSMutableOrderedSet orderedSet];
+	for (NSDictionary *json in values) {
+		id key = [ORMGraftOwner(json, graft.ownerWire) objectForKey:graft.ownerKey];
+		if (key != nil && key != [NSNull null] && [had objectForKey:key] == nil) {
+			[wanted addObject:key];
+		}
+	}
+	if ([wanted count] == 0) {
+		[self put:graft into:values members:had then:index completion:completion];
+		return;
+	}
+	NSError *error = nil;
+	ODataExpression *any = nil;
+	for (id key in wanted) {
+		ODataExpression *path = [ODataExpression memberPath:@[ graft.inverse, graft.ownerKey ] of:nil error:&error];
+		ODataExpression *equal = path != nil
+			? [ODataExpression binary:@"eq" left:path right:ORMLiteralAt(key, @[ graft.inverse, graft.ownerKey ], graft.member, _mapper)
+			                    error:&error]
+			: nil;
+		any = equal == nil ? nil : any != nil ? [ODataExpression binary:@"or" left:any right:equal error:&error] : equal;
+		if (any == nil) {
+			completion(nil, error);
+			return;
+		}
+	}
+	ODataMutableQueryOptions *options = [graft.options mutableCopy];
+	options.filter = any;
+	NSURL *url = [self URLFor:graft.collectionPath options:options error:&error];
+	if (url == nil) {
+		completion(nil, error);
+		return;
+	}
+	NSMutableArray *found = [NSMutableArray array];
+	[self all:url into:found completion:^(NSError *failed) {
+		if (failed != nil) {
+			completion(nil, failed);
+			return;
+		}
+		for (id key in wanted) {
+			[had setObject:[NSMutableArray array] forKey:key];
+		}
+		for (NSDictionary *member in found) {
+			id key = [ORMGraftOwner(member, @[ graft.inverse ]) objectForKey:graft.ownerKey];
+			[[had objectForKey:key ?: [NSNull null]] addObject:member];
+		}
+		[self put:graft into:values members:had then:index completion:completion];
+	}];
+}
+
+/* The graft's members in the page's JSON, then the grafts after it. */
+- (void)put:(ORMODataGraft *)graft
+       into:(NSArray *)values
+    members:(NSDictionary *)members
+       then:(NSUInteger)index
+ completion:(void (^)(NSArray *grafted, NSError *error))completion
+{
+	NSMutableArray *grafted = [NSMutableArray arrayWithCapacity:[values count]];
+	for (id json in values) {
+		[grafted addObject:ORMWithGraft(json, 0, graft, members)];
+	}
+	[self graft:grafted from:index + 1 completion:completion];
+}
+
 /* A bag the service aggregates: @[ group, value ] for each group, the
  * page's where one is given. */
 - (void)readAppliedBag:(NSString *)name
@@ -3645,7 +3853,10 @@ ORMJSONValues(id json, NSArray<NSString *> *path)
 			}
 			self->_last = last;
 		}
-		completion([ORMBatch batchWithObjects:values answers:@{}], nil);
+		/* The collections its owners share, put in. */
+		[self.cursor graft:values completion:^(NSArray *grafted, NSError *failed) {
+			completion(grafted != nil ? [ORMBatch batchWithObjects:grafted answers:@{}] : nil, failed);
+		}];
 	}];
 }
 

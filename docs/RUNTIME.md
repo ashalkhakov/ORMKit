@@ -206,6 +206,13 @@ the first runs found, and what fixed it:
   a page seeks on the key, which without an index made the store sort the
   rest of the table for every page.
 
+- **A collection shared through a to-one is grafted** (OData): what is
+  checked through it ("the fill-up of the vehicle at the previous
+  odometer") is not expanded with each object read, which was quadratic
+  over the wire (a vehicle of 600 fill-ups: 360,000 objects), but read
+  once for each page's owners not yet read in the run, and put in their
+  JSON (`FillUps of each page's Vehicle, once each: GET FillUps?...`).
+
 With these, plain reads, joins, computed columns, sorts and per-object
 aggregates take about ten times as long for ten times the objects (100,000
 fill-ups: 0.6 s to list each with its vehicle, 2.4 s computing a column,
@@ -220,13 +227,11 @@ Not yet:
 - **More decorrelation.** Windows over several groups (`also`), over a
   computed key, or with two inequalities ("since the one before, up to
   this one") are bags still.
-- **OData's checks through a collection.** What the filter cannot say,
-  through a to-many ("the fill-up of the vehicle at the previous
-  odometer"), is checked on the answers, so each object read comes with
-  the whole collection expanded: quadratic in what goes over the wire for
-  a vehicle of many fill-ups (600: 360,000 objects). The interpreter looks
-  such a member up by its key; the service could be asked for the members
-  a page needs once, as its bags are.
+- **A service's to-many predicates.** FreeCoreData's SQLite store
+  translates only comparisons of a key path with a constant; a filter's
+  `any()` through a to-many (`Vehicle/FillUps/any()`) is evaluated in
+  memory, the whole table for each page. That is FreeCoreData's to fix
+  (an EXISTS subquery over the foreign key), in its own repository.
 - **Flat typed values.** Values boxed as objects (NSNumber, NSDecimalNumber,
   key-value coding for each path) are most of what a row costs now. Column
   kinds are known when a plan is made: a tuple can be a flat array of

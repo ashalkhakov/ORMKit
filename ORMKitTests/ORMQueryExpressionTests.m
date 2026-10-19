@@ -531,9 +531,10 @@
 }
 
 /* A window whose partition is read over many batches (and pages): made
- * once, each fill-up's the one before it. The service's in pages of ten:
- * fewer fill-ups, as it gives each one's vehicle's with it to check what
- * the filter cannot say. */
+ * once, each fill-up's the one before it. The service's in pages of ten,
+ * the vehicle's fill-ups read once for its owner (a graft), not with each
+ * fill-up read; of fewer fill-ups, as FreeCoreData evaluates the filter's
+ * any() through a to-many in memory, the whole table for each page. */
 - (void)testAWindowOverManyBatches
 {
 	ORMEditor *editor = [self fillUps];
@@ -547,9 +548,11 @@
 	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
 	XCTAssertNotNil(result, @"%@", error);
 	XCTAssertEqualObjects([self sorted:result.rows], [self sorted:expected]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertTrue([[odata requestText] rangeOfString:@"FillUps of each page's Vehicle, once each"].location != NSNotFound,
+	              @"%@", [odata requestText]);
 	NSMutableArray *fewer = [NSMutableArray array];
 	context = [self storeOf:60 fillUpsOf:model planner:planner expected:fewer];
-	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], [self sorted:fewer], @"%@", [odata requestText]);
 }
 
