@@ -1163,24 +1163,12 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, NSArray<ORMQueryNode *>
 	[out appendFormat:@"\n@implementation NSManagedObjectContext (ORMSave)\n\n"
 	                  @"- (BOOL)orm_prepareForSave:(NSError **)error\n"
 	                  @"{\n"
-	                  @"\tNSMutableSet *changed = [NSMutableSet setWithSet:[self insertedObjects]];\n"
-	                  @"\t[changed unionSet:[self updatedObjects]];\n"
-	                  @"\t[changed unionSet:[self deletedObjects]];\n"
 	                  @"\t/* The model's tables (%@.ormplans), by the driver. */\n"
 	                  @"\tORMTables *tables = [ORMTables tablesNamed:%@ error:error];\n"
-	                  @"\tif (tables == nil) {\n"
-	                  @"\t\treturn NO;\n"
-	                  @"\t}\n"
-	                  @"\tORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];\n"
-	                  @"\tif (![hook deriveInContext:self changed:changed error:error]) {\n"
-	                  @"\t\treturn NO;\n"
-	                  @"\t}\n"
-	                  @"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n",
+	                  @"\treturn tables != nil && [[[ORMSaveHook alloc] initWithTables:tables] prepareForSaveInContext:self "
+	                  @"error:error];\n"
+	                  @"}\n\n@end\n",
 	                  _name, ORMLiteral(_name)];
-	[out appendString:@"\t[hook prepareJoinedInContext:self changed:changed violations:violations];\n"
-	                  @"\t[hook checkInContext:self changed:changed violations:violations];\n"
-	                  @"\treturn [ORMValidator report:violations error:error];\n"
-	                  @"}\n\n@end\n"];
 	return out;
 }
 

@@ -143,6 +143,20 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
 	return interpreter;
 }
 
+- (BOOL)prepareForSaveInContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+	NSMutableSet *changed = [NSMutableSet setWithSet:[context insertedObjects]];
+	[changed unionSet:[context updatedObjects]];
+	[changed unionSet:[context deletedObjects]];
+	if (![self deriveInContext:context changed:changed error:error]) {
+		return NO;
+	}
+	NSMutableArray<NSError *> *violations = [NSMutableArray array];
+	[self prepareJoinedInContext:context changed:changed violations:violations];
+	[self checkInContext:context changed:changed violations:violations];
+	return [ORMValidator report:violations error:error];
+}
+
 - (BOOL)deriveInContext:(NSManagedObjectContext *)context changed:(NSMutableSet *)changed error:(NSError **)error
 {
 	ORMQueryInterpreter *interpreter = [self interpreterFor:context];

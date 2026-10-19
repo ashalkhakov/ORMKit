@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
 #import <ODataService/ODataService.h>
+#import <ODataIncrementalStore/ODataIncrementalStore.h>
 
 /* Value nodes (docs/EXPRESSIONS.md): what a query computes from the nodes
  * it reaches, as the file keeps it and the outline says it; said in words,
@@ -917,6 +918,119 @@
 		XCTAssertEqualObjects([[fillUps[1] valueForKey:target] description], @"36");
 		XCTAssertEqualObjects([[fillUps[2] valueForKey:target] description], @"40");
 		XCTAssertTrue([context save:&derived], @"%@", derived);
+	}];
+}
+
+/* The same in a service (docs/RULES.md): a client's save is one change
+ * set, and the service, before it saves it, works out what is derived and
+ * checks the rules for what the change reaches (-[ODataService willSave],
+ * -[ORMSaveHook prepareForSaveInContext:error:]). A fill-up after one of
+ * more than 50 litres breaks a rule over the derived value: the change set
+ * is refused, and the service has none of it. */
+- (void)testAServiceKeepsTheRulesOfAChangeSet
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Odometer is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Litres is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Vehicle(.id) is an entity type.\n"
+	                 @"FillUp(.id) is of Vehicle\n"
+	                 @"Each FillUp is of exactly one Vehicle.\n"
+	                 @"FillUp was at Odometer\n"
+	                 @"Each FillUp was at exactly one Odometer.\n"
+	                 @"FillUp took Litres\n"
+	                 @"Each FillUp took exactly one Litres.\n"
+	                 @"FillUp followed Litres\n"
+	                 @"** The litres of the vehicle's fill-up before.\n"
+	                 @"Each FillUp followed at most one Litres.\n"
+	                 @"\n"
+	                 @"Query Followed:\n"
+	                 @"Derivation of \"FillUp followed Litres\":\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + FillUp2 is of that Vehicle\n"
+	                 @"      + was at Odometer2 < Odometer1\n"
+	                 @"    + FillUp3 is of that Vehicle\n"
+	                 @"      + was at Odometer3 = Previous\n"
+	                 @"      + took ✓Litres\n"
+	                 @"  Previous = max(Odometer2) for FillUp1\n"
+	                 @"\n"
+	                 @"Query Spilled:\n"
+	                 @"It is impossible that:\n"
+	                 @"✓FillUp\n"
+	                 @"  + followed Litres > 50\n"
+	                 @"\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:editor.model mapping:nil name:@"Fuel"];
+	NSDictionary *files = [generator files];
+	NSData *data = [[files objectForKey:@"Fuel.ormplans"] dataUsingEncoding:NSUTF8StringEncoding];
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+	NSError *error = nil;
+	ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+	XCTAssertNotNil(tables, @"%@", error);
+	XCTAssertEqual([tables.derivations count], 1u, @"%@", generator.notes);
+	XCTAssertEqual([tables.rules count], 1u, @"%@", generator.notes);
+	NSString *target = tables.derivations.firstObject.target;
+
+	/* The service's store, and what it asks before it saves. */
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:editor.model mapping:nil];
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	NSManagedObjectContext *served = [[[ORMPopulationStore alloc] initWithModel:editor.model coreData:planner.coreData]
+		newContextWithError:&error];
+	XCTAssertNotNil(served, @"%@", error);
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:served.persistentStoreCoordinator serviceRoot:root];
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	__block NSUInteger asked = 0;
+	service.willSave = ^BOOL(NSManagedObjectContext *context, NSError **refused) {
+		asked++;
+		return [hook prepareForSaveInContext:context error:refused];
+	};
+
+	/* A client of it, which gives the keys: what it saves is one change
+	 * set, its inserts in it. */
+	[ODataIncrementalStore registerStore];
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	NSDictionary *options = @{ ODataIncrementalStoreTransportOption: service, ODataIncrementalStorePostOnObtainPermanentIDsOption: @NO };
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:[ODataIncrementalStore storeType] configuration:nil URL:root
+	                                                options:options error:&error], @"%@", error);
+	NSManagedObjectContext *client = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	client.persistentStoreCoordinator = coordinator;
+	[client performBlockAndWait:^{
+		NSManagedObject *vehicle = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:client];
+		[vehicle setValue:@1 forKey:@"id"];
+		for (NSArray *each in @[ @[ @1, @1000, @40 ], @[ @2, @1500, @60 ] ]) {
+			NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:client];
+			[fillUp setValue:each[0] forKey:@"id"];
+			[fillUp setValue:vehicle forKey:@"vehicle"];
+			[fillUp setValue:[NSDecimalNumber numberWithInteger:[each[1] integerValue]] forKey:@"odometer"];
+			[fillUp setValue:[NSDecimalNumber numberWithInteger:[each[2] integerValue]] forKey:@"litres"];
+		}
+		NSError *saved = nil;
+		XCTAssertTrue([client save:&saved], @"%@", saved);
+		/* After the one of 60 litres. */
+		NSManagedObject *third = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:client];
+		[third setValue:@3 forKey:@"id"];
+		[third setValue:vehicle forKey:@"vehicle"];
+		[third setValue:[NSDecimalNumber numberWithInteger:2100] forKey:@"odometer"];
+		[third setValue:[NSDecimalNumber numberWithInteger:36] forKey:@"litres"];
+		saved = nil;
+		XCTAssertFalse([client save:&saved]);
+		XCTAssertNotNil(saved);
+	}];
+	XCTAssertEqual(asked, 2u, @"once for each change set");
+
+	/* What the service has: the first two, the second's derived. */
+	[served performBlockAndWait:^{
+		NSFetchRequest *fetch = [NSFetchRequest fetchRequestWithEntityName:@"FillUp"];
+		fetch.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"id" ascending:YES] ];
+		NSArray *fillUps = [served executeFetchRequest:fetch error:NULL];
+		XCTAssertEqualObjects([fillUps valueForKey:@"id"], (@[ @1, @2 ]));
+		XCTAssertEqual([fillUps[0] valueForKey:target], nil);
+		XCTAssertEqualObjects([[fillUps[1] valueForKey:target] description], @"40");
 	}];
 }
 

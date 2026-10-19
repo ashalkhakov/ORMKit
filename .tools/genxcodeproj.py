@@ -209,7 +209,7 @@ kit_tests_sources = phase("PBXSourcesBuildPhase", "ORMKitTests", "Sources",
                           [buildfile("ORMKitTests", kit_test_refs[s]) for s in KIT_TESTS])
 kit_tests_frameworks = phase("PBXFrameworksBuildPhase", "ORMKitTests", "Frameworks",
                              [buildfile("ORMKitTests", p_kit), buildfile("ORMKitTests", p_runtime),
-                              buildfile("ORMKitTests", odatakit),
+                              buildfile("ORMKitTests", odatakit), buildfile("ORMKitTests", odatastore),
                               buildfile("ORMKitTests", odataservice), buildfile("ORMKitTests", httpserverkit),
                               buildfile("ORMKitTests", coredata),
                               buildfile("ORMKitTests", sdk["XCTest"])])

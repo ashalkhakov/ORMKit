@@ -869,6 +869,10 @@
 			isa = PBXBuildFile;
 			fileRef = 83451447FBE6DD01C162372B /* ORMReferenceDataTests.m */;
 		};
+		D06967A974EFEC324923D804 /* ODataIncrementalStore.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = 563C3FC39964597407DB858B /* ODataIncrementalStore.xcframework */;
+		};
 		D168115F32EC066EDB5712D6 /* Samples */ = {
 			isa = PBXBuildFile;
 			fileRef = D711E759700637DA41F98E72 /* Samples */;
@@ -2434,6 +2438,7 @@
 				E31FC68A29A3DA7032C38B69 /* ORMKit.framework */,
 				977FCAED921C3F8FB3EDE23E /* ORMRuntime.framework */,
 				23FC46C290C1DE4A20A36DF9 /* ODataKit.xcframework */,
+				D06967A974EFEC324923D804 /* ODataIncrementalStore.xcframework */,
 				4BF2D4509997DDD73583B298 /* ODataService.xcframework */,
 				FD2DA2DD8738523FD47E7DE6 /* HTTPServerKit.xcframework */,
 				C29E25A6373F6415EBB76427 /* CoreData.framework */,
