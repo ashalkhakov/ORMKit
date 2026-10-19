@@ -227,11 +227,6 @@ Not yet:
 - **More decorrelation.** A window over what a member reaches through a
   further step, and an aggregate for several groups above it (ConQuer-II's
   "for Branch, Year"), are bags still.
-- **A service's to-many predicates.** FreeCoreData's SQLite store
-  translates only comparisons of a key path with a constant; a filter's
-  `any()` through a to-many (`Vehicle/FillUps/any()`) is evaluated in
-  memory, the whole table for each page. That is FreeCoreData's to fix
-  (an EXISTS subquery over the foreign key), in its own repository.
 - **Flat typed values.** Values boxed as objects (NSNumber, NSDecimalNumber,
   key-value coding for each path) are most of what a row costs now. Column
   kinds are known when a plan is made: a tuple can be a flat array of

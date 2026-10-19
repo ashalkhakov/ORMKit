@@ -603,8 +603,7 @@
 /* A window whose partition is read over many batches (and pages): made
  * once, each fill-up's the one before it. The service's in pages of ten,
  * the vehicle's fill-ups read once for its owner (a graft), not with each
- * fill-up read; of fewer fill-ups, as FreeCoreData evaluates the filter's
- * any() through a to-many in memory, the whole table for each page. */
+ * fill-up read. */
 - (void)testAWindowOverManyBatches
 {
 	ORMEditor *editor = [self fillUps];
@@ -621,9 +620,7 @@
 	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
 	XCTAssertTrue([[odata requestText] rangeOfString:@"FillUps of each page's Vehicle, once each"].location != NSNotFound,
 	              @"%@", [odata requestText]);
-	NSMutableArray *fewer = [NSMutableArray array];
-	context = [self storeOf:60 fillUpsOf:model planner:planner expected:fewer];
-	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], [self sorted:fewer], @"%@", [odata requestText]);
+	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], [self sorted:expected], @"%@", [odata requestText]);
 }
 
 /* The one before among a supertype's records: the bag lists a
