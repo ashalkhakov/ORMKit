@@ -262,14 +262,17 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
             violations:(NSMutableArray<NSError *> *)violations
 {
 	ORMValidator *validator = [[ORMValidator alloc] initWithTables:self.tables];
+	/* Each object once: one of a subentity is a root of its entity's
+	 * rules and of each one above's, and is asked all of them at once. */
+	NSMutableOrderedSet *roots = [NSMutableOrderedSet orderedSet];
 	for (NSString *entity in [[self.tables.ruleBacks allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
-		for (NSManagedObject *root in [ORMSaveHook rootsOf:entity backs:[self.tables.ruleBacks objectForKey:entity]
-		                                           changed:changed
-		                                         inContext:context]) {
-			if (![root isDeleted]) {
-				@autoreleasepool {
+		[roots addObjectsFromArray:[[ORMSaveHook rootsOf:entity backs:[self.tables.ruleBacks objectForKey:entity] changed:changed
+		                                       inContext:context] allObjects]];
+	}
+	for (NSManagedObject *root in roots) {
+		if (![root isDeleted]) {
+			@autoreleasepool {
 				[violations addObjectsFromArray:[validator violationsOf:root deontic:NO]];
-			}
 			}
 		}
 	}
