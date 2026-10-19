@@ -921,6 +921,79 @@
 	}];
 }
 
+/* The one before stored on a subtype of the vehicle's records: a change
+ * reaches the vehicle's records, a repair among them, which is no root of
+ * it (nor has the property). A way back on through a fill-up's own
+ * relationship (its station) passes the repair by. */
+- (void)testTheOneBeforeIsStoredOnASubtype
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Odometer is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"Vehicle(.id) is an entity type.\n"
+	                 @"Record(.id) is of Vehicle\n"
+	                 @"Each Record is of exactly one Vehicle.\n"
+	                 @"Each FillUp is a Record.\n"
+	                 @"Each Repair is a Record.\n"
+	                 @"FillUp was at Odometer\n"
+	                 @"Each FillUp was at exactly one Odometer.\n"
+	                 @"FillUp followed Odometer\n"
+	                 @"** The odometer of the vehicle's fill-up before.\n"
+	                 @"Each FillUp followed at most one Odometer.\n"
+	                 @"FillUp was at Station(.name)\n"
+	                 @"Each FillUp was at at most one Station.\n"
+	                 @"\n"
+	                 @"Query Followed:\n"
+	                 @"Derivation of \"FillUp followed Odometer\":\n"
+	                 @"✓FillUp1\n"
+	                 @"  + was at Odometer1\n"
+	                 @"  + is of Vehicle\n"
+	                 @"    + Record is of that Vehicle\n"
+	                 @"      + is FillUp2\n"
+	                 @"        + was at Odometer2 < Odometer1\n"
+	                 @"  ✓Previous = max(Odometer2) for FillUp1\n"
+	                 @"\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:editor.model mapping:nil name:@"Fuel"];
+	NSData *data = [[[generator files] objectForKey:@"Fuel.ormplans"] dataUsingEncoding:NSUTF8StringEncoding];
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+	NSError *error = nil;
+	ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+	XCTAssertEqual([tables.derivations count], 1u, @"%@", generator.notes);
+	NSString *target = tables.derivations.firstObject.target;
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:editor.model mapping:nil];
+	NSManagedObjectContext *context = [[[ORMPopulationStore alloc] initWithModel:editor.model coreData:planner.coreData]
+		newContextWithError:&error];
+	XCTAssertNotNil(context, @"%@", error);
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	[context performBlockAndWait:^{
+		NSManagedObject *vehicle = [NSEntityDescription insertNewObjectForEntityForName:@"Vehicle" inManagedObjectContext:context];
+		[vehicle setValue:@1 forKey:@"id"];
+		NSManagedObject *repair = [NSEntityDescription insertNewObjectForEntityForName:@"Repair" inManagedObjectContext:context];
+		[repair setValue:@1 forKey:@"id"];
+		[repair setValue:vehicle forKey:@"vehicle"];
+		NSMutableArray *fillUps = [NSMutableArray array];
+		for (NSArray *each in @[ @[ @2, @1000 ], @[ @3, @1500 ] ]) {
+			NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+			[fillUp setValue:each[0] forKey:@"id"];
+			[fillUp setValue:vehicle forKey:@"vehicle"];
+			[fillUp setValue:[NSDecimalNumber numberWithInteger:[each[1] integerValue]] forKey:@"odometer"];
+			[fillUps addObject:fillUp];
+		}
+		NSError *derived = nil;
+		XCTAssertTrue([hook prepareForSaveInContext:context error:&derived], @"%@", derived);
+		XCTAssertNil([fillUps[0] valueForKey:target]);
+		XCTAssertEqualObjects([[fillUps[1] valueForKey:target] description], @"1000");
+		NSManagedObject *station = [NSEntityDescription insertNewObjectForEntityForName:@"Station" inManagedObjectContext:context];
+		[station setValue:@"Shell" forKey:@"name"];
+		[fillUps[1] setValue:station forKey:@"station"];
+		NSSet *reached = [ORMSaveHook rootsOf:@"Station" backs:@[ @[ @"Vehicle", @[ @"records", @"station" ] ] ]
+		                              changed:[NSSet setWithObject:vehicle] inContext:context];
+		XCTAssertEqualObjects(reached, [NSSet setWithObject:station]);
+	}];
+}
+
 /* The same in a service (docs/RULES.md): a client's save is one change
  * set, and the service, before it saves it, works out what is derived and
  * checks the rules for what the change reaches (-[ODataService willSave],

@@ -302,12 +302,17 @@ ORMViolation(NSManagedObject *object, ORMRule *rule)
 		return YES;
 	}
 	if (error != NULL) {
+		/* Under each name Apple's has filed them by: NSDetailedErrorsKey is
+		 * "NSDetailedErrors" in a program built for macOS 12 or later, and
+		 * itself before; a reader looks under its own. */
+		NSMutableDictionary *info = [NSMutableDictionary dictionaryWithObject:@"Several constraints are violated."
+		                                                               forKey:NSLocalizedDescriptionKey];
+		for (NSString *key in @[ NSDetailedErrorsKey, @"NSDetailedErrors", @"NSDetailedErrorsKey" ]) {
+			[info setObject:violations forKey:key];
+		}
 		*error = [violations count] == 1
 			? [violations firstObject]
-			: [NSError errorWithDomain:NSCocoaErrorDomain
-			                      code:NSValidationMultipleErrorsError
-			                  userInfo:@{ NSDetailedErrorsKey: violations,
-				                          NSLocalizedDescriptionKey: @"Several constraints are violated." }];
+			: [NSError errorWithDomain:NSCocoaErrorDomain code:NSValidationMultipleErrorsError userInfo:info];
 	}
 	return NO;
 }

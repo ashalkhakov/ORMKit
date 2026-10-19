@@ -7,10 +7,15 @@
 #import <CoreData/CoreData.h>
 
 /* What the property holds, as a set: nothing, one value, or a to-many's
- * objects. */
+ * objects. Nothing for an object without it: a way back through a
+ * supertype's relationship (a vehicle's records) goes on by a subtype's
+ * (a trip's income), which the others have not. */
 static NSSet *
 ORMRelated(id object, NSString *key)
 {
+	if ([object isKindOfClass:[NSManagedObject class]] && [[[object entity] propertiesByName] objectForKey:key] == nil) {
+		return [NSSet set];
+	}
 	id value = [object valueForKey:key];
 	if (value == nil) {
 		return [NSSet set];
@@ -115,16 +120,21 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
          inContext:(NSManagedObjectContext *)context
 {
 	NSEntityDescription *root = [NSEntityDescription entityForName:entityName inManagedObjectContext:context];
-	NSMutableSet *roots = [NSMutableSet set];
+	NSMutableSet *reached = [NSMutableSet setWithSet:changed];
 	for (NSManagedObject *object in changed) {
-		if ([[object entity] isKindOfEntity:root]) {
-			[roots addObject:object];
-		}
 		for (NSArray *back in backs) {
 			NSEntityDescription *from = [NSEntityDescription entityForName:[back firstObject] inManagedObjectContext:context];
 			if (from != nil && [[object entity] isKindOfEntity:from]) {
-				[roots unionSet:ORMWalk([NSSet setWithObject:object], [back lastObject])];
+				[reached unionSet:ORMWalk([NSSet setWithObject:object], [back lastObject])];
 			}
+		}
+	}
+	/* Of the root's entity only: a way back through a supertype's
+	 * relationship (a vehicle's records) reaches its other subtypes too. */
+	NSMutableSet *roots = [NSMutableSet set];
+	for (NSManagedObject *object in reached) {
+		if ([object isKindOfClass:[NSManagedObject class]] && [[object entity] isKindOfEntity:root]) {
+			[roots addObject:object];
 		}
 	}
 	return roots;
