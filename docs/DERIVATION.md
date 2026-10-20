@@ -263,6 +263,12 @@ That takes the place of the dependency order of step 3.
      asks it of each affected root in memory
      (`-[ORMQueryInterpreter executePlan:ofObjects:inContext:error:]`), so
      unsaved changes count, and sets the property where it differs.
+   - **Deleted objects count for nothing.** The hook first processes the
+     context's pending changes, as `save:` does, so a deletion's rules are
+     applied (a nullified object leaves its owner's to-many, a cascade
+     deletes); and the interpreter and the rules pass by an object
+     deleted wherever they meet one (a to-many still holding it, where
+     its delete rule is no action; a to-one to it is nothing).
      Conditions, nots and counts on the way are the plan's. One Core Data
      derives itself (step 5) is left to it.
    - **Partly derived:** the property is set where the rule derives

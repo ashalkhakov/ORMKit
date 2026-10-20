@@ -3,25 +3,46 @@
 #import "ORMQueryInterpreter.h"
 #import <CoreData/CoreData.h>
 
+/* Whether the value is an object deleted in its context, which counts
+ * for nothing: a to-many may hold it until the context's pending changes
+ * are processed (and after, where the rule is no action). */
+static BOOL
+ORMIsDeleted(id value)
+{
+	return [value isKindOfClass:[NSManagedObject class]] && [(NSManagedObject *)value isDeleted];
+}
+
 /* What the property holds, as a set: nothing, one value, or a to-many's
- * objects. */
+ * objects; none deleted. */
 static NSSet *
 ORMRelatedSet(id object, NSString *key)
 {
 	id value = [object valueForKey:key];
-	if (value == nil) {
+	if (value == nil || ORMIsDeleted(value)) {
 		return [NSSet set];
 	}
+	NSSet *members = nil;
 	if ([value isKindOfClass:[NSSet class]]) {
-		return value;
+		members = value;
+	} else if ([value isKindOfClass:[NSOrderedSet class]]) {
+		members = [(NSOrderedSet *)value set];
+	} else if ([value isKindOfClass:[NSArray class]]) {
+		members = [NSSet setWithArray:value];
+	} else {
+		return [NSSet setWithObject:value];
 	}
-	if ([value isKindOfClass:[NSOrderedSet class]]) {
-		return [(NSOrderedSet *)value set];
+	for (id member in members) {
+		if (ORMIsDeleted(member)) {
+			NSMutableSet *live = [NSMutableSet set];
+			for (id each in members) {
+				if (!ORMIsDeleted(each)) {
+					[live addObject:each];
+				}
+			}
+			return live;
+		}
 	}
-	if ([value isKindOfClass:[NSArray class]]) {
-		return [NSSet setWithArray:value];
-	}
-	return [NSSet setWithObject:value];
+	return members;
 }
 
 /* Everything reachable from the objects through the relationship, them
@@ -266,9 +287,20 @@ ORMViolation(NSManagedObject *object, ORMRule *rule)
 			return NO;
 		}
 		NSPredicate *predicate = [self predicateOf:check model:model];
+		ORMQueryInterpreter *interpreter = nil;
+		/* With objects deleted in the context, which a predicate would
+		 * count among those of a to-many still holding them: asked by the
+		 * interpreter, which passes them by, where it can be. */
+		if (predicate != nil && [[[object managedObjectContext] deletedObjects] count] > 0) {
+			interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+			if (![interpreter asksOfOneObject:check.plan reason:NULL]) {
+				interpreter = nil;
+			}
+		}
 		/* No predicate (a value computed): the plan asked of the object. */
-		return predicate != nil ? [predicate evaluateWithObject:object]
-		                        : [[[ORMQueryInterpreter alloc] initWithModel:model] plan:check.plan holdsOf:object];
+		return predicate != nil && interpreter == nil
+			? [predicate evaluateWithObject:object]
+			: [interpreter ?: [[ORMQueryInterpreter alloc] initWithModel:model] plan:check.plan holdsOf:object];
 	}
 	return YES;
 }

@@ -16,7 +16,9 @@
 - (instancetype)initWithTables:(ORMTables *)tables;
 @property (nonatomic, readonly, strong) ORMTables *tables;
 
-/* All of it, for the context's inserted, updated and deleted objects:
+/* All of it, for the context's inserted, updated and deleted objects,
+ * its pending changes processed first (as save: does, so a deletion's
+ * rules are applied; an object deleted counts for nothing after):
  * the derivations brought up to date, the joined types' members made, the
  * rules checked; NO, and the violations (one, or several as
  * NSValidationMultipleErrorsError's), where one breaks. What the

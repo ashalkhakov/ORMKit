@@ -124,21 +124,57 @@ ORMDisplay(ORMPredicatePart *part)
 	return text;
 }
 
-/* The objects a value holds: a collection's members, or the one object. */
+/* Whether the value is an object deleted in its context: one a change
+ * deleted, which counts for nothing, as after the save. Until the
+ * context's pending changes are processed its owners' to-manys still hold
+ * it (and do after, where the rule is no action). */
+static BOOL
+ORMIsDeleted(id value)
+{
+	return [value isKindOfClass:[NSManagedObject class]] && [(NSManagedObject *)value isDeleted];
+}
+
+/* The collection without its deleted objects: itself where it has none. */
+static id
+ORMLive(id collection)
+{
+	BOOL any = NO;
+	for (id member in collection) {
+		if (ORMIsDeleted(member)) {
+			any = YES;
+			break;
+		}
+	}
+	if (!any) {
+		return collection;
+	}
+	id live = [collection isKindOfClass:[NSOrderedSet class]] ? [NSMutableOrderedSet orderedSet]
+	          : [collection isKindOfClass:[NSArray class]]    ? [NSMutableArray array]
+	                                                           : [NSMutableSet set];
+	for (id member in collection) {
+		if (!ORMIsDeleted(member)) {
+			[live addObject:member];
+		}
+	}
+	return live;
+}
+
+/* The objects a value holds: a collection's members, or the one object;
+ * none deleted. */
 static NSArray *
 ORMMembers(id value)
 {
-	if (value == nil || value == [NSNull null]) {
+	if (value == nil || value == [NSNull null] || ORMIsDeleted(value)) {
 		return @[];
 	}
 	if ([value isKindOfClass:[NSSet class]]) {
-		return [value allObjects];
+		return [ORMLive(value) allObjects];
 	}
 	if ([value isKindOfClass:[NSOrderedSet class]]) {
-		return [value array];
+		return [ORMLive(value) array];
 	}
 	if ([value isKindOfClass:[NSArray class]]) {
-		return value;
+		return ORMLive(value);
 	}
 	return @[ value ];
 }
@@ -705,7 +741,22 @@ ORMBagKey(ORMPlanValue *value)
 	if (base == nil || [keys count] == 0) {
 		return base;
 	}
-	return [base valueForKeyPath:[keys componentsJoinedByString:@"."]];
+	/* Step by step, as a key path, but past no deleted object: a to-one
+	 * to one is nothing, a to-many is its members not deleted. */
+	id at = base;
+	for (NSString *key in keys) {
+		if (at == nil || ORMIsDeleted(at)) {
+			return nil;
+		}
+		BOOL many = [at isKindOfClass:[NSSet class]] || [at isKindOfClass:[NSOrderedSet class]]
+		            || [at isKindOfClass:[NSArray class]];
+		at = [many ? ORMLive(at) : at valueForKey:key];
+	}
+	if (ORMIsDeleted(at)) {
+		return nil;
+	}
+	BOOL many = [at isKindOfClass:[NSSet class]] || [at isKindOfClass:[NSOrderedSet class]] || [at isKindOfClass:[NSArray class]];
+	return many ? ORMLive(at) : at;
 }
 
 #pragma mark Saying it to the store

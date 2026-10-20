@@ -155,6 +155,11 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
 
 - (BOOL)prepareForSaveInContext:(NSManagedObjectContext *)context error:(NSError **)error
 {
+	/* As a save does first: the event's changes processed, so that a
+	 * deletion's rules are applied (a deleted object out of its owners'
+	 * to-manys, what cascades deleted) before anything is derived or
+	 * checked. */
+	[context processPendingChanges];
 	NSMutableSet *changed = [NSMutableSet setWithSet:[context insertedObjects]];
 	[changed unionSet:[context updatedObjects]];
 	[changed unionSet:[context deletedObjects]];
