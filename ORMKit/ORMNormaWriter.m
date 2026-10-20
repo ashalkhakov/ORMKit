@@ -1032,6 +1032,8 @@ ORMStoredDerivationOf(NSString *identifier, ORMModel *model)
 	ORMWriteBool(element, @"IsSimple", constraint.isSimple, NO);
 	ORMWriteBool(element, @"IsImplied", constraint.isImplied, NO);
 	ORMWriteRef(_document, element, @"ImpliedByObjectType", constraint.impliedByObjectTypeId);
+	ORMWriteNested(_document, element, @"Definitions", @"Definition", constraint.definitionText);
+	ORMWriteNested(_document, element, @"Notes", @"Note", constraint.noteText);
 	/* An exclusive-or: the exclusion and the mandatory name each other. */
 	if (constraint.kind == ORMExclusionConstraint) {
 		ORMWriteRef(_document, element, @"ExclusiveOrMandatoryConstraint", constraint.exclusiveOrPartner.identifier);

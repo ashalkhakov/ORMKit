@@ -61,6 +61,8 @@ NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
 - (void)setRequired:(BOOL)required role:(NSString *)roleId byMember:(NSString *)memberId inMapping:(NSString *)mappingId;
 - (void)setExcluded:(BOOL)excluded source:(NSString *)sourceId inMapping:(NSString *)mappingId;
 - (void)setKept:(BOOL)kept element:(NSString *)path inMapping:(NSString *)mappingId;
+/* nil takes the baseline away: for a model only ever generated from the
+ * mapping, which no one edits, and so is never merged. */
 - (void)setBaseline:(ORMCDModel *)model ofMapping:(NSString *)mappingId;
 @end
 

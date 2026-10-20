@@ -174,6 +174,11 @@ own namespace beside NORMA's bridges:
 ```
 
 so a model and its mappings are one document to open, save, undo and version.
+The baseline is there to merge edits made on the Core Data side (below): a
+mapping whose `.xcdatamodeld` is only ever generated, a build's output that
+no one edits in Xcode, has nothing to merge and keeps none
+(`-[ORMMappingEditor setBaseline:nil ofMapping:]` takes one away), so the
+model is not kept a second time in the `.orm`.
 **Save a Copy for NORMA** writes the file without it, for a NORMA that does
 not know the namespace.
 
@@ -255,6 +260,7 @@ beside it. It is regenerated with the model, so it is never edited:
 | ring | each of its properties (irreflexive, asymmetric, acyclic, intransitive, ...) over the entity's relationship to itself |
 | value comparison | the two attributes compared, when both are set |
 | value constraint with several ranges or open bounds, on a number | the value is within one of the ranges |
+| an absorbed value that may be left out (a Distance: its quantity and its unit, properties of what has it) | all its properties are set, or none is: a quantity is not saved without its unit (`MileageIsWhole`) |
 
 A violation is an `NSError` like Core Data's own: `NSCocoaErrorDomain`,
 `NSManagedObjectValidationError`, with the constraint's verbalization as its

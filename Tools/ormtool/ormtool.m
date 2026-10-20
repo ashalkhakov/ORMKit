@@ -15,9 +15,10 @@
  *                                            constraints and constraint queries
  *                                            (1 when it breaks an alethic one)
  *   ormtool normalize model.orm [out.orm]    NORMA's derived data brought up to date
- *   ormtool coredata model.orm Out.xcdatamodeld [mapping name]
+ *   ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]
  *                                            the model mapped to Core Data, with the mapping's report;
- *                                            the validation code too, where the mapping keeps it
+ *                                            the validation code too, where the mapping keeps it or
+ *                                            into dir/ (what a build generates, outside the sources)
  *   ormtool validation model.orm dir/ [mapping name]
  *                                            code checking what Core Data cannot enforce:
  *                                            <Name>Validation.h and .m, a category on each class
@@ -35,9 +36,18 @@
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
  *                                            output, with what ORM cannot say on standard error
+ *   ormtool forml model.orm [out.forml]      the model as schema text (ORMSchemaText.h): a listing,
+ *                                            a statement a line, by diagram, with each element's
+ *                                            note as a comment; what build and apply read
+ *   ormtool apply model.orm changes.forml [out.orm]
+ *                                            lines of schema text applied to the model, as one change:
+ *                                            what they say made, what "- line" says taken away, a
+ *                                            query of a name the model has replaced; the file written
+ *                                            back (or out.orm) only when every line was read (1)
  *   ormtool build schema.txt model.orm      a new model from its sentences, as the verbalizer says
  *                                            them, a line each (-[ORMSentenceEditor addFromText:]);
- *                                            each line not read, with why, on standard error (1) */
+ *                                            each line not read, with why, on standard error (1).
+ *                                            An existing model is changed by apply, not rebuilt */
 
 static void
 ORMPrint(NSString *text)
@@ -51,11 +61,13 @@ ORMUsage(void)
 	fputs("usage: ormtool verbalize [--html] model.orm\n"
 	      "       ormtool check model.orm      (1 when the sample population breaks an alethic constraint)\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
-	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n"
+	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]\n"
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
+	      "       ormtool forml model.orm [out.forml]\n"
+	      "       ormtool apply model.orm changes.forml [out.orm]\n"
 	      "       ormtool build schema.txt model.orm\n", stderr);
 	return 2;
 }
@@ -140,6 +152,43 @@ ORMBuild(NSArray<NSString *> *args)
 	return read ? 0 : 1;
 }
 
+/* Lines of schema text applied to the model in the file, as one change:
+ * what they say made, what a "- " line says taken away. Written back
+ * (or to out.orm) only when every line was read. */
+static int
+ORMApply(NSArray<NSString *> *args)
+{
+	NSString *path = [args objectAtIndex:1];
+	NSString *source = [args objectAtIndex:2];
+	NSString *out = [args count] > 3 ? [args objectAtIndex:3] : path;
+	NSString *text = [source isEqualToString:@"-"]
+		? [[NSString alloc] initWithData:[[NSFileHandle fileHandleWithStandardInput] readDataToEndOfFile]
+		                        encoding:NSUTF8StringEncoding]
+		: [NSString stringWithContentsOfFile:source encoding:NSUTF8StringEncoding error:NULL];
+	if (text == nil) {
+		fprintf(stderr, "ormtool: cannot read %s\n", [source UTF8String]);
+		return 1;
+	}
+	ORMEditor *editor = ORMOpen(path);
+	if (editor == nil) {
+		return 1;
+	}
+	NSArray *failures = nil;
+	BOOL read = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures];
+	for (NSString *failure in failures) {
+		fprintf(stderr, "%s:%s\n", [source UTF8String], [failure UTF8String]);
+	}
+	if (!read) {
+		fprintf(stderr, "ormtool: %s left as it was\n", [out UTF8String]);
+		return 1;
+	}
+	if (![[editor dataForSaving] writeToFile:out atomically:YES]) {
+		fprintf(stderr, "ormtool: cannot write %s\n", [out UTF8String]);
+		return 1;
+	}
+	return 0;
+}
+
 /* The rows the plan finds in the model's sample population, as a table;
  * nil when it has none. */
 static NSString *
@@ -199,17 +248,41 @@ main(int argc, const char *argv[])
 		[args removeObject:@"--html"];
 		BOOL dark = [args containsObject:@"--dark"];
 		[args removeObject:@"--dark"];
+		/* coredata's validation code written there, not where the mapping
+		 * keeps it: a build's output. */
+		NSString *validationDirectory = nil;
+		NSUInteger flag = [args indexOfObject:@"--validation"];
+		if (flag != NSNotFound && flag + 1 < [args count]) {
+			validationDirectory = [args objectAtIndex:flag + 1];
+			[args removeObjectsInRange:NSMakeRange(flag, 2)];
+		}
 		if ([command isEqualToString:@"import"]) {
 			return ORMImport(args);
 		}
 		if ([command isEqualToString:@"build"]) {
 			return [args count] >= 3 ? ORMBuild(args) : ORMUsage();
 		}
+		if ([command isEqualToString:@"apply"]) {
+			return [args count] >= 3 ? ORMApply(args) : ORMUsage();
+		}
 		ORMEditor *editor = ORMOpen([args objectAtIndex:1]);
 		if (editor == nil) {
 			return 1;
 		}
 		ORMModel *model = editor.model;
+		if ([command isEqualToString:@"forml"]) {
+			NSString *text = [[[ORMSchemaText alloc] initWithEditor:editor] textFromFile:[args objectAtIndex:1]];
+			if ([args count] > 2) {
+				NSError *error = nil;
+				if (![text writeToFile:[args objectAtIndex:2] atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+					fprintf(stderr, "ormtool: cannot write %s\n", [[args objectAtIndex:2] UTF8String]);
+					return 1;
+				}
+				return 0;
+			}
+			ORMPrint(text);
+			return 0;
+		}
 		if ([command isEqualToString:@"verbalize"]) {
 			NSArray *sentences = [[[ORMVerbalizer alloc] initWithModel:model] sentencesForModel];
 			ORMPrint(html ? [ORMVerbalizer HTMLOfSentences:sentences title:model.name]
@@ -268,10 +341,11 @@ main(int argc, const char *argv[])
 				return 1;
 			}
 			ORMPrint([NSString stringWithFormat:@"%lu entities\n", (unsigned long)[mapped.entities count]]);
-			NSString *validation = [mapping resolvedValidationPathRelativeTo:[args objectAtIndex:1]];
+			NSString *validation = validationDirectory ?: [mapping resolvedValidationPathRelativeTo:[args objectAtIndex:1]];
 			if (validation != nil) {
+				NSString *name = mapping.name ?: [[[args objectAtIndex:1] lastPathComponent] stringByDeletingPathExtension];
 				ORMValidationGenerator *generator = [[ORMValidationGenerator alloc]
-					initWithModel:model coreData:mapped notes:mapper.notes name:mapping.name];
+					initWithModel:model coreData:mapped notes:mapper.notes name:name];
 				if (![generator writeToDirectory:validation error:&error]) {
 					fprintf(stderr, "ormtool: %s\n", [[error localizedDescription] UTF8String]);
 					return 1;

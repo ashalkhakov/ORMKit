@@ -383,6 +383,7 @@ ORMBoolValue(NSString *value, BOOL fallback)
 	self.modality = ORMAttribute(element, @"Modality");
 	self.function = ORMAttribute(element, @"Function");
 	self.of = ORMAttribute(element, @"Of");
+	self.noteText = ORMChildText(element, Q, @"Note");
 	NSXMLElement *root = ORMChild(element, Q, @"Node");
 	self.root = root != nil ? [ORMQueryPart partOf:root] : nil;
 }
@@ -396,6 +397,7 @@ ORMBoolValue(NSString *value, BOOL fallback)
 	copy.modality = self.modality;
 	copy.function = self.function;
 	copy.of = self.of;
+	copy.noteText = self.noteText;
 	copy.root = [self.root copy];
 	return copy;
 }
@@ -511,6 +513,17 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 		query.element = element;
 	}
 	ORMWriteValues(element, query, ORMStoredQueryAttributes());
+	/* Its note, first: the comment said before it. */
+	NSXMLElement *note = ORMChild(element, Q, @"Note");
+	if ([query.noteText length] == 0) {
+		ORMDetach(note);
+	} else if (note == nil) {
+		note = ORMNewElement(document, Q, @"Note");
+		ORMSetText(note, query.noteText);
+		ORMInsertChildAt(element, note, 0);
+	} else if (![[note stringValue] isEqualToString:query.noteText]) {
+		ORMSetText(note, query.noteText);
+	}
 	ORMWriteParts(document, element, query.root != nil ? @[ query.root ] : @[], @"Node");
 	/* A derivation's rule is the query, written as NORMA's path. */
 	if ([query.kind isEqualToString:@"Derivation"] && query.of != nil) {

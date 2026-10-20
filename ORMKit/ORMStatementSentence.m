@@ -1,7 +1,10 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMSentenceEditor.h"
 #import "ORMOutlineReader.h"
+#import "ORMSchemaText.h"
+#import "ORMQuery.h"
 #import "ORMXML.h"
+#import "ORMModelPriv.h"
 
 static NSString *
 ORMStatementTrimmed(NSString *text)
@@ -346,16 +349,28 @@ ORMStatementDataType(NSString *text, NSInteger *length, NSInteger *scale)
 	                                                                              of:fact.identifier reason:reason];
 }
 
-/* A new diagram of that name; the first takes over an empty one a new
- * model starts with. */
-- (NSString *)diagramNamed:(NSString *)name first:(BOOL)first
+/* The diagram of that name: the model's, or a new one, which goes in
+ * made to be arranged; the first takes over an empty one a new model
+ * starts with. */
+- (NSString *)diagramNamed:(NSString *)name first:(BOOL)first made:(NSMutableArray *)made
 {
 	NSArray *existing = self.editor.model.diagrams;
-	ORMDiagram *empty = [existing count] == 1 && [[[existing firstObject] shapes] count] == 0 ? [existing firstObject] : nil;
-	if (first && empty != nil && [self.editor.elementEditor rename:empty.identifier to:name reason:NULL]) {
-		return empty.identifier;
+	for (ORMDiagram *diagram in existing) {
+		if ([diagram.name isEqualToString:name]) {
+			return diagram.identifier;
+		}
 	}
-	return [self.editor.diagramEditor addDiagramNamed:name];
+	ORMDiagram *empty = [existing count] == 1 && [[[existing firstObject] shapes] count] == 0 ? [existing firstObject] : nil;
+	NSString *identifier = nil;
+	if (first && empty != nil && [self.editor.elementEditor rename:empty.identifier to:name reason:NULL]) {
+		identifier = empty.identifier;
+	} else {
+		identifier = [self.editor.diagramEditor addDiagramNamed:name];
+	}
+	if (identifier != nil && ![made containsObject:identifier]) {
+		[made addObject:identifier];
+	}
+	return identifier;
 }
 
 /* The text split at its commas outside quotes and parentheses, each part
@@ -428,64 +443,389 @@ ORMStatementParts(NSString *text)
 	return [self.editor.populationEditor addFactOf:fact.identifier named:named reason:reason] != nil;
 }
 
+#pragma mark What the model says already
+
+/* A note as comment lines say it: each line trimmed. */
+static NSString *
+ORMStatementNoteLines(NSString *note)
+{
+	NSMutableArray *lines = [NSMutableArray array];
+	NSString *text = [[ORMStatementTrimmed(note ?: @"") stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"]
+		stringByReplacingOccurrencesOfString:@"\r" withString:@"\n"];
+	for (NSString *line in [text componentsSeparatedByString:@"\n"]) {
+		[lines addObject:ORMStatementTrimmed(line)];
+	}
+	return [lines componentsJoinedByString:@"\n"];
+}
+
+/* A line as compared with the model's own (ORMSchemaText), its role names
+ * left out. */
+static NSString *
+ORMStatementComparable(NSString *line)
+{
+	NSMutableString *text = [[ORMSchemaText comparableLine:line] mutableCopy];
+	NSRange as = [text rangeOfString:@" (as "];
+	while (as.location != NSNotFound) {
+		NSRange close = [text rangeOfString:@")" options:0 range:NSMakeRange(as.location, [text length] - as.location)];
+		if (close.location == NSNotFound) {
+			break;
+		}
+		[text deleteCharactersInRange:NSMakeRange(as.location, NSMaxRange(close) - as.location)];
+		as = [text rangeOfString:@" (as "];
+	}
+	return text;
+}
+
+/* The lines the model says, by their text as compared: what a line of
+ * text names that the model has, and what a "- " line takes away. Each
+ * reading of a fact type is one of its lines. */
+- (NSDictionary<NSString *, NSArray<ORMSchemaLine *> *> *)saidLines
+{
+	NSMutableDictionary *said = [NSMutableDictionary dictionary];
+	for (ORMSchemaLine *line in [[[ORMSchemaText alloc] initWithEditor:self.editor] lines]) {
+		if (line.kind == ORMSchemaBlank || line.kind == ORMSchemaOutline) {
+			continue;
+		}
+		/* As it is, role names and all; and without them. */
+		NSMutableArray *keys = [NSMutableArray arrayWithObject:line.kind == ORMSchemaComment ? line.text
+		                                                                                     : [ORMSchemaText comparableLine:line.text]];
+		if (line.kind != ORMSchemaComment) {
+			[keys addObject:ORMStatementComparable(line.text)];
+		}
+		if (line.kind == ORMSchemaFactType) {
+			ORMFactType *fact = [self.editor.model elementWithId:[line.elementIds firstObject]];
+			for (ORMReadingOrder *order in fact.readingOrders) {
+				for (ORMReading *reading in order.readings) {
+					[keys addObject:ORMStatementComparable([reading expandedText] ?: @"")];
+				}
+			}
+		}
+		for (NSString *key in keys) {
+			NSMutableArray *lines = [said objectForKey:key];
+			if (lines == nil) {
+				[said setObject:[NSMutableArray arrayWithObject:line] forKey:key];
+			} else if (![lines containsObject:line]) {
+				[lines addObject:line];
+			}
+		}
+	}
+	return said;
+}
+
+/* The model's line the text says, among those of its kinds; for a fact
+ * type, a reading of it alone ("A / B" any of them). The one about the
+ * element the lines before were about, where several are. */
+- (ORMSchemaLine *)line:(NSString *)text
+                     in:(NSDictionary<NSString *, NSArray<ORMSchemaLine *> *> *)said
+                  kinds:(NSArray<NSNumber *> *)kinds
+                  about:(NSArray<NSString *> *)context
+{
+	/* The line as it is first, its role names telling apart fact types
+	 * read alike; then without them, a reading alone. */
+	NSMutableArray *keys = [NSMutableArray arrayWithObject:[text hasPrefix:@"//"] ? ORMStatementTrimmed(text)
+	                                                                            : [ORMSchemaText comparableLine:text]];
+	[keys addObject:ORMStatementComparable(text)];
+	for (NSString *part in [text componentsSeparatedByString:@" / "]) {
+		[keys addObject:ORMStatementComparable(part)];
+	}
+	NSMutableArray *found = [NSMutableArray array];
+	for (NSString *key in keys) {
+		for (ORMSchemaLine *line in [said objectForKey:key]) {
+			if ([kinds containsObject:@(line.kind)] && ![found containsObject:line]) {
+				[found addObject:line];
+			}
+		}
+		if ([found count] > 0) {
+			break;
+		}
+	}
+	for (ORMSchemaLine *line in found) {
+		for (NSString *identifier in context) {
+			if ([line.elementIds containsObject:identifier]) {
+				return line;
+			}
+		}
+	}
+	return [found count] == 1 ? [found firstObject] : nil;
+}
+
+/* The same, any of several the text says alike: what is said already,
+ * whichever it is said of. */
+- (ORMSchemaLine *)anyLine:(NSString *)text
+                        in:(NSDictionary<NSString *, NSArray<ORMSchemaLine *> *> *)said
+                     kinds:(NSArray<NSNumber *> *)kinds
+                     about:(NSArray<NSString *> *)context
+{
+	ORMSchemaLine *line = [self line:text in:said kinds:kinds about:context];
+	if (line != nil) {
+		return line;
+	}
+	for (ORMSchemaLine *each in [said objectForKey:[ORMSchemaText comparableLine:text]]) {
+		if ([kinds containsObject:@(each.kind)]) {
+			return each;
+		}
+	}
+	return nil;
+}
+
+/* What a line says taken away: the element, or the part of it the line
+ * is. */
+- (BOOL)remove:(ORMSchemaLine *)line reason:(NSString **)reason
+{
+	ORMEditor *editor = self.editor;
+	ORMModel *model = editor.model;
+	id element = [model elementWithId:[line.elementIds firstObject]];
+	switch (line.kind) {
+	case ORMSchemaComment:
+		return [editor.elementEditor setNote:nil of:[line.elementIds firstObject] reason:reason];
+	case ORMSchemaObjectType:
+	case ORMSchemaFactType:
+		[editor.elementEditor deleteElements:line.elementIds];
+		return YES;
+	case ORMSchemaConstraint: {
+		NSMutableArray *constraints = [NSMutableArray array];
+		for (NSString *identifier in line.elementIds) {
+			id each = [model elementWithId:identifier];
+			if ([each isKindOfClass:[ORMConstraint class]]) {
+				[constraints addObject:identifier];
+				continue;
+			}
+			/* A role's possible values. */
+			for (ORMFactType *fact in model.factTypes) {
+				for (ORMRole *role in fact.roles) {
+					if ([role.valueConstraint.identifier isEqualToString:identifier]
+					    && ![editor.objectTypeEditor setValueConstraint:@"" of:role.identifier reason:reason]) {
+						return NO;
+					}
+				}
+			}
+		}
+		[editor.elementEditor deleteElements:constraints];
+		return YES;
+	}
+	case ORMSchemaValues:
+		if ([line.text rangeOfString:@" match the pattern '"].location != NSNotFound) {
+			return [editor.objectTypeEditor setValuePattern:nil of:[line.elementIds firstObject] reason:reason];
+		}
+		return [editor.objectTypeEditor setValueConstraint:@"" of:[line.elementIds firstObject] reason:reason];
+	case ORMSchemaDetail:
+		if ([line.text hasPrefix:@"Reference Mode: "]) {
+			return [editor.objectTypeEditor setReferenceMode:nil kind:ORMReferenceModeNone ofEntity:[line.elementIds firstObject]
+			                                          reason:reason];
+		}
+		if ([line.text hasSuffix:@" is independent."]) {
+			return [editor.objectTypeEditor setIndependent:NO of:[line.elementIds firstObject] reason:reason];
+		}
+		break;
+	case ORMSchemaDerivation:
+		if ([ORMQuery derivationOf:element inModel:model] != nil) {
+			if (reason != NULL) {
+				*reason = @"A query derives it: take the query away.";
+			}
+			return NO;
+		}
+		return [editor.factTypeEditor setDerivationNote:nil of:[line.elementIds firstObject] reason:reason];
+	case ORMSchemaReferenceData:
+		return [editor.populationEditor removeFact:[line.elementIds firstObject] reason:reason];
+	case ORMSchemaQuery:
+		[[[ORMQueryEditor alloc] initWithEditor:editor] removeQuery:[line.elementIds firstObject]];
+		return YES;
+	default:
+		break;
+	}
+	if (reason != NULL) {
+		*reason = @"That is not taken away: say what it is instead.";
+	}
+	return NO;
+}
+
+/* The element a comment before the line is the note of: the object type
+ * a statement declares or subtypes, the fact type, the constraint. */
+- (NSString *)notedOf:(NSArray<NSString *> *)ids
+{
+	ORMModel *model = self.editor.model;
+	for (NSString *identifier in ids) {
+		id element = [model elementWithId:identifier];
+		if ([element isKindOfClass:[ORMStoredQuery class]]) {
+			return identifier;
+		}
+		if ([element isKindOfClass:[ORMFactType class]] && [(ORMFactType *)element kind] == ORMFactTypeSubtype) {
+			return [[(ORMFactType *)element subtype] identifier];
+		}
+		if ([element isKindOfClass:[ORMFactType class]] || [element isKindOfClass:[ORMConstraint class]]) {
+			return identifier;
+		}
+	}
+	for (NSString *identifier in ids) {
+		if ([[model elementWithId:identifier] isKindOfClass:[ORMObjectType class]]) {
+			return identifier;
+		}
+	}
+	return nil;
+}
+
+/* The diagram that shows the first object type the sentence names: where
+ * what it makes goes when no heading says. */
+- (NSString *)diagramFor:(NSString *)line
+{
+	ORMFactSentence *sentence = [ORMFactSentence sentenceWithString:line model:self.editor.model reason:NULL];
+	for (ORMFactSentencePlayer *player in sentence.players) {
+		ORMObjectType *type = [self.editor.model objectTypeNamed:player.name];
+		for (ORMDiagram *diagram in self.editor.model.diagrams) {
+			if (type != nil && [diagram shapeForSubject:type.identifier] != nil) {
+				return diagram.identifier;
+			}
+		}
+	}
+	return nil;
+}
+
 - (BOOL)addFromText:(NSString *)text failures:(NSArray<NSString *> **)failures
 {
 	NSMutableArray *failed = [NSMutableArray array];
-	NSMutableArray *diagrams = [NSMutableArray array];
+	NSMutableArray *arranged = [NSMutableArray array];
 	NSArray *lines = [text componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]];
 	NSSet *marks = [NSSet setWithObjects:@"*", @"**", @"+", @"++", nil];
+	NSArray *statements = @[ @(ORMSchemaObjectType), @(ORMSchemaFactType), @(ORMSchemaConstraint), @(ORMSchemaValues) ];
+	NSArray *removable = @[ @(ORMSchemaComment), @(ORMSchemaObjectType), @(ORMSchemaDetail), @(ORMSchemaValues),
+		                    @(ORMSchemaFactType), @(ORMSchemaFactTypeName), @(ORMSchemaDerivation), @(ORMSchemaConstraint),
+		                    @(ORMSchemaReferenceData), @(ORMSchemaQuery) ];
 	[self.editor group:@"Add from Text" with:^{
 		NSString *diagram = nil;
 		ORMObjectType *lastType = nil;
 		ORMFactType *lastFact = nil;
 		/* The last fact type made, past the constraints said of it. */
 		ORMFactType *lastMade = nil;
+		/* What the model says, worked out again after something is taken
+		 * away; and the comment lines just before a line. */
+		NSDictionary *said = nil;
+		NSMutableArray *comment = [NSMutableArray array];
 		for (NSUInteger n = 0; n < [lines count]; n++) {
 			NSString *line = ORMStatementTrimmed([lines objectAtIndex:n]);
-			if ([line length] == 0 || [line hasPrefix:@"//"]) {
+			if ([line length] == 0) {
+				[comment removeAllObjects];
 				continue;
 			}
+			if ([line hasPrefix:@"//"]) {
+				[comment addObject:ORMStatementTrimmed([line substringFromIndex:2])];
+				continue;
+			}
+			NSString *note = [comment count] > 0 ? [comment componentsJoinedByString:@"\n"] : nil;
+			[comment removeAllObjects];
 			NSString *why = nil;
 			BOOL read = YES;
 			NSUInteger number = n + 1;
 			NSRange space = [line rangeOfString:@" "];
-			if ([line hasPrefix:@"# "]) {
-				diagram = [self diagramNamed:ORMStatementTrimmed([line substringFromIndex:2]) first:diagram == nil];
-				[diagrams addObject:diagram];
+			/* The elements the line was about, for its comment. */
+			NSArray *about = nil;
+			said = said ?: [self saidLines];
+			NSMutableArray *context = [NSMutableArray array];
+			for (ORMElement *each in @[ lastFact ?: (id)[NSNull null], lastType ?: (id)[NSNull null], lastMade ?: (id)[NSNull null] ]) {
+				if ([each isKindOfClass:[ORMElement class]]) {
+					[context addObject:each.identifier];
+				}
+			}
+			/* A line of what the last statement named that the model says
+			 * of it already: a detail, its name, its derivation. */
+			ORMSchemaLine *same = [self line:line in:said
+			                           kinds:@[ @(ORMSchemaDetail), @(ORMSchemaFactTypeName), @(ORMSchemaDerivation) ]
+			                           about:context];
+			BOOL sameOfContext = NO;
+			for (NSString *identifier in same.elementIds) {
+				sameOfContext = sameOfContext || [context containsObject:identifier];
+			}
+			if (sameOfContext && ![line hasPrefix:@"- "]) {
 				continue;
 			}
-			if ([line hasPrefix:@"Query "] && [line hasSuffix:@":"]) {
+			if ([line hasPrefix:@"- "]) {
+				/* What the model says, taken away. */
+				NSString *gone = ORMStatementTrimmed([line substringFromIndex:2]);
+				ORMSchemaLine *found = [self line:gone in:said kinds:removable about:context];
+				read = found != nil && [self remove:found reason:&why];
+				why = found == nil ? @"The model says no such thing, or says it of several: say which first." : why;
+				said = nil;
+				lastFact = nil;
+				lastType = nil;
+				lastMade = nil;
+			} else if ([line hasPrefix:@"# "]) {
+				diagram = [self diagramNamed:ORMStatementTrimmed([line substringFromIndex:2]) first:diagram == nil
+				                        made:arranged];
+				continue;
+			} else if ([line hasPrefix:@"Query "] && [line hasSuffix:@":"]) {
 				/* A query: its outline, the lines up to a blank one, as
-				 * -[ORMQuery outlineText] writes it. */
+				 * -[ORMQuery outlineText] writes it. One the model has of
+				 * that name is replaced, unless it is the same. */
 				NSString *name = ORMStatementTrimmed([line substringWithRange:NSMakeRange([@"Query " length],
 				                                                                          [line length] - [@"Query " length] - 1)]);
 				NSMutableArray *outline = [NSMutableArray array];
 				while (n + 1 < [lines count] && [ORMStatementTrimmed([lines objectAtIndex:n + 1]) length] > 0) {
 					[outline addObject:[lines objectAtIndex:++n]];
 				}
-				NSString *made = [[[ORMOutlineReader alloc] initWithEditor:self.editor]
-					addQueryNamed:[name length] > 0 ? name : nil outline:[outline componentsJoinedByString:@"\n"] reason:&why];
-				read = made != nil;
+				NSString *body = [outline componentsJoinedByString:@"\n"];
+				ORMQuery *existing = nil;
+				for (ORMQuery *query in [ORMQuery queriesInModel:self.editor.model]) {
+					existing = [name length] > 0 && [query.name isEqualToString:name] ? query : existing;
+				}
+				if (existing != nil && [ORMStatementTrimmed([existing outlineText]) isEqualToString:ORMStatementTrimmed(body)]) {
+					about = @[ existing.identifier ];
+				} else {
+					if (existing != nil) {
+						[[[ORMQueryEditor alloc] initWithEditor:self.editor] removeQuery:existing.identifier];
+						said = nil;
+					}
+					NSString *made = [[[ORMOutlineReader alloc] initWithEditor:self.editor]
+						addQueryNamed:[name length] > 0 ? name : nil outline:body reason:&why];
+					read = made != nil;
+					about = made != nil ? @[ made ] : nil;
+				}
 				lastFact = nil;
 			} else if ([line hasPrefix:@"Reference Mode: "] || [line hasPrefix:@"Portable data type: "]) {
 				read = [self setDetail:line of:lastType reason:&why];
 			} else if ([line hasPrefix:@"Reference data: "]) {
-				read = [self addReferenceFact:[line substringFromIndex:[@"Reference data: " length]] of:lastMade reason:&why];
+				ORMSchemaLine *found = [self line:line in:said kinds:@[ @(ORMSchemaReferenceData) ] about:@[]];
+				ORMFactInstance *fact = [self.editor.model elementWithId:[found.elementIds firstObject]];
+				read = (lastMade != nil && fact.factType == lastMade)
+					|| [self addReferenceFact:[line substringFromIndex:[@"Reference data: " length]] of:lastMade reason:&why];
 			} else if ([line hasPrefix:@"Fact Type Name: "]) {
 				why = lastFact == nil ? @"A fact type's name goes after the fact type." : nil;
 				read = lastFact != nil
 					&& [self.editor.elementEditor rename:lastFact.identifier
 					                                  to:[line substringFromIndex:[@"Fact Type Name: " length]] reason:&why];
 			} else if (space.location != NSNotFound && [marks containsObject:[line substringToIndex:space.location]]) {
-				read = [self setDerivation:line of:lastFact reason:&why];
-			} else {
-				/* A diagram for what the sentence makes, when no heading gave one. */
-				if (diagram == nil) {
-					diagram = [self diagramNamed:self.editor.model.name first:YES];
-					[diagrams addObject:diagram];
+				ORMQuery *derivation = lastFact != nil ? [ORMQuery derivationOf:lastFact inModel:self.editor.model] : nil;
+				NSString *byQuery = [NSString stringWithFormat:@"By query %@.", derivation.name];
+				read = (derivation != nil && [ORMStatementTrimmed([line substringFromIndex:space.location]) isEqualToString:byQuery])
+					|| [self setDerivation:line of:lastFact reason:&why];
+			} else if ([self anyLine:line in:said kinds:statements about:context] != nil) {
+				/* What the model says already: the lines after go on from it. */
+				ORMSchemaLine *found = [self anyLine:line in:said kinds:statements about:context];
+				about = found.elementIds;
+				lastFact = nil;
+				for (NSString *identifier in found.elementIds) {
+					id element = [self.editor.model elementWithId:identifier];
+					if ([element isKindOfClass:[ORMFactType class]] && ((ORMFactType *)element).kind == ORMFactTypeOrdinary) {
+						lastFact = element;
+						lastMade = element;
+					} else if ([element isKindOfClass:[ORMObjectType class]] && found.kind == ORMSchemaObjectType) {
+						lastType = element;
+					}
 				}
-				NSArray *made = [self addFromSentence:line onDiagram:diagram at:ORMAutomaticPlacement reason:&why];
+			} else if ([line hasSuffix:@" is independent"] || [line hasSuffix:@" is independent."]) {
+				NSString *name = [line substringToIndex:[line rangeOfString:@" is independent" options:NSBackwardsSearch].location];
+				ORMObjectType *type = [self.editor.model objectTypeNamed:ORMStatementName(name) ?: name];
+				why = type == nil ? @"No object type is named so." : nil;
+				read = type != nil && [self.editor.objectTypeEditor setIndependent:YES of:type.identifier reason:&why];
+			} else {
+				/* A diagram for what the sentence makes, when no heading gave
+				 * one: one that shows what it names, else the model's. */
+				NSString *target = diagram ?: [self diagramFor:line];
+				if (target == nil) {
+					diagram = [self diagramNamed:self.editor.model.name first:YES made:arranged];
+					target = diagram;
+				}
+				NSArray *made = [self addFromSentence:line onDiagram:target at:ORMAutomaticPlacement reason:&why];
 				read = made != nil;
+				about = made;
 				/* What the next lines go on from: the object type a
 				 * statement names, the fact type a line made. */
 				lastFact = nil;
@@ -499,12 +839,18 @@ ORMStatementParts(NSString *text)
 					}
 				}
 			}
+			/* The comment before it is the note of what it says; one that
+			 * says the note as the listing does is the note already. */
+			NSString *noted = read && note != nil ? [self notedOf:about] : nil;
+			if (noted != nil && ![ORMStatementNoteLines([[self.editor.model elementWithId:noted] noteText]) isEqualToString:note]) {
+				read = [self.editor.elementEditor setNote:note of:noted reason:&why];
+			}
 			if (!read) {
 				[failed addObject:[NSString stringWithFormat:@"%lu: %@", (unsigned long)number,
 				                                             why ?: @"The sentence says nothing the model can take."]];
 			}
 		}
-		for (NSString *each in diagrams) {
+		for (NSString *each in arranged) {
 			[self.editor.diagramEditor arrangeDiagram:each];
 		}
 	}];

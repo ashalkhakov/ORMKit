@@ -1545,6 +1545,13 @@ ORMWithout(NSArray *array, id object)
 		for (ORMRoleSequence *sequence in [(ORMConstraint *)element roleSequences]) {
 			[self removeElement:sequence];
 		}
+	} else if ([element isKindOfClass:[ORMDiagram class]]) {
+		/* Its shapes go with it. */
+		for (ORMShape *shape in [(ORMDiagram *)element allShapes]) {
+			if (shape.identifier != nil && [_elements objectForKey:shape.identifier] == shape) {
+				[_elements removeObjectForKey:shape.identifier];
+			}
+		}
 	}
 	if (element.identifier != nil && [_elements objectForKey:element.identifier] == element) {
 		[_elements removeObjectForKey:element.identifier];
@@ -1557,6 +1564,7 @@ ORMWithout(NSArray *array, id object)
 	_factTypes = ORMWithout(_factTypes, element);
 	_constraints = ORMWithout(_constraints, element);
 	_notes = ORMWithout(_notes, element);
+	_diagrams = ORMWithout(_diagrams, element);
 	/* What it objectified and identified are so by another, or none. */
 	if ([element isKindOfClass:[ORMObjectType class]]) {
 		ORMObjectType *type = (ORMObjectType *)element;
@@ -1970,6 +1978,8 @@ ORMWithout(NSArray *array, id object)
 		constraint.ringType = [ORMConstraint ringTypeNamed:ORMAttribute(element, @"Type")];
 		constraint.comparisonOperator = ORMAttribute(element, @"Operator");
 		constraint.impliedByObjectTypeId = ORMRef(ORMChild(element, CORE, @"ImpliedByObjectType"));
+		constraint.definitionText = ORMNestedText(element, @"Definitions", @"Definition");
+		constraint.noteText = ORMNestedText(element, @"Notes", @"Note");
 		[constraints addObject:constraint];
 		[self registerElement:constraint];
 	}

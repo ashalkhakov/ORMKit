@@ -306,9 +306,13 @@
            action:(NSString *)action reason:(NSString **)reason
 {
 	id target = [_editor.model elementWithId:elementId];
-	if (![target isKindOfClass:[ORMObjectType class]] && ![target isKindOfClass:[ORMFactType class]]) {
+	/* A query keeps a note in ORMKit's namespace; NORMA's elements keep
+	 * theirs as NORMA does. */
+	BOOL query = [target isKindOfClass:[ORMStoredQuery class]];
+	if (![target isKindOfClass:[ORMObjectType class]] && ![target isKindOfClass:[ORMFactType class]]
+	    && ![target isKindOfClass:[ORMConstraint class]] && !(query && [container isEqualToString:@"Notes"])) {
 		if (reason != NULL) {
-			*reason = @"Only object types and fact types have definitions and notes.";
+			*reason = @"Only object types, fact types, constraints and queries have notes, and no query a definition.";
 		}
 		return NO;
 	}

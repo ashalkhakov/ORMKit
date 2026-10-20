@@ -66,6 +66,7 @@
 #import "ORMJoinedFacade.h"
 #import "ORMEntityMerger.h"
 #import "ORMOutlineReader.h"
+#import "ORMSchemaText.h"
 #import "ORMPopulationStore.h"
 #import "ORMPopulationChecker.h"
 #import "ORMPopulationGenerator.h"

@@ -99,17 +99,31 @@ Updates… reads, the AppImage with its update information.
 ormtool check model.orm
 ormtool verbalize [--html] model.orm
 ormtool normalize model.orm out.orm
-ormtool coredata model.orm Out.xcdatamodeld [mapping name]
+ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]
 ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]
 ormtool import Model.xcdatamodeld [model.orm]
 ormtool validation model.orm dir/ [mapping name]
 ormtool query model.orm [query name] [mapping name]
+ormtool forml model.orm [out.forml]
+ormtool apply model.orm changes.forml [out.orm]
 ormtool build schema.forml model.orm
 ```
 
-`build` makes a new model from its sentences, a line each, as the
-verbalizer says them ([docs/VERBALIZATION.md](docs/VERBALIZATION.md)), with
-each line it cannot read, and why, on standard error.
+`forml` writes the model as schema text: every statement, a line each as the
+verbalizer says it, by diagram, each element's note as a comment before it,
+each query as its outline. It is a listing, generated (a build makes it
+beside what else it generates); the model is the `.orm`.
+`apply` changes the model with lines of that text, as one change written
+back only when every line is read: what the model lacks is made, what it
+says already left, a comment before a line set as the note of what it says,
+and a line starting `- ` taken away (a fact type, a constraint, a
+derivation, a fact of reference data, a note, `- Query Name:` a query); a
+query given again under its name replaces it. ORMDesigner is the other way
+to change a model. `build` makes a new model from such text, with each line
+it cannot read, and why, on standard error: how a model begins, not how it
+changes ([docs/MODEL.md](docs/MODEL.md#the-model-as-text)).
+`coredata --validation dir/` writes the validation code there rather than
+where the mapping keeps it: what a build that generates from the model asks.
 
 `svg` draws a diagram as the editor does: the first (or the named one) to
 standard output or a file, or every diagram into a directory, a file each.

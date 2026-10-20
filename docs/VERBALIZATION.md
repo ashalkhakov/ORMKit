@@ -146,9 +146,12 @@ association with ... provides the preferred identification scheme for
 derivation rule, as NORMA keeps one ([DERIVATION.md](DERIVATION.md#subtypes)),
 in the words after "by definition".
 
-A whole schema reads as text (`-addFromText:failures:`, `ormtool build`),
-a statement a line, with lines that go on from the one before: "# Name"
-starts a diagram, "Reference Mode:" and "Portable data type:" are of the
+A whole schema reads as text (`-addFromText:failures:`, `ormtool build`
+and `ormtool apply`; `ORMSchemaText` and `ormtool forml` write a model so,
+[MODEL.md](MODEL.md#the-model-as-text)), a statement a line, with lines that
+go on from the one before: "# Name" starts a diagram (or goes on with the
+one of that name), "// ..." just before a line is the note of what it says,
+"- ..." takes away what the line after the dash says, "Reference Mode:" and "Portable data type:" are of the
 object type just named, "Fact Type Name:" names the fact type just made, "Query Name:" starts a
 query, its outline on the lines after it up to a blank line, as `ormtool
 query` prints it ([QUERIES.md](QUERIES.md#outline)),

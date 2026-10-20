@@ -326,6 +326,12 @@ ORMFirstDifference(NSData *one, NSData *other)
 	[self checkNormalized];
 	ORMCloseJournal(journal);
 	_depth--;
+	/* What changed nothing in the document (text applied that the model
+	 * says already) is no step, and leaves the document as read. */
+	if ([journal isEmpty]) {
+		[self checkAgreement];
+		return done;
+	}
 	/* A manager that does not group by event (a document's that edits
 	 * text in place, a test's) gets the step as a group of its own. */
 	BOOL grouping = _undoManager != nil && [_undoManager groupingLevel] == 0;

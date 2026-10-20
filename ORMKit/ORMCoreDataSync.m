@@ -438,8 +438,11 @@
 	if (mapping == nil) {
 		return;
 	}
-	NSString *contents = [[NSString alloc] initWithData:[model contentsXML] encoding:NSUTF8StringEncoding];
-	if ([mapping.baselineXML isEqualToString:contents]) {
+	/* None: the mapping's model is only ever generated (a build output
+	 * nobody edits), so there is nothing to merge with. */
+	NSString *contents = model != nil ? [[NSString alloc] initWithData:[model contentsXML] encoding:NSUTF8StringEncoding]
+	                                  : nil;
+	if (mapping.baselineXML == contents || [mapping.baselineXML isEqualToString:contents]) {
 		return;
 	}
 	[_editor modelChange:@"Synchronize Core Data" with:^{

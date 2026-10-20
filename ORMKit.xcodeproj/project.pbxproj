@@ -242,6 +242,10 @@
 			fileRef = FCC25EA0BD362F6F60008075 /* ORMXML.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		3DD6E5BC03D4042B074B6DEC /* ORMSchemaText.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 7366D036CC8E5452594B32B3 /* ORMSchemaText.m */;
+		};
 		3E6DB197300AA70096AE643B /* ORMQueryWindow.xib */ = {
 			isa = PBXBuildFile;
 			fileRef = 96F662D60F2A361B6131420E /* ORMQueryWindow.xib */;
@@ -274,6 +278,10 @@
 		446D8F094AAA602E6CB8C902 /* ORMRuntime.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = FDA2783CB7634D75F7062662 /* ORMRuntime.framework */;
+		};
+		45124FBE986D185218BD7250 /* ORMSchemaTextTests.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 61161C2C2395F67DE6D38D26 /* ORMSchemaTextTests.m */;
 		};
 		45262B76B2F3009AB62993B7 /* ORMIssuesView.xib */ = {
 			isa = PBXBuildFile;
@@ -968,6 +976,11 @@
 			isa = PBXBuildFile;
 			fileRef = 5C86A6DC7A399335168B3B21 /* ORMPopulationGenerator.m */;
 		};
+		EEC886566EB5BF4169B8DDC8 /* ORMSchemaText.h */ = {
+			isa = PBXBuildFile;
+			fileRef = CD9AC6F4D2AFAE35652A97AB /* ORMSchemaText.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		F14DCA22FCE7BD77D74B41C9 /* ORMQueryOData+ORMKit.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 2A52998F2FDB78CD31E9E0B9 /* ORMQueryOData+ORMKit.m */;
@@ -1590,6 +1603,12 @@
 			path = ORMDesigner.png;
 			sourceTree = "<group>";
 		};
+		61161C2C2395F67DE6D38D26 /* ORMSchemaTextTests.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMSchemaTextTests.m;
+			sourceTree = "<group>";
+		};
 		6217E0B483913657B5CBF649 /* ORMLogicTests.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -1692,6 +1711,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = "ORMCDModel+CoreData.m";
+			sourceTree = "<group>";
+		};
+		7366D036CC8E5452594B32B3 /* ORMSchemaText.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMSchemaText.m;
 			sourceTree = "<group>";
 		};
 		73BDA4A4C10D412D6D61374F /* ORMSampleMenu.m */ = {
@@ -2146,6 +2171,12 @@
 			path = ORMQueryExpressionTests.m;
 			sourceTree = "<group>";
 		};
+		CD9AC6F4D2AFAE35652A97AB /* ORMSchemaText.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMSchemaText.h;
+			sourceTree = "<group>";
+		};
 		CF7AE6C12C21895B46F3BBEF /* ORMNormaWriter.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -2545,6 +2576,7 @@
 				99460512A004DF4683FCEF8F /* ORMQueryTests.m */,
 				83451447FBE6DD01C162372B /* ORMReferenceDataTests.m */,
 				246EACF5EDCE13A1AF8E7361 /* ORMSVGTests.m */,
+				61161C2C2395F67DE6D38D26 /* ORMSchemaTextTests.m */,
 				3F80E56331C5A2FF542182AE /* ORMSubtypeDerivationTests.m */,
 				621E1F4AE899065D5EFD7FAF /* ORMTestSupport.h */,
 				73D95C1CB5718ECFD903C6B1 /* ORMTestSupport.m */,
@@ -2676,6 +2708,8 @@
 				F4054CBEDBC724A47BC71475 /* ORMRuleChecker.m */,
 				7E9BAE9D033FFE9ADBCAAE5E /* ORMSVGSurface.h */,
 				5D55BAF9088DA59E042DE3C3 /* ORMSVGSurface.m */,
+				CD9AC6F4D2AFAE35652A97AB /* ORMSchemaText.h */,
+				7366D036CC8E5452594B32B3 /* ORMSchemaText.m */,
 				A2912B87D083B2C60E070A76 /* ORMSentenceEditor.h */,
 				4E055EA3795180E4FF988A9A /* ORMStatementSentence.m */,
 				5B53E81857C96665119D7DC5 /* ORMValueConstraintParser.h */,
@@ -2837,6 +2871,7 @@
 				E2659A508B199FCA23BB8949 /* ORMJoinedFacade.h */,
 				090E38F8258CBE7BB92A7E69 /* ORMEntityMerger.h */,
 				14CFC89C0BAF5814997DA5F5 /* ORMOutlineReader.h */,
+				EEC886566EB5BF4169B8DDC8 /* ORMSchemaText.h */,
 				7134F2EFEFA4B5DC0CFBCBAC /* ORMEditorPriv.h */,
 				7BC2CBB880964CE43801F057 /* ORMModelPriv.h */,
 				37051412F484C4BD0F09323D /* ORMQueryPlaces.h */,
@@ -3075,6 +3110,7 @@
 				ADB9E1B77978DBD8397AC9B1 /* ORMJoinedFacade.m */,
 				A356B02DC18CFFCDE8341CD6 /* ORMEntityMerger.m */,
 				47887A93D711637B9064004D /* ORMOutlineReader.m */,
+				3DD6E5BC03D4042B074B6DEC /* ORMSchemaText.m */,
 				F14DCA22FCE7BD77D74B41C9 /* ORMQueryOData+ORMKit.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -3164,6 +3200,7 @@
 				605CDD2C648E7D649ACB13BB /* ORMFileTests.m */,
 				F5AD2E4043E15A7801080CB9 /* ORMModelTests.m */,
 				862B9CDC3D1E7E9C0DC13D17 /* ORMTextTests.m */,
+				45124FBE986D185218BD7250 /* ORMSchemaTextTests.m */,
 				74314B8807EA9243DB528509 /* ORMEditorTests.m */,
 				51BEF6154852FE643ED2D6A7 /* ORMWriterTests.m */,
 				28614C9A787196DBDF3977FC /* ORMLogicTests.m */,
