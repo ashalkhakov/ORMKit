@@ -2321,14 +2321,14 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 		NSManagedObject *usa = make(@"Country", @{ @"name": @"USA" });
 		NSManagedObject *uk = make(@"Country", @{ @"name": @"UK" });
 		/* A city is identified by its name and state: in OData, by the
-		 * number the service would give it. */
-		NSManagedObject *brisbane = make(@"City", @{ @"id": @1, @"cityname": @"Brisbane", @"stateStatecode": @"QLD",
+		 * UUID whoever makes it gives it. */
+		NSManagedObject *brisbane = make(@"City", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0001-000000000001"], @"cityname": @"Brisbane", @"stateStatecode": @"QLD",
 		                                             @"stateCountry": australia });
-		NSManagedObject *sydney = make(@"City", @{ @"id": @2, @"cityname": @"Sydney", @"stateStatecode": @"NSW",
+		NSManagedObject *sydney = make(@"City", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0001-000000000002"], @"cityname": @"Sydney", @"stateStatecode": @"NSW",
 		                                           @"stateCountry": australia });
-		NSManagedObject *perth = make(@"City", @{ @"id": @3, @"cityname": @"Perth", @"stateStatecode": @"WA",
+		NSManagedObject *perth = make(@"City", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0001-000000000003"], @"cityname": @"Perth", @"stateStatecode": @"WA",
 		                                          @"stateCountry": australia });
-		NSManagedObject *seattle = make(@"City", @{ @"id": @4, @"cityname": @"Seattle", @"stateStatecode": @"WA",
+		NSManagedObject *seattle = make(@"City", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0001-000000000004"], @"cityname": @"Seattle", @"stateStatecode": @"WA",
 		                                            @"stateCountry": usa });
 		NSDictionary *salaries = @{ @50: make(@"Salary", @{ @"usd": @50000 }), @500: make(@"Salary", @{ @"usd": @500000 }),
 		                            @600: make(@"Salary", @{ @"usd": @600000 }) };
@@ -2371,9 +2371,9 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 		NSManagedObject *first = make(@"Rank", @{ @"nr": @1 }), *second = make(@"Rank", @{ @"nr": @2 });
 		NSManagedObject *y1995 = make(@"Year", @{ @"ad": @1995 }), *y1996 = make(@"Year", @{ @"ad": @1996 });
 		NSManagedObject *y2001 = make(@"Year", @{ @"ad": @2001 });
-		make(@"USbranchAchievedRankInYear", @{ @"id": @1, @"uSbranch": us1, @"rank": first, @"year": y1995 });
-		make(@"USbranchAchievedRankInYear", @{ @"id": @2, @"uSbranch": us2, @"rank": first, @"year": y2001 });
-		make(@"USbranchAchievedRankInYear", @{ @"id": @3, @"uSbranch": us2, @"rank": second, @"year": y1996 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0002-000000000001"], @"uSbranch": us1, @"rank": first, @"year": y1995 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0002-000000000002"], @"uSbranch": us2, @"rank": first, @"year": y2001 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0002-000000000003"], @"uSbranch": us2, @"rank": second, @"year": y1996 });
 		NSError *saveError = nil;
 		XCTAssertTrue([context save:&saveError], @"%@", [saveError userInfo]);
 	}];

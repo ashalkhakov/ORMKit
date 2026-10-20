@@ -75,7 +75,8 @@ ORMKeyOf(ORMCDEntity *entity)
 }
 
 /* What is identified by what it relates (a marriage by its partners, a
- * visit by who and where) gets a number the service gives it. */
+ * visit by who and where) gets a UUID whoever makes it gives it: a client
+ * offline, too, and before the service has seen it. */
 - (void)testAnIdentifierOfRelationshipsGetsASurrogateKey
 {
 	ORMEditor *editor = [self newEditor];
@@ -88,9 +89,10 @@ ORMKeyOf(ORMCDEntity *entity)
 	ORMCDEntity *marriage = [mapped entityNamed:@"Marriage"];
 	XCTAssertEqualObjects(ORMKeyOf(marriage), (@[ @"id" ]));
 	ORMCDAttribute *key = [marriage attributeNamed:@"id"];
-	XCTAssertEqualObjects(key.attributeType, @"Integer 64");
+	XCTAssertEqualObjects(key.attributeType, @"UUID");
 	XCTAssertFalse(key.optional);
-	XCTAssertEqualObjects([key.userInfo objectForKey:@"OData.computed"], @"YES");
+	XCTAssertEqualObjects([key.userInfo objectForKey:@"ormkit.surrogate"], @"YES");
+	XCTAssertNil([key.userInfo objectForKey:@"OData.computed"], @"a client gives it, and sends it");
 	XCTAssertEqualObjects(key.source, [[[editor.model objectTypeNamed:@"Marriage"] identifier] stringByAppendingString:@".key"]);
 	BOOL noted = NO;
 	for (ORMMappingNote *note in notes) {
@@ -100,6 +102,43 @@ ORMKeyOf(ORMCDEntity *entity)
 	/* The person keeps its own, and nothing is added. */
 	XCTAssertEqualObjects(ORMKeyOf([mapped entityNamed:@"Person"]), (@[ @"id" ]));
 	XCTAssertNil([self momcRejects:mapped]);
+}
+
+/* A surrogate read back from the Core Data model is no fact of what it
+ * keys, and maps again as it was: the same UUID key. */
+- (void)testASurrogateComesBackAsASurrogate
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *married = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, person ] reading:@"{0} married {1}"
+	                                                onDiagram:nil at:NSZeroPoint reason:NULL];
+	[editor.factTypeEditor objectifyFactType:married named:@"Marriage" reason:NULL];
+	ORMCDModel *mapped = [self map:editor serving:YES notes:NULL];
+
+	ORMEditor *imported = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Imported"] undoManager:nil];
+	NSString *reason = nil;
+	NSString *mapping = [[[ORMCoreDataImporter alloc] initWithEditor:imported] importCoreDataModel:mapped
+	                                                                                           path:@"/tmp/Marriage.xcdatamodeld"
+	                                                                                          notes:NULL
+	                                                                                         reason:&reason];
+	XCTAssertNotNil(mapping, @"%@", reason);
+	ORMObjectType *marriage = [imported.model objectTypeNamed:@"Marriage"];
+	XCTAssertNotNil(marriage);
+	/* Its people relate to it; no value is said of it, as one would be of
+	 * a surrogate read as data. */
+	for (ORMFactType *fact in imported.model.factTypes) {
+		BOOL playsIt = NO, valued = NO;
+		for (ORMRole *role in fact.roles) {
+			playsIt = playsIt || role.player == marriage;
+			valued = valued || role.player.kind == ORMValueType;
+		}
+		XCTAssertFalse(playsIt && valued, @"the surrogate made a fact of Marriage: %@", fact.name);
+	}
+	ORMCoreDataMapping *read = [imported.model coreDataMappingWithId:mapping];
+	ORMCDModel *again = [[[ORMCoreDataMapper alloc] initWithModel:imported.model mapping:read] map];
+	ORMCDAttribute *key = [[again entityNamed:@"Marriage"] attributeNamed:@"id"];
+	XCTAssertEqualObjects(key.attributeType, @"UUID");
+	XCTAssertEqualObjects([key.userInfo objectForKey:@"ormkit.surrogate"], @"YES");
 }
 
 /* A value list and an open bound, which Core Data cannot say, as

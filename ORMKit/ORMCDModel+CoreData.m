@@ -10,7 +10,8 @@ ORMAttributeTypeNamed(NSString *name)
 	                         @"Double": @(NSDoubleAttributeType), @"Float": @(NSFloatAttributeType),
 	                         @"String": @(NSStringAttributeType), @"Boolean": @(NSBooleanAttributeType),
 	                         @"Date": @(NSDateAttributeType), @"Binary": @(NSBinaryDataAttributeType),
-	                         @"Transformable": @(NSTransformableAttributeType) };
+	                         @"Transformable": @(NSTransformableAttributeType), @"UUID": @(NSUUIDAttributeType),
+	                         @"URI": @(NSURIAttributeType) };
 	NSNumber *type = [types objectForKey:name ?: @""];
 	return type != nil ? (NSAttributeType)[type unsignedIntegerValue] : NSStringAttributeType;
 }

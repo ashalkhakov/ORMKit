@@ -219,13 +219,13 @@ ORMWithEntry(NSDictionary *info, NSString *key, NSString *value)
 	ORMCDAttribute *surrogate = [[ORMCDAttribute alloc] init];
 	surrogate.name = [self surrogateNameOn:entity source:source];
 	surrogate.source = source;
-	surrogate.attributeType = @"Integer 64";
+	surrogate.attributeType = @"UUID";
 	surrogate.optional = NO;
-	surrogate.userInfo = ORMWithEntry(ORMWithEntry(surrogate.userInfo, @"OData.key", @"YES"), @"OData.computed", @"YES");
+	surrogate.userInfo = ORMWithEntry(ORMWithEntry(surrogate.userInfo, @"OData.key", @"YES"), @"ormkit.surrogate", @"YES");
 	[entity.attributes insertObject:surrogate atIndex:0];
 	[_notes addObject:[ORMMappingNote noteWithKind:ORMMappingWarning
-	                                          text:[NSString stringWithFormat:@"%@ is keyed in OData by %@, a number "
-	                                                                          @"the service gives each new one: its "
+	                                          text:[NSString stringWithFormat:@"%@ is keyed in OData by %@, a UUID "
+	                                                                          @"whoever makes each new one gives it: its "
 	                                                                          @"identifier is not of attributes alone.",
 	                                                                          entity.name, surrogate.name]
 	                                       element:entity.source]];

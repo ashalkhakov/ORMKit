@@ -17,7 +17,7 @@ after the rest of the mapping is made:
 | an entity, not a subentity | `OData.entitySet`: the plural of its name | the entity set; a subentity's objects are in its root's set, as a derived type |
 | an entity, in the mapping's namespace (`ODataNamespace`, `Default` unless set) | `OData.type`: `Default.Employee` | its type's name, which a cast to a subtype names; ODataKit's mapper knows it without `$metadata` |
 | the preferred identifier, when each of its roles is a required attribute (a reference mode, an absorbed identifier's parts, a value entity's value) | `OData.key` = `YES` on each attribute | the key |
-| any other identifier (one with roles of entity types, an objectification's, a fact type's entity) | a surrogate: an Integer 64 attribute `id`, required, with `OData.key` and `OData.computed` | a key the service numbers on insert (one more than the largest); `Core.Computed`, so clients never send it |
+| any other identifier (one with roles of entity types, an objectification's, a fact type's entity) | a surrogate: a UUID attribute `id`, required, with `OData.key` and `ormkit.surrogate` | a key whoever makes the object gives it, a client too, offline as well as on line; the service keeps the one it is sent |
 | an object type's definition; a value type's, on the attributes it is the value of | `OData.description` | `Core.Description` |
 | a value list | `OData.annotations` `{"Validation.AllowedValues": [...]}` | `Validation.AllowedValues` |
 | an open bound of a single numeric range | `OData.annotations`: `Validation.Minimum` / `Maximum` with `@Validation.Exclusive` | an exclusive bound |
@@ -28,8 +28,11 @@ Ranges and patterns that Core Data holds already (`minValue`, `maxValue`,
 
 A surrogate is named `id` (or `id2` and so on, if that name is taken); an
 override on the source `<object type id>.key` renames it. The mapping notes
-each one. ODataKit's service fills it in on insert. An application that
-writes to the store directly, not through the service, must set it itself.
+each one. It is a UUID, not a number the service counts, so that a client
+can make the object and refer to it before the service has seen it: in a
+change set whose other requests bind to it, and offline (ODataSync). A
+number the service gives as well would be another identifier of the object
+type, a second reference scheme beside this one, not its key.
 
 What a user writes in Xcode under any other key, their own `OData.entitySet`
 for instance, is kept on synchronization: only `ormkit.` entries belong to
@@ -41,8 +44,9 @@ Importing a Core Data model that ODataKit serves reads the annotations back:
 
 - an attribute with `OData.key` alone is the reference mode;
 - several are the preferred identifier, an external uniqueness;
-- a surrogate (`OData.key` and `OData.computed`, an integer) is no fact type,
-  and its name is kept as an override;
+- a surrogate (`OData.key` with `ormkit.surrogate`; or, as mappings made it
+  before, `OData.computed` on an integer) is no fact type, and its name is
+  kept as an override;
 - an entity with a key of its own takes no other identifier from its
   uniqueness constraints;
 - `OData.description` is the definition.
@@ -57,8 +61,9 @@ each with `momc`. It then served them with `ODataService` over SQLite on
 macOS:
 
 - every entity set answers;
-- `$metadata` has the keys, the AllowedValues and Core.Computed;
-- two posts to a surrogate-keyed set got the ids 1 and 2.
+- `$metadata` has the keys and the AllowedValues;
+- two posts to a surrogate-keyed set, each with the UUID its client gave
+  it, are kept under those keys.
 
 ## Queries as requests
 

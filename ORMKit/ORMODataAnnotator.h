@@ -9,9 +9,10 @@
  *   its name in the mapping's namespace   OData.type: Default.Employee
  *   the preferred identifier, where       OData.key = YES on each attribute
  *     every role of it is an attribute
- *   any other identifier                  a surrogate: an Integer64 "id",
- *                                         OData.key and OData.computed, that
- *                                         the service numbers on insert
+ *   any other identifier                  a surrogate: a UUID "id", OData.key
+ *                                         and ormkit.surrogate, that whoever
+ *                                         makes the object gives it (a client
+ *                                         offline too)
  *   a definition                          OData.description
  *   a value list, an open bound           OData.annotations: AllowedValues,
  *                                         Minimum@Exclusive, Maximum@Exclusive

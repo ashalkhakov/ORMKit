@@ -59,14 +59,18 @@ ORMFlag(NSDictionary *info, NSString *key)
 	return [[info objectForKey:key] isEqualToString:@"YES"];
 }
 
-/* The number ODataKit's service gives each new object, as the mapping
- * makes one (ORMODataAnnotator.h): a key, computed. Not a fact. */
+/* The key an object is given when it is made, as the mapping makes one
+ * (ORMODataAnnotator.h): a UUID marked ormkit.surrogate, or, as mappings
+ * made it before, a number the service computes. Not a fact. */
 static ORMCDAttribute *
 ORMSurrogateOf(ORMCDEntity *entity)
 {
 	for (ORMCDAttribute *attribute in entity.attributes) {
-		if (ORMFlag(attribute.userInfo, @"OData.key") && ORMFlag(attribute.userInfo, @"OData.computed")
-		    && [attribute.attributeType hasPrefix:@"Integer"]) {
+		if (!ORMFlag(attribute.userInfo, @"OData.key")) {
+			continue;
+		}
+		if (ORMFlag(attribute.userInfo, @"ormkit.surrogate")
+		    || (ORMFlag(attribute.userInfo, @"OData.computed") && [attribute.attributeType hasPrefix:@"Integer"])) {
 			return attribute;
 		}
 	}
@@ -78,8 +82,9 @@ static NSArray<NSString *> *
 ORMKeyNamesOf(ORMCDEntity *entity)
 {
 	NSMutableArray *names = [NSMutableArray array];
+	ORMCDAttribute *surrogate = ORMSurrogateOf(entity);
 	for (ORMCDAttribute *attribute in entity.attributes) {
-		if (ORMFlag(attribute.userInfo, @"OData.key") && !ORMFlag(attribute.userInfo, @"OData.computed")) {
+		if (ORMFlag(attribute.userInfo, @"OData.key") && attribute != surrogate) {
 			[names addObject:attribute.name];
 		}
 	}
