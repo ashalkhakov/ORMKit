@@ -327,6 +327,7 @@ Its text (`-[ORMQueryPlan text]`):
 | a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read, and meeting the conditions the earlier occurrence had: `x2 is among ownsCars and x2.regnr = 'B'` |
 | a label on an absorbed object type, met again | its parts compared: `x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and ...` |
 | a node compared with another | `not (x1.country is country)`, beside `x1.country is set`: a condition that holds of nothing (a not) does not say the step is taken |
+| a step to an absorbed object type, nothing more said of it | each part that identifies it set: `cityCityname is set and cityStateCountry is set and cityStateStatecode is set` (a city with no state is none) |
 | a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname` |
 | a step through an absorbed object type to an entity that absorbs it too | `... in join1`, a set the plan defines: `let join1 = read Branch where nr = 52` (below) |
 | the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier; one identified by several values by those, in its reference scheme's order, as a list in the row: `x1.degree (degreecode, university.code)` gives `BSc, UQ` |

@@ -2,6 +2,8 @@
 #import "ORMCoreDataValidation.h"
 #import "ORMJoinedFacade.h"
 #import "ORMVerbalizer.h"
+#import "ORMVerbalizerPriv.h"
+#import "ORMOutlineReader.h"
 #import "ORMQueryPlanner.h"
 #if __has_include(<ORMRuntime/ORMRuntime.h>)
 #import <ORMRuntime/ORMRuntime.h>
@@ -590,6 +592,7 @@ ORMBound(NSString *value)
 		}
 	}
 	[self rules];
+	[self subtypeRules];
 	[self derivations];
 	[self queries];
 	[self referenceData];
@@ -833,6 +836,48 @@ ORMSeedValueOf(id value)
 			[_skipped addObject:[NSString stringWithFormat:@"%@: %@", query.name, text]];
 			[_notes addObject:[NSString stringWithFormat:@"%@: %@ (%@)", query.name, why ?: @"?", text]];
 			continue;
+		}
+	}
+}
+
+/* "Each FillUp is a MeteredEvent", where a rule derives MeteredEvent and
+ * does not store it: FillUp is asserted, and its entity's objects must
+ * meet the rule ("an Event that was at some Distance"), which nothing in
+ * Core Data says, its properties being the supertype's, optional there
+ * (docs/DERIVATION.md). A rule of the subtype's entity, its query "✓FillUp
+ * + not is MeteredEvent", made in the copy of the document; skipped, with
+ * why, where it cannot be planned. */
+- (void)subtypeRules
+{
+	for (ORMObjectType *subtype in _model.objectTypes) {
+		ORMDerivationRule *own = [subtype derivationRule];
+		if (own != nil && !own.isStored) {
+			continue;
+		}
+		for (ORMFactType *fact in subtype.supertypeFacts) {
+			ORMObjectType *supertype = [fact supertype];
+			ORMDerivationRule *rule = [supertype derivationRule];
+			if (rule == nil || rule.isStored || [ORMQuery derivationOfSubtype:supertype inModel:_model] == nil) {
+				continue;
+			}
+			if (_scratch == nil) {
+				_scratch = [[ORMEditor alloc] initWithDocument:ORMCopyDocument(_model.document) undoManager:nil];
+			}
+			NSString *text = [NSString stringWithFormat:@"Each %@ is %@ %@.", subtype.name, ORMArticle(supertype.name),
+			                                            supertype.name];
+			NSString *name = [NSString stringWithFormat:@"%@IsA%@", subtype.name, supertype.name];
+			NSString *outline = [NSString stringWithFormat:@"It is impossible that:\n✓%@\n  + not is %@", subtype.name,
+			                                               supertype.name];
+			NSString *why = nil;
+			ORMBeginIds([NSString stringWithFormat:@"subtype.%@", fact.identifier]);
+			NSString *made = [[[ORMOutlineReader alloc] initWithEditor:_scratch] addQueryNamed:name outline:outline
+			                                                                            reason:&why];
+			ORMEndIds();
+			ORMQuery *query = made != nil ? [ORMQuery queryWithId:made inModel:_scratch.model] : nil;
+			if (query == nil || [self addRuleOf:query named:name text:text deontic:NO reason:&why] == nil) {
+				[_skipped addObject:[NSString stringWithFormat:@"%@: %@", name, text]];
+				[_notes addObject:[NSString stringWithFormat:@"%@: %@ (%@)", name, why ?: @"?", text]];
+			}
 		}
 	}
 }

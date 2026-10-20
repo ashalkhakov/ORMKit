@@ -2292,8 +2292,19 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		}
 	}
 	if ([conditions count] == 0) {
-		/* Played: its parts are there. */
-		return [ORMPlanCondition notNull:[at.path pathByAddingKey:firstPart.name]];
+		/* Played: its parts are there, each that identifies it (a distance
+		 * with no unit is none). */
+		NSMutableArray *present = [NSMutableArray array];
+		NSMutableSet *seen = [NSMutableSet set];
+		for (NSArray *keys in [_places identifyingPartsOfAbsorbed:node.objectType base:base on:entity]) {
+			NSString *key = [keys firstObject];
+			if (key != nil && ![seen containsObject:key]) {
+				[seen addObject:key];
+				[present addObject:[ORMPlanCondition notNull:[at.path pathByAddingKey:key]]];
+			}
+		}
+		return [present count] > 0 ? ORMAllOf(present)
+		                           : [ORMPlanCondition notNull:[at.path pathByAddingKey:firstPart.name]];
 	}
 	return ORMAllOf(conditions);
 }

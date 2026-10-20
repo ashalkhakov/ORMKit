@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
+#import <CoreData/CoreData.h>
 
 /* Subtypes a rule derives: the rule as NORMA keeps it, a query that runs
  * it, no entity of their own in Core Data, and queries through them. */
@@ -168,6 +169,72 @@
 		[ids addObject:[[row firstObject] description]];
 	}
 	XCTAssertEqualObjects([ids sortedArrayUsingSelector:@selector(compare:)], (@[ @"1", @"2" ]));
+}
+
+/* From a subtype of it ("Each FillUp is a Cost"), "is Cost" is its rule
+ * too; with not, the rule's one step is negated: a fill-up with no cost is
+ * no Cost. Where the query says more of it, not cannot be carried. */
+- (void)testAStepFromASubtypeOfItIsItsRule
+{
+	ORMEditor *editor = [self costs];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:editor.model mapping:nil];
+	NSArray *cases = @[ @[ @"✓FillUp\n  + is Cost\n", @"read FillUp\nwhere amount is set\nlist self (id)" ],
+	                    @[ @"It is impossible that:\n✓FillUp\n  + not is Cost\n",
+	                       @"read FillUp\nwhere not (amount is set)\nlist self (id)" ],
+	                    @[ @"✓Record\n  + not is Cost\n", @"read Record\nwhere not (amount is set)\nlist self (id)" ] ];
+	NSUInteger n = 0;
+	for (NSArray *each in cases) {
+		NSString *reason = nil;
+		NSString *made = [[[ORMOutlineReader alloc] initWithEditor:editor]
+			addQueryNamed:[NSString stringWithFormat:@"Q%lu", (unsigned long)++n] outline:each[0] reason:&reason];
+		XCTAssertNotNil(made, @"%@", reason);
+		ORMQueryPlan *plan = [planner planForQuery:[ORMQuery queryWithId:made inModel:editor.model]];
+		XCTAssertEqualObjects(plan.notes, @[], @"%@", each[0]);
+		XCTAssertEqualObjects([plan text], each[1]);
+	}
+	NSString *reason = nil;
+	NSString *made = [[[ORMOutlineReader alloc] initWithEditor:editor]
+		addQueryNamed:@"More" outline:@"✓FillUp\n  + not is Cost\n    + was charged Amount\n" reason:&reason];
+	XCTAssertNotNil(made, @"%@", reason);
+	ORMQueryPlan *more = [planner planForQuery:[ORMQuery queryWithId:made inModel:editor.model]];
+	XCTAssertEqualObjects(more.notes, @[ @"\"is Cost\" is gone through with not, maybe or a count, and the query says "
+	                                     @"more of it there." ]);
+}
+
+/* An asserted subtype of it is one by its rule, which Core Data cannot
+ * say (its properties are the supertype's, optional there): a rule of the
+ * subtype's entity, checked. */
+- (void)testAnAssertedSubtypeOfItMeetsTheRule
+{
+	ORMEditor *editor = [self costs];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:editor.model mapping:nil name:@"Costs"];
+	NSData *data = [[[generator files] objectForKey:@"Costs.ormplans"] dataUsingEncoding:NSUTF8StringEncoding];
+	id list = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+	NSError *error = nil;
+	ORMTables *tables = [ORMTables tablesWithPropertyList:list error:&error];
+	XCTAssertNotNil(tables, @"%@", error);
+	NSArray *rules = [tables.rules objectForKey:@"FillUp"];
+	XCTAssertEqualObjects([rules valueForKey:@"text"], @[ @"Each FillUp is a Cost." ]);
+	XCTAssertEqualObjects([rules valueForKey:@"constraint"], @[ @"FillUpIsACost" ]);
+
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:nil] map];
+	NSPersistentStoreCoordinator *coordinator =
+		[[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[mapped managedObjectModel]];
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil
+	                                                  error:&error],
+	                @"%@", error);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+	context.persistentStoreCoordinator = coordinator;
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	NSManagedObject *fillUp = [NSEntityDescription insertNewObjectForEntityForName:@"FillUp" inManagedObjectContext:context];
+	[fillUp setValue:@1 forKey:@"id"];
+	NSManagedObject *record = [NSEntityDescription insertNewObjectForEntityForName:@"Record" inManagedObjectContext:context];
+	[record setValue:@2 forKey:@"id"];
+	XCTAssertTrue([validator validate:record error:&error], @"a record need not cost: %@", error);
+	XCTAssertFalse([validator validate:fillUp error:&error]);
+	XCTAssertTrue([[error localizedDescription] containsString:@"Each FillUp is a Cost."], @"%@", error);
+	[fillUp setValue:[NSDecimalNumber decimalNumberWithString:@"40"] forKey:@"amount"];
+	XCTAssertTrue([validator validate:fillUp error:&error], @"%@", error);
 }
 
 @end

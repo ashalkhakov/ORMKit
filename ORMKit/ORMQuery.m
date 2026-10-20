@@ -1069,8 +1069,11 @@ ORMGraftSubtypeRule(ORMQueryPart *at, ORMObjectType *subtype, ORMStoredQuery *ru
 }
 
 /* "is Cost", from a node of its supertype, to a subtype derived by a
- * rule: no step, the same object, the subtype's rule and what the query
- * says of the subtype said of the node. Why not, where not. */
+ * rule; or "is MeteredEvent", from a node of a subtype of it: no step,
+ * the same object, the subtype's rule and what the query says of the
+ * subtype said of the node. With not, maybe or a count, the rule's one
+ * step carries it, where the rule is one step and the query says nothing
+ * more of the subtype. Why not, where not. */
 static NSString *
 ORMExpandSubtypeStep(ORMQueryPart *step, ORMObjectType *subtype, ORMStoredQuery *rule, NSString *name,
                      NSUInteger round, ORMModel *model)
@@ -1079,6 +1082,40 @@ ORMExpandSubtypeStep(ORMQueryPart *step, ORMObjectType *subtype, ORMStoredQuery 
 	ORMQueryPart *node = [[step nodes] firstObject];
 	if (from == nil || node == nil) {
 		return [NSString stringWithFormat:@"\"is %@\" is no step from a node.", subtype.name];
+	}
+	BOOL qualified = NO;
+	for (NSString *key in ORMStepQualifiers()) {
+		qualified = qualified || [step valueForKey:key] != nil;
+	}
+	if (qualified) {
+		BOOL bare = [[node steps] count] == 0 && [[node values] count] == 0;
+		for (NSString *key in @[ @"projected", @"comparison", @"value", @"compareTo", @"sort", @"label" ]) {
+			bare = bare && [node valueForKey:key] == nil;
+		}
+		BOOL oneStep = [[rule.root steps] count] == 1 && [[rule.root values] count] == 0;
+		for (NSString *key in @[ @"comparison", @"value", @"compareTo" ]) {
+			oneStep = oneStep && [rule.root valueForKey:key] == nil;
+		}
+		if (!bare || !oneStep) {
+			return [NSString stringWithFormat:@"\"is %@\" is gone through with not, maybe or a count, and %@", subtype.name,
+			                                  !bare ? @"the query says more of it there."
+			                                        : @"its rule is not one step."];
+		}
+		NSUInteger at = [step index];
+		ORMRenameNode(from, node.identifier, from.identifier);
+		[step detach];
+		NSString *why = ORMGraftSubtypeRule(from, subtype, rule, name, round);
+		if (why != nil) {
+			return why;
+		}
+		/* The rule's step, appended last, where the step was, carrying it. */
+		ORMQueryPart *grafted = [[from steps] lastObject];
+		[grafted detach];
+		for (NSString *key in ORMStepQualifiers()) {
+			[grafted setValue:[step valueForKey:key] forKey:key];
+		}
+		[from insertPart:grafted atIndex:at];
+		return nil;
 	}
 	/* What the query says of the subtype's node, said of the same object. */
 	for (NSString *key in @[ @"projected", @"comparison", @"value", @"compareTo", @"sort" ]) {
@@ -1103,7 +1140,9 @@ ORMExpandSubtypeStep(ORMQueryPart *step, ORMObjectType *subtype, ORMStoredQuery 
 }
 
 /* The subtype a part brings in that a rule derives and does not store: a
- * query's root of it, or a step to it from its supertype. */
+ * query's root of it, or a step to it from its supertype, or from a
+ * subtype of it ("Each FillUp is a MeteredEvent": an asserted subtype of
+ * a derived one is one by the rule). */
 static ORMObjectType *
 ORMDerivedSubtypeOf(ORMQueryPart *part, ORMModel *model)
 {
@@ -1113,7 +1152,8 @@ ORMDerivedSubtypeOf(ORMQueryPart *part, ORMModel *model)
 	} else if (part.isStep) {
 		ORMFactType *fact = [model elementWithId:part.ref];
 		ORMRole *entry = [model elementWithId:part.roleId];
-		if ([fact isKindOfClass:[ORMFactType class]] && fact.kind == ORMFactTypeSubtype && entry.isSupertypeMetaRole) {
+		if ([fact isKindOfClass:[ORMFactType class]] && fact.kind == ORMFactTypeSubtype
+		    && (entry.isSupertypeMetaRole || entry.isSubtypeMetaRole)) {
 			type = [[entry oppositeRole] player];
 		}
 	}

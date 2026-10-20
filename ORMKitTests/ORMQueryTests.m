@@ -1761,8 +1761,10 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
 	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
 	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	/* Its city there: each part that identifies it set. */
 	XCTAssertEqualObjects([plan text], @"read Employee\n"
-	                                   @"where cityCityname is set and country is set and some employees as x1 has "
+	                                   @"where cityCityname is set and cityStateCountry is set and cityStateStatecode "
+	                                   @"is set and country is set and some employees as x1 has "
 	                                   @"(x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and "
 	                                   @"x1.cityStateStatecode = cityStateStatecode and x1.country is set and "
 	                                   @"not (x1.country is country))\n"

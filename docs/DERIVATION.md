@@ -153,12 +153,19 @@ Derivation of Cost:
   supertype, and a query of the subtype, are put as its rule before
   planning, as a derived fact type's step is: no step, the same object,
   the rule's steps and what the query says of the subtype said of the
-  supertype's node. A subtype whose rule is words alone, or partly derived,
-  is refused with a note.
+  supertype's node. So is a step to it from a subtype of it ("Each FillUp
+  is a Cost": `✓FillUp + is Cost`). With not, maybe or a count, the step
+  is the rule's one step so qualified (`not is Cost`, `not cost Amount`),
+  refused with a note where the rule is more than one step or the query
+  says more of the subtype there. A subtype whose rule is words alone, or
+  partly derived, is refused with a note.
 - **Core Data.** What a derived subtype is changes as the facts do, and an
   object's entity cannot, so it is no entity of its own: its fact types are
   its supertype's entity's, optional there (as flattening does). A subtype
-  of it and of another inherits from the other.
+  of it and of another inherits from the other. A subtype of it that is
+  asserted is one by the rule all the same, which Core Data cannot say:
+  the validation code checks it as a rule of the subtype's entity,
+  "Each FillUp is a Cost.", its query `✓FillUp + not is Cost`.
 
 ## Core Data, and keeping stored ones up to date
 
