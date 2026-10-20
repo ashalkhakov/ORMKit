@@ -261,4 +261,57 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* An absorbed value that may be left out (a trip's Distance: its
+ * quantity and its unit, properties of the trip) is all of it or none:
+ * set in part, it is refused. */
+- (void)testAnAbsorbedValueIsWholeOrNone
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Quantity is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"DistanceUnit is an entity type.\n"
+	                 @"Reference Mode: .code\n"
+	                 @"Distance has Quantity\n"
+	                 @"Each Distance has exactly one Quantity.\n"
+	                 @"Distance is in DistanceUnit\n"
+	                 @"Each Distance is in exactly one DistanceUnit.\n"
+	                 @"For each Quantity and DistanceUnit, at most one Distance has that Quantity and is in that DistanceUnit.\n"
+	                 @"This association with Quantity and DistanceUnit provides the preferred identification scheme for Distance.\n"
+	                 @"Trip(.id) covered Distance (as Length)\n"
+	                 @"Each Trip covered at most one Distance.\n"
+	                 @"Trip started at Distance (as Start)\n"
+	                 @"Each Trip started at exactly one Distance.\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMValidationGenerator *generator = [self generatorFor:editor];
+	ORMTables *tables = [self tablesOf:generator];
+	/* The optional one has a rule; the mandatory one, whose parts Core
+	 * Data requires, none. */
+	NSArray *rules = [tables.rules objectForKey:@"Trip"];
+	NSArray *names = [rules valueForKey:@"constraint"];
+	XCTAssertTrue([names containsObject:@"LengthIsWhole"], @"%@", names);
+	XCTAssertFalse([names containsObject:@"StartIsWhole"], @"%@", names);
+	ORMRule *whole = [names containsObject:@"LengthIsWhole"] ? [rules objectAtIndex:[names indexOfObject:@"LengthIsWhole"]] : nil;
+	XCTAssertEqualObjects([[whole keys] sortedArrayUsingSelector:@selector(compare:)],
+	                      (@[ @"lengthDistanceUnit", @"lengthQuantity" ]));
+	XCTAssertTrue([whole.text containsString:@"lengthQuantity and lengthDistanceUnit"], @"%@", whole.text);
+
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	NSManagedObjectContext *context = [self contextFor:editor];
+	NSManagedObject *km = [NSEntityDescription insertNewObjectForEntityForName:@"DistanceUnit" inManagedObjectContext:context];
+	[km setValue:@"km" forKey:@"code"];
+	NSManagedObject *trip = [NSEntityDescription insertNewObjectForEntityForName:@"Trip" inManagedObjectContext:context];
+	[trip setValuesForKeysWithDictionary:@{ @"startQuantity": [NSDecimalNumber decimalNumberWithString:@"10"],
+		                                    @"startDistanceUnit": km }];
+	XCTAssertTrue([validator validate:trip error:NULL]);
+	[trip setValue:[NSDecimalNumber decimalNumberWithString:@"12.5"] forKey:@"lengthQuantity"];
+	XCTAssertEqualObjects([self broken:trip by:validator], @[ @"lengthQuantity" ]);
+	[trip setValue:km forKey:@"lengthDistanceUnit"];
+	XCTAssertTrue([validator validate:trip error:NULL]);
+	[trip setValue:nil forKey:@"lengthQuantity"];
+	XCTAssertEqual([[self broken:trip by:validator] count], 1u, @"%@", [self broken:trip by:validator]);
+	[trip setValue:nil forKey:@"lengthDistanceUnit"];
+	XCTAssertTrue([validator validate:trip error:NULL]);
+}
+
 @end

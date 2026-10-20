@@ -51,6 +51,14 @@ ORMCommentText(NSString *text)
 	return [text stringByReplacingOccurrencesOfString:@"*/" withString:@"* /"];
 }
 
+/* "Mileage" for "mileage": a name as a rule's begins. */
+static NSString *
+ORMCapitalizedName(NSString *name)
+{
+	return [name length] > 0 ? [[[name substringToIndex:1] uppercaseString] stringByAppendingString:[name substringFromIndex:1]]
+	                         : @"Value";
+}
+
 /* A bound as a number, or nil when it is not one. */
 static NSNumber *
 ORMBound(NSString *value)
@@ -538,6 +546,63 @@ ORMBound(NSString *value)
 	  deontic:NO];
 }
 
+/* An absorbed value (a Distance: its quantity and its unit, properties of
+ * whatever refers to it) is all of its parts or none: one that may be
+ * left out is refused set in part. Its parts' sources are the role played
+ * by it and, after a "/", each identifying role. */
+- (void)wholeAbsorbedValuesOf:(ORMCDEntity *)entity
+{
+	NSMutableDictionary<NSString *, NSMutableArray<ORMCDProperty *> *> *parts = [NSMutableDictionary dictionary];
+	NSMutableArray *order = [NSMutableArray array];
+	NSArray *properties = [(NSArray *)entity.attributes arrayByAddingObjectsFromArray:(NSArray *)entity.relationships];
+	for (ORMCDProperty *property in properties) {
+		NSRange slash = [property.source ?: @"" rangeOfString:@"/"];
+		if (slash.location == NSNotFound) {
+			continue;
+		}
+		NSString *head = [property.source substringToIndex:slash.location];
+		ORMRole *role = [_model elementWithId:head];
+		if (![role isKindOfClass:[ORMRole class]] || [[role.player.preferredIdentifier allRoles] count] < 2) {
+			continue;
+		}
+		NSMutableArray *group = [parts objectForKey:head];
+		if (group == nil) {
+			group = [NSMutableArray array];
+			[parts setObject:group forKey:head];
+			[order addObject:head];
+		}
+		[group addObject:property];
+	}
+	for (NSString *head in order) {
+		NSArray *group = [parts objectForKey:head];
+		BOOL optional = NO;
+		for (ORMCDProperty *property in group) {
+			optional = optional || (property.optional && ![[property.userInfo objectForKey:@"ormkit.mandatory"] isEqualToString:@"YES"]);
+		}
+		if ([group count] < 2 || !optional) {
+			continue;
+		}
+		NSMutableArray *present = [NSMutableArray array];
+		NSMutableArray *keys = [NSMutableArray array];
+		for (ORMCDProperty *property in group) {
+			[present addObject:[self presenceOf:@[ entity, property ]]];
+			[keys addObject:property.name];
+		}
+		ORMRole *role = [_model elementWithId:head];
+		NSString *called = [role.name length] > 0 ? role.name : role.player.name;
+		NSString *last = [keys lastObject];
+		NSString *listed = [[[keys subarrayWithRange:NSMakeRange(0, [keys count] - 1)] componentsJoinedByString:@", "]
+			stringByAppendingFormat:@" and %@", last];
+		[self add:@{ @"any": @[ @{ @"all": present }, @{ @"not": @{ @"any": present } } ] }
+		       to:entity
+		    named:[NSString stringWithFormat:@"%@IsWhole", ORMCapitalizedName(called)]
+		     text:[NSString stringWithFormat:@"Each %@'s %@ is a whole %@ or none: %@ are set together or not at all.",
+		                                     entity.name, called, role.player.name, listed]
+		     keys:keys
+		  deontic:NO];
+	}
+}
+
 - (void)collect
 {
 	_derivations = [NSMutableArray array];
@@ -553,6 +618,7 @@ ORMBound(NSString *value)
 		for (ORMCDAttribute *attribute in entity.attributes) {
 			[self valuesOf:attribute on:entity];
 		}
+		[self wholeAbsorbedValuesOf:entity];
 	}
 	/* The constraints the mapper found Core Data cannot enforce. */
 	NSMutableOrderedSet *unenforced = [NSMutableOrderedSet orderedSet];
