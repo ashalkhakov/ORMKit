@@ -275,6 +275,11 @@
 @property (nonatomic, readwrite) BOOL materializesIdentifiers;
 @property (nonatomic, readwrite) BOOL servesOData;
 @property (nonatomic, readwrite, copy) NSString *odataNamespace;
+@property (nonatomic, readwrite) ORMSyncDirection syncDirection;
+@property (nonatomic, readwrite, copy) NSString *syncConflicts;
+/* <Sync> elements, in the order of the document: [source id, direction
+ * name, conflicts or ""]. */
+@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *syncs;
 @property (nonatomic, readwrite) ORMMappingStyle style;
 /* Set for the mapping, nil for the style's. */
 @property (nonatomic, copy) NSNumber *flattensSubtypesSet;

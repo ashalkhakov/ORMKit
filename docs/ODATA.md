@@ -235,6 +235,37 @@ return; `testTheServiceRowsAreTheStoresRows` checks every row against the
 interpreter's. Both run on macOS and GNUstep. The Query window has an OData
 tab, and `ormtool query` prints the request.
 
+## Offline: ODataSync
+
+A device can keep a store of its own and sync it with the service
+(ODataKit's ODataSync, its `docs/offline-sync.md`). What ODataSync needs of
+the model is the mapping's too, in the same `userInfo`, so that the device's
+model and the server's are one, made from the `.orm`:
+
+| The mapping says | `userInfo` | For |
+| --- | --- | --- |
+| a direction (`Sync="Both"` on the mapping; each entity's own, `<ormcd:Sync ref="<its source>" Direction="Down" />`) | `ODataSync.direction` (`down`, `up`, `both`) on each root entity; a subentity goes its root's way | which way its objects go: the service's to read, the device's to make, either's to change |
+| a conflict rule (`SyncConflicts`; an entity's `Conflicts`) | `ODataSync.conflicts`, on a `both` entity | how a change made on both sides is settled, unless the app sets a resolver; none: the app's, or ODataSync's default (the service's version) |
+| a device changes it (`up`, `both`) | two bookkeeping attributes, optional Strings marked `ormkit.bookkeeping`: `syncVersions` (`ODataSync.versions`) and `syncModified` (`ODataSync.modified`); its key kept on deletion (`preserveAfterDeletion`) | each object's version vector, which tells older from newer from a conflict, at the device and at the service (`ODataSyncService`); its last change's stamp, for last writer wins; a deletion sent by its key |
+
+The bookkeeping is no fact of the domain, any more than a surrogate is: the
+conceptual model says nothing of it, an import leaves it out (and reads the
+directions back into the mapping), and it is named as any property is,
+`syncVersions2` where the entity has a `syncVersions` of its own, or as an
+override on `<its source>.syncVersions` says. A mapping with no direction
+says nothing of sync. The mapping's report says which entities go which
+way.
+
+```sh
+ormtool sync Model.orm both Country=down Currency=down   # the rest both ways
+ormtool sync Model.orm both Person=both/lastWriter --conflicts remote
+ormtool sync Model.orm none                               # nothing of sync
+```
+
+(`-[ORMMappingEditor setSyncDirection:ofMapping:]`,
+`setSyncConflicts:ofMapping:` and
+`setSyncDirection:conflicts:ofSource:inMapping:` from code.)
+
 ## Building with ODataKit
 
 ORMKit links ODataKit's `ODataKit` and `ODataIncrementalStore` libraries (the
@@ -243,6 +274,10 @@ query builder is the client's). The tests also link `ODataService`.
 - **GNUstep:** link an installed ODataKit, over FreeCoreData, or a built
   checkout (`make ODATAKIT=../ODataKit`, `odatakit.make`).
 - **CI:** both by their releases' exact versions, in `.github/pins.env`.
+- **iOS:** `ORMRuntime` builds for iOS too (a device and the simulator, over
+  ODataKit's iOS slices): what an app built from a model runs there, built
+  with an iOS destination (`xcodebuild -scheme ORMRuntime -destination
+  'generic/platform=iOS'`, or `'generic/platform=iOS Simulator'`).
 
 ## Not done yet
 

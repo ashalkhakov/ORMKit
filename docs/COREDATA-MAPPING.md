@@ -154,7 +154,8 @@ subset, a read-only cache. Each mapping has
   subtypes are separate entities or flattened into their supertype, whether
   many-to-many value facts get an entity or a transformable attribute,
   whether the model is annotated for ODataKit to serve ([ODATA.md](ODATA.md); on unless
-  `ServeOData="false"`);
+  `ServeOData="false"`), and whether, and which way, its entities sync
+  offline (`Sync`, [ODATA.md](ODATA.md#offline-odatasync));
 - overrides: per element, a name, or how an object type maps (entity,
   absorbed, ignored);
 - the **baseline**: the Core Data model as last written, with every element

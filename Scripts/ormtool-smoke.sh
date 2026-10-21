@@ -2,7 +2,7 @@
 # ormtool on the StockMate model, each command under a timeout where there
 # is one: check, verbalize, normalize (back to the same file), forml and
 # apply (the model's own listing applied to it changes nothing), coredata and
-# import (round trip), svg (well-formed where xmllint is), and the Core Data
+# import (round trip), sync (every entity both ways), svg (well-formed where xmllint is), and the Core Data
 # model compiled where Xcode's momc is. make check runs it, on GNUstep and
 # on the Mac, from the repository's root:
 #
@@ -29,8 +29,11 @@ run coredata "$sample" "$out/StockMate.xcdatamodeld"
 test -s "$out/StockMate.xcdatamodeld/StockMate.xcdatamodel/contents"
 run import "$out/StockMate.xcdatamodeld" "$out/imported.orm"
 run check "$out/imported.orm"
+run sync "$out/imported.orm" both
+run coredata "$out/imported.orm" "$out/Synced.xcdatamodeld"
+grep -rq 'key="ODataSync.direction" value="both"' "$out/Synced.xcdatamodeld"
 run svg "$sample" "$out/diagrams/"
 test -s "$out/diagrams/Products.svg"
 if command -v xmllint > /dev/null; then xmllint --noout "$out"/diagrams/*.svg; fi
 if command -v xcrun > /dev/null; then xcrun momc "$out/StockMate.xcdatamodeld" "$out/StockMate.momd"; fi
-echo "ormtool-smoke: check, verbalize, normalize, forml, apply, coredata, import, svg"
+echo "ormtool-smoke: check, verbalize, normalize, forml, apply, coredata, import, sync, svg"

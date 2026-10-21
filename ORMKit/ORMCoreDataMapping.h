@@ -68,6 +68,17 @@ typedef NS_ENUM(NSInteger, ORMMappingStyle) {
 	ORMStyleEntities,
 };
 
+/* Which way an entity's objects go between a device's store and the
+ * service, as ODataKit's ODataSync reads it (ODataSync.direction): the
+ * service owns it and the device reads it (down); the device makes it
+ * (up); either changes it (both). None: not synced, local only. */
+typedef NS_ENUM(NSInteger, ORMSyncDirection) {
+	ORMSyncNone,
+	ORMSyncDown,
+	ORMSyncUp,
+	ORMSyncBoth,
+};
+
 typedef NS_ENUM(NSInteger, ORMMappingScope) {
 	ORMScopeModel,
 	/* The object types a diagram shows. */
@@ -96,6 +107,19 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 /* The namespace of the service's types (ODataService's namespaceName):
  * OData.type is in it. "Default" unless set. */
 @property (nonatomic, readonly, copy) NSString *odataNamespace;
+/* Offline sync (ODataKit's ODataSync; docs/ODATA.md, Offline): the
+ * direction of every entity the model serves, unless its own says
+ * otherwise (-syncDirectionOf:); none, the default, says nothing of
+ * sync. Only when the model is served (servesOData). */
+@property (nonatomic, readonly) ORMSyncDirection syncDirection;
+/* How a both entity's conflicts are settled, as ODataSync names its
+ * rules: remote, local, lastWriter, merge; nil: ODataSync's default (the
+ * service's version stands), or the app's resolver. */
+@property (nonatomic, readonly, copy) NSString *syncConflicts;
+/* An entity's own direction and rule, by its source (an object type's
+ * id, or a fact type's for an entity of a fact type): @[ direction,
+ * conflicts or "" ]. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSArray *> *syncOverrides;
 /* Subtypes' properties in their supertype's entity, not entities of their
  * own. The style's unless set. */
 @property (nonatomic, readonly) BOOL flattensSubtypes;
@@ -137,6 +161,15 @@ typedef NS_ENUM(NSInteger, ORMMappingScope) {
 + (instancetype)defaultMappingNamed:(NSString *)name;
 
 - (ORMObjectTypeMapping)mappingOfObjectType:(NSString *)objectTypeId;
+/* The direction of the entity made from the source: its own, else the
+ * mapping's. */
+- (ORMSyncDirection)syncDirectionOf:(NSString *)sourceId;
+/* Its conflict rule: its own, else the mapping's; nil for none. */
+- (NSString *)syncConflictsOf:(NSString *)sourceId;
+/* "down", "up", "both"; nil for none: as ODataSync.direction says it. */
++ (NSString *)nameOfSyncDirection:(ORMSyncDirection)direction;
+/* The direction a name says, in any case; NO when it says none known. */
++ (BOOL)syncDirection:(ORMSyncDirection *)direction named:(NSString *)name;
 /* The path made absolute against the .orm file's directory. */
 - (NSString *)resolvedPathRelativeTo:(NSString *)documentPath;
 - (NSString *)resolvedValidationPathRelativeTo:(NSString *)documentPath;

@@ -17,6 +17,17 @@
  *   a value list, an open bound           OData.annotations: AllowedValues,
  *                                         Minimum@Exclusive, Maximum@Exclusive
  *
+ * and, for offline sync (ODataKit's ODataSync), where the mapping says a
+ * direction (-[ORMCoreDataMapping syncDirectionOf:]):
+ *
+ *   the entity's direction                ODataSync.direction: down, up, both
+ *   its conflict rule (both)              ODataSync.conflicts
+ *   what a device changes (up, both)      bookkeeping attributes, optional
+ *                                         Strings marked ormkit.bookkeeping:
+ *                                         syncVersions (ODataSync.versions),
+ *                                         syncModified (ODataSync.modified);
+ *                                         its key preserveAfterDeletion
+ *
  * Minimums, maximums and patterns Core Data holds already, and ODataKit
  * reads them from there. Subentities are served in their root's set, by its
  * key, and get neither. */

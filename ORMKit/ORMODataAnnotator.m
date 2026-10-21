@@ -103,7 +103,98 @@ ORMWithEntry(NSDictionary *info, NSString *key, NSString *value)
 			[self keyEntity:entity];
 		}
 	}
+	[self syncEntitiesOf:coreData];
 	return _notes;
+}
+
+#pragma mark Offline
+
+/* Each root entity's way between a device and the service, as ODataSync
+ * reads it; a subentity goes its root's way. One that a device changes
+ * (up, both) keeps its key after deletion, so that the deletion can be
+ * sent by it, and is given what ODataSync keeps of each object's history:
+ * its version vector and its last change's stamp, bookkeeping as a
+ * surrogate is, which the conceptual model says nothing of. */
+- (void)syncEntitiesOf:(ORMCDModel *)coreData
+{
+	if (_mapping.syncDirection == ORMSyncNone && [_mapping.syncOverrides count] == 0) {
+		return;
+	}
+	NSMutableDictionary<NSString *, NSMutableArray *> *ways = [NSMutableDictionary dictionary];
+	for (ORMCDEntity *entity in coreData.entities) {
+		if ([entity.parentName length] > 0) {
+			continue;
+		}
+		ORMSyncDirection direction = [_mapping syncDirectionOf:entity.source];
+		NSString *way = [ORMCoreDataMapping nameOfSyncDirection:direction];
+		if (way == nil) {
+			continue;
+		}
+		NSMutableArray *named = [ways objectForKey:way] ?: [NSMutableArray array];
+		[named addObject:entity.name];
+		[ways setObject:named forKey:way];
+		entity.userInfo = ORMWithEntry(entity.userInfo, @"ODataSync.direction", way);
+		NSString *rule = [_mapping syncConflictsOf:entity.source];
+		if (direction == ORMSyncBoth && [rule length] > 0) {
+			entity.userInfo = ORMWithEntry(entity.userInfo, @"ODataSync.conflicts", rule);
+		}
+		if (direction == ORMSyncDown) {
+			continue;
+		}
+		for (ORMCDAttribute *attribute in entity.attributes) {
+			if ([[attribute.userInfo objectForKey:@"OData.key"] isEqualToString:@"YES"]) {
+				attribute.extraAttributes = ORMWithEntry(attribute.extraAttributes, @"preserveAfterDeletion", @"YES");
+			}
+		}
+		ORMCDAttribute *versions = [self bookkeeping:@"syncVersions" on:entity];
+		ORMCDAttribute *modified = [self bookkeeping:@"syncModified" on:entity];
+		entity.userInfo = ORMWithEntry(ORMWithEntry(entity.userInfo, @"ODataSync.versions", versions.name),
+		                               @"ODataSync.modified", modified.name);
+	}
+	NSMutableArray *said = [NSMutableArray array];
+	for (NSString *way in @[ @"down", @"up", @"both" ]) {
+		NSArray *named = [[ways objectForKey:way] sortedArrayUsingSelector:@selector(compare:)];
+		if ([named count] > 0) {
+			[said addObject:[NSString stringWithFormat:@"%@: %@", way, [named componentsJoinedByString:@", "]]];
+		}
+	}
+	if ([said count] > 0) {
+		[_notes addObject:[ORMMappingNote noteWithKind:ORMMappingWarning
+		                                          text:[NSString stringWithFormat:@"Synced offline (ODataSync), %@. What a "
+		                                                                          @"device changes keeps its version and "
+		                                                                          @"its last change's stamp, its "
+		                                                                          @"bookkeeping (syncVersions, syncModified).",
+		                                                                          [said componentsJoinedByString:@"; "]]
+		                                       element:_mapping.identifier]];
+	}
+}
+
+/* An optional String of the entity's, ODataSync's to write: named as the
+ * mapping overrides it (by <entity's source>.<name>), else as given, a
+ * number added should the entity have a property of the name. */
+- (ORMCDAttribute *)bookkeeping:(NSString *)name on:(ORMCDEntity *)entity
+{
+	NSString *source = [NSString stringWithFormat:@"%@.%@", entity.source ?: entity.name, name];
+	NSMutableSet *taken = [NSMutableSet set];
+	for (NSArray *properties in @[ entity.attributes, entity.relationships ]) {
+		for (ORMCDProperty *property in properties) {
+			[taken addObject:property.name];
+		}
+	}
+	NSString *override = [_mapping.nameOverrides objectForKey:source];
+	NSString *base = [ORMCoreDataMapper isCoreDataName:override] ? override : name;
+	NSString *chosen = base;
+	for (NSUInteger n = 2; [taken containsObject:chosen]; n++) {
+		chosen = [NSString stringWithFormat:@"%@%lu", base, (unsigned long)n];
+	}
+	ORMCDAttribute *attribute = [[ORMCDAttribute alloc] init];
+	attribute.name = chosen;
+	attribute.source = source;
+	attribute.attributeType = @"String";
+	attribute.optional = YES;
+	attribute.userInfo = ORMWithEntry(attribute.userInfo, @"ormkit.bookkeeping", @"YES");
+	[entity.attributes addObject:attribute];
+	return attribute;
 }
 
 - (ORMObjectType *)objectTypeOf:(ORMCDEntity *)entity

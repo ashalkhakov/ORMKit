@@ -138,6 +138,15 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 		[self.mappingEditor setName:surrogate.name forSource:[typeId stringByAppendingString:@".key"]
 		                  inMapping:state.mapping];
 	}
+	/* Its way offline (ODataSync), its own; its bookkeeping is the
+	 * mapping's to make again. */
+	ORMSyncDirection direction = ORMSyncNone;
+	NSString *rule = [entity.userInfo objectForKey:@"ODataSync.conflicts"];
+	if ([ORMCoreDataMapping syncDirection:&direction named:[entity.userInfo objectForKey:@"ODataSync.direction"]]
+	    || [rule length] > 0) {
+		[self.mappingEditor setSyncDirection:direction != ORMSyncNone ? @(direction) : nil conflicts:rule ofSource:typeId
+		                           inMapping:state.mapping];
+	}
 }
 
 /* An entity that only joins others: to-one relationships, two or more,
@@ -519,7 +528,7 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 			NSString *type = [state.types objectForKey:entity.name];
 			for (ORMCDAttribute *attribute in entity.attributes) {
 				/* An identifier's, or a role of the fact a join is. */
-				if (type != nil && attribute != ORMSurrogateOf(entity)
+				if (type != nil && attribute != ORMSurrogateOf(entity) && !ORMFlag(attribute.userInfo, @"ormkit.bookkeeping")
 				    && ![[identifiers objectForKey:entity.name] isEqualToString:attribute.name]
 				    && [state.roles objectForKey:[NSString stringWithFormat:@"%@.%@", entity.name, attribute.name]] == nil) {
 					[self addAttribute:attribute of:entity to:type state:state];

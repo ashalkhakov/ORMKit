@@ -44,6 +44,12 @@
  *                                            what they say made, what "- line" says taken away, a
  *                                            query of a name the model has replaced; the file written
  *                                            back (or out.orm) only when every line was read (1)
+ *   ormtool sync model.orm direction [Entity=direction[/rule] ...] [--conflicts rule] [--mapping name]
+ *                                            the mapping's offline sync (docs/ODATA.md, Offline): every
+ *                                            entity's direction (none, down, up, both), each named
+ *                                            entity's own (Entity= takes its own away), and how a both
+ *                                            entity's conflicts are settled (remote, local, lastWriter,
+ *                                            merge); the file written back
  *   ormtool build schema.txt model.orm      a new model from its sentences, as the verbalizer says
  *                                            them, a line each (-[ORMSentenceEditor addFromText:]);
  *                                            each line not read, with why, on standard error (1).
@@ -68,6 +74,7 @@ ORMUsage(void)
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
 	      "       ormtool forml model.orm [out.forml]\n"
 	      "       ormtool apply model.orm changes.forml [out.orm]\n"
+	      "       ormtool sync model.orm direction [Entity=direction[/rule] ...] [--conflicts rule] [--mapping name]\n"
 	      "       ormtool build schema.txt model.orm\n", stderr);
 	return 2;
 }
@@ -189,6 +196,79 @@ ORMApply(NSArray<NSString *> *args)
 	return 0;
 }
 
+/* The value of a flag (--name value), taken out of the arguments; nil
+ * when it is not there. */
+static NSString *
+ORMTakeFlag(NSMutableArray<NSString *> *args, NSString *flag)
+{
+	NSUInteger index = [args indexOfObject:flag];
+	if (index == NSNotFound || index + 1 >= [args count]) {
+		return nil;
+	}
+	NSString *value = [args objectAtIndex:index + 1];
+	[args removeObjectsInRange:NSMakeRange(index, 2)];
+	return value;
+}
+
+static int
+ORMSync(NSArray<NSString *> *given)
+{
+	NSMutableArray *args = [given mutableCopy];
+	NSString *mappingName = ORMTakeFlag(args, @"--mapping");
+	NSString *rule = ORMTakeFlag(args, @"--conflicts");
+	NSString *path = [args objectAtIndex:1];
+	ORMSyncDirection direction = ORMSyncNone;
+	if ([args count] < 3 || ![ORMCoreDataMapping syncDirection:&direction named:[args objectAtIndex:2]]) {
+		return ORMUsage();
+	}
+	ORMEditor *editor = ORMOpen(path);
+	if (editor == nil) {
+		return 1;
+	}
+	ORMCoreDataMapping *mapping = nil;
+	for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
+		if (mappingName == nil || [each.name isEqualToString:mappingName]) {
+			mapping = each;
+			break;
+		}
+	}
+	if (mapping == nil) {
+		fprintf(stderr, "ormtool: %s has no Core Data mapping%s%s\n", [path UTF8String], mappingName ? " named " : "",
+		        mappingName ? [mappingName UTF8String] : "");
+		return 1;
+	}
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
+	[mappings setSyncDirection:direction ofMapping:mapping.identifier];
+	if (rule != nil) {
+		[mappings setSyncConflicts:rule ofMapping:mapping.identifier];
+	}
+	/* An entity by its name in the mapping, as its source. */
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping] map];
+	for (NSString *each in [args subarrayWithRange:NSMakeRange(3, [args count] - 3)]) {
+		NSRange equals = [each rangeOfString:@"="];
+		NSString *name = equals.location != NSNotFound ? [each substringToIndex:equals.location] : each;
+		NSString *said = equals.location != NSNotFound ? [each substringFromIndex:NSMaxRange(equals)] : @"";
+		NSArray *parts = [said componentsSeparatedByString:@"/"];
+		ORMCDEntity *entity = [mapped entityNamed:name];
+		ORMSyncDirection its = ORMSyncNone;
+		NSString *named = [parts firstObject];
+		if (entity.source == nil || ([named length] > 0 && ![ORMCoreDataMapping syncDirection:&its named:named])) {
+			fprintf(stderr, "ormtool: %s: %s\n", [each UTF8String],
+			        entity.source == nil ? "no entity of that name" : "no such direction");
+			return 1;
+		}
+		[mappings setSyncDirection:[named length] > 0 ? @(its) : nil
+		                 conflicts:[parts count] > 1 ? [parts objectAtIndex:1] : nil
+		                  ofSource:entity.source
+		                 inMapping:mapping.identifier];
+	}
+	if (![[editor dataForSaving] writeToFile:path atomically:YES]) {
+		fprintf(stderr, "ormtool: cannot write %s\n", [path UTF8String]);
+		return 1;
+	}
+	return 0;
+}
+
 /* The rows the plan finds in the model's sample population, as a table;
  * nil when it has none. */
 static NSString *
@@ -264,6 +344,9 @@ main(int argc, const char *argv[])
 		}
 		if ([command isEqualToString:@"apply"]) {
 			return [args count] >= 3 ? ORMApply(args) : ORMUsage();
+		}
+		if ([command isEqualToString:@"sync"]) {
+			return [args count] >= 3 ? ORMSync(args) : ORMUsage();
 		}
 		ORMEditor *editor = ORMOpen([args objectAtIndex:1]);
 		if (editor == nil) {

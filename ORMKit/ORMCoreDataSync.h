@@ -28,6 +28,15 @@ NSString *ORMValueConstraintForAttribute(ORMCDAttribute *attribute);
 - (void)setMaterializesIdentifiers:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setServesOData:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setFlattensSubtypes:(BOOL)flag ofMapping:(NSString *)mappingId;
+/* Offline sync (docs/ODATA.md, Offline): the direction of every entity,
+ * and the rule a both entity's conflicts are settled by (nil: none). */
+- (void)setSyncDirection:(ORMSyncDirection)direction ofMapping:(NSString *)mappingId;
+- (void)setSyncConflicts:(NSString *)rule ofMapping:(NSString *)mappingId;
+/* The entity of a source (an object type, or a fact type an entity is
+ * made of) goes its own way, by its own rule: direction nil and rule nil
+ * take its own away, the mapping's then. */
+- (void)setSyncDirection:(NSNumber *)direction conflicts:(NSString *)rule ofSource:(NSString *)sourceId
+               inMapping:(NSString *)mappingId;
 - (void)setValueSetsAsEntities:(BOOL)flag ofMapping:(NSString *)mappingId;
 - (void)setAbsorbsIdentifierTypes:(BOOL)flag ofMapping:(NSString *)mappingId;
 /* The style; its defaults replace the options set before. */
