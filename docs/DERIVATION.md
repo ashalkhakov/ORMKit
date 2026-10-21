@@ -159,6 +159,10 @@ Derivation of Cost:
   refused with a note where the rule is more than one step or the query
   says more of the subtype there. A subtype whose rule is words alone, or
   partly derived, is refused with a note.
+- **Run by an app.** Its rule is one of the queries the tables carry, a
+  method of `<Name>Queries` (`serviceKindRuleInContext:`): which of the
+  supertype's objects are of it, for a form to offer the kinds a service
+  may be of, say.
 - **Core Data.** What a derived subtype is changes as the facts do, and an
   object's entity cannot, so it is no entity of its own: its fact types are
   its supertype's entity's, optional there (as flattening does). A subtype

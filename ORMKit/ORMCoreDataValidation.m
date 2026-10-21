@@ -1000,7 +1000,12 @@ ORMSelectorStem(NSString *name)
 	ORMQueryPlanner *planner = nil;
 	NSMutableSet *stems = [NSMutableSet set];
 	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
-		if (query.kind != ORMQueryList && query.kind != ORMQueryCalculation) {
+		/* A subtype's rule, too, where the subtype is no entity of its
+		 * own: which of its supertype's objects are of it (ServiceKind, a
+		 * CostKind 'Maintenance' or 'Repair'), for an app to offer them. */
+		ORMObjectType *subtype = query.kind == ORMQueryDerivation ? query.derivedSubtype : nil;
+		BOOL ofSubtype = subtype != nil && ![[subtype derivationRule] isStored];
+		if (query.kind != ORMQueryList && query.kind != ORMQueryCalculation && !ofSubtype) {
 			continue;
 		}
 		planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_coreData];

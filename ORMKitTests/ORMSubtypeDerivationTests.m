@@ -201,6 +201,39 @@
 	                                     @"more of it there." ]);
 }
 
+/* Its rule is one of the queries an app runs: which of its supertype's
+ * objects are of it (the kinds a form offers), by name from the tables,
+ * a method of <Name>Queries; one in words alone is not. */
+- (void)testItsRuleIsRunFromTheTables
+{
+	ORMEditor *editor = [self costs];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:editor.model mapping:nil name:@"Costs"];
+	XCTAssertTrue([[[generator files] objectForKey:@"CostsValidation.h"]
+		              containsString:@"+ (ORMQueryResult *)costRuleInContext:(NSManagedObjectContext *)context "], @"%@",
+	              [[generator files] objectForKey:@"CostsValidation.h"]);
+	XCTAssertFalse([[[generator files] objectForKey:@"CostsValidation.h"] containsString:@"serviceKind"]);
+	ORMTables *tables = [generator tables];
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:nil] map];
+	NSPersistentStoreCoordinator *coordinator =
+		[[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:[mapped managedObjectModel]];
+	NSError *error = nil;
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil
+	                                                  error:&error], @"%@", error);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSMainQueueConcurrencyType];
+	context.persistentStoreCoordinator = coordinator;
+	for (NSArray *each in @[ @[ @1, @"50" ], @[ @2, @"" ], @[ @3, @"70" ] ]) {
+		NSManagedObject *record = [NSEntityDescription insertNewObjectForEntityForName:@"Record" inManagedObjectContext:context];
+		[record setValue:each[0] forKey:@"id"];
+		if ([each[1] length] > 0) {
+			[record setValue:[NSDecimalNumber decimalNumberWithString:each[1]] forKey:@"amount"];
+		}
+	}
+	ORMQueryResult *result = [tables runQuery:@"CostRule" inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	NSArray *ids = [[result.objects valueForKey:@"id"] sortedArrayUsingSelector:@selector(compare:)];
+	XCTAssertEqualObjects(ids, (@[ @1, @3 ]));
+}
+
 /* An asserted subtype of it is one by its rule, which Core Data cannot
  * say (its properties are the supertype's, optional there): a rule of the
  * subtype's entity, checked. */

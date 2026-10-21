@@ -150,7 +150,9 @@ Declarations, and calls into the driver:
   main bundle or a framework or bundle loaded, unless tables of the name
   were registered (a test's, a download).
 - A query is two methods of `<Name>Queries`: run in a context, or as a
-  request to the model's OData service.
+  request to the model's OData service. A list, a calculation, and the
+  rule of a subtype that is no entity of its own (which objects are of
+  it).
 - `orm_prepareForSave:` loads the tables and calls `ORMSaveHook`: derive,
   prepare the joined types, check the rules, report.
 - `+[<Name>ReferenceData seedContext:error:]` puts the reference data in
