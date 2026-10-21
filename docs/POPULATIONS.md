@@ -193,6 +193,16 @@ key that finds it and the properties those fact types are kept in. A fact
 kept in no object a player is (a fact type's own entity) is noted, not
 seeded.
 
+An entity type may be marked so too (the object type editor's
+`setReferenceData:of:`, "Reference data: Fuel" after the type in a
+schema's text, a subtype's after its subtyping): its instances are the
+app's, where nothing more is said of them than their names (the kinds of
+cost a logbook starts with, CostKind 'Fuel'; an expense kind, a subtype's
+instance). The mark is kept the same way, in the object type's element;
+each instance is a seed of its most specific type's entity, by its key
+alone. One a marked subtype's instance is, is said under the subtype, not
+again under its supertype.
+
 ## Derived fact types
 
 A fact type a query derives ([DERIVATION.md](DERIVATION.md)) has its facts

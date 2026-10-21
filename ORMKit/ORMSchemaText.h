@@ -11,6 +11,8 @@
  *   // ...                          the note of what the next line says
  *   Station is an entity type.      an object type, with its reference mode,
  *   Reference Mode: .name           data type and possible values
+ *   Reference data: Fuel            its instances, when they are reference
+ *                                   data (a subtype's after its subtyping)
  *   Each FillUp is a MeteredEvent.  subtyping, or its definition
  *   FillUp was at Station           a fact type, its role names "(as X)"
  *                                   and other readings after " / "
@@ -64,7 +66,7 @@ typedef NS_ENUM(NSInteger, ORMSchemaLineKind) {
 /* What the line says, by id: the object type, the subtype fact type, the
  * fact type, the constraints (a mandatory said with a uniqueness as
  * "exactly one" too; one said under its fact type, the fact type's id
- * last), the fact of reference data, the query, the diagram; a comment,
+ * last), the fact or instance of reference data, the query, the diagram; a comment,
  * the element it is the note of. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *elementIds;
 @end

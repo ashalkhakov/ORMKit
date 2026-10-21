@@ -682,11 +682,19 @@ ORMSeedValueOf(id value)
  * types marked so, put in a store of the mapping, and each entity object
  * a fact of them has, as a seed: what finds it (its entity's key), and
  * the properties those fact types are kept in. A fact kept elsewhere (a
- * fact type's own entity) is noted, not seeded. */
+ * fact type's own entity) is noted, not seeded. The instances of an
+ * entity type marked so are seeds too, by their key alone (a kind named,
+ * CostKind 'Fuel'; a subtype's, of its entity). */
 - (void)referenceData
 {
 	NSMutableArray *facts = [NSMutableArray array];
+	NSMutableArray *types = [NSMutableArray array];
 	NSMutableSet *sources = [NSMutableSet set];
+	for (ORMObjectType *type in _model.objectTypes) {
+		if (type.isReferenceData) {
+			[types addObject:type];
+		}
+	}
 	for (ORMFactType *fact in _model.factTypes) {
 		if (!fact.isReferenceData) {
 			continue;
@@ -697,7 +705,7 @@ ORMSeedValueOf(id value)
 		}
 	}
 	_seeds = @[];
-	if ([facts count] == 0) {
+	if ([facts count] == 0 && [types count] == 0) {
 		return;
 	}
 	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_model coreData:_coreData];
@@ -707,6 +715,17 @@ ORMSeedValueOf(id value)
 		return;
 	}
 	NSMutableArray *objects = [NSMutableArray array];
+	for (ORMObjectType *type in types) {
+		for (ORMInstance *instance in [type instances]) {
+			NSManagedObject *object = [store objectForInstance:instance.identifier];
+			if (object == nil) {
+				[_notes addObject:[NSString stringWithFormat:@"%@ %@: reference data kept in no object, not seeded.", type.name,
+				                                             [instance displayText]]];
+			} else if ([objects indexOfObjectIdenticalTo:object] == NSNotFound) {
+				[objects addObject:object];
+			}
+		}
+	}
 	for (ORMFactType *fact in facts) {
 		BOOL kept = NO;
 		for (ORMFactInstance *each in [fact instances]) {

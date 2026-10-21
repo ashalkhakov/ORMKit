@@ -305,6 +305,29 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	return YES;
 }
 
+- (BOOL)setReferenceData:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	NSString *why = ![type isKindOfClass:[ORMObjectType class]] || !type.isEntity || type.nestedFactType != nil
+		? @"Only an entity type's instances are reference data."
+		: flag && [type derivationRule] != nil ? @"A derived subtype's instances follow from others: they are no reference data."
+		: nil;
+	if (why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return NO;
+	}
+	if (type.isReferenceData == flag) {
+		return YES;
+	}
+	[_editor modelChange:flag ? @"Make Reference Data" : @"Make Not Reference Data" with:^{
+		type.isReferenceData = flag;
+		[_editor wrote:type];
+	}];
+	return YES;
+}
+
 - (BOOL)setDerivationNote:(NSString *)text ofSubtype:(NSString *)objectTypeId reason:(NSString **)reason
 {
 	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];

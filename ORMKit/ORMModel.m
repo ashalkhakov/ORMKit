@@ -135,6 +135,7 @@ ORMLongerFirst(NSString *a, NSString *b, void *context)
 	_dataTypeLength = _dataTypeScale = 0;
 	_ownValueConstraint = nil;
 	_valuePattern = nil;
+	_isReferenceData = NO;
 	_savedReferenceMode = nil;
 	_objectificationId = nil;
 }
@@ -1798,6 +1799,7 @@ ORMWithout(NSArray *array, id object)
 		type.ownValueConstraint = [self valueConstraintIn:ORMChild(element, CORE, @"ValueRestriction")];
 		type.valuePattern = ORMChild(element, ORMValuesNamespace, @"Pattern") != nil
 			? ORMChildText(element, ORMValuesNamespace, @"Pattern") : nil;
+		type.isReferenceData = ORMChild(element, ORMValuesNamespace, @"ReferenceData") != nil;
 		type.savedReferenceMode = ORMAttribute(element, @"_ReferenceMode");
 		[types addObject:type];
 		[self registerElement:type];

@@ -33,6 +33,10 @@
  * regular expression its values match whole ("[A-Z]{3}"); nil or empty
  * takes it away. Refused where it is no regular expression. */
 - (BOOL)setValuePattern:(NSString *)pattern of:(NSString *)objectTypeId reason:(NSString **)reason;
+/* For an entity type: whether its instances in the population are
+ * reference data, every store's to start with (docs/POPULATIONS.md).
+ * Refused for a value type, an objectified one and a derived subtype. */
+- (BOOL)setReferenceData:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason;
 /* For a value type, or an entity type's reference mode value type. */
 - (BOOL)setDataType:(NSString *)typeName
              length:(NSInteger)length

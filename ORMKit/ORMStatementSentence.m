@@ -443,6 +443,24 @@ ORMStatementParts(NSString *text)
 	return [self.editor.populationEditor addFactOf:fact.identifier named:named reason:reason] != nil;
 }
 
+/* "Reference data: Fuel" after an entity type (a subtype after its
+ * subtyping): its instances are reference data, and this one of them,
+ * named as the population table names it. */
+- (BOOL)addReferenceInstance:(NSString *)text of:(ORMObjectType *)type reason:(NSString **)reason
+{
+	if (![self.editor.objectTypeEditor setReferenceData:YES of:type.identifier reason:reason]) {
+		return NO;
+	}
+	NSString *name = text;
+	if ([name hasPrefix:@"("] && [name hasSuffix:@")"]) {
+		name = [name substringWithRange:NSMakeRange(1, [name length] - 2)];
+	} else if ([name hasPrefix:@"'"] && [name hasSuffix:@"'"] && [name length] >= 2) {
+		name = [[name substringWithRange:NSMakeRange(1, [name length] - 2)] stringByReplacingOccurrencesOfString:@"''"
+		                                                                                              withString:@"'"];
+	}
+	return [self.editor.populationEditor addInstanceOf:type.identifier named:name reason:reason] != nil;
+}
+
 #pragma mark What the model says already
 
 /* A note as comment lines say it: each line trimmed. */
@@ -626,6 +644,10 @@ ORMStatementComparable(NSString *line)
 		}
 		return [editor.factTypeEditor setDerivationNote:nil of:[line.elementIds firstObject] reason:reason];
 	case ORMSchemaReferenceData:
+		/* A fact of a fact type, or an instance of an entity type. */
+		if ([[editor.model elementWithId:[line.elementIds firstObject]] isKindOfClass:[ORMInstance class]]) {
+			return [editor.populationEditor removeInstance:[line.elementIds firstObject] reason:reason];
+		}
 		return [editor.populationEditor removeFact:[line.elementIds firstObject] reason:reason];
 	case ORMSchemaQuery:
 		[[[ORMQueryEditor alloc] initWithEditor:editor] removeQuery:[line.elementIds firstObject]];
@@ -696,6 +718,10 @@ ORMStatementComparable(NSString *line)
 		ORMFactType *lastFact = nil;
 		/* The last fact type made, past the constraints said of it. */
 		ORMFactType *lastMade = nil;
+		/* The object type the last statement declared (a subtype, by its
+		 * subtyping), where no fact type came after: what "Reference
+		 * data: Fuel" names an instance of. */
+		ORMObjectType *referenceType = nil;
 		/* What the model says, worked out again after something is taken
 		 * away; and the comment lines just before a line. */
 		NSDictionary *said = nil;
@@ -747,6 +773,7 @@ ORMStatementComparable(NSString *line)
 				lastFact = nil;
 				lastType = nil;
 				lastMade = nil;
+				referenceType = nil;
 			} else if ([line hasPrefix:@"# "]) {
 				diagram = [self diagramNamed:ORMStatementTrimmed([line substringFromIndex:2]) first:diagram == nil
 				                        made:arranged];
@@ -781,6 +808,13 @@ ORMStatementComparable(NSString *line)
 				lastFact = nil;
 			} else if ([line hasPrefix:@"Reference Mode: "] || [line hasPrefix:@"Portable data type: "]) {
 				read = [self setDetail:line of:lastType reason:&why];
+			} else if ([line hasPrefix:@"Reference data: "] && referenceType != nil) {
+				ORMSchemaLine *found = [self line:line in:said kinds:@[ @(ORMSchemaReferenceData) ] about:@[]];
+				ORMInstance *instance = [self.editor.model elementWithId:[found.elementIds firstObject]];
+				read = ([instance isKindOfClass:[ORMInstance class]] && instance.objectType == referenceType)
+					|| [self addReferenceInstance:[line substringFromIndex:[@"Reference data: " length]] of:referenceType
+					                       reason:&why];
+				said = nil;
 			} else if ([line hasPrefix:@"Reference data: "]) {
 				ORMSchemaLine *found = [self line:line in:said kinds:@[ @(ORMSchemaReferenceData) ] about:@[]];
 				ORMFactInstance *fact = [self.editor.model elementWithId:[found.elementIds firstObject]];
@@ -806,8 +840,13 @@ ORMStatementComparable(NSString *line)
 					if ([element isKindOfClass:[ORMFactType class]] && ((ORMFactType *)element).kind == ORMFactTypeOrdinary) {
 						lastFact = element;
 						lastMade = element;
+						referenceType = nil;
 					} else if ([element isKindOfClass:[ORMObjectType class]] && found.kind == ORMSchemaObjectType) {
 						lastType = element;
+						referenceType = element;
+					} else if ([element isKindOfClass:[ORMFactType class]] && ((ORMFactType *)element).kind == ORMFactTypeSubtype
+					           && found.kind == ORMSchemaObjectType) {
+						referenceType = [(ORMFactType *)element subtype];
 					}
 				}
 			} else if ([line hasSuffix:@" is independent"] || [line hasSuffix:@" is independent."]) {
@@ -834,8 +873,12 @@ ORMStatementComparable(NSString *line)
 					if ([element isKindOfClass:[ORMFactType class]] && ((ORMFactType *)element).kind == ORMFactTypeOrdinary) {
 						lastFact = element;
 						lastMade = element;
+						referenceType = nil;
 					} else if ([element isKindOfClass:[ORMObjectType class]] && [made count] == 1) {
 						lastType = element;
+						referenceType = element;
+					} else if ([element isKindOfClass:[ORMFactType class]] && ((ORMFactType *)element).kind == ORMFactTypeSubtype) {
+						referenceType = [(ORMFactType *)element subtype];
 					}
 				}
 			}

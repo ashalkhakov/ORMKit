@@ -1198,6 +1198,11 @@ ORMStoredDerivationOf(NSString *identifier, ORMModel *model)
 	           || ![ORMChildText(element, ORMValuesNamespace, @"Pattern") isEqualToString:type.valuePattern]) {
 		ORMSetChildText(_document, element, ORMValuesNamespace, @"Pattern", type.valuePattern);
 	}
+	if (!type.isReferenceData) {
+		ORMDetach(ORMChild(element, ORMValuesNamespace, @"ReferenceData"));
+	} else if (ORMChild(element, ORMValuesNamespace, @"ReferenceData") == nil) {
+		ORMSetChildText(_document, element, ORMValuesNamespace, @"ReferenceData", @"true");
+	}
 	if (type.kind != ORMValueType || type.dataType == nil) {
 		ORMDetach(ORMChild(element, CORE, @"ConceptualDataType"));
 	}

@@ -312,6 +312,35 @@ ORMSchemaPathFacts(ORMRolePath *path, NSMutableArray<ORMFactType *> *facts)
 	for (NSString *text in values) {
 		[self add:text kind:ORMSchemaValues ids:@[ type.identifier ]];
 	}
+	if (type.isReferenceData) {
+		[self sayReferenceDataOfType:type];
+	}
+}
+
+/* "Reference data: Fuel": each instance of an entity type whose
+ * instances are reference data, named as the population table names it. */
+- (void)sayReferenceDataOfType:(ORMObjectType *)type
+{
+	ORMPopulationEditor *population = _editor.populationEditor;
+	BOOL composite = [[population compositeRolesOf:type.identifier] count] > 0;
+	/* One a subtype's instance is, said there when that subtype's are
+	 * reference data too. */
+	NSMutableSet *saidBelow = [NSMutableSet set];
+	for (ORMObjectType *subtype in _model.objectTypes) {
+		BOOL below = subtype != type && [subtype isSubtypeOf:type] && subtype.isReferenceData;
+		for (ORMInstance *each in below ? [subtype instances] : @[]) {
+			for (ORMInstance *above = [each supertypeInstance]; above != nil; above = [above supertypeInstance]) {
+				[saidBelow addObject:above.identifier];
+			}
+		}
+	}
+	for (ORMInstance *instance in [type instances]) {
+		if ([saidBelow containsObject:instance.identifier]) {
+			continue;
+		}
+		[self add:[@"Reference data: " stringByAppendingString:ORMSchemaPart([population nameOf:instance], composite)]
+		     kind:ORMSchemaReferenceData ids:@[ instance.identifier ]];
+	}
 }
 
 - (void)sayFactType:(ORMFactType *)fact
@@ -673,7 +702,9 @@ ORMSchemaPathFacts(ORMRolePath *path, NSMutableArray<ORMFactType *> *facts)
 {
 	BOOL type = [unit.element isKindOfClass:[ORMObjectType class]];
 	ORMSchemaLine *last = [_lines lastObject];
-	BOOL afterType = last.kind == ORMSchemaObjectType || last.kind == ORMSchemaDetail || last.kind == ORMSchemaValues;
+	BOOL afterType = last.kind == ORMSchemaObjectType || last.kind == ORMSchemaDetail || last.kind == ORMSchemaValues
+		|| (last.kind == ORMSchemaReferenceData
+		    && [[_model elementWithId:[last.elementIds firstObject]] isKindOfClass:[ORMInstance class]]);
 	if (last != nil && last.kind != ORMSchemaBlank && last.kind != ORMSchemaHeading && type != afterType) {
 		[self gap];
 	}

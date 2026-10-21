@@ -102,6 +102,12 @@ typedef NS_ENUM(NSInteger, ORMReferenceModeKind) {
  * ORMKit keeps it in the value type's element, in its own namespace, which
  * a copy for NORMA leaves out. */
 @property (nonatomic, readonly, copy) NSString *valuePattern;
+/* For an entity type: reference data (docs/POPULATIONS.md), its instances
+ * in the model's population what every store of an app starts with, as
+ * the app's own: kinds named and nothing more said of them (CostKind
+ * 'Fuel'), or a subtype's (each of them that subtype's too). ORMKit's,
+ * which NORMA does not keep. */
+@property (nonatomic, readonly) BOOL isReferenceData;
 /* For a value type, or an entity type through its reference mode's. */
 @property (nonatomic, readonly, strong) ORMValueConstraint *valueConstraint;
 

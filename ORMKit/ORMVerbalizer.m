@@ -506,6 +506,11 @@ ORMCardinalityIsOne(ORMCardinality *cardinality)
 		[b value:ORMQuoted([type defaultValue], type.dataType == nil || [type.dataType quotesValues])];
 		[self emit:b kind:ORMVerbalInformation];
 	}
+	if (type.isReferenceData) {
+		b = [[ORMSentenceBuilder alloc] init];
+		[b keyword:@"Its instances are reference data: every store starts with them"];
+		[self emit:b kind:ORMVerbalInformation];
+	}
 	ORMCardinality *cardinality = [type cardinality];
 	if (cardinality != nil) {
 		/* "Each population of President contains at most one instance." */

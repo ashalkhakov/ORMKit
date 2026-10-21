@@ -142,6 +142,113 @@
 	}];
 }
 
+/* Kinds named and nothing more: an entity type's instances are reference
+ * data, a subtype's too, each seeded by its key, of its own entity. */
+- (ORMEditor *)kinds
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"CostKind is an entity type.\n"
+	                 @"Reference Mode: .name\n"
+	                 @"Reference data: Fuel\n"
+	                 @"Reference data: Maintenance\n"
+	                 @"Each ExpenseKind is a CostKind.\n"
+	                 @"Reference data: Parking\n"
+	                 @"Record(.id) is of CostKind\n"
+	                 @"Each Record is of at most one CostKind.\n"
+	                 @"Expense(.id) is of ExpenseKind\n"
+	                 @"Each Expense is of exactly one ExpenseKind.\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	return editor;
+}
+
+- (NSString *)listingOf:(ORMEditor *)editor
+{
+	NSMutableString *text = [NSMutableString string];
+	for (ORMSchemaLine *line in [[[ORMSchemaText alloc] initWithEditor:editor] lines]) {
+		[text appendFormat:@"%@\n", line.text];
+	}
+	return text;
+}
+
+/* Marked as ORMKit's in the file, the instances in the population; said
+ * in the listing after the type (a subtype's after its subtyping, not
+ * again under its supertype), which applied again changes nothing; read
+ * back; verbalized; refused for a value type; a line taken away. */
+- (void)testAnEntityTypesInstancesAreReferenceData
+{
+	ORMEditor *editor = [self kinds];
+	ORMObjectType *kind = [editor.model objectTypeNamed:@"CostKind"];
+	ORMObjectType *expenseKind = [editor.model objectTypeNamed:@"ExpenseKind"];
+	XCTAssertTrue(kind.isReferenceData);
+	XCTAssertTrue(expenseKind.isReferenceData);
+	XCTAssertFalse([editor.model objectTypeNamed:@"Record"].isReferenceData);
+	XCTAssertEqual([[kind instances] count], 3u);
+	XCTAssertEqual([[expenseKind instances] count], 1u);
+	NSString *listing = [self listingOf:editor];
+	XCTAssertTrue([listing rangeOfString:@"Reference Mode: .name\nReference data: Fuel\nReference data: Maintenance\n"].location
+	              != NSNotFound, @"%@", listing);
+	XCTAssertTrue([listing rangeOfString:@"Each ExpenseKind is a CostKind.\nReference data: Parking\n"].location != NSNotFound,
+	              @"%@", listing);
+	XCTAssertEqual([[listing componentsSeparatedByString:@"Reference data: Parking"] count], 2u, @"%@", listing);
+	NSArray *failures = nil;
+	NSData *before = [editor dataForSaving];
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:listing failures:&failures], @"%@", failures);
+	XCTAssertEqualObjects([editor dataForSaving], before);
+	NSXMLDocument *document = [[NSXMLDocument alloc] initWithData:before options:NSXMLNodePreserveAll error:NULL];
+	ORMEditor *again = [self newEditorWithDocument:document];
+	XCTAssertTrue([again.model objectTypeNamed:@"CostKind"].isReferenceData);
+	XCTAssertTrue([again.model objectTypeNamed:@"ExpenseKind"].isReferenceData);
+	XCTAssertEqualObjects([self listingOf:again], listing);
+	NSArray *said = [[[ORMVerbalizer alloc] initWithModel:editor.model] sentencesForElement:kind.identifier];
+	XCTAssertTrue([[said valueForKey:@"text"] containsObject:@"Its instances are reference data: every store starts with them."],
+	              @"%@", [said valueForKey:@"text"]);
+	NSString *reason = nil;
+	XCTAssertFalse([editor.objectTypeEditor setReferenceData:YES of:[editor.model objectTypeNamed:@"CostKind_name"].identifier
+	                                                  reason:&reason]);
+	XCTAssertTrue([reason length] > 0);
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:again] addFromText:@"- Reference data: Fuel\n" failures:&failures],
+	              @"%@", failures);
+	XCTAssertEqual([[[again.model objectTypeNamed:@"CostKind"] instances] count], 2u);
+	[self.undoManager undo];
+	XCTAssertEqual([[[again.model objectTypeNamed:@"CostKind"] instances] count], 3u);
+}
+
+/* Each instance a seed of its most specific type's entity, by its key:
+ * a store seeded has them, once however often it is seeded. */
+- (void)testKindsSeedAStore
+{
+	ORMEditor *editor = [self kinds];
+	ORMValidationGenerator *generator = [[ORMValidationGenerator alloc] initWithModel:editor.model mapping:nil name:@"Kinds"];
+	ORMTables *tables = [generator tables];
+	XCTAssertEqual([tables.seeds count], 3u, @"%@", generator.notes);
+	NSMutableDictionary *entities = [NSMutableDictionary dictionary];
+	for (NSDictionary *seed in tables.seeds) {
+		XCTAssertEqualObjects([seed objectForKey:@"key"], @[ @"name" ]);
+		[entities setObject:[seed objectForKey:@"entity"] forKey:[[seed objectForKey:@"values"] objectForKey:@"name"]];
+	}
+	XCTAssertEqualObjects(entities, (@{ @"Fuel": @"CostKind", @"Maintenance": @"CostKind", @"Parking": @"ExpenseKind" }));
+	NSManagedObjectModel *model = [[[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:nil] map] managedObjectModel];
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	NSError *error = nil;
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error],
+	                @"%@", error);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	context.persistentStoreCoordinator = coordinator;
+	[context performBlockAndWait:^{
+		NSError *failed = nil;
+		XCTAssertTrue([tables seedContext:context error:&failed], @"%@", failed);
+		XCTAssertTrue([context save:&failed], @"%@", failed);
+		XCTAssertTrue([tables seedContext:context error:&failed], @"%@", failed);
+		XCTAssertTrue([context save:&failed], @"%@", failed);
+		NSFetchRequest *kinds = [NSFetchRequest fetchRequestWithEntityName:@"CostKind"];
+		kinds.sortDescriptors = @[ [NSSortDescriptor sortDescriptorWithKey:@"name" ascending:YES] ];
+		NSArray *found = [context executeFetchRequest:kinds error:NULL];
+		XCTAssertEqualObjects([found valueForKey:@"name"], (@[ @"Fuel", @"Maintenance", @"Parking" ]));
+		XCTAssertEqualObjects([[[found lastObject] entity] name], @"ExpenseKind");
+	}];
+}
+
 /* Conversion is a step to the factor and a product: each trip in
  * kilometres, whatever unit it was entered in. */
 - (void)testConversionIsAStepAndArithmetic
