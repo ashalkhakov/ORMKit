@@ -327,6 +327,13 @@ TARGET_SETTINGS = {
         "PRODUCT_BUNDLE_IDENTIFIER": "org.ormkit.ORMRuntime",
         "PRODUCT_NAME": q("$(TARGET_NAME)"),
         "SKIP_INSTALL": "YES",
+        # What an app runs, on iOS too (Foundation and Core Data only): an
+        # app built for a device or the simulator builds it with an iOS
+        # destination, as LogBook's iOS app does.
+        "SDKROOT": "auto",
+        "SUPPORTED_PLATFORMS": q("macosx iphoneos iphonesimulator"),
+        "IPHONEOS_DEPLOYMENT_TARGET": "15.0",
+        "TARGETED_DEVICE_FAMILY": q("1,2"),
     },
     "ORMKit": {
         "DEFINES_MODULE": "YES",
