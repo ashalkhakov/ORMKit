@@ -7,7 +7,7 @@ a form is said in the model's terms, as a conceptual query is
 its binds, its controls, and its submissions. It runs against a service or,
 offline, against the app's own Core Data store. How it looks, and how it is
 laid out, is not the model's business; any XForms processor can run it, a
-native UI can be laid out over it, and people can customize it without
+native UI can be laid out over it, and its developers can customize it without
 losing what they did when it is generated again.
 
 This is a design. Nothing in it is built yet; [Steps](#steps) says in what
@@ -200,7 +200,7 @@ Either way:
   the instance's. Offline, the app's own procedure does what the action
   does (Logbook's `LBProcedures`, which its server's action calls too).
 - **Back: the response.** Done, the form says so, or leads on
-  ([Processes](#processes-screens-and-tasks)). Refused, each violation is
+  ([Flows](#flows-forms-and-the-ways-between-them)). Refused, each violation is
   shown at its node: the service's 400 details, or the save's validation
   errors (`NSValidationKeyErrorKey` names the property, which names the
   node). Deontic violations come back as warnings and do not refuse it.
@@ -209,23 +209,47 @@ A store's changes made elsewhere (a sync, an undo) while a form is open
 reach it as a new read of what changed: the form's instance follows its
 objects, as the spike's mirror did.
 
-## Processes: screens and tasks
+## Flows: forms and the ways between them
 
-The paper's screen transition diagrams are the dialogue between forms: a
-submission is the atomic action that changes the screen, and what happens
-within a form is not part of the diagram. In XForms that is a submission's
-`xforms-submit-done` and `xforms-submit-error`, and what each leads to.
+An application is more than one form: a list of vehicles leads to a
+vehicle, a vehicle to its fill-ups, a fill-up to its form, and a form back
+when it is saved. The paper's screen transition diagrams model that: forms
+as screens, and transitions between them, each taken on an atomic action (a
+submission, a choice, a cancel). What happens within a form is not part of
+the diagram; the form says that itself.
 
-A BPMN user task is the same thing from the process's side: a task with
-inputs and outputs (data objects), performed with a form. So:
-- a user task names a form; the task's input data is the form's given
-  nodes, and its output the submission;
-- a gateway after the task reads the facts the form asserted;
-- a screen transition diagram is the part of a process that is user tasks
-  and the transitions between them.
+It is what a design tool's prototyping does. In Figma a prototype is
+frames, connections from a frame's element to another frame on an
+interaction, overlays shown over a frame, and a flow's starting point;
+people click through it before anything is built. A flow here is the same,
+in the model's terms:
 
-The bridge from BPMN to ORM2 (in the works) is then a fact selection per
-data object, which a form already is.
+| Figma | Here |
+| --- | --- |
+| a frame | a form, or a list (a query whose rows lead somewhere) |
+| a connection, on a click | a transition, on an action: a submission done, refused, cancelled; a row chosen; a trigger |
+| what the next frame shows | what the next form is given: its given nodes, bound to the facts of the one before (the vehicle chosen) |
+| an overlay | a modal form: it returns to the one it was opened over, with what it made (a new expense kind chosen as soon as it exists) |
+| a flow's starting point | an entry: where the app, or a task, begins |
+
+And it can be clicked through before an app exists, more truly than a
+prototype: the forms are generated, and they run against the model's sample
+population ([POPULATIONS.md](POPULATIONS.md)) in a local store made of it.
+A domain expert walks the flow with real-looking facts, a refusal says a
+real rule in its own words, and what they ask for that the model lacks is
+found there, not in production.
+
+In XForms a transition is what a submission's `xforms-submit-done` or
+`xforms-submit-error`, or a trigger's `DOMActivate`, does: load the next form
+(`xf:load`), with its given values. A flow is generated into those actions;
+the forms themselves do not name each other.
+
+**BPMN** sees the same from the process's side. A user task is performed
+with a form or a flow: the task's input data are its entry's given nodes,
+its output what was submitted, and a gateway after it reads the facts it
+asserted. A flow is one actor's dialogue; a process is who does what, in
+which order, across actors. The bridge from BPMN to ORM2 (in the works) is
+then a fact selection per data object, which a form already is.
 
 ## Running one
 
@@ -249,22 +273,22 @@ It also found what XFormsKit needs first:
 
 ## Customizing: generated forms and what people add
 
-People change a generated form: they lay it out, relabel it, group and
-order its fields, hide some, add help, make a field required that the
-model leaves optional, add a field of their own. The model changes too, and
-the form is generated again. Neither may undo the other.
+An app's developers change a generated form: they lay it out, relabel it,
+group and order its fields, hide some, add help, make a field required that
+the model leaves optional, add a field the model does not have yet. The
+model changes too, and the form is generated again. Neither may undo the
+other. Customizing is the developers' work, kept with the app's sources;
+the app's users do not change its forms.
 
-**So nobody edits what is generated.** A form is layers, each kept apart and
+**So nobody edits what is generated.** A form is two layers, kept apart and
 applied in order when the form is opened:
 
 1. **The generated form:** instances, binds, submissions, default controls.
    Written by `ormtool xforms`, never edited, replaced whole when the model
    changes.
-2. **Customizations:** a document of its own that refers to the generated
-   one and says only what differs. Made by whoever owns the app, in
-   XFormsKit's designer or by hand, and kept with the app's sources.
-3. **A user's own** (later): the same kind of document, made in the running
-   app and kept as data, synced like any other, per user or per team.
+2. **The customization:** a document of its own that refers to the
+   generated one and says only what differs, made in XFormsKit's designer
+   or by hand.
 
 **What a customization refers to must survive regeneration.** Every
 generated node, bind and control has an id from the model element it comes
@@ -282,17 +306,27 @@ step through a deleted fact type is ([QUERIES.md](QUERIES.md#where-queries-live)
 | add a `calculate` where the model has none | taken as it is |
 | loosen a rule of the model | refused: the model's rules hold wherever the form is submitted, so a looser form would only fail later |
 | add actions, messages, triggers, events | added |
-| add a field the model does not have | kept in an instance of its own beside the form's, saved with the form's data where the app keeps such extras; and offered to the modeller as a candidate fact type (below) |
+| add a field the model does not have | makes the form **under construction** (below) |
 
 XForms 1.1 does not allow two binds to set the same property of one node,
 so layers are not two documents at run time: opening a form applies them in
 order to the generated document and runs the result. A native layout (a
-XIB, a storyboard) is a layer too: its controls name the generated ones by
-id, and whatever it does not lay out is not shown.
+XIB, a storyboard) is a customization too: its controls name the generated
+ones by id, and whatever it does not lay out is not shown.
 
-A field people keep adding is the model telling its modeller something.
-That is the paper's first direction again: a form, as people actually use
-it, seeds the model.
+**A form under construction does not run.** A field the model has no fact
+type for has nowhere to go: no property in the store, none in the service,
+no rule that says what it may hold. So a customization that adds one marks
+its form under construction, and the form is refused when it is opened,
+saying which fields are provisional, until the model has the fact types
+they ask for and the form is generated again with them. Nothing provisional
+is ever stored.
+
+Under construction, a form is still useful where nothing is stored: in the
+designer, and walked through over the sample population
+([Flows](#flows-forms-and-the-ways-between-them)), where its provisional
+fields are shown as such. Each one is a question for the modeller: the
+paper's first direction again, a form seeding the model.
 
 ## Seeding the model from forms
 
@@ -300,9 +334,9 @@ The other direction, the paper's first: an existing form (an XForms
 document, or a sample filled in) proposes fact types. Its instance's
 elements are candidate object types and roles, its binds candidate
 constraints, and a filled instance a sample population to check them
-against ([POPULATIONS.md](POPULATIONS.md)). So does a customization's added
-field, with the values people have kept in it. Later, after forms are
-generated.
+against ([POPULATIONS.md](POPULATIONS.md)). So does a form under
+construction: each provisional field, with the sample values it was walked
+through with. Later, after forms are generated.
 
 ## Where forms live
 
@@ -335,29 +369,37 @@ validation code is. Customizations are documents of their own beside it
    opened for a vehicle, filled in, refused, corrected, saved.
 7. **XFormsKit:** decimal arithmetic, refreshing only what changed, the
    native binding (AppKit, UIKit), deontic warnings.
-8. **Customizations:** stable ids, layers applied in order, the binds
-   combined, references to what is gone reported; the designer editing a
-   layer over a generated form, not the form.
+8. **Customizations:** stable ids, the layer applied over the generated
+   form, the binds combined, references to what is gone reported; a form
+   with provisional fields under construction and refused; the designer
+   editing the layer, not the form.
 9. **Logbook:** one form generated and laid out natively, offline; then the
    checklists, whose questions are data, as forms of their own.
-10. **Processes:** screen transitions as submissions' outcomes; a BPMN user
-    task naming a form.
-11. **Later:** customizations made by users in the running app, kept as
-    data; added fields offered back to the modeller.
+10. **Flows:** forms and lists with transitions on actions, generated into
+    the forms' actions; walked through over the sample population; a modal
+    form returning what it made.
+11. **Processes:** a BPMN user task performed with a form or a flow.
+12. **Later:** provisional fields, with their walked-through values,
+    proposed to the modeller as fact types.
 
 ## Open questions
 
-Settled: a form may have several anchors; deontic constraints warn and
-never prevent a submission; labels are the form's own or the roles' names;
-a form runs against a local store as well as a service.
+Settled:
+- a form may have several anchors;
+- deontic constraints warn and never prevent a submission;
+- labels are the form's own or the roles' names;
+- a form runs against a local store as well as a service;
+- customizing is the developers' work, not the users';
+- a form with fields the model lacks is under construction and does not
+  run; nothing provisional is stored.
 
-- **Where an added field's values live.** Locally, an instance beside the
-  form's is easy; on the service, the model has no property for it. An
-  extension property bag per entity, or only in the local store until the
-  model has the fact type?
-- **Who may make a field stricter.** An app's customization, surely; a
-  user's own, in the running app, could make a colleague's form refuse what
-  the model allows. Per user only, or per team with someone's say-so?
+Open:
+- **Where flows live.** Beside the forms, in the `.orm`, or with the
+  process models (BPMN), which would refer to forms by name? A flow is
+  about screens, which the model is not; but its transitions pass facts.
+- **A flow's diagram.** The paper draws screen transition diagrams; Figma
+  draws connections between frames. Which notation, and in which tool: the
+  designer, or a canvas of its own?
 - **The paper itself.** Everything above taken from it comes from its
   abstract and summaries; the full text may say otherwise, and should be
   read if it can be had.
