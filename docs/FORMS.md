@@ -313,28 +313,45 @@ where they are, are the form's and its customization's
 ([Customizing](#customizing-generated-forms-and-what-people-add)). A flow
 draws each screen from them; it does not keep a copy.
 
-**From Figma.** Figma's REST API reads a file: its pages, the frames on
-them, each node's prototype interactions (a trigger, an action: navigate,
-open an overlay, back, close, and its destination), and each page's flow
-starting points. Importing maps them to a flow:
-- a frame named as a form or a query (`RecordFillUp`) is that screen; any
-  other frame is a placeholder screen;
-- a layer named as a control's id in a frame of a form is that control; its
-  place seeds the customization's layout;
+**From Figma.** Figma's REST API reads a file (`GET /v1/files/:key`, the
+`file_content:read` scope) and writes none of its frames: what it writes is
+comments, webhooks, variables and dev resources' links, never nodes. What it
+reads is enough for a flow:
+- a page's `flowStartingPoints` (`nodeId`, `name`): the entries;
+- the frames on it, their names, places and sizes, and their layers;
+- each node's `interactions`: a `trigger` (`ON_CLICK`, `ON_KEY_DOWN`, ...)
+  and its `actions`: `NODE` with a `destinationId` and a `navigation`
+  (`NAVIGATE`, `OVERLAY`, `SWAP`, `SCROLL_TO`, `CHANGE_TO`), `BACK`,
+  `CLOSE`, `URL`;
+- with `plugin_data=shared`, each node's `sharedPluginData`: the ids our
+  export left on it.
+
+Importing maps them to a flow:
+- a frame with our id, or named as a form or a query (`RecordFillUp`), is
+  that screen; any other frame is a placeholder screen;
+- a layer with our id, or named as a control's id, in a frame of a form is
+  that control; its place seeds the customization's layout;
 - a layer that looks like a field and names nothing the form has is a
   provisional field: the form is under construction
   ([Customizing](#customizing-generated-forms-and-what-people-add)), and
   the modeller is asked;
-- interactions become transitions, starting points entries.
+- `ON_CLICK` and `NODE` with `NAVIGATE` (or `SWAP`) is a navigating
+  transition, `OVERLAY` an overlay, `BACK` back, `CLOSE` the overlay closed;
+  `SCROLL_TO`, `CHANGE_TO` (a component's variant), hovers and timeouts
+  are what happens within a screen, and are not kept;
+- starting points are entries.
 
-**To Figma.** Figma's REST API does not, as far as we know, create frames;
-a Figma plugin does (its Plugin API makes frames, layers and prototype
-reactions). So exporting is a plugin of its own, given a flow and its forms
-(as JSON), that draws each screen as a frame with the form's controls as
-labelled placeholders, and the transitions as reactions. It keeps each
-element's id in the plugin data Figma stores with a node, so that the
-next import matches by id, not by name, and a designer's renaming loses
-nothing.
+**To Figma.** Exporting is a Figma plugin of our own, since only the Plugin
+API makes frames: `figma.createFrame()` and its layers, `setReactionsAsync`
+for each transition (`reactions` itself is read-only to a plugin that loads
+pages dynamically), and the page's `flowStartingPoints` for the entries
+(typed a read-only array: to be checked that a new array may be assigned).
+Given a flow and its forms (as JSON), it draws each screen as a frame with
+the form's controls as labelled placeholders, and the transitions as
+reactions. It keeps each element's id with `setSharedPluginData` in a
+namespace of ours (`ormkit`): under 100 kB an entry, readable by any plugin,
+and returned by the REST API's `plugin_data=shared`. So the next import
+matches by id, not by name, and a designer's renaming loses nothing.
 
 ## Running one
 
@@ -485,11 +502,11 @@ Settled:
 - flows live in files of their own beside the `.orm`, a small subset of
   what Figma keeps, imported from and exported to Figma.
 - a flow is drawn on a canvas of its own, not on the model's diagram.
+- Figma: imported through its REST API, which reads prototypes and writes
+  no frames; exported through a plugin (checked against Figma's
+  documentation and its OpenAPI description, 2026-10-22).
 
 Open:
-- **What Figma's API allows.** That its REST API reads prototypes but
-  cannot create frames, so that export needs a plugin, is to be checked
-  against its current documentation before either is built.
 - **Where the plugin lives.** A Figma plugin is TypeScript, built and
   published apart: a repository of its own.
 
