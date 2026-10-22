@@ -362,7 +362,7 @@ ORMNestsAnAggregate(ORMQueryExpression *expression)
 	return @{ @"add": @"NNN", @"subtract": @"NNN", @"multiply": @"NNN", @"divide": @"NNN", @"negate": @"NN",
 		      @"round": @"NNN", @"abs": @"NN", @"min": @"***", @"max": @"***", @"coalesce": @"***", @"date": @"TT",
 		      @"days": @"TTN", @"months": @"TTN", @"minutes": @"TTN", @"addDays": @"TNT", @"addMonths": @"TNT",
-		      @"month": @"TT", @"today": @"T" };
+		      @"month": @"TT", @"today": @"T", @"dateIn": @"T*T", @"monthIn": @"T*T", @"todayIn": @"*T" };
 }
 
 - (id)copyWithZone:(NSZone *)zone

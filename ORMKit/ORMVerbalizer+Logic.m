@@ -438,6 +438,19 @@ ORMArithmeticPrecedence(ORMTerm *term)
 		[b keyword:@"today"];
 		return YES;
 	}
+	NSDictionary *ofDayIn = @{ @"dateIn": @"the date of ", @"monthIn": @"the first day of the month of " };
+	if ([ofDayIn objectForKey:name] != nil && [arguments count] == 2) {
+		[b keyword:[ofDayIn objectForKey:name]];
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		[b keyword:@" in "];
+		[self sayOperand:[arguments lastObject] place:3 strict:NO into:b];
+		return YES;
+	}
+	if ([name isEqualToString:@"todayIn"] && [arguments count] == 1) {
+		[b keyword:@"today in "];
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		return YES;
+	}
 	if ([name isEqualToString:@"coalesce"] && [arguments count] == 2) {
 		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
 		[b keyword:@", or "];

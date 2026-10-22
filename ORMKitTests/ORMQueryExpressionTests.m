@@ -1280,6 +1280,84 @@
 	XCTAssertEqualObjects([self datedRows:@[ dates ]], (@[ @"2026-02-28T22:00:00Z 2026-01-31T00:00:00Z 2027-01-01T00:00:00Z" ]));
 }
 
+/* A moment's day and month where a zone is: the same moment another day
+ * in Almaty than in Berlin; no zone, UTC's; today wherever. */
+- (void)testDatesInAZone
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Moment is a value type.\n"
+	                 @"Portable data type: Temporal: Date & Time\n"
+	                 @"Day is a value type.\n"
+	                 @"Portable data type: Temporal: Date\n"
+	                 @"Zone is a value type.\n"
+	                 @"Portable data type: Text: Variable Length\n"
+	                 @"Trip(.id) started at Moment\n"
+	                 @"Each Trip started at exactly one Moment.\n"
+	                 @"Trip started in Zone\n"
+	                 @"Each Trip started in exactly one Zone.\n"
+	                 @"\n"
+	                 @"Query Days:\n"
+	                 @"✓Trip\n"
+	                 @"  + started at Moment1\n"
+	                 @"  + started in Zone1\n"
+	                 @"  ✓On: Day = dateIn(Moment1, Zone1)\n"
+	                 @"  ✓Month: Day = monthIn(Moment1, Zone1)\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMQuery *query = [self query:@"Days" in:model];
+	XCTAssertTrue([[query outlineText] hasSuffix:@"  ✓On: Day = dateIn(Moment1, Zone1)\n  ✓Month: Day = monthIn(Moment1, Zone1)\n"],
+	              @"%@", [query outlineText]);
+	NSArray *said = [[[[ORMVerbalizer alloc] initWithModel:model] sentencesForQuery:query] valueForKey:@"text"];
+	for (NSString *words in @[ @"On is the date of that Moment in that Zone", @"Month is the first day of the month of that Moment in that Zone" ]) {
+		XCTAssertTrue([[said firstObject] rangeOfString:words].location != NSNotFound, @"%@", said);
+	}
+	ORMQueryEditor *queries = [[ORMQueryEditor alloc] initWithEditor:editor];
+	NSString *reason = nil;
+	XCTAssertNotNil([queries addValueNamed:@"Today" to:query.root.identifier expression:@"todayIn(Zone1)"
+	                                  type:[[model objectTypeNamed:@"Day"] identifier] reason:&reason], @"%@", reason);
+
+	NSMutableDictionary *facts = [NSMutableDictionary dictionary];
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		[facts setObject:fact forKey:[[fact primaryReading] expandedText]];
+	}
+	for (NSArray *each in @[ @[ @"1", @"Asia/Almaty" ], @[ @"2", @"Europe/Berlin" ] ]) {
+		for (NSArray *fact in @[ @[ @"Trip started at Moment", @"2026-05-31T21:30:00" ], @[ @"Trip started in Zone", each[1] ] ]) {
+			NSArray *roles = [[facts objectForKey:fact[0]] visibleRoles];
+			XCTAssertNotNil(([editor.populationEditor addFactOf:[[facts objectForKey:fact[0]] identifier]
+			                                              named:@{ [roles[0] identifier]: each[0], [roles[1] identifier]: fact[1] }
+			                                             reason:&reason]), @"%@", reason);
+		}
+	}
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:@"Days" in:model]];
+	XCTAssertEqualObjects(plan.notes, @[]);
+	XCTAssertEqualObjects([[self archived:plan] text], [plan text]);
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:planner.coreData];
+	NSError *error = nil;
+	NSManagedObjectContext *context = [store newContextWithError:&error];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertNotNil(result, @"%@", error);
+	NSArray *rows = [[self datedRows:result.rows] sortedArrayUsingSelector:@selector(compare:)];
+	NSArray *expected = @[ @"1 2026-06-01T00:00:00Z 2026-06-01T00:00:00Z", @"2 2026-05-31T00:00:00Z 2026-05-01T00:00:00Z" ];
+	XCTAssertEqualObjects(rows, expected, @"%@", [plan text]);
+	ORMQueryOData *odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
+	XCTAssertNotNil(odata, @"%@", error);
+	XCTAssertEqualObjects([[self datedRows:[self rowsOf:odata over:context]] sortedArrayUsingSelector:@selector(compare:)], expected,
+	                      @"%@", [odata requestText]);
+	/* No zone, or one of no such name: UTC's day. Today where a zone is. */
+	NSArray *utc = @[ ORMPlanApply(@"dateIn", @[ @"2026-05-31T21:30:00Z" ]), ORMPlanApply(@"dateIn", @[ @"2026-05-31T21:30:00Z", @"Nowhere/Else" ]) ];
+	XCTAssertEqualObjects([self datedRows:@[ utc ]], (@[ @"2026-05-31T00:00:00Z 2026-05-31T00:00:00Z" ]));
+	NSCalendar *almaty = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+	almaty.timeZone = [NSTimeZone timeZoneWithName:@"Asia/Almaty"];
+	NSCalendar *gmt = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+	gmt.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+	NSDate *expectedToday = [gmt dateFromComponents:[almaty components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay
+	                                                          fromDate:[NSDate date]]];
+	XCTAssertEqualObjects(ORMPlanApply(@"todayIn", @[ @"Asia/Almaty" ]), expectedToday);
+}
+
 /* A rule with a computed value is no one predicate, but the generated
  * tables' validator asks its plan of each object in memory. */
 - (void)testARuleWithAComputedValueIsValidated

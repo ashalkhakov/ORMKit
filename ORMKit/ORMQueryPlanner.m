@@ -807,15 +807,34 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 
 #pragma mark Value nodes
 
-/* Whether the place is reached from the object read through to-ones only. */
-- (BOOL)throughToOnes:(ORMPlannerPlace *)place
+/* The place in scope, of no value of its own, nearest the place on its
+ * way there (its trail a beginning of the place's), from which only to-ones
+ * reach it; nil where none is. The object read, of no trail, is one. */
+- (ORMPlannerPlace *)boundPlaceToOnesTo:(ORMPlannerPlace *)place
 {
-	for (ORMCDProperty *property in place.trail) {
-		if ([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany) {
-			return NO;
+	ORMPlannerPlace *nearest = nil;
+	NSMutableArray *candidates = [NSMutableArray arrayWithArray:[_reached allValues]];
+	[candidates addObject:[ORMPlannerPlace variable:nil entity:nil trail:@[]]];
+	for (ORMPlannerPlace *each in candidates) {
+		NSUInteger length = [each.trail count];
+		if (each.value != nil || each.parts != nil || each.isJoined || each.level != place.level || ![self inScope:each]
+		    || length > [place.trail count] || (nearest != nil && length <= [nearest.trail count])) {
+			continue;
+		}
+		BOOL begins = YES;
+		for (NSUInteger i = 0; i < length && begins; i++) {
+			begins = [each.trail objectAtIndex:i] == [place.trail objectAtIndex:i];
+		}
+		BOOL toOnes = YES;
+		for (NSUInteger i = length; i < [place.trail count] && toOnes; i++) {
+			ORMCDProperty *property = [place.trail objectAtIndex:i];
+			toOnes = ![property isKindOfClass:[ORMCDRelationship class]] || !((ORMCDRelationship *)property).toMany;
+		}
+		if (begins && toOnes) {
+			nearest = each;
 		}
 	}
-	return YES;
+	return nearest;
 }
 
 /* A value node (docs/EXPRESSIONS.md): what it computes, from the places of
@@ -864,11 +883,17 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		}
 		ORMPlannerPlace *place = [_reached objectForKey:expression.nodeId ?: @""];
 		/* Bound where it is not in scope (a maybe's), but through to-ones
-		 * only: one value from the object read. */
-		if (place != nil && place.value == nil && ![self inScope:place] && place.level == _level && !place.isJoined
-		    && [self throughToOnes:place]) {
+		 * only from a place that is: one value from that object (the object
+		 * read, or one a step bound on the way there). */
+		ORMPlannerPlace *from = place != nil && place.value == nil && ![self inScope:place] && place.level == _level && !place.isJoined
+			? [self boundPlaceToOnesTo:place] : nil;
+		if (from != nil) {
 			ORMPlannerPlace *read = [ORMPlannerPlace variable:nil entity:place.entity trail:place.trail];
-			read.path = [place pathFromRead];
+			ORMPlanPath *path = from.path;
+			for (NSUInteger i = [from.trail count]; i < [place.trail count]; i++) {
+				path = [path pathByAddingKey:[[place.trail objectAtIndex:i] name]];
+			}
+			read.path = path;
 			read.level = place.level;
 			place = read;
 		}

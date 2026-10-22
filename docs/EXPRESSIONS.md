@@ -99,6 +99,7 @@ by name:
 | arithmetic | `a + b`, `a − b`, `a × b` (or `*`), `a ÷ b` (or `/`), `−a`, parentheses | numbers; `÷` by zero is no value |
 | numbers | `round(a, n)`, `abs(a)`, `min(a, b)`, `max(a, b)` | |
 | dates | `date(m)`, `days(d1, d2)`, `months(d1, d2)`, `minutes(m1, m2)`, `addDays(d, n)`, `addMonths(d, n)`, `month(d)` (its first day), `today()` | moments and dates, in UTC; whole days, months and minutes from the first to the second; `month` is the key for grouping by month |
+| dates in a zone | `dateIn(m, z)`, `monthIn(m, z)`, `todayIn(z)` | the day (the month's first day) a moment is on, today, where the time zone named z (an IANA name, `Asia/Almaty`) is; the date as every date is, midnight UTC of that day; a zone of no name, or one no zone has, is UTC |
 | choice | `a ?? b` | a, or b where a has no value |
 | aggregate | `total(X) for Y` … as today | a value per Y, now usable as a node |
 

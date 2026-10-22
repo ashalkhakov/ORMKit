@@ -1671,14 +1671,32 @@ ORMMomentOf(id value)
 	return nil;
 }
 
-/* A date function's value (docs/EXPRESSIONS.md), in UTC; nil where an
- * argument is not of its kind. */
+/* The day (or the month's first day, by the units) a moment is on in
+ * the zone named, as a date: midnight UTC of that day, as every date is.
+ * A zone of no name, or of a name no zone has, is UTC. */
+static NSDate *
+ORMDayIn(NSDate *moment, id zone, NSCalendarUnit units)
+{
+	NSCalendar *there = ORMUTCCalendar();
+	NSTimeZone *named = [zone isKindOfClass:[NSString class]] ? [NSTimeZone timeZoneWithName:zone] : nil;
+	if (named != nil) {
+		there.timeZone = named;
+	}
+	return [ORMUTCCalendar() dateFromComponents:[there components:units fromDate:moment]];
+}
+
+/* A date function's value (docs/EXPRESSIONS.md), in UTC or in the zone
+ * given; nil where an argument is not of its kind. */
 static id
 ORMDateFunction(NSString *function, NSArray *given)
 {
 	NSCalendar *calendar = ORMUTCCalendar();
+	NSCalendarUnit day = NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay;
 	if ([function isEqualToString:@"today"]) {
 		return ORMStartOfDay(calendar, [NSDate date]);
+	}
+	if ([function isEqualToString:@"todayIn"]) {
+		return ORMDayIn([NSDate date], [given firstObject], day);
 	}
 	NSDate *first = ORMMomentOf([given firstObject]);
 	if (first == nil) {
@@ -1686,6 +1704,10 @@ ORMDateFunction(NSString *function, NSArray *given)
 	}
 	if ([function isEqualToString:@"date"]) {
 		return ORMStartOfDay(calendar, first);
+	}
+	if ([function isEqualToString:@"dateIn"] || [function isEqualToString:@"monthIn"]) {
+		id zone = [given count] > 1 ? [given objectAtIndex:1] : nil;
+		return ORMDayIn(first, zone, [function isEqualToString:@"dateIn"] ? day : NSCalendarUnitYear | NSCalendarUnitMonth);
 	}
 	if ([function isEqualToString:@"month"]) {
 		NSDateComponents *parts = [calendar components:NSCalendarUnitYear | NSCalendarUnitMonth fromDate:first];
@@ -1745,7 +1767,8 @@ ORMPlanApply(NSString *function, NSArray *values)
 		BOOL min = [function isEqualToString:@"min"];
 		return (order == NSOrderedDescending) == min ? second : first;
 	}
-	if ([@[ @"date", @"days", @"months", @"minutes", @"addDays", @"addMonths", @"month", @"today" ] containsObject:function ?: @""]) {
+	if ([@[ @"date", @"days", @"months", @"minutes", @"addDays", @"addMonths", @"month", @"today", @"dateIn", @"monthIn", @"todayIn" ]
+	        containsObject:function ?: @""]) {
 		return ORMDateFunction(function, given);
 	}
 	for (id value in given) {
@@ -1776,7 +1799,7 @@ ORMPlanFunctionArities(void)
 {
 	return @{ @"add": @2, @"subtract": @2, @"multiply": @2, @"divide": @2, @"negate": @1, @"round": @2, @"abs": @1,
 		      @"min": @2, @"max": @2, @"coalesce": @2, @"date": @1, @"days": @2, @"months": @2, @"minutes": @2,
-		      @"addDays": @2, @"addMonths": @2, @"month": @1, @"today": @0 };
+		      @"addDays": @2, @"addMonths": @2, @"month": @1, @"today": @0, @"dateIn": @2, @"monthIn": @2, @"todayIn": @1 };
 }
 
 static NSError *

@@ -18,6 +18,7 @@ ORMParametersOf(NSString *function)
 			            @"date": @[ @"moment" ], @"month": @[ @"moment" ], @"days": @[ @"from", @"to" ],
 			            @"months": @[ @"from", @"to" ], @"minutes": @[ @"from", @"to" ],
 			            @"addDays": @[ @"date", @"count" ], @"addMonths": @[ @"date", @"count" ], @"today": @[],
+			            @"dateIn": @[ @"moment", @"zone" ], @"monthIn": @[ @"moment", @"zone" ], @"todayIn": @[ @"zone" ],
 			            @"equals": pair, @"notEqual": pair, @"lessThan": pair, @"lessThanOrEqual": pair,
 			            @"greaterThan": pair, @"greaterThanOrEqual": pair };
 	}
