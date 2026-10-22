@@ -278,6 +278,18 @@ own namespace, as the queries in the `.orm` are:
 </flow:Flow>
 ```
 
+### Its canvas
+
+A flow is drawn on a canvas of its own, not on the model's diagram: a
+`.flow` is a document with its own window, opened with the model it names.
+Its screens are frames on the canvas, each drawn as its form is (the
+generated controls, laid out as the customization lays them out, rendered
+by XFormsKit), its transitions arrows from a screen or a control to a
+screen, its entries marked. Editing it changes the flow file and nothing
+else: a form's layout is edited in XFormsKit's designer, the model in its
+own. **Play** runs the flow from an entry over the sample population
+([Flows](#flows-forms-and-the-ways-between-them)).
+
 ### A little Figma
 
 No standard covers what Figma does: its file format and its prototypes are
@@ -450,7 +462,8 @@ validation code is. Customizations are documents of their own beside it
    checklists, whose questions are data, as forms of their own.
 10. **Flows:** `.flow` files read and written; screens, transitions,
     entries; generated into the forms' actions; walked through over the
-    sample population; a modal form returning what it made.
+    sample population; a modal form returning what it made. Their canvas:
+    a document window of its own, screens drawn from their forms, Play.
 11. **Figma:** import through its REST API (frames, interactions, starting
     points, layers named as controls); export through a plugin of our own,
     ids kept in plugin data.
@@ -471,6 +484,7 @@ Settled:
 
 - flows live in files of their own beside the `.orm`, a small subset of
   what Figma keeps, imported from and exported to Figma.
+- a flow is drawn on a canvas of its own, not on the model's diagram.
 
 Open:
 - **What Figma's API allows.** That its REST API reads prototypes but
@@ -478,8 +492,7 @@ Open:
   against its current documentation before either is built.
 - **Where the plugin lives.** A Figma plugin is TypeScript, built and
   published apart: a repository of its own.
-- **Where a flow is drawn.** ORMDesigner, beside the diagram, or a canvas
-  of its own (with the forms' layout in XFormsKit's designer)?
+
 - **The paper itself.** Everything above taken from it comes from its
   abstract and summaries; the full text may say otherwise, and should be
   read if it can be had.
