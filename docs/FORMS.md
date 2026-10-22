@@ -251,6 +251,79 @@ asserted. A flow is one actor's dialogue; a process is who does what, in
 which order, across actors. The bridge from BPMN to ORM2 (in the works) is
 then a fact selection per data object, which a form already is.
 
+### Flow files
+
+A flow is about screens, which the model is not, so it lives in a file of
+its own beside the `.orm`, one file a flow (`Logbook.orm`, `Records.flow`,
+`Schedules.flow`). It names its model and refers to the model's forms and
+queries by id, with their names beside for a reader; a form or query the
+model no longer has is reported, as a customization's is. XML in ORMKit's
+own namespace, as the queries in the `.orm` are:
+
+```xml
+<flow:Flow xmlns:flow="http://schemas.ormkit.org/2026-10/Flows"
+           Name="Records" Model="Logbook.orm">
+  <flow:Entry Name="Start" Screen="_s1"/>
+  <flow:Screen id="_s1" Query="_qVehicles" Name="Vehicles" X="0" Y="0" Width="390" Height="844"/>
+  <flow:Screen id="_s2" Query="_qRecords" Name="Records" X="480" Y="0" Width="390" Height="844"/>
+  <flow:Screen id="_s3" Form="_fFillUp" Name="RecordFillUp" X="960" Y="0" Width="390" Height="844"/>
+  <flow:Transition From="_s1" On="RowChosen" To="_s2">
+    <flow:Give Node="_n.vehicle" From="row"/>
+  </flow:Transition>
+  <flow:Transition From="_s2" On="Trigger" Control="addFillUp" To="_s3">
+    <flow:Give Node="_n.fillUp.vehicle" From="_s2.vehicle"/>
+  </flow:Transition>
+  <flow:Transition From="_s3" On="SubmitDone" To="_s2"/>
+  <flow:Transition From="_s3" On="Cancel" Kind="Back"/>
+</flow:Flow>
+```
+
+### A little Figma
+
+No standard covers what Figma does: its file format and its prototypes are
+its own. The nearest standard is OMG's IFML (Interaction Flow Modeling
+Language): view containers, events, navigation flows and their binding to a
+domain model. That is a flow's semantics, without any of its look, and a
+check on our terms; we do not use its format. So a flow file is our own
+small subset of what a design tool keeps, enough to draw a flow and click
+through it:
+
+| Kept | Not kept |
+| --- | --- |
+| a screen: a frame on a canvas, its place and size, the form or list it shows (or a placeholder: a screen not yet a form) | drawing: vectors, styles, effects, images, fonts |
+| a transition: from a screen, or a control of its form, on an event, to a screen | auto layout, constraints, variants, component libraries |
+| its kind: navigate, overlay (modal), back, close the overlay | animations: a transition is instant |
+| what it gives the next screen | comments, versions, collaborators |
+| entries (a flow's starting points) | |
+
+What is inside a screen is not in the flow file: the form's controls, and
+where they are, are the form's and its customization's
+([Customizing](#customizing-generated-forms-and-what-people-add)). A flow
+draws each screen from them; it does not keep a copy.
+
+**From Figma.** Figma's REST API reads a file: its pages, the frames on
+them, each node's prototype interactions (a trigger, an action: navigate,
+open an overlay, back, close, and its destination), and each page's flow
+starting points. Importing maps them to a flow:
+- a frame named as a form or a query (`RecordFillUp`) is that screen; any
+  other frame is a placeholder screen;
+- a layer named as a control's id in a frame of a form is that control; its
+  place seeds the customization's layout;
+- a layer that looks like a field and names nothing the form has is a
+  provisional field: the form is under construction
+  ([Customizing](#customizing-generated-forms-and-what-people-add)), and
+  the modeller is asked;
+- interactions become transitions, starting points entries.
+
+**To Figma.** Figma's REST API does not, as far as we know, create frames;
+a Figma plugin does (its Plugin API makes frames, layers and prototype
+reactions). So exporting is a plugin of its own, given a flow and its forms
+(as JSON), that draws each screen as a frame with the form's controls as
+labelled placeholders, and the transitions as reactions. It keeps each
+element's id in the plugin data Figma stores with a node, so that the
+next import matches by id, not by name, and a designer's renaming loses
+nothing.
+
 ## Running one
 
 Anything that runs XForms runs a generated form: XFormsKit's own views,
@@ -375,11 +448,14 @@ validation code is. Customizations are documents of their own beside it
    editing the layer, not the form.
 9. **Logbook:** one form generated and laid out natively, offline; then the
    checklists, whose questions are data, as forms of their own.
-10. **Flows:** forms and lists with transitions on actions, generated into
-    the forms' actions; walked through over the sample population; a modal
-    form returning what it made.
-11. **Processes:** a BPMN user task performed with a form or a flow.
-12. **Later:** provisional fields, with their walked-through values,
+10. **Flows:** `.flow` files read and written; screens, transitions,
+    entries; generated into the forms' actions; walked through over the
+    sample population; a modal form returning what it made.
+11. **Figma:** import through its REST API (frames, interactions, starting
+    points, layers named as controls); export through a plugin of our own,
+    ids kept in plugin data.
+12. **Processes:** a BPMN user task performed with a form or a flow.
+13. **Later:** provisional fields, with their walked-through values,
     proposed to the modeller as fact types.
 
 ## Open questions
@@ -393,13 +469,17 @@ Settled:
 - a form with fields the model lacks is under construction and does not
   run; nothing provisional is stored.
 
+- flows live in files of their own beside the `.orm`, a small subset of
+  what Figma keeps, imported from and exported to Figma.
+
 Open:
-- **Where flows live.** Beside the forms, in the `.orm`, or with the
-  process models (BPMN), which would refer to forms by name? A flow is
-  about screens, which the model is not; but its transitions pass facts.
-- **A flow's diagram.** The paper draws screen transition diagrams; Figma
-  draws connections between frames. Which notation, and in which tool: the
-  designer, or a canvas of its own?
+- **What Figma's API allows.** That its REST API reads prototypes but
+  cannot create frames, so that export needs a plugin, is to be checked
+  against its current documentation before either is built.
+- **Where the plugin lives.** A Figma plugin is TypeScript, built and
+  published apart: a repository of its own.
+- **Where a flow is drawn.** ORMDesigner, beside the diagram, or a canvas
+  of its own (with the forms' layout in XFormsKit's designer)?
 - **The paper itself.** Everything above taken from it comes from its
   abstract and summaries; the full text may say otherwise, and should be
   read if it can be had.
