@@ -941,20 +941,45 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 static void
 ORMDrawSubtypeLinks(ORMPainting *p, ORMDiagram *diagram)
 {
+	/* One arrow a subtyping, however many shapes either end has: between
+	 * the closest of them. */
+	NSMutableSet *drawn = [NSMutableSet set];
 	for (ORMShape *shape in diagram.shapes) {
 		ORMObjectType *sub = shape.objectType;
 		if (sub == nil) {
 			continue;
 		}
 		for (ORMFactType *fact in sub.supertypeFacts) {
+			if ([drawn containsObject:fact.identifier]) {
+				continue;
+			}
+			[drawn addObject:fact.identifier];
 			ORMObjectType *sup = [fact supertype];
-			ORMShape *target = ORMShapeOfObjectType(diagram, sup, [shape center]);
+			ORMShape *from = nil;
+			ORMShape *target = nil;
+			double distance = DBL_MAX;
+			for (ORMShape *each in [diagram shapesForSubject:sub.identifier]) {
+				if (each.kind != ORMShapeObjectType) {
+					continue;
+				}
+				ORMShape *nearest = ORMShapeOfObjectType(diagram, sup, [each center]);
+				if (nearest == nil) {
+					continue;
+				}
+				NSRect rect = ORMObjectTypeRect(nearest);
+				double d = hypot(NSMidX(rect) - [each center].x, NSMidY(rect) - [each center].y);
+				if (d < distance) {
+					distance = d;
+					from = each;
+					target = nearest;
+				}
+			}
 			if (target == nil) {
 				continue;
 			}
 			NSRect to = ORMObjectTypeRect(target);
-			NSPoint end = ORMEdgePoint(to, [shape center]);
-			NSPoint start = ORMEdgePoint(shape.bounds, NSMakePoint(NSMidX(to), NSMidY(to)));
+			NSPoint end = ORMEdgePoint(to, [from center]);
+			NSPoint start = ORMEdgePoint(from.bounds, NSMakePoint(NSMidX(to), NSMidY(to)));
 			ORMColor color = ORMDiagramConstraint(ORMAlethic, p->dark);
 			ORMStroke(p, [ORMDrawPath lineFrom:start to:end], color, 1.6, !fact.providesPreferredIdentifier);
 			ORMDrawArrowhead(p, end, start, color, 6.0);

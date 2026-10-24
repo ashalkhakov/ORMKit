@@ -664,6 +664,12 @@ static const double ORMFactBarHeight = 30;
 	[[self editor].diagramEditor arrangeDiagram:_canvas.diagramId];
 }
 
+- (IBAction)arrangeDiagramInGroups:(id)sender
+{
+	(void)sender;
+	[[self editor].diagramEditor arrangeDiagramInGroups:_canvas.diagramId];
+}
+
 /* The elements picked: on the canvas, or else in the inspector (from the
  * browser). */
 - (NSArray<NSString *> *)pickedElements
@@ -710,6 +716,23 @@ static const double ORMFactBarHeight = 30;
 		}
 	}];
 	[_canvas selectShapes:added];
+}
+
+- (IBAction)deleteExtraShape:(id)sender
+{
+	(void)sender;
+	[[self editor].diagramEditor removeExtraShapes:[_canvas selectedShapes]];
+}
+
+/* Whether a shape selected is one of several of its element's. */
+- (BOOL)selectsExtraShape
+{
+	for (NSString *shape in [_canvas selectedShapes]) {
+		if ([[self editor].diagramEditor isExtraShape:shape]) {
+			return YES;
+		}
+	}
+	return NO;
 }
 
 /* What another shape can be had of: object types, fact types. */
@@ -938,6 +961,9 @@ ORMOneToOneValues(ORMObjectType *type)
 	}
 	if (action == @selector(addAnotherShape:)) {
 		return [self picksShapeable];
+	}
+	if (action == @selector(deleteExtraShape:)) {
+		return [self selectsExtraShape];
 	}
 	if (action == @selector(verbalizeModel:)) {
 		[item setState:_verbalizesModel ? NSControlStateValueOn : NSControlStateValueOff];

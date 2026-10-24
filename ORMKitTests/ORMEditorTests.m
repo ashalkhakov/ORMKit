@@ -689,6 +689,115 @@
 	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:country] count], (NSUInteger)1);
 }
 
+/* An extra shape removed: the shape alone, with what is placed on it,
+ * never the element, nor its last shape; undone as one change. */
+- (void)testAnExtraShapeIsRemoved
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *born = [self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor];
+	NSString *diagramId = [self diagramOf:editor];
+	NSString *first = [[[editor.model.diagrams firstObject] shapeForSubject:born] identifier];
+	NSString *second = [editor.diagramEditor addShapeOfElement:born onDiagram:diagramId at:ORMAutomaticPlacement];
+	XCTAssertTrue([editor.diagramEditor isExtraShape:second]);
+	XCTAssertTrue([editor.diagramEditor isExtraShape:first], @"either is extra while there are two");
+	XCTAssertFalse([editor.diagramEditor isExtraShape:[[[editor.model.diagrams firstObject] shapeForSubject:person] identifier]]);
+	/* Both asked: one goes, the last stays. */
+	XCTAssertEqual(([editor.diagramEditor removeExtraShapes:@[ second, first ]]), (NSUInteger)1);
+	NSArray *kept = [[editor.model.diagrams firstObject] shapesForSubject:born];
+	XCTAssertEqual([kept count], (NSUInteger)1);
+	XCTAssertNotNil([editor.model elementWithId:born], @"the fact type stays");
+	XCTAssertEqual([[kept[0] relativeShapes] count], (NSUInteger)1, @"its reading with the shape left");
+	XCTAssertEqual([editor.diagramEditor removeExtraShapes:@[ [kept[0] identifier] ]], (NSUInteger)0, @"not the last");
+	XCTAssertEqualObjects([self.undoManager undoActionName], @"Delete Extra Shape");
+	[self.undoManager undo];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:born] count], (NSUInteger)2);
+}
+
+/* Every shape of the elements on the diagram. */
+- (NSArray<ORMShape *> *)shapesOf:(NSArray<NSString *> *)subjects on:(ORMDiagram *)diagram
+{
+	NSMutableArray *shapes = [NSMutableArray array];
+	for (NSString *subject in subjects) {
+		[shapes addObjectsFromArray:[diagram shapesForSubject:subject]];
+	}
+	return shapes;
+}
+
+/* The bounds of the shapes. */
+- (NSRect)extentOf:(NSArray<ORMShape *> *)shapes
+{
+	NSRect extent = NSZeroRect;
+	for (ORMShape *shape in shapes) {
+		extent = NSIsEmptyRect(extent) ? shape.bounds : NSUnionRect(extent, shape.bounds);
+	}
+	return extent;
+}
+
+/* Arranged in groups: the hubs (Date, a value type) taken out, what stays
+ * linked is a group, laid out on its own with a shape of each hub it
+ * uses, apart from the others; each group's lines to its own copy. Again,
+ * the same; undone as one change. */
+- (void)testADiagramIsArrangedInGroups
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *diagramId = [self diagramOf:editor];
+	NSString *reason = nil;
+	NSString *date = [editor.objectTypeEditor addValueTypeNamed:@"Date" dataType:@"DateDataType" onDiagram:diagramId
+	                                                        at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(date, @"%@", reason);
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *car = [self entity:@"Car" mode:@"vin" in:editor];
+	NSString *shop = [self entity:@"Shop" mode:@"name" in:editor];
+	NSString *item = [self entity:@"Item" mode:@"sku" in:editor];
+	NSString *drives = [self fact:@[ person, car ] reading:@"{0} drives {1}" in:editor];
+	NSString *born = [self fact:@[ person, date ] reading:@"{0} was born on {1}" in:editor];
+	NSString *built = [self fact:@[ car, date ] reading:@"{0} was built on {1}" in:editor];
+	NSString *stocks = [self fact:@[ shop, item ] reading:@"{0} stocks {1}" in:editor];
+	NSString *opened = [self fact:@[ shop, date ] reading:@"{0} opened on {1}" in:editor];
+	NSString *expires = [self fact:@[ item, date ] reading:@"{0} expires on {1}" in:editor];
+	[editor.diagramEditor arrangeDiagramInGroups:diagramId];
+
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	NSArray *dates = [diagram shapesForSubject:date];
+	XCTAssertEqual([dates count], (NSUInteger)2, @"a Date for each group");
+	NSRect cars = [self extentOf:[self shapesOf:@[ person, car, drives, born, built ] on:diagram]];
+	NSRect shops = [self extentOf:[self shapesOf:@[ shop, item, stocks, opened, expires ] on:diagram]];
+	XCTAssertFalse(NSIntersectsRect(cars, shops), @"the groups apart: %@ %@", NSStringFromRect(cars), NSStringFromRect(shops));
+	/* Each group's Date nearer its facts than the other group's. */
+	for (NSArray *group in @[ @[ born, built ], @[ opened, expires ] ]) {
+		NSMutableSet *nearest = [NSMutableSet set];
+		for (NSString *fact in group) {
+			ORMShape *factShape = [diagram shapeForSubject:fact];
+			ORMShape *best = nil;
+			double distance = DBL_MAX;
+			for (ORMShape *each in dates) {
+				double d = hypot(NSMidX(each.bounds) - NSMidX(factShape.bounds), NSMidY(each.bounds) - NSMidY(factShape.bounds));
+				if (d < distance) {
+					distance = d;
+					best = each;
+				}
+			}
+			[nearest addObject:best.identifier];
+		}
+		XCTAssertEqual([nearest count], (NSUInteger)1, @"one Date for the group");
+	}
+	/* Overlapping nothing. */
+	NSArray *all = diagram.shapes;
+	for (NSUInteger i = 0; i < [all count]; i++) {
+		for (NSUInteger j = i + 1; j < [all count]; j++) {
+			XCTAssertFalse(NSIntersectsRect([all[i] bounds], [all[j] bounds]), @"%@ and %@ overlap", [all[i] subjectId],
+			               [all[j] subjectId]);
+		}
+	}
+	[editor.diagramEditor arrangeDiagramInGroups:diagramId];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:date] count], (NSUInteger)2, @"again, the same");
+	[self.undoManager undo];
+	[self.undoManager undo];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:date] count], (NSUInteger)1);
+}
+
 - (void)testReadingsAreChecked
 {
 	ORMEditor *editor = [self newEditor];

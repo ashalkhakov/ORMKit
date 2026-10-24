@@ -1308,6 +1308,40 @@
 	XCTAssertEqualObjects([NSSet setWithArray:[_controller.canvas selectedShapes]], factShapes);
 }
 
+/* A fact type has another shape from the menu too; an extra shape
+ * selected, Delete Extra Shape takes it and keeps the element; the last
+ * shape it leaves. Arrange in Groups lays the diagram out. */
+- (void)testAnExtraShapeIsDeletedFromTheMenu
+{
+	_document = [[ORMDocument alloc] init];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	                                                     onDiagram:diagram at:NSMakePoint(100, 100) reason:NULL];
+	NSString *country = [editor.objectTypeEditor addEntityTypeNamed:@"Country" referenceMode:@"code" kind:ORMReferenceModePopular
+	                                                      onDiagram:diagram at:NSMakePoint(300, 100) reason:NULL];
+	NSString *born = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, country ] reading:@"{0} was born in {1}"
+	                                                     onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	[_controller.canvas modelDidChange];
+	NSMenuItem *delete = [[NSMenuItem alloc] initWithTitle:@"Delete Extra Shape" action:@selector(deleteExtraShape:) keyEquivalent:@""];
+	[_controller.canvas selectElements:@[ born ]];
+	XCTAssertFalse([(id)_controller validateMenuItem:delete], @"its only shape");
+	[_controller addAnotherShape:nil];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:born] count], 2u);
+	XCTAssertTrue([(id)_controller validateMenuItem:delete], @"the new shape selected");
+	[_controller deleteExtraShape:nil];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:born] count], 1u);
+	XCTAssertNotNil([editor.model elementWithId:born], @"the fact type kept");
+	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Delete Extra Shape");
+	[_controller.canvas selectElements:@[ born ]];
+	XCTAssertFalse([(id)_controller validateMenuItem:delete]);
+	[_controller arrangeDiagramInGroups:nil];
+	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Arrange in Groups");
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:person] count], 1u);
+}
+
 - (void)testTwoEntityTypesAreMergedFromTheMenu
 {
 	_document = [[ORMDocument alloc] init];

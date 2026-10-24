@@ -355,6 +355,12 @@ CA
                                     <action selector="addAnotherShape:" target="-1" id="addAnotherShapeAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Delete Extra Shape" id="deleteExtraShape">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="deleteExtraShape:" target="-1" id="deleteExtraShapeAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Show Related" keyEquivalent="r" id="showRelated">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
                                 <connections>
@@ -364,6 +370,11 @@ CA
                             <menuItem title="Arrange" id="arrange">
                                 <connections>
                                     <action selector="arrangeDiagram:" target="-1" id="arrangeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Arrange in Groups" id="arrangeInGroups">
+                                <connections>
+                                    <action selector="arrangeDiagramInGroups:" target="-1" id="arrangeInGroupsAction"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Rotate Fact Type" id="rotateFactType">

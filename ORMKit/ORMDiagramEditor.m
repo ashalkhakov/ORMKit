@@ -22,6 +22,105 @@ static const double ORMReadingGap = 0.0647 * 72.0;
 /* Room between shapes when the editor places them. */
 static const double ORMSpacing = 0.5 * 72.0;
 
+#pragma mark Arranging in groups
+
+/* An object type that is a hub of a diagram, as Arrange in Groups takes
+ * hubs out: used by two of its fact types or more, and a value type or an
+ * entity type in this many or more. */
+static const NSUInteger ORMHubDegree = 5;
+/* Between groups, across and down. */
+static const double ORMGroupGap = 0.75 * 72.0;
+
+/* Union-find over element ids: the root of the key's set. */
+static NSString *
+ORMGroupRoot(NSMutableDictionary<NSString *, NSString *> *parents, NSString *key)
+{
+	NSString *root = key;
+	while ([parents objectForKey:root] != nil && ![[parents objectForKey:root] isEqualToString:root]) {
+		root = [parents objectForKey:root];
+	}
+	if ([parents objectForKey:key] == nil) {
+		[parents setObject:key forKey:key];
+	}
+	/* Each on the way pointed at the root. */
+	NSString *at = key;
+	while (![at isEqualToString:root]) {
+		NSString *next = [parents objectForKey:at];
+		[parents setObject:root forKey:at];
+		at = next;
+	}
+	return root;
+}
+
+static void
+ORMGroupJoin(NSMutableDictionary<NSString *, NSString *> *parents, NSString *a, NSString *b)
+{
+	NSString *ra = ORMGroupRoot(parents, a);
+	NSString *rb = ORMGroupRoot(parents, b);
+	if (![ra isEqualToString:rb]) {
+		[parents setObject:ra forKey:rb];
+	}
+}
+
+/* The element an object type is shown as on the diagram: itself, or the
+ * fact type it objectifies; nil when neither is shown. */
+static NSString *
+ORMShownNode(ORMObjectType *type, ORMDiagram *diagram)
+{
+	if (type == nil) {
+		return nil;
+	}
+	if ([diagram shapeForSubject:type.identifier] != nil) {
+		return type.identifier;
+	}
+	if (type.nestedFactType != nil && [diagram shapeForSubject:type.nestedFactType.identifier] != nil) {
+		return type.nestedFactType.identifier;
+	}
+	return nil;
+}
+
+/* The centre of the shapes. */
+static NSPoint
+ORMCentreOf(NSArray<ORMShape *> *shapes)
+{
+	if ([shapes count] == 0) {
+		return NSZeroPoint;
+	}
+	double x = 0;
+	double y = 0;
+	for (ORMShape *shape in shapes) {
+		x += NSMidX(shape.bounds);
+		y += NSMidY(shape.bounds);
+	}
+	return NSMakePoint(x / [shapes count], y / [shapes count]);
+}
+
+/* A group being laid out: its shapes, the hub shape it links to for each
+ * hub, and where it lands. */
+@interface ORMLayoutGroup : NSObject
+@property (nonatomic, strong) NSMutableArray<ORMShape *> *shapes;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, ORMShape *> *hubShapes;
+@property (nonatomic, strong) NSMutableOrderedSet<NSString *> *hubs;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSValue *> *placed;
+@property (nonatomic) NSSize size;
+/* Its size's, for packing the largest first. */
+@property (nonatomic, readonly) double area;
+@end
+
+@implementation ORMLayoutGroup
+- (instancetype)init
+{
+	if ((self = [super init])) {
+		_shapes = [NSMutableArray array];
+		_hubShapes = [NSMutableDictionary dictionary];
+		_hubs = [NSMutableOrderedSet orderedSet];
+		_placed = [NSMutableDictionary dictionary];
+	}
+	return self;
+}
+@end
+
+
 @implementation ORMDiagramEditor
 
 @synthesize editor = _editor;
@@ -256,6 +355,51 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	return [self newShapeOf:elementId onDiagram:diagramId at:point];
 }
 
+/* Every shape of the element on any of the model's diagrams. */
+- (NSArray<ORMShape *> *)allShapesOf:(NSString *)elementId
+{
+	NSMutableArray *shapes = [NSMutableArray array];
+	for (ORMDiagram *diagram in _editor.model.diagrams) {
+		[shapes addObjectsFromArray:[diagram shapesForSubject:elementId]];
+	}
+	return shapes;
+}
+
+- (BOOL)isExtraShape:(NSString *)shapeId
+{
+	ORMShape *shape = [_editor.model elementWithId:shapeId];
+	if (![shape isKindOfClass:[ORMShape class]] || shape.parent != nil || shape.subjectId == nil) {
+		return NO;
+	}
+	return [[self allShapesOf:shape.subjectId] count] > 1;
+}
+
+- (NSUInteger)removeExtraShapes:(NSArray<NSString *> *)shapeIds
+{
+	NSMutableArray *removed = [NSMutableArray array];
+	NSCountedSet *left = [NSCountedSet set];
+	for (NSString *shapeId in shapeIds) {
+		ORMShape *shape = [_editor.model elementWithId:shapeId];
+		if (![self isExtraShape:shapeId] || [removed containsObject:shape]) {
+			continue;
+		}
+		/* Never the last: what this call already takes counts. */
+		NSUInteger remaining = [[self allShapesOf:shape.subjectId] count] - [left countForObject:shape.subjectId];
+		if (remaining <= 1) {
+			continue;
+		}
+		[left addObject:shape.subjectId];
+		[removed addObject:shape];
+	}
+	if ([removed count] == 0) {
+		return 0;
+	}
+	[_editor modelChange:@"Delete Extra Shape" with:^{
+		[self removeShapes:removed];
+	}];
+	return [removed count];
+}
+
 - (NSString *)newShapeOf:(NSString *)elementId onDiagram:(NSString *)diagramId at:(NSPoint)point
 {
 	ORMDiagram *diagram = [self diagramWithId:diagramId];
@@ -337,9 +481,9 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 {
 	for (ORMShape *shape in shapes) {
 		if ([_editor.model elementWithId:shape.identifier] == shape) {
-			for (ORMShape *carried in [self movedShapes:@[ shape.identifier ]]) {
-				[_editor deleted:carried];
-			}
+			/* What is placed on it goes in its element, and comes back
+			 * with it. */
+			[_editor deleted:shape];
 			[shape.diagram removeShape:shape];
 		}
 	}
@@ -602,51 +746,13 @@ typedef struct {
 	BOOL fixed;
 } ORMLayoutNode;
 
-/* Lays the diagram out from scratch, force-directed: each fact type pulls
- * toward its players and each constraint and note toward what it is
- * about, everything pushes everything else away, and a last pass moves
- * apart what still overlaps. Deterministic, starting from a circle in the
- * diagram's order, so the same model always comes out the same. */
-- (void)arrangeDiagram:(NSString *)diagramId
+/* The nodes laid out, force-directed, about the origin: each spring
+ * ([i, j, rest length]) pulls its two together, everything pushes
+ * everything else away, and a last pass moves apart what still overlaps.
+ * Deterministic: from a circle, in the nodes' order. */
+static void
+ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *springs)
 {
-	ORMDiagram *diagram = [self diagramWithId:diagramId];
-	NSArray *shapes = [diagram.shapes copy];
-	NSUInteger count = [shapes count];
-	if (diagram == nil || count == 0) {
-		return;
-	}
-	ORMLayoutNode *nodes = calloc(count, sizeof(ORMLayoutNode));
-	NSMutableDictionary *index = [NSMutableDictionary dictionary];
-	for (NSUInteger i = 0; i < count; i++) {
-		ORMShape *shape = [shapes objectAtIndex:i];
-		[index setObject:@(i) forKey:shape.identifier];
-		nodes[i].w = NSWidth(shape.bounds);
-		nodes[i].h = NSHeight(shape.bounds);
-		/* A fact type keeps room for its reading below it. */
-		if (shape.kind == ORMShapeFactType) {
-			nodes[i].w = MAX(nodes[i].w, 0.9 * 72);
-			nodes[i].h += 0.25 * 72;
-		}
-	}
-	/* The springs: index pairs and their rest lengths. */
-	NSMutableArray *springs = [NSMutableArray array];
-	for (NSUInteger i = 0; i < count; i++) {
-		ORMShape *shape = [shapes objectAtIndex:i];
-		for (ORMShape *linked in [self linkedShapesOf:shape.subject on:diagram]) {
-			NSNumber *j = [index objectForKey:linked.identifier];
-			if (j != nil && [j unsignedIntegerValue] != i) {
-				double rest = shape.kind == ORMShapeFactType ? 0.85 * 72 : 0.6 * 72;
-				[springs addObject:@[ @(i), j, @(rest) ]];
-			}
-		}
-		/* Subtypes sit near their supertypes. */
-		for (ORMObjectType *supertype in shape.objectType.supertypes) {
-			NSNumber *j = [index objectForKey:[[diagram shapeForSubject:supertype.identifier] identifier] ?: @""];
-			if (j != nil) {
-				[springs addObject:@[ @(i), j, @(1.1 * 72) ]];
-			}
-		}
-	}
 	/* Start on a circle, entity types first, their facts and values after,
 	 * so what is related starts near. */
 	double radius = MAX(2.0 * 72, sqrt((double)count) * 0.9 * 72);
@@ -731,6 +837,54 @@ typedef struct {
 			break;
 		}
 	}
+}
+
+/* Lays the diagram out from scratch, force-directed: each fact type pulls
+ * toward its players and each constraint and note toward what it is
+ * about, everything pushes everything else away, and a last pass moves
+ * apart what still overlaps. Deterministic, starting from a circle in the
+ * diagram's order, so the same model always comes out the same. */
+- (void)arrangeDiagram:(NSString *)diagramId
+{
+	ORMDiagram *diagram = [self diagramWithId:diagramId];
+	NSArray *shapes = [diagram.shapes copy];
+	NSUInteger count = [shapes count];
+	if (diagram == nil || count == 0) {
+		return;
+	}
+	ORMLayoutNode *nodes = calloc(count, sizeof(ORMLayoutNode));
+	NSMutableDictionary *index = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < count; i++) {
+		ORMShape *shape = [shapes objectAtIndex:i];
+		[index setObject:@(i) forKey:shape.identifier];
+		nodes[i].w = NSWidth(shape.bounds);
+		nodes[i].h = NSHeight(shape.bounds);
+		/* A fact type keeps room for its reading below it. */
+		if (shape.kind == ORMShapeFactType) {
+			nodes[i].w = MAX(nodes[i].w, 0.9 * 72);
+			nodes[i].h += 0.25 * 72;
+		}
+	}
+	/* The springs: index pairs and their rest lengths. */
+	NSMutableArray *springs = [NSMutableArray array];
+	for (NSUInteger i = 0; i < count; i++) {
+		ORMShape *shape = [shapes objectAtIndex:i];
+		for (ORMShape *linked in [self linkedShapesOf:shape.subject on:diagram]) {
+			NSNumber *j = [index objectForKey:linked.identifier];
+			if (j != nil && [j unsignedIntegerValue] != i) {
+				double rest = shape.kind == ORMShapeFactType ? 0.85 * 72 : 0.6 * 72;
+				[springs addObject:@[ @(i), j, @(rest) ]];
+			}
+		}
+		/* Subtypes sit near their supertypes. */
+		for (ORMObjectType *supertype in shape.objectType.supertypes) {
+			NSNumber *j = [index objectForKey:[[diagram shapeForSubject:supertype.identifier] identifier] ?: @""];
+			if (j != nil) {
+				[springs addObject:@[ @(i), j, @(1.1 * 72) ]];
+			}
+		}
+	}
+	ORMSpringLayout(nodes, count, springs);
 	/* Moved to the diagram's top left, half an inch in. */
 	double minX = DBL_MAX;
 	double minY = DBL_MAX;
@@ -754,6 +908,403 @@ typedef struct {
 				moved.bounds = NSOffsetRect(moved.bounds, delta.width, delta.height);
 				[_editor wrote:moved];
 			}
+		}
+	}];
+}
+
+#pragma mark Arranging in groups
+
+
+/* The hubs of the diagram: object types its fact types and subtyping link
+ * to twice or more, value types, and entity types used ORMHubDegree times
+ * or more. */
+- (NSSet<NSString *> *)hubsOf:(ORMDiagram *)diagram
+{
+	NSCountedSet *degree = [NSCountedSet set];
+	NSMutableSet *facts = [NSMutableSet set];
+	for (ORMShape *shape in diagram.shapes) {
+		if (shape.kind == ORMShapeFactType && shape.factType != nil && ![facts containsObject:shape.factType.identifier]) {
+			[facts addObject:shape.factType.identifier];
+			NSMutableSet *players = [NSMutableSet set];
+			for (ORMRole *role in [shape.factType visibleRoles]) {
+				if (role.player != nil && [diagram shapeForSubject:role.player.identifier] != nil) {
+					[players addObject:role.player.identifier];
+				}
+			}
+			for (NSString *player in players) {
+				[degree addObject:player];
+			}
+		}
+	}
+	for (ORMShape *shape in diagram.shapes) {
+		ORMObjectType *type = shape.kind == ORMShapeObjectType ? shape.objectType : nil;
+		for (ORMObjectType *supertype in type.supertypes) {
+			if ([diagram shapeForSubject:supertype.identifier] != nil) {
+				[degree addObject:type.identifier];
+				[degree addObject:supertype.identifier];
+			}
+		}
+	}
+	NSMutableSet *hubs = [NSMutableSet set];
+	for (NSString *typeId in degree) {
+		ORMObjectType *type = [_editor.model elementWithId:typeId];
+		NSUInteger uses = [degree countForObject:typeId];
+		if (uses >= 2 && (type.kind == ORMValueType || uses >= ORMHubDegree)) {
+			[hubs addObject:typeId];
+		}
+	}
+	return hubs;
+}
+
+
+/* The diagram's elements in groups: what its fact types and subtyping
+ * link once the hubs are taken out; a fact type of hubs alone goes with
+ * its first player's. Each group's elements, in the diagram's order. */
+- (NSArray<NSArray<NSString *> *> *)groupsOf:(ORMDiagram *)diagram hubs:(NSSet<NSString *> *)hubs
+{
+	NSMutableDictionary *parents = [NSMutableDictionary dictionary];
+	NSMutableOrderedSet *elements = [NSMutableOrderedSet orderedSet];
+	for (ORMShape *shape in diagram.shapes) {
+		if (shape.subjectId == nil || [hubs containsObject:shape.subjectId]) {
+			continue;
+		}
+		[elements addObject:shape.subjectId];
+		ORMGroupRoot(parents, shape.subjectId);
+		if (shape.kind == ORMShapeFactType && shape.factType != nil) {
+			NSString *first = nil;
+			BOOL joined = NO;
+			for (ORMRole *role in [shape.factType visibleRoles]) {
+				NSString *node = ORMShownNode(role.player, diagram);
+				if (node == nil || [node isEqualToString:shape.subjectId]) {
+					continue;
+				}
+				first = first ?: node;
+				if (![hubs containsObject:node]) {
+					ORMGroupJoin(parents, shape.subjectId, node);
+					joined = YES;
+				}
+			}
+			if (!joined && first != nil) {
+				ORMGroupJoin(parents, shape.subjectId, [@"hub:" stringByAppendingString:first]);
+			}
+		} else if (shape.kind == ORMShapeObjectType && shape.objectType != nil) {
+			for (ORMObjectType *supertype in shape.objectType.supertypes) {
+				NSString *node = ORMShownNode(supertype, diagram);
+				if (node != nil && ![hubs containsObject:node]) {
+					ORMGroupJoin(parents, shape.subjectId, node);
+				}
+			}
+		} else {
+			/* A constraint or note: with all it is about, which it keeps
+			 * together, its lines short. */
+			for (ORMShape *linked in [self linkedShapesOf:shape.subject on:diagram]) {
+				if (linked.subjectId != nil && ![hubs containsObject:linked.subjectId]) {
+					ORMGroupJoin(parents, shape.subjectId, linked.subjectId);
+				}
+			}
+		}
+	}
+	NSMutableDictionary *byRoot = [NSMutableDictionary dictionary];
+	NSMutableArray *order = [NSMutableArray array];
+	NSMutableArray *loose = [NSMutableArray array];
+	for (NSString *element in elements) {
+		NSString *root = ORMGroupRoot(parents, element);
+		NSMutableArray *group = [byRoot objectForKey:root];
+		if (group == nil) {
+			group = [NSMutableArray array];
+			[byRoot setObject:group forKey:root];
+			[order addObject:group];
+		}
+		[group addObject:element];
+	}
+	/* A group about one entity hub alone (its attributes, what only it
+	 * links) is that hub's: in its home group, with the facts of hubs
+	 * alone it comes first in. What is linked to nothing, together. */
+	NSMutableArray *groups = [NSMutableArray array];
+	NSMutableDictionary *homes = [NSMutableDictionary dictionary];
+	for (NSMutableArray *group in order) {
+		if ([group count] == 1 && [[[diagram shapeForSubject:group[0]] subject] isKindOfClass:[ORMObjectType class]]) {
+			[loose addObjectsFromArray:group];
+			continue;
+		}
+		NSString *root = ORMGroupRoot(parents, group[0]);
+		NSString *home = [root hasPrefix:@"hub:"] ? [root substringFromIndex:4] : nil;
+		if (home == nil) {
+			NSOrderedSet *used = [self hubsOfGroup:group on:diagram hubs:hubs];
+			ORMObjectType *only = [used count] == 1 ? [_editor.model elementWithId:[used firstObject]] : nil;
+			home = [only isKindOfClass:[ORMObjectType class]] && only.isEntity ? only.identifier : nil;
+		}
+		if (home == nil) {
+			[groups addObject:group];
+			continue;
+		}
+		NSMutableArray *homeGroup = [homes objectForKey:home];
+		if (homeGroup == nil) {
+			homeGroup = [NSMutableArray array];
+			[homes setObject:homeGroup forKey:home];
+			[groups addObject:homeGroup];
+		}
+		[homeGroup addObjectsFromArray:group];
+	}
+	if ([loose count] > 0) {
+		[groups addObject:loose];
+	}
+	return groups;
+}
+
+/* The hubs a group's elements link to, in the order met. */
+- (NSOrderedSet<NSString *> *)hubsOfGroup:(NSArray<NSString *> *)group on:(ORMDiagram *)diagram hubs:(NSSet<NSString *> *)hubs
+{
+	NSMutableOrderedSet *used = [NSMutableOrderedSet orderedSet];
+	for (NSString *element in group) {
+		id subject = [_editor.model elementWithId:element];
+		if ([subject isKindOfClass:[ORMFactType class]]) {
+			for (ORMRole *role in [(ORMFactType *)subject visibleRoles]) {
+				NSString *node = ORMShownNode(role.player, diagram);
+				if (node != nil && [hubs containsObject:node]) {
+					[used addObject:node];
+				}
+			}
+		} else if ([subject isKindOfClass:[ORMObjectType class]]) {
+			NSArray *related = [[(ORMObjectType *)subject supertypes] arrayByAddingObjectsFromArray:[(ORMObjectType *)subject subtypes]];
+			for (ORMObjectType *other in related) {
+				NSString *node = ORMShownNode(other, diagram);
+				if (node != nil && [hubs containsObject:node]) {
+					[used addObject:node];
+				}
+			}
+		}
+	}
+	return used;
+}
+
+/* A group laid out about the origin by Arrange's springs: its elements'
+ * shapes and its hub shapes, each fact type pulled to its players' shapes
+ * in the group, each subtype to its supertype, each constraint and note to
+ * what it is about. Its shapes' top lefts from its own top left, and its
+ * size. */
+- (void)layOut:(ORMLayoutGroup *)group on:(ORMDiagram *)diagram
+{
+	NSArray *shapes = group.shapes;
+	NSUInteger count = [shapes count];
+	ORMLayoutNode *nodes = calloc(count, sizeof(ORMLayoutNode));
+	NSMutableDictionary *index = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < count; i++) {
+		ORMShape *shape = [shapes objectAtIndex:i];
+		[index setObject:@(i) forKey:shape.identifier];
+		/* By subject too, the group's one of each. */
+		if ([index objectForKey:shape.subjectId] == nil) {
+			[index setObject:@(i) forKey:shape.subjectId];
+		}
+		nodes[i].w = NSWidth(shape.bounds);
+		nodes[i].h = NSHeight(shape.bounds);
+		if (shape.kind == ORMShapeFactType) {
+			nodes[i].w = MAX(nodes[i].w, 0.9 * 72);
+			nodes[i].h += 0.25 * 72;
+		}
+	}
+	NSMutableArray *springs = [NSMutableArray array];
+	for (NSUInteger i = 0; i < count; i++) {
+		ORMShape *shape = [shapes objectAtIndex:i];
+		NSMutableArray *ends = [NSMutableArray array];
+		double rest = 0.6 * 72;
+		if (shape.kind == ORMShapeFactType) {
+			rest = 0.85 * 72;
+			for (ORMRole *role in [shape.factType visibleRoles]) {
+				NSString *node = ORMShownNode(role.player, diagram);
+				if (node != nil) {
+					[ends addObject:node];
+				}
+			}
+		} else if (shape.kind == ORMShapeObjectType) {
+			rest = 1.1 * 72;
+			/* Up and down: a hub's copy is pulled to its subtype too. */
+			NSArray *related = [shape.objectType.supertypes arrayByAddingObjectsFromArray:shape.objectType.subtypes];
+			for (ORMObjectType *other in related) {
+				NSString *node = ORMShownNode(other, diagram);
+				if (node != nil) {
+					[ends addObject:node];
+				}
+			}
+		} else {
+			for (ORMShape *linked in [self linkedShapesOf:shape.subject on:diagram]) {
+				if (linked.subjectId != nil) {
+					[ends addObject:linked.subjectId];
+				}
+			}
+		}
+		for (NSString *end in ends) {
+			ORMShape *hub = [group.hubShapes objectForKey:end];
+			NSNumber *j = [index objectForKey:hub != nil ? hub.identifier : end];
+			if (j != nil && [j unsignedIntegerValue] != i) {
+				[springs addObject:@[ @(i), j, @(rest) ]];
+			}
+		}
+	}
+	/* What the springs link, laid out by them; what nothing links, in rows
+	 * under it, as square as they come, not pushed off on its own. */
+	BOOL *linked = calloc(MAX(count, 1), sizeof(BOOL));
+	for (NSArray *spring in springs) {
+		linked[[[spring objectAtIndex:0] unsignedIntegerValue]] = YES;
+		linked[[[spring objectAtIndex:1] unsignedIntegerValue]] = YES;
+	}
+	NSMutableArray *linkedIndexes = [NSMutableArray array];
+	NSMutableArray *alone = [NSMutableArray array];
+	for (NSUInteger i = 0; i < count; i++) {
+		[(linked[i] ? linkedIndexes : alone) addObject:@(i)];
+	}
+	free(linked);
+	double bottom = 0;
+	double left = 0;
+	if ([linkedIndexes count] > 0) {
+		NSUInteger linkedCount = [linkedIndexes count];
+		ORMLayoutNode *sub = calloc(linkedCount, sizeof(ORMLayoutNode));
+		NSMutableDictionary *at = [NSMutableDictionary dictionary];
+		for (NSUInteger k = 0; k < linkedCount; k++) {
+			sub[k] = nodes[[[linkedIndexes objectAtIndex:k] unsignedIntegerValue]];
+			[at setObject:@(k) forKey:[linkedIndexes objectAtIndex:k]];
+		}
+		NSMutableArray *subSprings = [NSMutableArray array];
+		for (NSArray *spring in springs) {
+			[subSprings addObject:@[ [at objectForKey:[spring objectAtIndex:0]], [at objectForKey:[spring objectAtIndex:1]],
+			                         [spring objectAtIndex:2] ]];
+		}
+		ORMSpringLayout(sub, linkedCount, subSprings);
+		bottom = -DBL_MAX;
+		left = DBL_MAX;
+		for (NSUInteger k = 0; k < linkedCount; k++) {
+			nodes[[[linkedIndexes objectAtIndex:k] unsignedIntegerValue]] = sub[k];
+			bottom = MAX(bottom, sub[k].y + sub[k].h / 2);
+			left = MIN(left, sub[k].x - sub[k].w / 2);
+		}
+		bottom += ORMGroupGap / 2;
+		free(sub);
+	}
+	NSUInteger across = (NSUInteger)MAX(1, ceil(sqrt((double)[alone count])));
+	double x = left;
+	double y = bottom;
+	double rowHeight = 0;
+	for (NSUInteger k = 0; k < [alone count]; k++) {
+		NSUInteger i = [[alone objectAtIndex:k] unsignedIntegerValue];
+		if (k > 0 && k % across == 0) {
+			x = left;
+			y += rowHeight + ORMGroupGap / 2;
+			rowHeight = 0;
+		}
+		nodes[i].x = x + nodes[i].w / 2;
+		nodes[i].y = y + nodes[i].h / 2;
+		x += nodes[i].w + ORMGroupGap / 2;
+		rowHeight = MAX(rowHeight, nodes[i].h);
+	}
+	double minX = DBL_MAX;
+	double minY = DBL_MAX;
+	double maxX = -DBL_MAX;
+	double maxY = -DBL_MAX;
+	for (NSUInteger i = 0; i < count; i++) {
+		minX = MIN(minX, nodes[i].x - nodes[i].w / 2);
+		minY = MIN(minY, nodes[i].y - nodes[i].h / 2);
+		maxX = MAX(maxX, nodes[i].x + nodes[i].w / 2);
+		maxY = MAX(maxY, nodes[i].y + nodes[i].h / 2);
+	}
+	for (NSUInteger i = 0; i < count; i++) {
+		ORMShape *shape = [shapes objectAtIndex:i];
+		NSPoint at = NSMakePoint(round(nodes[i].x - minX - NSWidth(shape.bounds) / 2), round(nodes[i].y - minY - nodes[i].h / 2));
+		[group.placed setObject:[NSValue valueWithPoint:at] forKey:shape.identifier];
+	}
+	group.size = count > 0 ? NSMakeSize(maxX - minX, maxY - minY) : NSZeroSize;
+	free(nodes);
+}
+
+- (void)arrangeDiagramInGroups:(NSString *)diagramId
+{
+	ORMDiagram *diagram = [self diagramWithId:diagramId];
+	if (diagram == nil || [diagram.shapes count] == 0) {
+		return;
+	}
+	NSSet *hubs = [self hubsOf:diagram];
+	NSArray *elementGroups = [self groupsOf:diagram hubs:hubs];
+	NSMutableArray<ORMLayoutGroup *> *groups = [NSMutableArray array];
+	/* An element of a group needs one shape: its lines all stay in it. */
+	NSMutableArray *extra = [NSMutableArray array];
+	for (NSArray *elements in elementGroups) {
+		ORMLayoutGroup *group = [[ORMLayoutGroup alloc] init];
+		for (NSString *element in elements) {
+			NSArray *shapes = [diagram shapesForSubject:element];
+			if ([shapes count] > 0) {
+				[group.shapes addObject:[shapes firstObject]];
+				[extra addObjectsFromArray:[shapes subarrayWithRange:NSMakeRange(1, [shapes count] - 1)]];
+			}
+		}
+		[group.hubs unionOrderedSet:[self hubsOfGroup:elements on:diagram hubs:hubs]];
+		[groups addObject:group];
+	}
+	[_editor modelChange:@"Arrange in Groups" with:^{
+		[self removeShapes:extra];
+		/* One shape of each hub for each group that uses it: its shapes
+		 * reused, the group's nearest first; more made; the rest removed. */
+		for (NSString *hub in [[hubs allObjects] sortedArrayUsingSelector:@selector(compare:)]) {
+			NSMutableArray *spare = [NSMutableArray array];
+			for (ORMShape *shape in [diagram shapesForSubject:hub]) {
+				if (shape.kind == ORMShapeObjectType) {
+					[spare addObject:shape];
+				}
+			}
+			for (ORMLayoutGroup *group in groups) {
+				if (![group.hubs containsObject:hub]) {
+					continue;
+				}
+				NSPoint centre = ORMCentreOf(group.shapes);
+				ORMShape *best = nil;
+				double distance = DBL_MAX;
+				for (ORMShape *shape in spare) {
+					double d = hypot(NSMidX(shape.bounds) - centre.x, NSMidY(shape.bounds) - centre.y);
+					if (d < distance) {
+						distance = d;
+						best = shape;
+					}
+				}
+				if (best != nil) {
+					[spare removeObject:best];
+				} else {
+					ORMObjectType *type = [self->_editor.model elementWithId:hub];
+					NSSize size = [self defaultSizeOf:type];
+					best = [self addShape:ORMShapeObjectType of:type
+					               bounds:NSMakeRect(centre.x, centre.y, size.width, size.height) parent:nil on:diagram];
+				}
+				[group.hubShapes setObject:best forKey:hub];
+				[group.shapes addObject:best];
+			}
+			[self removeShapes:spare];
+		}
+		/* Each group laid out, then the groups in rows, the largest first. */
+		double area = 0;
+		double widest = 0;
+		for (ORMLayoutGroup *group in groups) {
+			[self layOut:group on:diagram];
+			area += (group.size.width + ORMGroupGap) * (group.size.height + ORMGroupGap);
+			widest = MAX(widest, group.size.width);
+		}
+		NSArray *bySize = [groups sortedArrayUsingDescriptors:@[ [NSSortDescriptor sortDescriptorWithKey:@"area" ascending:NO] ]];
+		double rowWidth = MAX(widest, sqrt(area) * 1.3);
+		double x = 0.5 * 72;
+		double y = 0.5 * 72;
+		double rowHeight = 0;
+		for (ORMLayoutGroup *group in bySize) {
+			if (x > 0.5 * 72 && x + group.size.width > 0.5 * 72 + rowWidth) {
+				x = 0.5 * 72;
+				y += rowHeight + ORMGroupGap;
+				rowHeight = 0;
+			}
+			for (ORMShape *shape in group.shapes) {
+				NSPoint at = [[group.placed objectForKey:shape.identifier] pointValue];
+				NSSize delta = NSMakeSize(x + at.x - NSMinX(shape.bounds), y + at.y - NSMinY(shape.bounds));
+				for (ORMShape *moved in [self movedShapes:@[ shape.identifier ]]) {
+					moved.bounds = NSOffsetRect(moved.bounds, delta.width, delta.height);
+					[self->_editor wrote:moved];
+				}
+			}
+			x += group.size.width + ORMGroupGap;
+			rowHeight = MAX(rowHeight, group.size.height);
 		}
 	}];
 }

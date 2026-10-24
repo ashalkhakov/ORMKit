@@ -44,10 +44,15 @@
 - (IBAction)deleteDiagram:(id)sender;
 - (IBAction)chooseDiagram:(id)sender;
 - (IBAction)arrangeDiagram:(id)sender;
+/* Diagram > Arrange in Groups: its hubs shown in each group that uses
+ * them, the groups side by side. */
+- (IBAction)arrangeDiagramInGroups:(id)sender;
 - (IBAction)showOnDiagram:(id)sender;
 /* Another shape of each object type and fact type picked, beside its
  * first, as NORMA allows; the new ones selected. */
 - (IBAction)addAnotherShape:(id)sender;
+/* The extra shapes selected removed, their elements kept. */
+- (IBAction)deleteExtraShape:(id)sender;
 - (IBAction)showRelated:(id)sender;
 - (IBAction)objectifyFactType:(id)sender;
 - (IBAction)unobjectifyFactType:(id)sender;
