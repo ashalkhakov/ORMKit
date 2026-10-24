@@ -192,6 +192,46 @@ Each step keeps every test passing.
    away (`removedIds`). The next free constraint name still reads every
    name, when a constraint is made.
 
+## The model as text
+
+The `.orm` is where a model is kept, and the only place: an app's build
+generates what it needs from it (the Core Data model, the code and tables
+that keep its rules), and keeps none of it. Two ways change it: ORMDesigner,
+and schema text applied to it (`ormtool apply`, `-[ORMSentenceEditor
+addFromText:failures:]`).
+
+Schema text is a statement a line, as the verbalizer says it
+([VERBALIZATION.md](VERBALIZATION.md)). `ORMSchemaText` writes the model so
+(`ormtool forml`), as a listing: a section for each diagram, headed `#` and
+its name, with what the diagram shows first in the order of its shapes;
+what is on no diagram, and the constraints and queries no shape places,
+right after what they name, so that the text reads back into the same model
+(the tests read it back and write it again, the same). What the listing
+shows that is not a statement is the model's too, in NORMA's own terms:
+
+- a section is a diagram;
+- a comment just before a statement is the note of what it says: NORMA's
+  `Notes/Note/Text` on an object type, fact type or constraint (NORMA keeps
+  notes on constraints too); on a query, an `ormq:Note`, in ORMKit's
+  namespace like the query, which a copy for NORMA leaves out;
+- a fact type a query derives shows its mark and the query's name ("** By
+  query SaleDate."): NORMA's derivation note is the query's words, written
+  from it.
+
+So the listing is generated, never kept: an unchanged `.orm` read and
+written is the same bytes as before, and NORMA reads what the notes add.
+
+Applied to a model, the text is one change. A statement the model says
+already (compared as the listing words it) is left, and the lines after it
+go on from it; one it lacks is made, on the diagram of the `#` heading above
+it (one of that name the model has, or a new one), else of what it names; a
+comment before a line becomes the note of what it says; a line starting
+`- ` takes away what it says, and a query given again under its name
+replaces it. A model's own listing applied to it changes nothing, every
+NORMA fixture the same bytes after (a change that touches nothing in the
+document is no step, and leaves it as read). `ormtool build` reads the
+same text into a new model: how a model begins, not how it changes.
+
 ## Not here
 
 - Concurrent editing, and saving while editing.

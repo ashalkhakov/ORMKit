@@ -74,7 +74,8 @@ comparison with the first: `x1.city is city`.
 ```
 read Employee
 where city is set and country is set
-  and some employees as x1 has (x1.city is city and not (x1.country is country)
+  and some employees as x1 has (x1.city is city and x1.country is set
+                                and not (x1.country is country)
                                 and x1.employeeName is set)
   and employeeName is set
 list self (nr), x1 (nr), x1.employeeName, employeeName
@@ -85,7 +86,8 @@ is one fetch; a plan can take several:
 
 ```
 fetch Employee where (city != nil) AND (country != nil)
-  AND (SUBQUERY(employees, $x1, ($x1.city == city) AND (NOT ($x1.country == country))
+  AND (SUBQUERY(employees, $x1, ($x1.city == city) AND ($x1.country != nil)
+                                AND (NOT ($x1.country == country))
                                 AND ($x1.employeeName != nil)).@count > 0)
   AND (employeeName != nil)
 ```
@@ -94,7 +96,8 @@ fetch Employee where (city != nil) AND (country != nil)
 
 ```
 GET Employees?$filter=City ne null and Country ne null
-  and Employees/any(x1:x1/City/Id eq $it/City/Id and not (x1/Country/Name eq $it/Country/Name)
+  and Employees/any(x1:x1/City/Id eq $it/City/Id and x1/Country ne null
+                    and not (x1/Country/Name eq $it/Country/Name)
                     and x1/EmployeeName ne null) and EmployeeName ne null
   &$select=Nr,EmployeeName&$expand=Employees($select=Nr,EmployeeName)
 ```
@@ -181,6 +184,7 @@ identified (a name, a state, a country).
 | --- | --- |
 | `✓X` | X is listed |
 | `X = v`, `<>`, `<`, `<=`, `>`, `>=` | a condition on X's value, or on its identifier |
+| `X in ('Maintenance', 'Repair')`, `X in (4, 5)` | X is one of a list: any of its values (planned as equalities, any of them; in NORMA's path, a value range for each) |
 | `+ not ...` | there is no such step |
 | `+ maybe ...` | the step if there is one: listed, but leaves nothing out (the outer join) |
 | `+ count(X) for Y > n` | how many X each Y has, compared |
@@ -193,6 +197,8 @@ identified (a name, a state, a country).
 | `Session + has Cinema` | a link fact type: from an objectifying type to a player of its fact, or back; planned as the objectified fact type's entity's relationship |
 | `City1` | a label: nodes of one object type with the same label are the same object |
 | `Country2 <> Country1` | a condition comparing two nodes of the same object type |
+| `✓Length = Kilometres2 - Kilometres1 > 100` | a value node: computed from nodes before it, under the node it is for, listed and compared as a node is ([EXPRESSIONS.md](EXPRESSIONS.md)) |
+| `Previous = max(Moment2) for FillUp1` | an aggregate as a value node, for the node it is under or above: compared with (`+ was at Moment3 = Previous`), used in arithmetic |
 
 A step reads from the role it enters by: "is location of" is the inverse
 reading of "Branch is located in City". When a fact type has no reading that
@@ -214,6 +220,10 @@ says (ORMOutlineReader), as one change:
   the steps of its node of X; the first node's need no such line.
 - A condition with a designation for its value (`Country2 <> Country1`)
   compares two nodes.
+- A line without `+` at a node's steps' depth, `Name = expression`, is a
+  value node of that node (`Name: Type = ...` gives its value type), made
+  once every step is; a comparison after the expression, outside its
+  parentheses, is its condition.
 - A constraint's first line (`It is impossible that:`) or a calculation's
   (`Total of each Branch is total(Salary) of:`) says what the query is for.
 
@@ -316,7 +326,8 @@ Its text (`-[ORMQueryPlan text]`):
 | a label met again, in scope | `x1.city is city` |
 | a label met again, out of scope | `x2 is among ownsCars`: among what the trail reaches from the object read, and meeting the conditions the earlier occurrence had: `x2 is among ownsCars and x2.regnr = 'B'` |
 | a label on an absorbed object type, met again | its parts compared: `x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and ...` |
-| a node compared with another | `not (x1.country is country)` |
+| a node compared with another | `not (x1.country is country)`, beside `x1.country is set`: a condition that holds of nothing (a not) does not say the step is taken |
+| a step to an absorbed object type, nothing more said of it | each part that identifies it set: `cityCityname is set and cityStateCountry is set and cityStateStatecode is set` (a city with no state is none) |
 | a step to a part of an absorbed object type | the absorbing entity's property: `cityCityname` |
 | a step through an absorbed object type to an entity that absorbs it too | `... in join1`, a set the plan defines: `let join1 = read Branch where nr = 52` (below) |
 | the ticked object types | `list self (nr), employee.cars (regnr)`: paths from the object read, an entity by its identifier; one identified by several values by those, in its reference scheme's order, as a list in the row: `x1.degree (degreecode, university.code)` gives `BSc, UQ` |
@@ -361,6 +372,82 @@ group under a `some`, the bag runs once, whole.
 Reading the subtype matters. A store fetching Academic has none of
 Professor's properties, so `chair.name = 'Informatics'` holds only of a
 Professor. When every result must be a professor, Professor is what is read.
+
+### Decorrelation
+
+A bag of the whole query, for each group, is what ConQuer-II says, and
+read as it says it is correlated: "the greatest odometer of the vehicle's
+fill-ups below this one's" makes a row for each fill-up and each earlier
+one of its vehicle, quadratic in a vehicle's fill-ups. Two shapes are
+planned and run otherwise, as databases unnest a correlated subquery
+(Kim, 1982; Neumann and Kemper, "Unnesting arbitrary queries", 2015):
+
+- **An inequality is a window.** An aggregate over what one comparison
+  relates to the group (`Previous = max(Odometer2) for FillUp1`, where
+  FillUp2 is of FillUp1's vehicle and `Odometer2 < Odometer1`) is planned
+  as an aggregate over a window. Its bag lists each member of a partition
+  once, and the value is of the partition's tuples whose key compares with
+  the object's:
+
+  ```
+  let bag1 = read FillUp list vehicle (id), self (id), odometer
+  ... max of Odometer2 in bag1 where Vehicle is vehicle.id, Odometer2 < odometer
+  ```
+
+  A backend sorts a partition's tuples by the key once, with the aggregate
+  of every run of them from either end (`ORMWindow`), and answers each
+  object by a binary search: O(m log m) for a vehicle of m fill-ups, not
+  O(m²). The shape: one to-many on the way from the group to the node
+  aggregated (its node the member, its parent the partition, reached from
+  the group through to-ones); the member's own steps only to its
+  attributes, with conditions on values; and one of them compared (<, <=,
+  >, >=) with an attribute reached from the group through to-ones. Also:
+  - **two bounds** on one key, a range ("since the one before, up to this
+    one": `Odometer3 > Previous, Odometer3 <= odometer`), the key's nodes
+    one object by their label; counts, totals and averages come from
+    running sums, the greatest and least from a sparse table;
+  - **a bound computed**: a value node of the group, itself a window
+    perhaps (`Previous`);
+  - **a key or value computed** of the member's attributes alone (`Later
+    = Odometer2 + 500 < Odometer1`), a column of the bag;
+  - **an equality** with what the group has (`Litres2 = Litres1`): within
+    the partition, the window of the tuples of the object's value
+    (`where Vehicle is vehicle.id, Litres2 is litres, Odometer2 <
+    odometer`); also a node the same object as one of the group's, by its
+    label (`is in DistanceUnit1`), a to-one by what identifies it
+    (`DistanceUnit1 is mileageDistanceUnit.code`);
+  - **down subtypes**: a member reached as its supertype and taken down
+    to a subtype by links alone (`Record is of that Vehicle`, `is Event`,
+    `is FillUp2`), the bag the subtype's;
+  - **through what is absorbed**: the member's attributes through an
+    object type absorbed into it (`was at Distance2`, `has Quantity2`:
+    `mileageQuantity`), and a unary of it a condition (`filled the
+    tank`).
+
+  Any other shape is the whole query's bag, as before.
+- **An existence with an inequality is a window's count.** A step to
+  such a member ("some earlier fill-up of the vehicle"), whose nodes are
+  listed nowhere and used by nothing computed, is the window's count
+  above none (none under a not), planned for the nearest node above that
+  reaches the partition and the attribute compared through to-ones:
+  `count of FillUp2 in bag1 where Vehicle is vehicle.id, Odometer2 <
+  odometer > 0`. Not a subquery the store runs for each row.
+- **A window is made once in a run.** Its partition is the same for every
+  batch (every page) whose objects are of it: a batch reads only the
+  partitions not yet made.
+- **An equality is a lookup.** An exists (a count, an aggregate) over a
+  collection, with a conjunct `x.key = v` whose v names nothing the
+  condition binds, takes its members from an index of the collection by
+  the key, made once for the collection's owner, rather than trying each
+  ("the fill-up of this vehicle at the previous odometer"); the key may be
+  a subtype's (`x.(Event).(FillUp).odometer`), and a member not of it is
+  in no index. What the index finds is still asked the whole condition.
+  Both backends: the service's runner indexes the collection a graft
+  gave, once in the run.
+
+"The one before" at 100,000 fill-ups (100 to a vehicle) went from 480 s to
+5 s with these, and one vehicle of 3,000 fill-ups from 76 s to 0.17 s:
+linear both in the vehicles and in a vehicle's fill-ups.
 
 ## The interpreter: running a plan against Core Data
 
@@ -426,12 +513,20 @@ sorted by nr descending
 | `some C as x1 has ...` | `SUBQUERY(C, $x1, ...).@count > 0` |
 | `number of C ... > n` | `C.@count > n`, `SUBQUERY(...).@count > n` |
 | `sum of x1.v over C` | `C.@sum.v`; with `having`, on the objects fetched (`keep those where ...`) |
-| `is a Professor` | `entity.name IN {Professor and its subentities}` |
+| `is a Professor` | `entity IN {Professor and its subentities}`: the entities themselves, which a SQLite store asks of its entity column, inside a SUBQUERY too |
 | `is` | `==` |
 | `is among` a trail | `ANY $x2.isOwnedByEmployees == SELF`: back along the inverses, which the SQLite store says in SQL |
 | `... in join1` | the set fetched first: `join1: fetch Branch where nr == 52` |
 
 ## Joins through absorbed object types
+
+An object type absorbed as its identifier's value (a mapping's
+`AbsorbIdentifierTypes`: a currency kept as its code) is an attribute; a
+step from it to a fact type kept as an entity of its own is a join on that
+value, each such object bound, optional for a maybe
+(`was worth Factor in Currency2 on Date` from a cost's currency: the rates
+whose base currency is the cost's code).
+
 
 By default the mapping absorbs a value-like composite, such as City or Address,
 into the entities that use it, and its parts become their attributes. Going
@@ -511,6 +606,10 @@ a query is undone with the model. **Save a Copy for NORMA** leaves them out:
         <ormq:Node id="_..." Role="_City's role">
           <ormq:Step ... Operator="Not" Count=">" CountValue="1"> ...
 ```
+
+A value node is an `ormq:Value` child of its node, its expression by node
+ids (`Expression="subtract(#_q2, #_q1)"`): see
+[EXPRESSIONS.md](EXPRESSIONS.md#in-the-file).
 
 A query may be a constraint or a calculation instead of a list
 (`Kind="Constraint"`, `Kind="Calculation" Function="Total" Of="_node"`):

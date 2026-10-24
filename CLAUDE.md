@@ -11,6 +11,7 @@ queries; [docs/CURSORS.md](docs/CURSORS.md) how a plan is read, as a tree of cur
 [docs/RUNTIME.md](docs/RUNTIME.md) what apps run: plans as tables in resources, read by a small
 driver library, with generated code kept to declarations;
 [docs/POPULATIONS.md](docs/POPULATIONS.md) the sample populations they run on;
+[docs/FORMS.md](docs/FORMS.md) forms: fact selections generated as XForms (a design);
 [docs/MODEL.md](docs/MODEL.md) the model as objects, and the XML as NORMA's.
 
 ## The objects are the model; the XML is for NORMA

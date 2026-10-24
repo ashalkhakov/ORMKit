@@ -29,6 +29,9 @@
  * asserted; stored, its facts kept once derived. NO for a fact type with
  * no rule, or only an older one (a DerivationExpression). */
 - (BOOL)setDerivationPartial:(BOOL)partial stored:(BOOL)stored of:(NSString *)factTypeId reason:(NSString **)reason;
+/* Whether its population is reference data, every store's to start with.
+ * NO, and why, for one that is no ordinary fact type, or is derived. */
+- (BOOL)setReferenceData:(BOOL)flag of:(NSString *)factTypeId reason:(NSString **)reason;
 /* An objectified type nesting the fact type, and the link fact types
  * NORMA implies for it. Its id. */
 - (NSString *)objectifyFactType:(NSString *)factTypeId named:(NSString *)name reason:(NSString **)reason;

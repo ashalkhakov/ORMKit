@@ -393,6 +393,60 @@ ORMSquashed(NSString *name)
 	XCTAssertTrue([[mapped entityNamed:@"Meter"].uniquenessConstraints containsObject:(@[ @"meterGroup", @"meterName" ])]);
 }
 
+/* A role's name is one of them: on the many side, its plural. */
+- (void)testANamedRoleOnTheManySideIsPlural
+{
+	ORMEditor *editor = [self newEditor];
+	ORMSentenceEditor *sentences = [[ORMSentenceEditor alloc] initWithEditor:editor];
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	for (NSString *text in @[ @"Vehicle(.id) (as OwnedVehicle) is owned by User(.email) (as Owner)",
+	                          @"Each Vehicle is owned by exactly one User." ]) {
+		NSString *reason = nil;
+		XCTAssertNotNil([sentences addFromSentence:text onDiagram:diagram at:ORMAutomaticPlacement reason:&reason], @"%@", reason);
+	}
+	ORMCDModel *mapped = [self map:editor.model];
+	XCTAssertEqualObjects([[[mapped entityNamed:@"Vehicle"] relationshipNamed:@"owner"] inverseName], @"ownedVehicles");
+}
+
+/* Entities side by side may share a property's name; one and what it
+ * inherits from may not. */
+- (void)testSiblingsShareNamesAndLinesDoNot
+{
+	ORMEditor *editor = [self newEditor];
+	ORMSentenceEditor *sentences = [[ORMSentenceEditor alloc] initWithEditor:editor];
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	for (NSString *text in @[ @"Label is a value type.", @"Mileage is a value type.", @"Record(.id) has Label",
+	                          @"Each Record has at most one Label.", @"Each Trip is a Record.", @"Each FillUp is a Record.",
+	                          @"Each Trip is at at most one Mileage.", @"Each FillUp is at at most one Mileage.",
+	                          @"Trip has Label", @"Each Trip has at most one Label." ]) {
+		NSString *reason = nil;
+		XCTAssertNotNil([sentences addFromSentence:text onDiagram:diagram at:ORMAutomaticPlacement reason:&reason], @"%@", reason);
+	}
+	ORMCDModel *mapped = [self map:editor.model];
+	XCTAssertNil([self momcRejects:mapped]);
+	NSArray *trip = [[[mapped entityNamed:@"Trip"] attributes] valueForKey:@"name"];
+	NSArray *fillUp = [[[mapped entityNamed:@"FillUp"] attributes] valueForKey:@"name"];
+	XCTAssertTrue([trip containsObject:@"mileage"] && [fillUp containsObject:@"mileage"], @"%@ %@", trip, fillUp);
+	XCTAssertTrue([[[[mapped entityNamed:@"Record"] attributes] valueForKey:@"name"] containsObject:@"label"]);
+	XCTAssertFalse([trip containsObject:@"label"], @"%@", trip);
+}
+
+/* A fact type mapped as an entity of its own is called what the modeller
+ * named it, not what its reading says. */
+- (void)testANamedFactTypeNamesItsEntity
+{
+	ORMEditor *editor = [self newEditor];
+	ORMSentenceEditor *sentences = [[ORMSentenceEditor alloc] initWithEditor:editor];
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *reason = nil;
+	NSString *rate = [[sentences addFromSentence:@"Currency(.code) was worth Factor() in Currency on Date()" onDiagram:diagram
+	                                          at:ORMAutomaticPlacement reason:&reason] firstObject];
+	XCTAssertNotNil(rate, @"%@", reason);
+	XCTAssertTrue([editor.elementEditor rename:rate to:@"ExchangeRate" reason:&reason], @"%@", reason);
+	ORMCDModel *mapped = [self map:editor.model];
+	XCTAssertNotNil([mapped entityNamed:@"ExchangeRate"]);
+}
+
 - (void)testCollidingNamesComeFromTheReadings
 {
 	ORMEditor *editor = [self newEditor];

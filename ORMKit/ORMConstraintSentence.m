@@ -63,6 +63,9 @@ static const char *const ORMQuantifiers[] = {
 @property (nonatomic, readwrite, copy) NSString *values;
 @property (nonatomic, readwrite, copy) NSString *valuesOfObjectType;
 @property (nonatomic, readwrite, strong) ORMSentenceRole *valuesOfRole;
+@property (nonatomic, readwrite, copy) NSString *comparisonOperator;
+@property (nonatomic, readwrite) NSUInteger minFrequency;
+@property (nonatomic, readwrite) NSUInteger maxFrequency;
 @end
 
 @implementation ORMSentenceConstraint
@@ -536,7 +539,9 @@ ORMHasPrefix(NSString *text, NSString *prefix)
 #pragma mark Clauses
 
 /* The names the player may go by in a sentence: its family's
- * (ORMObjectType's familyNames); "?" for a placeholder of no player. */
+ * (ORMObjectType's familyNames); "?" for a placeholder of no player. A
+ * sibling's ("that Driver" for a Witness's role, both Persons) is only for
+ * one named before (ORMSiblingNamed). */
 static NSArray<NSString *> *
 ORMNamesOf(ORMObjectType *player)
 {
@@ -623,11 +628,10 @@ ORMNamesOf(ORMObjectType *player)
 {
 	NSMutableArray *readings = [NSMutableArray array];
 	for (ORMFactType *fact in _model.factTypes) {
-		if (fact.kind == ORMFactTypeSubtype && [fact.roles count] == 2) {
-			ORMRole *sub = [fact.roles objectAtIndex:0];
-			ORMRole *sup = [fact.roles objectAtIndex:1];
-			[readings addObject:@[ fact, @"{0} is {1}", @[ sub, sup ] ]];
-			[readings addObject:@[ fact, @"{0} is {1}", @[ sup, sub ] ]];
+		if ([fact subtypeReadingRolesFrom:nil] != nil) {
+			for (ORMRole *role in fact.roles) {
+				[readings addObject:@[ fact, ORMSubtypeReadingText, [fact subtypeReadingRolesFrom:role] ]];
+			}
 			continue;
 		}
 		/* An objectification's link fact types read too ("...is involved
@@ -686,6 +690,22 @@ ORMNamesOf(ORMObjectType *player)
 	return clauses;
 }
 
+/* Whether a term goes by a sibling of its role's player, and is no
+ * "that": "Each FillUp is at ..." is not a Trip's reading, though both are
+ * Records; "that Driver" may stand for a Witness, as NORMA lets a set
+ * comparison join roles of one family. */
+- (BOOL)namesSiblingAfresh:(NSArray<ORMSentenceTerm *> *)terms
+{
+	for (ORMSentenceTerm *term in terms) {
+		ORMObjectType *named = term.omitted ? nil : [_model objectTypeNamed:[term typeName]];
+		ORMObjectType *player = term.role.role.player;
+		if (named != nil && player != nil && ![named isCompatibleWith:player] && ![term.quantifier isEqualToString:@"that"]) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 - (NSArray<ORMSentenceClause *> *)allMatches:(NSString *)text omit:(BOOL)omit
 {
 	NSMutableArray *clauses = [NSMutableArray array];
@@ -735,6 +755,11 @@ ORMNamesOf(ORMObjectType *player)
 					term.name = [text substringWithRange:names[i]];
 				}
 				[terms addObject:term];
+			}
+			if ([self namesSiblingAfresh:terms]) {
+				free(quantifiers);
+				free(names);
+				continue;
 			}
 			ORMSentenceClause *clause = [[ORMSentenceClause alloc] init];
 			clause.factType = fact;
@@ -1024,8 +1049,140 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 }
 
 /* "Each Person was born in exactly one Country", "Each Person smokes". */
+/* "exactly 2", "at least 2", "at most 5", "at least 2 and at most 5": a
+ * frequency's bounds, as the verbalizer says them (max 0 for none). NO for
+ * one that is not a frequency's: "at most one" is uniqueness. */
+static BOOL
+ORMFrequencyBounds(NSString *quantifier, NSUInteger *min, NSUInteger *max)
+{
+	NSScanner *scanner = [NSScanner scannerWithString:quantifier ?: @""];
+	NSInteger first = 0;
+	NSInteger second = 0;
+	if ([scanner scanString:@"exactly" intoString:NULL] && [scanner scanInteger:&first] && [scanner isAtEnd]) {
+		*min = (NSUInteger)first;
+		*max = (NSUInteger)first;
+	} else if ([scanner scanString:@"at least" intoString:NULL] && [scanner scanInteger:&first]) {
+		*min = (NSUInteger)first;
+		*max = 0;
+		if (![scanner isAtEnd]) {
+			if (![scanner scanString:@"and at most" intoString:NULL] || ![scanner scanInteger:&second] || ![scanner isAtEnd]) {
+				return NO;
+			}
+			*max = (NSUInteger)second;
+		}
+	} else if ([scanner scanString:@"at most" intoString:NULL] && [scanner scanInteger:&first] && [scanner isAtEnd]) {
+		*min = 1;
+		*max = (NSUInteger)first;
+	} else {
+		return NO;
+	}
+	return first > 1 || second > 1 || (*max == 0 && *min > 0);
+}
+
+- (void)addFrequency:(NSArray<ORMSentenceRole *> *)roles min:(NSUInteger)min max:(NSUInteger)max
+{
+	ORMSentenceConstraint *constraint = ORMMakeConstraint(ORMFrequencyConstraint, @[ roles ]);
+	constraint.minFrequency = min;
+	constraint.maxFrequency = max;
+	[self add:constraint];
+}
+
+/* A clause of a reading the model has, its subject left out or said
+ * ("that Person"); nil where none reads so. */
+- (ORMSentenceClause *)knownClause:(NSString *)text subject:(NSString *)subject
+{
+	for (ORMSentenceClause *clause in [self match:ORMTrimmed(text) omit:YES]) {
+		[[clause.terms firstObject] setName:subject];
+		return clause;
+	}
+	return [[self match:ORMTrimmed(text) omit:NO] firstObject];
+}
+
+/* "Each Person that has some PhoneNr has at least 2 and at most 5
+ * PhoneNr": the clause said twice, "some" then how many, of the role the
+ * subject plays. NO, saying nothing, when it is not so. */
+- (BOOL)frequencyOfRole:(NSString *)text
+{
+	NSRegularExpression *counted = [NSRegularExpression regularExpressionWithPattern:@" (exactly|at least|at most) [0-9]+ "
+	                                                                         options:0
+	                                                                           error:NULL];
+	if ([counted firstMatchInString:text options:0 range:NSMakeRange(0, [text length])] == nil) {
+		return NO;
+	}
+	NSString *subject = [self leadingName:[text substringFromIndex:[@"Each " length]]];
+	NSString *lead = [NSString stringWithFormat:@"Each %@ that ", subject];
+	if (![text hasPrefix:lead]) {
+		return NO;
+	}
+	NSString *rest = [text substringFromIndex:[lead length]];
+	for (NSRange space = [rest rangeOfString:@" "]; space.location != NSNotFound;
+	     space = [rest rangeOfString:@" " options:0 range:NSMakeRange(NSMaxRange(space), [rest length] - NSMaxRange(space))]) {
+		NSString *left = [rest substringToIndex:space.location];
+		NSString *right = [rest substringFromIndex:NSMaxRange(space)];
+		ORMSentenceClause *some = [self knownClause:left subject:subject];
+		ORMSentenceClause *many = [self knownClause:right subject:subject];
+		if (some.factType == nil || some.factType != many.factType) {
+			continue;
+		}
+		ORMSentenceTerm *own = [many termNamed:subject];
+		NSArray *others = [many termsOtherThan:own];
+		NSUInteger min = 0;
+		NSUInteger max = 0;
+		if (own != nil && [others count] == 1 && ORMFrequencyBounds([[others firstObject] quantifier], &min, &max)
+		    && [[[some termsOtherThan:[some termNamed:subject]] firstObject].quantifier isEqualToString:@"some"]) {
+			[self addFrequency:@[ own.role ] min:min max:max];
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* "Each Person, Language combination that occurs in the population of
+ * Person speaks Language occurs there exactly 2 times". NO, saying
+ * nothing, when it is not so. */
+- (BOOL)frequencyInPopulation:(NSString *)text
+{
+	NSRange that = [text rangeOfString:@" that occurs in the population of "];
+	NSRange there = [text rangeOfString:@" occurs there " options:NSBackwardsSearch];
+	if (that.location == NSNotFound || there.location == NSNotFound || there.location < NSMaxRange(that)
+	    || ![text hasSuffix:@" times"]) {
+		return NO;
+	}
+	NSString *head = [text substringWithRange:NSMakeRange([@"Each " length], that.location - [@"Each " length])];
+	if ([head hasSuffix:@" combination"]) {
+		head = [head substringToIndex:[head length] - [@" combination" length]];
+	}
+	NSArray *names = [head componentsSeparatedByString:@", "];
+	NSString *reading = [text substringWithRange:NSMakeRange(NSMaxRange(that), there.location - NSMaxRange(that))];
+	NSString *times = [text substringWithRange:NSMakeRange(NSMaxRange(there),
+	                                                       [text length] - NSMaxRange(there) - [@" times" length])];
+	NSUInteger min = 0;
+	NSUInteger max = 0;
+	ORMSentenceClause *clause = [[self match:reading omit:NO] firstObject];
+	if (clause == nil || !ORMFrequencyBounds(times, &min, &max)) {
+		return [self fail:[NSString stringWithFormat:@"\"%@\" is not a fact type the model has, or \"%@\" no frequency.",
+		                                             reading, times]];
+	}
+	NSMutableArray *roles = [NSMutableArray array];
+	for (NSString *name in names) {
+		ORMSentenceTerm *term = [clause termNamed:name];
+		if (term == nil) {
+			return [self fail:[NSString stringWithFormat:@"%@ is not in \"%@\".", name, reading]];
+		}
+		[roles addObject:term.role];
+	}
+	[self addFrequency:roles min:min max:max];
+	return YES;
+}
+
 - (BOOL)each:(NSString *)text
 {
+	if ([text rangeOfString:@" that occurs in the population of "].location != NSNotFound) {
+		return [self frequencyInPopulation:text];
+	}
+	if ([self frequencyOfRole:text]) {
+		return YES;
+	}
 	/* A reading the model has; else alternatives; else a new fact type. */
 	ORMSentenceClause *clause = [[self match:ORMLowerFirst(text) omit:NO] firstObject];
 	if (clause == nil && [text rangeOfString:@" or "].location != NSNotFound) {
@@ -1374,6 +1531,9 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 		return [self fail:@"\"For each\" needs a comma after what it lists."];
 	}
 	NSArray *names = [[head stringByReplacingOccurrencesOfString:@" and " withString:@", "] componentsSeparatedByString:@", "];
+	if (ORMHasPrefix(rest, @"if ")) {
+		return [self comparison:[rest substringFromIndex:[@"if " length]]];
+	}
 	BOOL exactlyOneHolds = ORMHasPrefix(rest, @"exactly one of the following holds: ");
 	if (exactlyOneHolds || ORMHasPrefix(rest, @"at most one of the following holds: ")) {
 		NSString *list = [rest substringFromIndex:[exactlyOneHolds ? @"exactly one of the following holds: "
@@ -1492,6 +1652,65 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 		return [self fail:@"An external uniqueness constraint spans two roles or more."];
 	}
 	[self add:ORMMakeConstraint(ORMUniquenessConstraint, @[ roles ])];
+	return YES;
+}
+
+/* A value comparison, after "For each Project, if ": "that Project starts
+ * on some Date1 and that Project ends on some Date2 then Date1 is less than
+ * or equal to Date2". The values compared are the roles named "some". */
+- (BOOL)comparison:(NSString *)text
+{
+	NSRange then = [text rangeOfString:@" then " options:NSBackwardsSearch];
+	if (then.location == NSNotFound) {
+		return [self fail:@"An \"if\" needs a \"then\"."];
+	}
+	NSString *condition = [text substringToIndex:then.location];
+	NSString *comparison = [text substringFromIndex:NSMaxRange(then)];
+	/* Longest first: "is less than or equal to" before "is less than". */
+	NSArray *operators = @[ @[ @"is less than or equal to", @"LessThanOrEqual" ],
+	                        @[ @"is greater than or equal to", @"GreaterThanOrEqual" ],
+	                        @[ @"is not equal to", @"NotEqual" ], @[ @"is equal to", @"Equal" ],
+	                        @[ @"is less than", @"LessThan" ], @[ @"is greater than", @"GreaterThan" ] ];
+	NSString *operator = nil;
+	NSArray *compared = nil;
+	for (NSArray *pair in operators) {
+		NSRange at = [comparison rangeOfString:[NSString stringWithFormat:@" %@ ", [pair firstObject]]];
+		if (at.location != NSNotFound) {
+			operator = [pair lastObject];
+			compared = @[ ORMTrimmed([comparison substringToIndex:at.location]),
+			              ORMTrimmed([comparison substringFromIndex:NSMaxRange(at)]) ];
+			break;
+		}
+	}
+	if (operator == nil) {
+		return [self fail:@"Compare with \"is less than\", \"is equal to\", \"is greater than or equal to\", ..."];
+	}
+	NSMutableArray *clauses = [NSMutableArray array];
+	for (NSString *part in [condition componentsSeparatedByString:@" and "]) {
+		ORMSentenceClause *clause = [[self match:ORMTrimmed(part) omit:NO] firstObject];
+		if (clause == nil) {
+			return [self fail:[NSString stringWithFormat:@"\"%@\" is not a fact type the model has.", part]];
+		}
+		[clauses addObject:clause];
+	}
+	NSMutableArray *roles = [NSMutableArray array];
+	for (NSString *name in compared) {
+		ORMSentenceRole *role = nil;
+		for (ORMSentenceClause *clause in clauses) {
+			for (ORMSentenceTerm *term in clause.terms) {
+				if ([term.quantifier isEqualToString:@"some"] && [term.name isEqualToString:name]) {
+					role = term.role;
+				}
+			}
+		}
+		if (role == nil) {
+			return [self fail:[NSString stringWithFormat:@"No \"some %@\" before the \"then\".", name]];
+		}
+		[roles addObject:role];
+	}
+	ORMSentenceConstraint *constraint = ORMMakeConstraint(ORMValueComparisonConstraint, @[ roles ]);
+	constraint.comparisonOperator = operator;
+	[self add:constraint];
 	return YES;
 }
 
@@ -1674,6 +1893,13 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
                                   reason:(NSString **)reason
 {
 	NSString *why = nil;
+	NSArray *statement = [self addStatement:text onDiagram:diagramId at:point reason:&why];
+	if (statement != nil || why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return statement;
+	}
 	ORMConstraintSentence *sentence = [ORMConstraintSentence sentenceWithString:text model:_editor.model reason:&why];
 	NSString *trimmed = ORMTrimmed(text ?: @"");
 	BOOL constraintLike = NO;
@@ -1789,6 +2015,14 @@ ORMChainVariables(NSArray<ORMSentenceClause *> *chain)
 				break;
 			case ORMRingConstraint:
 				created = [_editor.constraintEditor addRingConstraint:constraint.ringType overRoles:first reason:&failure];
+				break;
+			case ORMFrequencyConstraint:
+				created = [_editor.constraintEditor addFrequencyConstraintOverRoles:first min:constraint.minFrequency
+				                                                               max:constraint.maxFrequency reason:&failure];
+				break;
+			case ORMValueComparisonConstraint:
+				created = [_editor.constraintEditor addValueComparisonConstraint:constraint.comparisonOperator overRoles:first
+				                                                          reason:&failure];
 				break;
 			case ORMSubsetConstraint:
 			case ORMEqualityConstraint:

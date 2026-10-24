@@ -184,31 +184,42 @@ ORMReservedNames(void)
 	return reserved;
 }
 
-/* The root of an entity's inheritance tree, whose name set it shares. */
-- (NSString *)rootOf:(ORMCDEntity *)entity
+/* The entity and those it inherits from, nearest first. */
+- (NSArray<ORMCDEntity *> *)lineOf:(ORMCDEntity *)entity
 {
-	ORMCDEntity *at = entity;
-	NSMutableSet *seen = [NSMutableSet set];
-	while (at.parentName != nil && ![seen containsObject:at.name]) {
-		[seen addObject:at.name];
-		ORMCDEntity *parent = [_out entityNamed:at.parentName];
-		if (parent == nil) {
-			break;
-		}
-		at = parent;
+	NSMutableArray *line = [NSMutableArray array];
+	for (ORMCDEntity *at = entity; at != nil && [line indexOfObjectIdenticalTo:at] == NSNotFound;
+	     at = at.parentName != nil ? [_out entityNamed:at.parentName] : nil) {
+		[line addObject:at];
 	}
-	return at.name;
+	return line;
 }
 
+/* The names the entity's properties have. */
 - (NSMutableSet *)namesOf:(ORMCDEntity *)entity
 {
-	NSString *root = [self rootOf:entity];
-	NSMutableSet *names = [_names objectForKey:root];
+	NSMutableSet *names = [_names objectForKey:entity.name];
 	if (names == nil) {
 		names = [NSMutableSet set];
-		[_names setObject:names forKey:root];
+		[_names setObject:names forKey:entity.name];
 	}
 	return names;
+}
+
+/* Whether a property of the entity could not be called so: a name it,
+ * an entity it inherits from or one inheriting from it has. Entities side
+ * by side may share a name, as Core Data allows. */
+- (BOOL)isName:(NSString *)name takenFor:(ORMCDEntity *)entity
+{
+	for (ORMCDEntity *each in _out.entities) {
+		NSArray *line = [self lineOf:each];
+		BOOL related = [line indexOfObjectIdenticalTo:entity] != NSNotFound
+			|| [[self lineOf:entity] indexOfObjectIdenticalTo:each] != NSNotFound;
+		if (related && [[self namesOf:each] containsObject:name]) {
+			return YES;
+		}
+	}
+	return NO;
 }
 
 /* The user's name for the source, if it can be a Core Data name: a letter
@@ -249,7 +260,7 @@ ORMReservedNames(void)
 		}
 	}
 	for (NSString *name in tries) {
-		if (![names containsObject:name]) {
+		if (![self isName:name takenFor:entity]) {
 			[names addObject:name];
 			return name;
 		}
@@ -257,7 +268,7 @@ ORMReservedNames(void)
 	NSString *base = [tries lastObject] ?: @"property";
 	for (NSUInteger i = 2;; i++) {
 		NSString *name = [NSString stringWithFormat:@"%@%lu", base, (unsigned long)i];
-		if (![names containsObject:name]) {
+		if (![self isName:name takenFor:entity]) {
 			[names addObject:name];
 			return name;
 		}
@@ -364,7 +375,7 @@ ORMReservedNames(void)
 - (BOOL)isIdentifierOnly:(ORMObjectType *)type
 {
 	if (type.referenceModeValueType == nil || type.nestedFactType != nil || type.isIndependent
-	    || [type.subtypes count] > 0 || [type.supertypes count] > 0) {
+	    || [type isInSubtypeHierarchy]) {
 		return NO;
 	}
 	/* A generated identifier (an auto counter, a row id) is made where
@@ -425,8 +436,7 @@ ORMReservedNames(void)
 - (BOOL)isCompositeValue:(ORMObjectType *)type
 {
 	NSArray *identifying = [self compositeIdentificationOf:type];
-	if (identifying == nil || type.nestedFactType != nil || type.isIndependent || [type.subtypes count] > 0
-	    || [type.supertypes count] > 0) {
+	if (identifying == nil || type.nestedFactType != nil || type.isIndependent || [type isInSubtypeHierarchy]) {
 		return NO;
 	}
 	NSMutableSet *identifyingFacts = [NSMutableSet set];
@@ -466,7 +476,7 @@ ORMReservedNames(void)
 - (ORMRole *)foldRoleOf:(ORMObjectType *)type
 {
 	ORMFactType *fact = type.nestedFactType;
-	if (fact == nil || type.isIndependent || [type.subtypes count] > 0 || [type.supertypes count] > 0) {
+	if (fact == nil || type.isIndependent || [type isInSubtypeHierarchy]) {
 		return nil;
 	}
 	NSArray *roles = [fact visibleRoles];
@@ -507,7 +517,7 @@ ORMReservedNames(void)
 	 * others' functional binary fact types. A thing with an id or a code
 	 * (UnitOfMeasure(.Id)) stays an entity even with nothing else to say. */
 	if (type.referenceModeKind != ORMReferenceModeUnitBased || type.nestedFactType != nil || type.isIndependent
-	    || [type.subtypes count] > 0 || [type.supertypes count] > 0) {
+	    || [type isInSubtypeHierarchy]) {
 		return ORMMapAsEntity;
 	}
 	NSUInteger uses = 0;
@@ -595,15 +605,28 @@ ORMReservedNames(void)
 
 /* The supertype a subtype's entity inherits from: the one that identifies
  * it, else its first mapped one. */
+/* A subtype a rule derives, not stored: what it is changes as the facts
+ * do, which no entity of its own can follow. */
+static BOOL
+ORMIsDerivedSubtype(ORMObjectType *type)
+{
+	ORMDerivationRule *rule = [type derivationRule];
+	return rule != nil && !rule.isStored;
+}
+
 - (ORMObjectType *)parentOf:(ORMObjectType *)type
 {
+	/* One supertype Core Data inherits from: the one that identifies it,
+	 * one no rule derives before one that a rule does. */
 	ORMObjectType *chosen = nil;
 	for (ORMFactType *fact in type.supertypeFacts) {
 		ORMObjectType *supertype = [fact supertype];
 		if ([self resolved:supertype] != ORMResolvedEntity) {
 			continue;
 		}
-		if (chosen == nil || fact.providesPreferredIdentifier) {
+		BOOL better = chosen == nil || (ORMIsDerivedSubtype(chosen) && !ORMIsDerivedSubtype(supertype))
+			|| (fact.providesPreferredIdentifier && ORMIsDerivedSubtype(chosen) == ORMIsDerivedSubtype(supertype));
+		if (better) {
 			chosen = supertype;
 		}
 	}
@@ -639,12 +662,15 @@ ORMReservedNames(void)
 		for (ORMFactType *fact in type.supertypeFacts) {
 			ownIdentification = ownIdentification || !fact.providesPreferredIdentifier;
 		}
-		if (parent != nil && self.mapping.flattensSubtypes && !ownIdentification) {
+		BOOL derived = ORMIsDerivedSubtype(type);
+		if (parent != nil && (self.mapping.flattensSubtypes || derived) && !ownIdentification) {
 			ORMCDEntity *root = [_entityOf objectForKey:parent.identifier];
 			[_entityOf setObject:root forKey:type.identifier];
 			[self note:ORMMappingWarning
-			      text:[NSString stringWithFormat:@"%@ is flattened into %@: its properties are optional there.",
-			                                      type.name, root.name]
+			      text:derived ? [NSString stringWithFormat:@"%@ is derived by a rule, so it is no entity of its own: its "
+			                                                 @"properties are %@'s, optional there.", type.name, root.name]
+			                   : [NSString stringWithFormat:@"%@ is flattened into %@: its properties are optional there.",
+			                                                type.name, root.name]
 			   element:type.identifier];
 			continue;
 		}
@@ -724,7 +750,7 @@ ORMReservedNames(void)
 - (NSArray<ORMJoinMember *> *)membersOf:(ORMObjectType *)type
 {
 	if ([self.mapping mappingOfObjectType:type.identifier] != ORMMapJoined || !type.isEntity
-	    || [type.supertypes count] > 0 || [type.subtypes count] > 0) {
+	    || [type isInSubtypeHierarchy]) {
 		return nil;
 	}
 	NSArray *members = [self.mapping.joins objectForKey:type.identifier];
@@ -976,6 +1002,18 @@ ORMRegexEscape(NSString *value)
 	return out;
 }
 
+/* The value type's pattern, matched whole: with a list of values beside
+ * it, both must hold, the pattern as a lookahead. */
+- (void)constrain:(ORMCDAttribute *)attribute byPattern:(NSString *)pattern
+{
+	if ([pattern length] == 0 || ![attribute.attributeType isEqualToString:@"String"]) {
+		return;
+	}
+	attribute.regularExpression = attribute.regularExpression != nil
+		? [NSString stringWithFormat:@"^(?=(?:%@)$)%@", pattern, [attribute.regularExpression substringFromIndex:1]]
+		: [NSString stringWithFormat:@"^(?:%@)$", pattern];
+}
+
 /* The value constraint's bounds, as Core Data can hold them. */
 - (void)constrain:(ORMCDAttribute *)attribute by:(ORMValueConstraint *)constraint element:(NSString *)elementId
 {
@@ -1068,6 +1106,7 @@ ORMRegexEscape(NSString *value)
 		attribute.maxValue = [NSString stringWithFormat:@"%ld", (long)valueType.dataTypeLength];
 	}
 	[self constrain:attribute by:roleConstraint ?: valueType.valueConstraint element:valueType.identifier];
+	[self constrain:attribute byPattern:valueType.valuePattern];
 	return attribute;
 }
 
@@ -1083,7 +1122,6 @@ ORMRegexEscape(NSString *value)
 		if (entity == nil || ![entity.source isEqualToString:type.identifier] || type.referenceModeValueType == nil) {
 			continue;
 		}
-		ORMFactType *fact = type.referenceModeFactType;
 		ORMRole *valueRole = type.referenceModeRole;
 		ORMRole *ownRole = [valueRole oppositeRole];
 		NSString *base = type.referenceModeKind == ORMReferenceModePopular
@@ -1258,8 +1296,11 @@ ORMCapitalized(NSString *name)
 	NSString *base = [ORMCoreDataMapper propertyNameFor:player];
 	NSString *phrase = [ORMCoreDataMapper propertyNameFor:[self phraseOf:far.factType from:near]];
 	NSMutableArray *candidates = [NSMutableArray array];
+	/* A role's name says one of them ("OwnedVehicle"); many are its
+	 * plural. */
 	if ([far.name length] > 0) {
-		[candidates addObject:[ORMCoreDataMapper propertyNameFor:far.name]];
+		NSString *named = [ORMCoreDataMapper propertyNameFor:far.name];
+		[candidates addObject:toMany ? [ORMCoreDataMapper pluralOf:named] : named];
 	}
 	/* A name the reading binds to the player ("first StreetLine"). */
 	NSString *bound = [self boundNameOf:far from:near];
@@ -1453,7 +1494,8 @@ ORMDeletionRule(ORMRole *far)
 		}
 	} else {
 		entity = [[ORMCDEntity alloc] init];
-		entity.name = [self claimEntityName:[fact derivedName] source:fact.identifier];
+		entity.name = [self claimEntityName:[fact.explicitName length] > 0 ? fact.explicitName : [fact derivedName]
+		                             source:fact.identifier];
 		entity.source = fact.identifier;
 		entity.codeGenerationType = self.mapping.codeGenerationType;
 		[_out.entities addObject:entity];

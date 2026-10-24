@@ -59,14 +59,18 @@ ORMFlag(NSDictionary *info, NSString *key)
 	return [[info objectForKey:key] isEqualToString:@"YES"];
 }
 
-/* The number ODataKit's service gives each new object, as the mapping
- * makes one (ORMODataAnnotator.h): a key, computed. Not a fact. */
+/* The key an object is given when it is made, as the mapping makes one
+ * (ORMODataAnnotator.h): a UUID marked ormkit.surrogate, or, as mappings
+ * made it before, a number the service computes. Not a fact. */
 static ORMCDAttribute *
 ORMSurrogateOf(ORMCDEntity *entity)
 {
 	for (ORMCDAttribute *attribute in entity.attributes) {
-		if (ORMFlag(attribute.userInfo, @"OData.key") && ORMFlag(attribute.userInfo, @"OData.computed")
-		    && [attribute.attributeType hasPrefix:@"Integer"]) {
+		if (!ORMFlag(attribute.userInfo, @"OData.key")) {
+			continue;
+		}
+		if (ORMFlag(attribute.userInfo, @"ormkit.surrogate")
+		    || (ORMFlag(attribute.userInfo, @"OData.computed") && [attribute.attributeType hasPrefix:@"Integer"])) {
 			return attribute;
 		}
 	}
@@ -78,8 +82,9 @@ static NSArray<NSString *> *
 ORMKeyNamesOf(ORMCDEntity *entity)
 {
 	NSMutableArray *names = [NSMutableArray array];
+	ORMCDAttribute *surrogate = ORMSurrogateOf(entity);
 	for (ORMCDAttribute *attribute in entity.attributes) {
-		if (ORMFlag(attribute.userInfo, @"OData.key") && !ORMFlag(attribute.userInfo, @"OData.computed")) {
+		if (ORMFlag(attribute.userInfo, @"OData.key") && attribute != surrogate) {
 			[names addObject:attribute.name];
 		}
 	}
@@ -132,6 +137,15 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 	if (surrogate != nil) {
 		[self.mappingEditor setName:surrogate.name forSource:[typeId stringByAppendingString:@".key"]
 		                  inMapping:state.mapping];
+	}
+	/* Its way offline (ODataSync), its own; its bookkeeping is the
+	 * mapping's to make again. */
+	ORMSyncDirection direction = ORMSyncNone;
+	NSString *rule = [entity.userInfo objectForKey:@"ODataSync.conflicts"];
+	if ([ORMCoreDataMapping syncDirection:&direction named:[entity.userInfo objectForKey:@"ODataSync.direction"]]
+	    || [rule length] > 0) {
+		[self.mappingEditor setSyncDirection:direction != ORMSyncNone ? @(direction) : nil conflicts:rule ofSource:typeId
+		                           inMapping:state.mapping];
 	}
 }
 
@@ -514,7 +528,7 @@ ORMKeyNamesOf(ORMCDEntity *entity)
 			NSString *type = [state.types objectForKey:entity.name];
 			for (ORMCDAttribute *attribute in entity.attributes) {
 				/* An identifier's, or a role of the fact a join is. */
-				if (type != nil && attribute != ORMSurrogateOf(entity)
+				if (type != nil && attribute != ORMSurrogateOf(entity) && !ORMFlag(attribute.userInfo, @"ormkit.bookkeeping")
 				    && ![[identifiers objectForKey:entity.name] isEqualToString:attribute.name]
 				    && [state.roles objectForKey:[NSString stringWithFormat:@"%@.%@", entity.name, attribute.name]] == nil) {
 					[self addAttribute:attribute of:entity to:type state:state];

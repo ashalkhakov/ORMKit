@@ -1,5 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryInterpreter.h"
+#import "ORMTuple.h"
+#import "ORMWindow.h"
 #import "ORMCursor.h"
 #import <ODataKit/ODataPropertyMapper.h>
 #import <CoreData/CoreData.h>
@@ -122,21 +124,57 @@ ORMDisplay(ORMPredicatePart *part)
 	return text;
 }
 
-/* The objects a value holds: a collection's members, or the one object. */
+/* Whether the value is an object deleted in its context: one a change
+ * deleted, which counts for nothing, as after the save. Until the
+ * context's pending changes are processed its owners' to-manys still hold
+ * it (and do after, where the rule is no action). */
+static BOOL
+ORMIsDeleted(id value)
+{
+	return [value isKindOfClass:[NSManagedObject class]] && [(NSManagedObject *)value isDeleted];
+}
+
+/* The collection without its deleted objects: itself where it has none. */
+static id
+ORMLive(id collection)
+{
+	BOOL any = NO;
+	for (id member in collection) {
+		if (ORMIsDeleted(member)) {
+			any = YES;
+			break;
+		}
+	}
+	if (!any) {
+		return collection;
+	}
+	id live = [collection isKindOfClass:[NSOrderedSet class]] ? [NSMutableOrderedSet orderedSet]
+	          : [collection isKindOfClass:[NSArray class]]    ? [NSMutableArray array]
+	                                                           : [NSMutableSet set];
+	for (id member in collection) {
+		if (!ORMIsDeleted(member)) {
+			[live addObject:member];
+		}
+	}
+	return live;
+}
+
+/* The objects a value holds: a collection's members, or the one object;
+ * none deleted. */
 static NSArray *
 ORMMembers(id value)
 {
-	if (value == nil || value == [NSNull null]) {
+	if (value == nil || value == [NSNull null] || ORMIsDeleted(value)) {
 		return @[];
 	}
 	if ([value isKindOfClass:[NSSet class]]) {
-		return [value allObjects];
+		return [ORMLive(value) allObjects];
 	}
 	if ([value isKindOfClass:[NSOrderedSet class]]) {
-		return [value array];
+		return [ORMLive(value) array];
 	}
 	if ([value isKindOfClass:[NSArray class]]) {
-		return value;
+		return ORMLive(value);
 	}
 	return @[ value ];
 }
@@ -162,6 +200,8 @@ ORMCompare(id left, NSString *comparison, id right)
 }
 
 @class ORMPlanRun;
+
+static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
 
 @interface ORMQueryInterpreter ()
 - (ORMPlanRun *)runOf:(ORMQueryPlan *)plan
@@ -216,12 +256,121 @@ ORMCompare(id left, NSString *comparison, id right)
 - (BOOL)holds:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings;
 /* Whether it aggregates a bag it defines, read with each batch. */
 - (BOOL)readsBags;
+/* The aggregates of bags it reads. */
+- (NSArray<ORMPlanValue *> *)bagValues;
+/* A bag's tuples, by group, worked out elsewhere (in memory). */
+- (void)keepGroups:(NSMapTable *)groups ofBag:(ORMPlanValue *)value;
+/* The bag run, for the groups among those given (all, for nil): its
+ * tuples by group, each once. */
+- (NSMapTable *)groupsOf:(ORMPlanValue *)value among:(NSArray *)among;
+/* A window value's windows made so far, by partition. */
+- (NSMapTable *)windowsMadeOf:(ORMPlanValue *)value;
+/* Whether it reads a bag, or a join it probes or fetches. */
+- (BOOL)needsAStore;
 @end
 
 /* The plan's fetch, a batch at a time, in its order. */
 @interface ORMStoreScan : NSObject <ORMCursor>
 @property (nonatomic, weak) ORMPlanRun *run;
 @end
+
+/* Each variable the condition names, as many times as it names it. */
+static void
+ORMCountVariables(ORMPlanCondition *condition, NSCountedSet *counts)
+{
+	if (condition == nil) {
+		return;
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMCountVariables(operand, counts);
+	}
+	ORMCountVariables(condition.operand, counts);
+	ORMCountVariables(condition.plan.condition, counts);
+	NSMutableArray *paths = [NSMutableArray array];
+	for (ORMPlanPath *path in @[ condition.path ?: (id)[NSNull null], condition.otherPath ?: (id)[NSNull null],
+	                             condition.valuePath ?: (id)[NSNull null] ]) {
+		if (path != (id)[NSNull null]) {
+			[paths addObject:path];
+		}
+	}
+	[paths addObjectsFromArray:[condition.left paths] ?: @[]];
+	[paths addObjectsFromArray:[condition.right paths] ?: @[]];
+	for (NSArray *pair in condition.pairs) {
+		[paths addObjectsFromArray:pair];
+	}
+	for (ORMPlanPath *path in paths) {
+		if (path.variable != nil) {
+			[counts addObject:path.variable];
+		}
+	}
+}
+
+/* The exists under the condition that are semi-joins: what they bind is
+ * named nowhere but in them, and listed by no column. */
+static void
+ORMFindSemiJoins(ORMPlanCondition *condition, NSCountedSet *all, NSSet *listed, NSHashTable *found)
+{
+	if (condition == nil) {
+		return;
+	}
+	if (condition.kind == ORMPlanExists && condition.variable != nil) {
+		NSSet *bound = [condition boundVariables];
+		NSCountedSet *inside = [NSCountedSet set];
+		ORMCountVariables(condition.operand, inside);
+		BOOL semi = YES;
+		for (NSString *variable in bound) {
+			semi = semi && ![listed containsObject:variable] && [all countForObject:variable] == [inside countForObject:variable];
+		}
+		if (semi) {
+			[found addObject:condition];
+			return;
+		}
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMFindSemiJoins(operand, all, listed, found);
+	}
+	ORMFindSemiJoins(condition.operand, all, listed, found);
+}
+
+/* Whether a value is an object of the entity named, or of one under it. */
+static BOOL
+ORMIsOfEntity(id value, NSString *name)
+{
+	NSEntityDescription *entity = [value isKindOfClass:[NSManagedObject class]] ? ((NSManagedObject *)value).entity : nil;
+	for (; entity != nil; entity = entity.superentity) {
+		if ([entity.name isEqualToString:name]) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* Every exists, count and aggregate under the condition with an equality
+ * on its member, by the condition. */
+static void
+ORMFindProbes(ORMPlanCondition *condition, NSMapTable *found)
+{
+	if (condition == nil) {
+		return;
+	}
+	NSArray *probe = [condition memberProbe];
+	if (probe != nil) {
+		[found setObject:probe forKey:condition];
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMFindProbes(operand, found);
+	}
+	ORMFindProbes(condition.operand, found);
+}
+
+/* A value as a key of a probe's index: a number by its double, so that
+ * 1500 and 1500.0 meet (two decimals one double apart meet too: the
+ * equality is still asked of what is found). */
+static id
+ORMProbeKey(id value)
+{
+	return [value isKindOfClass:[NSNumber class]] ? @([value doubleValue]) : value;
+}
 
 @implementation ORMPlanRun
 {
@@ -232,6 +381,20 @@ ORMCompare(id left, NSString *comparison, id right)
 	 * no batch answers them. */
 	NSMutableDictionary<NSString *, NSMapTable *> *_bags;
 	NSArray<ORMPlanValue *> *_bagValues;
+	/* Each aggregate's value for each group, made all at once from the
+	 * groups it was made of: @[ the groups, value by group ], by
+	 * aggregate. */
+	NSMapTable<ORMPlanValue *, NSArray *> *_aggregated;
+	/* Each window value's windows, by partition, made once in the run. */
+	NSMapTable<ORMPlanValue *, NSMapTable *> *_windows;
+	/* The exists that bind nothing the rows or other conditions use: one
+	 * member that holds is enough (a semi-join). */
+	NSHashTable<ORMPlanCondition *> *_semiJoins;
+	/* The conditions whose members are looked up by an equality: @[ key,
+	 * value ], by condition; and each collection's index for a key, by its
+	 * owner, then "key.relationship". */
+	NSMapTable<ORMPlanCondition *, NSArray *> *_memberProbes;
+	NSMapTable<id, NSMutableDictionary *> *_memberIndexes;
 	/* The joins (matches) the checks probe. */
 	NSArray<ORMPlanCondition *> *_probes;
 	id<ORMCursor> _cursor;
@@ -311,8 +474,19 @@ ORMCompare(id left, NSString *comparison, id right)
 	if (condition == nil) {
 		return;
 	}
-	for (ORMPlanValue *value in @[ condition.left ?: [NSNull null], condition.right ?: [NSNull null] ]) {
-		if (![value isKindOfClass:[ORMPlanValue class]] || value.bag == nil) {
+	NSMutableArray *values = [NSMutableArray array];
+	for (NSMutableArray *pending = [NSMutableArray arrayWithObjects:condition.left ?: [NSNull null],
+	                                                                condition.right ?: [NSNull null], nil];
+	     [pending count] > 0;) {
+		ORMPlanValue *value = [pending lastObject];
+		[pending removeLastObject];
+		if ([value isKindOfClass:[ORMPlanValue class]]) {
+			[values addObject:value];
+			[pending addObjectsFromArray:value.operands ?: @[]];
+		}
+	}
+	for (ORMPlanValue *value in values) {
+		if (value.bag == nil) {
 			continue;
 		}
 		BOOL known = NO;
@@ -369,9 +543,12 @@ ORMBagKey(ORMPlanValue *value)
 			scope = ^NSArray *(ORMBatch *batch) {
 				ORMPlanRun *run = weakSelf;
 				NSMutableOrderedSet *groups = [NSMutableOrderedSet orderedSet];
+				/* A window's partition, once in a run: it is the same
+				 * for every batch whose objects are of it. */
+				NSMapTable *made = value.windowColumn != nil ? [run windowsMadeOf:value] : nil;
 				for (id object in batch.objects) {
 					id group = [run valueOf:value.groupPath object:object bindings:run.bindings];
-					if (group != nil && group != [NSNull null]) {
+					if (group != nil && group != [NSNull null] && [made objectForKey:group] == nil) {
 						[groups addObject:group];
 					}
 				}
@@ -463,6 +640,24 @@ ORMBagKey(ORMPlanValue *value)
 	return [_bagValues count] > 0;
 }
 
+- (NSArray<ORMPlanValue *> *)bagValues
+{
+	return _bagValues ?: @[];
+}
+
+- (void)keepGroups:(NSMapTable *)groups ofBag:(ORMPlanValue *)value
+{
+	if (_bags == nil) {
+		_bags = [NSMutableDictionary dictionary];
+	}
+	[_bags setObject:groups forKey:ORMBagKey(value)];
+}
+
+- (BOOL)needsAStore
+{
+	return [_bagValues count] > 0 || [_probes count] > 0;
+}
+
 - (BOOL)keeps:(id)object
 {
 	for (ORMPlanCondition *check in self.checks) {
@@ -546,7 +741,22 @@ ORMBagKey(ORMPlanValue *value)
 	if (base == nil || [keys count] == 0) {
 		return base;
 	}
-	return [base valueForKeyPath:[keys componentsJoinedByString:@"."]];
+	/* Step by step, as a key path, but past no deleted object: a to-one
+	 * to one is nothing, a to-many is its members not deleted. */
+	id at = base;
+	for (NSString *key in keys) {
+		if (at == nil || ORMIsDeleted(at)) {
+			return nil;
+		}
+		BOOL many = [at isKindOfClass:[NSSet class]] || [at isKindOfClass:[NSOrderedSet class]]
+		            || [at isKindOfClass:[NSArray class]];
+		at = [many ? ORMLive(at) : at valueForKey:key];
+	}
+	if (ORMIsDeleted(at)) {
+		return nil;
+	}
+	BOOL many = [at isKindOfClass:[NSSet class]] || [at isKindOfClass:[NSOrderedSet class]] || [at isKindOfClass:[NSArray class]];
+	return many ? ORMLive(at) : at;
 }
 
 #pragma mark Saying it to the store
@@ -580,6 +790,13 @@ ORMBagKey(ORMPlanValue *value)
 	return [keys count] > 0 ? [keys componentsJoinedByString:@"."] : @"SELF";
 }
 
+/* Whether the path goes on past a cast where a store is asked: a
+ * predicate asked of objects in memory reads a subentity's keys. */
+- (BOOL)pastACast:(ORMPlanPath *)path
+{
+	return !self.predicateOnly && ORMGoesOnPastACast(path);
+}
+
 - (ORMPredicatePart *)lower:(ORMPlanCondition *)condition
 {
 	switch (condition.kind) {
@@ -597,8 +814,10 @@ ORMBagKey(ORMPlanValue *value)
 		                        inStore:operand.inStore];
 	}
 	case ORMPlanCompare: {
-		if (condition.left.bag != nil || condition.right.bag != nil) {
-			/* An aggregate of a bag: computed on the objects fetched. */
+		if ([condition.left usesBag] || [condition.right usesBag] || condition.left.operands != nil
+		    || condition.right.operands != nil) {
+			/* An aggregate of a bag, a computed value: computed on the
+			 * objects fetched. */
 			NSString *text = [[condition description] stringByReplacingOccurrencesOfString:@"%" withString:@"%%"];
 			return [ORMPredicatePart format:text arguments:nil inStore:NO];
 		}
@@ -615,12 +834,14 @@ ORMBagKey(ORMPlanValue *value)
 		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ %@ %@", left,
 		                                                           [ORMPredicateOperators() objectForKey:condition.comparison],
 		                                                           right]
-		                      arguments:arguments inStore:YES];
+		                      arguments:arguments
+		                        inStore:![self pastACast:condition.left.path] && ![self pastACast:condition.right.path]];
 	}
 	case ORMPlanNotNull: {
 		NSMutableArray *arguments = [NSMutableArray array];
 		NSString *path = [self operand:condition.path arguments:arguments bound:NULL];
-		return [ORMPredicatePart format:[path stringByAppendingString:@" != nil"] arguments:arguments inStore:YES];
+		return [ORMPredicatePart format:[path stringByAppendingString:@" != nil"] arguments:arguments
+		                        inStore:![self pastACast:condition.path]];
 	}
 	case ORMPlanExists:
 	case ORMPlanCount:
@@ -629,11 +850,13 @@ ORMBagKey(ORMPlanValue *value)
 	case ORMPlanIsOf: {
 		NSEntityDescription *target = [self entityNamed:condition.entityName];
 		NSMutableArray *names = [NSMutableArray array];
+		NSMutableArray *entities = [NSMutableArray array];
 		for (NSMutableArray *pending = target != nil ? [NSMutableArray arrayWithObject:target] : [NSMutableArray array];
 		     [pending count] > 0;) {
 			NSEntityDescription *at = [pending objectAtIndex:0];
 			[pending removeObjectAtIndex:0];
 			[names addObject:at.name];
+			[entities addObject:at];
 			[pending addObjectsFromArray:at.subentities ?: @[]];
 		}
 		NSMutableArray *arguments = [NSMutableArray array];
@@ -649,15 +872,19 @@ ORMBagKey(ORMPlanValue *value)
 			BOOL is = [object isKindOfClass:[NSManagedObject class]] && [names containsObject:object.entity.name];
 			return [ORMPredicatePart format:is ? @"TRUEPREDICATE" : @"FALSEPREDICATE" arguments:nil inStore:YES];
 		}
-		NSString *entity = [path isEqualToString:@"SELF"] ? @"entity.name" : [path stringByAppendingString:@".entity.name"];
-		[arguments addObject:names];
+		/* The entity itself, not its name: a SQLite store asks its entity
+		 * column, in a SUBQUERY too, and cannot follow entity.name. */
+		NSString *entity = [path isEqualToString:@"SELF"] ? @"entity" : [path stringByAppendingString:@".entity"];
+		/* Said, the entities by name. */
+		[arguments addObject:[self describing] ? names : entities];
 		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %%@", entity] arguments:arguments inStore:YES];
 	}
 	case ORMPlanSame: {
 		NSMutableArray *arguments = [NSMutableArray array];
 		NSString *left = [self operand:condition.path arguments:arguments bound:NULL];
 		NSString *right = [self operand:condition.otherPath arguments:arguments bound:NULL];
-		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ == %@", left, right] arguments:arguments inStore:YES];
+		return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ == %@", left, right] arguments:arguments
+		                        inStore:![self pastACast:condition.path] && ![self pastACast:condition.otherPath]];
 	}
 	case ORMPlanAmong:
 		return [self among:condition];
@@ -685,6 +912,23 @@ ORMBagKey(ORMPlanValue *value)
  * bound outside the fetch is no subquery the SQLite store reads, and an
  * aggregate of some members none it computes: those are checked on the
  * objects fetched. */
+/* Whether the path goes on past a cast: "objectType.(EntityType).factType"
+ * is a property of the subentity, which a SQLite store cannot find from
+ * the relationship's own entity. Asked in memory, of the object itself. */
+static BOOL
+ORMGoesOnPastACast(ORMPlanPath *path)
+{
+	BOOL cast = NO;
+	for (ORMPlanStep *step in path.steps) {
+		if (step.key == nil) {
+			cast = YES;
+		} else if (cast) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 - (ORMPredicatePart *)collection:(ORMPlanCondition *)condition
 {
 	NSMutableArray *arguments = [NSMutableArray array];
@@ -716,7 +960,7 @@ ORMBagKey(ORMPlanValue *value)
 		over = [NSString stringWithFormat:@"SUBQUERY(%@, $%@, TRUEPREDICATE)", collection,
 		                                  condition.variable ?: [NSString stringWithFormat:@"c%lu", (unsigned long)_depth]];
 	}
-	BOOL inStore = !bound && (body == nil || body.inStore);
+	BOOL inStore = !bound && (body == nil || body.inStore) && !ORMGoesOnPastACast(condition.path);
 	if (condition.kind == ORMPlanAggregate) {
 		NSString *function = [@{ @"sum": @"@sum", @"average": @"@avg", @"max": @"@max", @"min": @"@min" }
 			objectForKey:condition.function];
@@ -778,9 +1022,11 @@ ORMBagKey(ORMPlanValue *value)
 		                                                           [inverses componentsJoinedByString:@"."], target]
 		                      arguments:arguments inStore:YES];
 	}
+	/* A key path IN a key path the SQLite store does not say at all: asked
+	 * of the objects fetched. */
 	NSString *trail = [condition.trail count] > 0 ? [condition.trail componentsJoinedByString:@"."] : @"SELF";
 	return [ORMPredicatePart format:[NSString stringWithFormat:@"%@ IN %@", path, trail] arguments:arguments
-	                        inStore:!bound && condition.otherPath == nil && _depth == 0];
+	                        inStore:!bound && condition.otherPath == nil && _depth == 0 && [condition.trail count] == 0];
 }
 
 /* A join: said in the predicate where its plan is the store's entirely,
@@ -869,10 +1115,57 @@ ORMBagKey(ORMPlanValue *value)
 
 /* A value of the object read: a path's, a constant, or an aggregate of a
  * bag over the ways it holds. */
+/* An aggregate of the values: count, value (the one), distinct, sum,
+ * average, max, min. */
+static id
+ORMAggregate(NSString *function, NSArray *values)
+{
+	if ([function isEqualToString:@"count"]) {
+		return @([values count]);
+	}
+	if ([function isEqualToString:@"value"]) {
+		/* The one value; none where there is none, or more than one. */
+		NSSet *distinct = [NSSet setWithArray:values];
+		return [distinct count] == 1 ? [distinct anyObject] : nil;
+	}
+	if ([function isEqualToString:@"distinct"]) {
+		/* How many values: a value calculation checked. */
+		return @([[NSSet setWithArray:values] count]);
+	}
+	if ([values count] == 0) {
+		return [function isEqualToString:@"sum"] ? @0 : nil;
+	}
+	NSString *keyPath = [@{ @"sum": @"@sum.self", @"average": @"@avg.self", @"max": @"@max.self",
+	                         @"min": @"@min.self" } objectForKey:function];
+	return [values valueForKeyPath:keyPath];
+}
+
+/* Whether each @[ column index, value ] is the tuple's: equal, and not
+ * nothing. */
+static BOOL
+ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
+{
+	for (NSArray *each in also) {
+		NSUInteger index = [[each firstObject] unsignedIntegerValue];
+		id theirs = index < [tuple count] ? [tuple objectAtIndex:index] : [NSNull null];
+		if ([each lastObject] == [NSNull null] || ![theirs isEqual:[each lastObject]]) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
 - (id)value:(ORMPlanValue *)value object:(id)object bindings:(NSDictionary *)bindings
 {
 	if (value.path != nil) {
 		return [self valueOf:value.path object:object bindings:bindings];
+	}
+	if (value.operands != nil) {
+		NSMutableArray *values = [NSMutableArray array];
+		for (ORMPlanValue *operand in value.operands) {
+			[values addObject:[self value:operand object:object bindings:bindings] ?: [NSNull null]];
+		}
+		return ORMPlanApply(value.function, values);
 	}
 	if (value.bag == nil) {
 		return [self constant:value];
@@ -882,32 +1175,113 @@ ORMBagKey(ORMPlanValue *value)
 		return nil;
 	}
 	id group = [self valueOf:value.groupPath object:object bindings:bindings];
-	NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.column ?: @""];
+	NSArray *nodeIds = [value.bag.plan.columns valueForKey:@"nodeId"];
+	NSUInteger column = [nodeIds indexOfObject:value.column ?: @""];
+	/* For several nodes: the tuples whose other group columns are theirs. */
+	NSMutableArray *also = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [value.alsoColumns count]; i++) {
+		id wanted = [self value:[value.alsoValues objectAtIndex:i] object:object bindings:bindings] ?: [NSNull null];
+		[also addObject:@[ @([nodeIds indexOfObject:[value.alsoColumns objectAtIndex:i]]), wanted ]];
+	}
+	/* Over a window: the group's tuples sorted by its column once, the
+	 * object's answered by its value. */
+	if (value.windowColumn != nil) {
+		id windows = group != nil ? [[self windowsOf:value groups:groups] objectForKey:group] : nil;
+		/* Within the partition, of the tuples whose other columns are the
+		 * object's values. */
+		if ([value.alsoColumns count] > 0) {
+			NSMutableArray *values = [NSMutableArray array];
+			for (ORMPlanValue *each in value.alsoValues) {
+				[values addObject:[self value:each object:object bindings:bindings] ?: [NSNull null]];
+			}
+			windows = [windows objectForKey:[ORMTuple tupleWithValues:values]];
+		}
+		ORMWindow *window = windows;
+		id than = [self value:value.windowValue object:object bindings:bindings];
+		id otherThan = value.windowOtherValue != nil ? [self value:value.windowOtherValue object:object bindings:bindings] : nil;
+		return window != nil ? [window aggregateWhereKey:value.windowComparison than:than and:value.windowOtherComparison
+		                                            than:otherThan]
+		                     : ORMAggregate(value.function, @[]);
+	}
+	/* Of one group: each group's, made once for all of them. */
+	if ([also count] == 0) {
+		id made = group != nil ? [[self aggregatesOf:value groups:groups column:column] objectForKey:group] : nil;
+		return made != nil ? (made == [NSNull null] ? nil : made) : ORMAggregate(value.function, @[]);
+	}
 	NSMutableArray *values = [NSMutableArray array];
 	for (NSArray *tuple in group != nil ? [groups objectForKey:group] : nil) {
+		if (!ORMTupleIsAlso(tuple, also)) {
+			continue;
+		}
 		id each = column != NSNotFound ? [tuple objectAtIndex:column] : nil;
 		if (each != nil && each != [NSNull null]) {
 			[values addObject:each];
 		}
 	}
-	if ([value.function isEqualToString:@"count"]) {
-		return @([values count]);
+	return ORMAggregate(value.function, values);
+}
+
+/* The windows made in this run, by partition: each made once, from the
+ * first groups that have it. */
+- (NSMapTable *)windowsMadeOf:(ORMPlanValue *)value
+{
+	if (_windows == nil) {
+		_windows = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality
+		                                 valueOptions:NSPointerFunctionsStrongMemory];
 	}
-	if ([value.function isEqualToString:@"value"]) {
-		/* The one value; none where there is none, or more than one. */
-		NSSet *distinct = [NSSet setWithArray:values];
-		return [distinct count] == 1 ? [distinct anyObject] : nil;
+	NSMapTable *made = [_windows objectForKey:value];
+	if (made == nil) {
+		made = [NSMapTable strongToStrongObjectsMapTable];
+		[_windows setObject:made forKey:value];
 	}
-	if ([value.function isEqualToString:@"distinct"]) {
-		/* How many values: a value calculation checked. */
-		return @([[NSSet setWithArray:values] count]);
+	return made;
+}
+
+/* The window of each partition, those of the groups given made. */
+- (NSMapTable *)windowsOf:(ORMPlanValue *)value groups:(NSMapTable *)groups
+{
+	NSMapTable *made = [self windowsMadeOf:value];
+	NSArray *nodeIds = [value.bag.plan.columns valueForKey:@"nodeId"];
+	NSUInteger key = [nodeIds indexOfObject:value.windowColumn ?: @""];
+	NSUInteger column = [nodeIds indexOfObject:value.column ?: @""];
+	NSMutableArray *alsoIndexes = [NSMutableArray array];
+	for (NSString *each in value.alsoColumns) {
+		[alsoIndexes addObject:@([nodeIds indexOfObject:each])];
 	}
-	if ([values count] == 0) {
-		return [value.function isEqualToString:@"sum"] ? @0 : nil;
+	for (id group in groups) {
+		if ([made objectForKey:group] == nil) {
+			[made setObject:ORMWindowsOf([groups objectForKey:group], key, column != NSNotFound ? column : key, alsoIndexes,
+			                             value.function, ORMWindowCompare)
+			         forKey:group];
+		}
 	}
-	NSString *function = [@{ @"sum": @"@sum.self", @"average": @"@avg.self", @"max": @"@max.self",
-	                         @"min": @"@min.self" } objectForKey:value.function];
-	return [values valueForKeyPath:function];
+	return made;
+}
+
+/* The aggregate's value for each group, from the groups given: made for
+ * all of them the first time it is asked of these groups. */
+- (NSMapTable *)aggregatesOf:(ORMPlanValue *)value groups:(NSMapTable *)groups column:(NSUInteger)column
+{
+	NSArray *had = [_aggregated objectForKey:value];
+	if ([had firstObject] == groups) {
+		return [had lastObject];
+	}
+	NSMapTable *made = [NSMapTable strongToStrongObjectsMapTable];
+	for (id group in groups) {
+		NSMutableArray *values = [NSMutableArray array];
+		for (NSArray *tuple in [groups objectForKey:group]) {
+			id each = column != NSNotFound ? [tuple objectAtIndex:column] : nil;
+			if (each != nil && each != [NSNull null]) {
+				[values addObject:each];
+			}
+		}
+		[made setObject:ORMAggregate(value.function, values) ?: [NSNull null] forKey:group];
+	}
+	if (_aggregated == nil) {
+		_aggregated = [NSMapTable strongToStrongObjectsMapTable];
+	}
+	[_aggregated setObject:@[ groups, made ] forKey:value];
+	return made;
 }
 
 /* The aggregate's bag's tuples by its group: the batch's answer; where
@@ -948,25 +1322,28 @@ ORMBagKey(ORMPlanValue *value)
 	                                inContext:self.context error:&error];
 	NSMutableSet *given = [NSMutableSet set];
 	while (run != nil && !run.atEnd) {
-		NSArray *objects = [run next:256];
-		if (run.error != nil) {
-			error = run.error;
-			run = nil;
-			break;
-		}
-		for (id object in objects) {
-			for (NSArray *tuple in [run rowsOf:object]) {
-				if ([given containsObject:tuple]) {
-					continue;
+		/* Each batch's own, gone with it. */
+		@autoreleasepool {
+			NSArray *objects = [run next:256];
+			if (run.error != nil) {
+				error = run.error;
+				run = nil;
+				break;
+			}
+			for (id object in objects) {
+				for (ORMTuple *tuple in [run rowsOf:object]) {
+					if ([given containsObject:tuple]) {
+						continue;
+					}
+					[given addObject:tuple];
+					id each = [tuple objectAtIndex:column];
+					NSMutableArray *tuples = [groups objectForKey:each];
+					if (tuples == nil) {
+						tuples = [NSMutableArray array];
+						[groups setObject:tuples forKey:each];
+					}
+					[tuples addObject:tuple];
 				}
-				[given addObject:tuple];
-				id each = [tuple objectAtIndex:column];
-				NSMutableArray *tuples = [groups objectForKey:each];
-				if (tuples == nil) {
-					tuples = [NSMutableArray array];
-					[groups setObject:tuples forKey:each];
-				}
-				[tuples addObject:tuple];
 			}
 		}
 	}
@@ -978,6 +1355,59 @@ ORMBagKey(ORMPlanValue *value)
 }
 
 /* Whether the condition holds of the object read, the variables bound. */
+/* The members a condition over a collection tries: those its equality
+ * finds, where it has one, from an index of the collection made once for
+ * its owner; else every one. */
+- (NSArray *)membersOf:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings
+{
+	NSArray *probe = [_memberProbes objectForKey:condition];
+	if (probe == nil) {
+		return ORMMembers([self valueOf:condition.path object:object bindings:bindings]);
+	}
+	NSArray *steps = condition.path.steps;
+	ORMPlanPath *to = [ORMPlanPath pathFrom:condition.path.variable steps:[steps subarrayWithRange:NSMakeRange(0, [steps count] - 1)]];
+	id owner = [steps count] > 1 || condition.path.variable != nil ? [self valueOf:to object:object bindings:bindings] : object;
+	id wanted = [self value:[probe objectAtIndex:1] object:object bindings:bindings];
+	NSString *subtype = [probe lastObject] != [NSNull null] ? [probe lastObject] : nil;
+	NSString *relationship = [(ORMPlanStep *)[steps lastObject] key];
+	if (owner == nil || owner == [NSNull null] || [owner isKindOfClass:[NSSet class]] || [owner isKindOfClass:[NSArray class]]
+	    || wanted == nil || wanted == [NSNull null] || relationship == nil) {
+		return ORMMembers([self valueOf:condition.path object:object bindings:bindings]);
+	}
+	if (_memberIndexes == nil) {
+		_memberIndexes = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality
+		                                       valueOptions:NSPointerFunctionsStrongMemory];
+	}
+	NSMutableDictionary *indexes = [_memberIndexes objectForKey:owner];
+	if (indexes == nil) {
+		indexes = [NSMutableDictionary dictionary];
+		[_memberIndexes setObject:indexes forKey:owner];
+	}
+	NSString *name = [NSString stringWithFormat:@"%@.%@.%@", subtype ?: @"", [probe firstObject], relationship];
+	NSDictionary *index = [indexes objectForKey:name];
+	if (index == nil) {
+		NSMutableDictionary *made = [NSMutableDictionary dictionary];
+		for (id member in ORMMembers([owner valueForKey:relationship])) {
+			if (subtype != nil && !ORMIsOfEntity(member, subtype)) {
+				continue;
+			}
+			id key = [member valueForKey:[probe firstObject]];
+			if (key == nil || key == [NSNull null]) {
+				continue;
+			}
+			NSMutableArray *same = [made objectForKey:ORMProbeKey(key)];
+			if (same == nil) {
+				same = [NSMutableArray array];
+				[made setObject:same forKey:ORMProbeKey(key)];
+			}
+			[same addObject:member];
+		}
+		index = made;
+		[indexes setObject:index forKey:name];
+	}
+	return [index objectForKey:ORMProbeKey(wanted)] ?: @[];
+}
+
 - (BOOL)holds:(ORMPlanCondition *)condition object:(id)object bindings:(NSDictionary *)bindings
 {
 	switch (condition.kind) {
@@ -1010,7 +1440,7 @@ ORMBagKey(ORMPlanValue *value)
 	case ORMPlanCount:
 	case ORMPlanAggregate: {
 		NSMutableArray *members = [NSMutableArray array];
-		for (id member in ORMMembers([self valueOf:condition.path object:object bindings:bindings])) {
+		for (id member in [self membersOf:condition object:object bindings:bindings]) {
 			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
 			if (condition.variable != nil) {
 				[inner setObject:member forKey:condition.variable];
@@ -1037,16 +1467,8 @@ ORMBagKey(ORMPlanValue *value)
 			? [members valueForKeyPath:function] : nil;
 		return ORMCompare(aggregate, condition.comparison, [self constant:condition.constant]);
 	}
-	case ORMPlanIsOf: {
-		id value = [self valueOf:condition.path object:object bindings:bindings];
-		NSEntityDescription *entity = [value isKindOfClass:[NSManagedObject class]] ? ((NSManagedObject *)value).entity : nil;
-		for (; entity != nil; entity = entity.superentity) {
-			if ([entity.name isEqualToString:condition.entityName]) {
-				return YES;
-			}
-		}
-		return NO;
-	}
+	case ORMPlanIsOf:
+		return ORMIsOfEntity([self valueOf:condition.path object:object bindings:bindings], condition.entityName);
 	case ORMPlanSame: {
 		id left = [self valueOf:condition.path object:object bindings:bindings];
 		id right = [self valueOf:condition.otherPath object:object bindings:bindings];
@@ -1208,8 +1630,20 @@ ORMBagKey(ORMPlanValue *value)
 		return ways;
 	}
 	case ORMPlanExists: {
+		/* A semi-join binds nothing: the object holds, once, where one
+		 * member does. */
+		if ([_semiJoins containsObject:condition]) {
+			for (id member in [self membersOf:condition object:object bindings:bindings]) {
+				NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
+				[inner setObject:member forKey:condition.variable];
+				if (condition.operand == nil || [[self bindingsOf:condition.operand object:object bindings:inner] count] > 0) {
+					return @[ bindings ];
+				}
+			}
+			return @[];
+		}
 		NSMutableArray *ways = [NSMutableArray array];
-		for (id member in ORMMembers([self valueOf:condition.path object:object bindings:bindings])) {
+		for (id member in [self membersOf:condition object:object bindings:bindings]) {
 			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
 			if (condition.variable != nil) {
 				[inner setObject:member forKey:condition.variable];
@@ -1225,7 +1659,7 @@ ORMBagKey(ORMPlanValue *value)
 	case ORMPlanMaybe: {
 		/* Each member meeting the conditions, or one way with none. */
 		NSMutableArray *ways = [NSMutableArray array];
-		for (id member in ORMMembers([self valueOf:condition.path object:object bindings:bindings])) {
+		for (id member in [self membersOf:condition object:object bindings:bindings]) {
 			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:bindings];
 			[inner setObject:member forKey:condition.variable];
 			if (condition.operand == nil) {
@@ -1279,7 +1713,7 @@ ORMBagKey(ORMPlanValue *value)
 	return [values count] > 0 ? values : @[ [NSNull null] ];
 }
 
-- (NSArray<NSArray *> *)rowsOf:(id)object
+- (NSArray<ORMTuple *> *)rowsOf:(id)object
 {
 	NSArray *ways = self.plan.condition != nil ? [self bindingsOf:self.plan.condition object:object bindings:self.bindings]
 	                                           : @[ self.bindings ];
@@ -1305,7 +1739,10 @@ ORMBagKey(ORMPlanValue *value)
 			}
 			tuples = next;
 		}
-		[rows addObjectsFromArray:tuples];
+		/* Each row a tuple, made once it has its values. */
+		for (NSArray *tuple in tuples) {
+			[rows addObject:[ORMTuple tupleWithValues:tuple]];
+		}
 	}
 	return rows;
 }
@@ -1315,6 +1752,28 @@ ORMBagKey(ORMPlanValue *value)
 - (BOOL)prepare
 {
 	_subqueryVariables = [NSMutableSet set];
+	/* What the rows list, by variable: the columns', the sorts'. */
+	NSMutableSet *listed = [NSMutableSet set];
+	NSMutableArray *listedPaths = [NSMutableArray array];
+	for (ORMPlanColumn *column in self.plan.columns) {
+		[listedPaths addObjectsFromArray:column.path != nil ? @[ column.path ] : @[]];
+		[listedPaths addObjectsFromArray:[column.value paths] ?: @[]];
+	}
+	for (ORMPlanSort *sort in self.plan.sorts) {
+		[listedPaths addObjectsFromArray:sort.path != nil ? @[ sort.path ] : @[]];
+	}
+	for (ORMPlanPath *path in listedPaths) {
+		if (path.variable != nil) {
+			[listed addObject:path.variable];
+		}
+	}
+	NSCountedSet *named = [NSCountedSet set];
+	ORMCountVariables(self.plan.condition, named);
+	_semiJoins = [NSHashTable hashTableWithOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality];
+	ORMFindSemiJoins(self.plan.condition, named, listed, _semiJoins);
+	_memberProbes = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsStrongMemory | NSPointerFunctionsObjectPointerPersonality
+	                                      valueOptions:NSPointerFunctionsStrongMemory];
+	ORMFindProbes(self.plan.condition, _memberProbes);
 	self.joinLines = [NSMutableArray array];
 	self.read = [self entityNamed:self.plan.entityName];
 	if (self.read == nil) {
@@ -1574,7 +2033,7 @@ ORMBagKey(ORMPlanValue *value)
 
 - (BOOL)atEnd
 {
-	return self.run.atEnd;
+	return self.reader != nil ? self.reader.atEnd : self.run.atEnd;
 }
 
 - (ORMQueryResult *)nextPage:(NSUInteger)size error:(NSError **)error
@@ -1584,6 +2043,7 @@ ORMBagKey(ORMPlanValue *value)
 		                                      columnTitles:[self.run.plan.columns valueForKey:@"title"]];
 		self.reader.objectsApart = [self.run.plan listsTheObjectRead];
 		self.reader.rowsInOrder = [self.run rowsInOrder];
+		self.reader.sortColumns = [self.run.plan rowSortColumns];
 	}
 	__block ORMQueryResult *page = nil;
 	__block NSError *failed = nil;
@@ -1660,16 +2120,23 @@ ORMBagKey(ORMPlanValue *value)
 	}
 	NSMutableArray *objects = [NSMutableArray array];
 	NSMutableArray *rows = [NSMutableArray array];
-	while (![cursor atEnd]) {
-		ORMQueryResult *page = [cursor nextPage:256 error:error];
-		if (page == nil) {
-			return nil;
+	/* What a page makes on the way to its rows goes with it, each page: on
+	 * GNUstep nothing else lets it go until the caller's pool does. */
+	NSError *failed = nil;
+	BOOL more = YES;
+	while (more && ![cursor atEnd]) {
+		@autoreleasepool {
+			ORMQueryResult *page = [cursor nextPage:256 error:&failed];
+			more = page != nil && [page.objects count] > 0;
+			[objects addObjectsFromArray:page.objects ?: @[]];
+			[rows addObjectsFromArray:page.rows ?: @[]];
 		}
-		if ([page.objects count] == 0) {
-			break;
+	}
+	if (failed != nil) {
+		if (error != NULL) {
+			*error = failed;
 		}
-		[objects addObjectsFromArray:page.objects];
-		[rows addObjectsFromArray:page.rows];
+		return nil;
 	}
 	ORMQueryResult *result = [[ORMQueryResult alloc] init];
 	result.objects = objects;
@@ -1687,12 +2154,57 @@ ORMBagKey(ORMPlanValue *value)
 	if (run == nil) {
 		return nil;
 	}
-	if ([run readsBags]) {
-		if (error != NULL) {
-			*error = ORMInterpreterError(@"The plan aggregates a set it defines, which is read from the store, not "
-			                             @"asked of objects in memory.");
+	/* A bag of the object read: its plan asked of the same objects, its
+	 * tuples by each one. A window's, its partitions of the objects read
+	 * from the context (with what it has not saved), as a batch reads
+	 * them. Another is read from the store. */
+	for (ORMPlanValue *value in [run bagValues]) {
+		if (value.windowColumn != nil) {
+			NSMutableOrderedSet *partitions = [NSMutableOrderedSet orderedSet];
+			for (NSManagedObject *object in objects) {
+				id group = [[object entity] isKindOfEntity:run.read] ? [run valueOf:value.groupPath object:object bindings:run.bindings] : nil;
+				if (group != nil && group != [NSNull null]) {
+					[partitions addObject:group];
+				}
+			}
+			NSMapTable *groups = [run groupsOf:value among:[partitions array]];
+			if (groups == nil) {
+				if (error != NULL) {
+					*error = run.error;
+				}
+				return nil;
+			}
+			[run keepGroups:groups ofBag:value];
+			continue;
 		}
-		return nil;
+		if (![plan bagIsOfTheObjectRead:value]) {
+			if (error != NULL) {
+				*error = ORMInterpreterError(@"The plan aggregates a set it defines, which is read from the store, not "
+				                             @"asked of objects in memory.");
+			}
+			return nil;
+		}
+		ORMQueryResult *bag = [self executePlan:value.bag.plan ofObjects:objects inContext:context error:error];
+		if (bag == nil) {
+			return nil;
+		}
+		NSUInteger column = [[value.bag.plan.columns valueForKey:@"nodeId"] indexOfObject:value.groupColumn ?: @""];
+		NSMapTable *groups = [NSMapTable strongToStrongObjectsMapTable];
+		NSMutableSet *given = [NSMutableSet set];
+		for (ORMTuple *tuple in bag.rows) {
+			if ([given containsObject:tuple] || column >= [tuple count]) {
+				continue;
+			}
+			[given addObject:tuple];
+			id each = [tuple objectAtIndex:column];
+			NSMutableArray *tuples = [groups objectForKey:each];
+			if (tuples == nil) {
+				tuples = [NSMutableArray array];
+				[groups setObject:tuples forKey:each];
+			}
+			[tuples addObject:tuple];
+		}
+		[run keepGroups:groups ofBag:value];
 	}
 	NSMutableArray *kept = [NSMutableArray array];
 	NSMutableArray *rows = [NSMutableArray array];
@@ -1700,17 +2212,23 @@ ORMBagKey(ORMPlanValue *value)
 		if (![[object entity] isKindOfEntity:run.read]) {
 			continue;
 		}
-		BOOL holds = plan.condition == nil || [run holds:plan.condition object:object bindings:run.bindings];
-		if (run.error != nil) {
-			if (error != NULL) {
-				*error = run.error;
+		/* Each object's own, gone with it; the run's error kept by the run. */
+		@autoreleasepool {
+			BOOL holds = plan.condition == nil || [run holds:plan.condition object:object bindings:run.bindings];
+			if (run.error != nil) {
+				break;
 			}
-			return nil;
+			if (holds) {
+				[kept addObject:object];
+				[rows addObjectsFromArray:[run rowsOf:object]];
+			}
 		}
-		if (holds) {
-			[kept addObject:object];
-			[rows addObjectsFromArray:[run rowsOf:object]];
+	}
+	if (run.error != nil) {
+		if (error != NULL) {
+			*error = run.error;
 		}
+		return nil;
 	}
 	return [ORMQueryResult resultWithObjects:kept columnTitles:[plan.columns valueForKey:@"title"] rows:rows];
 }
@@ -1793,6 +2311,39 @@ ORMPredicateLiteral(id value)
 		[text appendFormat:@"%C", c];
 	}
 	return text;
+}
+
+/* A run of the plan as one object is asked it: prepared, nothing fetched;
+ * nil, and why, where a bag or a join needs a store. */
+- (ORMPlanRun *)runAskingOneObject:(ORMQueryPlan *)plan reason:(NSString **)reason
+{
+	ORMPlanRun *run = [[ORMPlanRun alloc] init];
+	run.interpreter = self;
+	run.plan = plan;
+	run.bindings = @{};
+	run.equalities = @[];
+	run.predicateOnly = YES;
+	NSString *why = nil;
+	if (![run prepare]) {
+		why = [run.error localizedDescription] ?: @"it cannot be planned";
+	} else if ([run needsAStore]) {
+		why = @"it reads a bag or a join, which one object cannot be asked without a store";
+	}
+	if (why != nil && reason != NULL) {
+		*reason = why;
+	}
+	return why == nil ? run : nil;
+}
+
+- (BOOL)asksOfOneObject:(ORMQueryPlan *)plan reason:(NSString **)reason
+{
+	return [self runAskingOneObject:plan reason:reason] != nil;
+}
+
+- (BOOL)plan:(ORMQueryPlan *)plan holdsOf:(id)object
+{
+	ORMPlanRun *run = [self runAskingOneObject:plan reason:NULL];
+	return run != nil && (plan.condition == nil || [run holds:plan.condition object:object bindings:@{}]);
 }
 
 - (NSPredicate *)predicateForPlan:(ORMQueryPlan *)plan reason:(NSString **)reason

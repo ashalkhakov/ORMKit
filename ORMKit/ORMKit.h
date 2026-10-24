@@ -35,6 +35,8 @@
 #import "ORMFactSentence.h"
 #import "ORMConstraintSentence.h"
 #import "ORMJoinPathBuilder.h"
+#import "ORMDerivationPathWriter.h"
+#import "ORMConstraintQueries.h"
 #import "ORMCDModel.h"
 #import "ORMCoreDataMapping.h"
 #import "ORMCoreDataMapper.h"
@@ -50,6 +52,7 @@
 #import "ORMCoreDataValidation.h"
 #import "ORMODataAnnotator.h"
 #import "ORMQuery.h"
+#import "ORMQueryExpression.h"
 #import "ORMCDModel+CoreData.h"
 #if __has_include(<ORMRuntime/ORMRuntime.h>)
 #import <ORMRuntime/ORMRuntime.h>
@@ -63,6 +66,7 @@
 #import "ORMJoinedFacade.h"
 #import "ORMEntityMerger.h"
 #import "ORMOutlineReader.h"
+#import "ORMSchemaText.h"
 #import "ORMPopulationStore.h"
 #import "ORMPopulationChecker.h"
 #import "ORMPopulationGenerator.h"

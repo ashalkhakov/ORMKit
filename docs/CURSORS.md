@@ -133,6 +133,10 @@ leave out what tells the objects apart.
   adjacent, and Distinct keeps only the last.
 - **Otherwise** it keeps every tuple given, and the program text says so.
 
+A row is an `ORMTuple`, with a hash of its values made with it, so that
+keeping rows apart costs a lookup, not a comparison with each kept
+([RUNTIME.md](RUNTIME.md#what-it-costs)).
+
 ## Capabilities
 
 Each cursor says what it can do, as Dataphor's do:

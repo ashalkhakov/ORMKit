@@ -16,6 +16,9 @@ extern NSString * const ORMDiagramDisplayNamespace;
 extern NSString * const ORMCoreDataNamespace;
 /* ORMKit's own: conceptual queries (ORMQuery). */
 extern NSString * const ORMQueryNamespace;
+/* ORMKit's own: what NORMA has no constraint for, of a value type's values
+ * (a pattern they match). */
+extern NSString * const ORMValuesNamespace;
 /* ORMKit's own namespaces, which NORMA does not know. */
 NSArray<NSString *> *ORMKitNamespaces(void);
 
@@ -83,6 +86,14 @@ void ORMPruneIfEmpty(NSXMLElement *element);
 
 /* An id as NORMA makes them: an underscore and an upper-case GUID. */
 NSString *ORMNewId(void);
+/* An id as NORMA makes them, the same each time for the same seed: what is
+ * written of something else (a query's role path) without ids of its own. */
+NSString *ORMStableId(NSString *seed);
+/* Ids made on this thread from now on are the prefix and a count
+ * ("_prefix.1", "_prefix.2"), until ORMEndIds: what is made of something
+ * generated is the same each time it is (generated code). Not nested. */
+void ORMBeginIds(NSString *prefix);
+void ORMEndIds(void);
 /* Every element of the document with the id. */
 NSXMLElement *ORMElementWithId(NSXMLDocument *document, NSString *elementId);
 /* Every element with an id, by it. */

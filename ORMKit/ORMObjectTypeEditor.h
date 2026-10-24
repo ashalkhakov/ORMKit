@@ -29,6 +29,14 @@
                     kind:(ORMReferenceModeKind)kind
                 ofEntity:(NSString *)entityId
                   reason:(NSString **)reason;
+/* For a value type, or an entity type's reference mode value type: the
+ * regular expression its values match whole ("[A-Z]{3}"); nil or empty
+ * takes it away. Refused where it is no regular expression. */
+- (BOOL)setValuePattern:(NSString *)pattern of:(NSString *)objectTypeId reason:(NSString **)reason;
+/* For an entity type: whether its instances in the population are
+ * reference data, every store's to start with (docs/POPULATIONS.md).
+ * Refused for a value type, an objectified one and a derived subtype. */
+- (BOOL)setReferenceData:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason;
 /* For a value type, or an entity type's reference mode value type. */
 - (BOOL)setDataType:(NSString *)typeName
              length:(NSInteger)length
@@ -46,5 +54,16 @@
 - (BOOL)setValueConstraint:(NSString *)text of:(NSString *)elementId reason:(NSString **)reason;
 /* The subtype fact type. Its id. */
 - (NSString *)addSubtype:(NSString *)subtypeId of:(NSString *)supertypeId reason:(NSString **)reason;
+/* A subtype's derivation rule, as NORMA keeps it (SubtypeDerivationRule):
+ * in words, what comes after "Each Male is by definition" ("a Person who
+ * is of Gender 'M'"); empty takes the rule away. Refused for a type that
+ * is no subtype. */
+- (BOOL)setDerivationNote:(NSString *)text ofSubtype:(NSString *)objectTypeId reason:(NSString **)reason;
+/* The rule's completeness and storage (docs/DERIVATION.md): partly
+ * derived, some instances asserted; stored, kept once derived. */
+- (BOOL)setDerivationPartial:(BOOL)partial
+                      stored:(BOOL)stored
+                   ofSubtype:(NSString *)objectTypeId
+                      reason:(NSString **)reason;
 
 @end

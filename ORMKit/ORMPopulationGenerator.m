@@ -119,7 +119,7 @@
 - (NSString *)valueOf:(ORMObjectType *)type index:(NSUInteger)index role:(ORMRole *)role
 {
 	ORMDataType *dataType = type.dataType;
-	BOOL numeric = dataType.family == ORMDataTypeNumeric;
+	BOOL numeric = [dataType isNumeric];
 	ORMValueConstraint *constraint = role.valueConstraint ?: type.valueConstraint;
 	NSString *allowed = constraint != nil ? [self value:index allowedBy:constraint numeric:numeric] : nil;
 	if (allowed != nil) {
@@ -262,7 +262,7 @@
 			capacity = [[_pools objectForKey:part.identifier] count];
 		} else {
 			capacity = [self capacityOf:role.valueConstraint ?: part.valueConstraint
-			                    numeric:part.dataType.family == ORMDataTypeNumeric];
+			                    numeric:[part.dataType isNumeric]];
 		}
 		if (capacity == 0) {
 			[self note:@"%@ has no instances: what identifies it has none.", type.name];
@@ -288,7 +288,7 @@
 			NSArray *parts = [part isEntity] ? [_pools objectForKey:part.identifier] : nil;
 			NSUInteger capacity = parts != nil ? [parts count]
 			                                   : [self capacityOf:role.valueConstraint ?: part.valueConstraint
-			                                              numeric:part.dataType.family == ORMDataTypeNumeric];
+			                                              numeric:[part.dataType isNumeric]];
 			NSUInteger index = unbounded ? k : (k / radix);
 			if (!unbounded) {
 				radix *= capacity;
@@ -435,18 +435,6 @@
 	return constraints;
 }
 
-static ORMFactType *
-ORMSequenceFact(ORMRoleSequence *sequence)
-{
-	ORMFactType *fact = [[sequence.roles firstObject] factType];
-	for (ORMRole *role in sequence.roles) {
-		if (role.factType != fact) {
-			return nil;
-		}
-	}
-	return fact;
-}
-
 /* The fact types, each after those it must be a subset of. */
 - (NSArray<ORMFactType *> *)factOrder
 {
@@ -470,8 +458,8 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 				if (constraint.kind == ORMExclusionConstraint || [constraint.roleSequences count] < 2) {
 					continue;
 				}
-				ORMFactType *superset = ORMSequenceFact([constraint.roleSequences objectAtIndex:1]);
-				BOOL subset = ORMSequenceFact([constraint.roleSequences firstObject]) == fact;
+				ORMFactType *superset = [[constraint.roleSequences objectAtIndex:1] factType];
+				BOOL subset = [[constraint.roleSequences firstObject] factType] == fact;
 				if (subset && superset != nil && superset != fact && [facts containsObject:superset]
 				    && ![placed containsObject:superset.identifier]) {
 					ready = NO;
@@ -695,7 +683,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	NSArray<ORMRoleSequence *> *sequences = constraint.roleSequences;
 	NSUInteger mine = NSNotFound;
 	for (NSUInteger i = 0; i < [sequences count]; i++) {
-		if (ORMSequenceFact([sequences objectAtIndex:i]) == fact) {
+		if ([[sequences objectAtIndex:i] factType] == fact) {
 			mine = i;
 		}
 	}
@@ -708,7 +696,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	}
 	BOOL (^has)(NSUInteger) = ^BOOL(NSUInteger i) {
 		ORMRoleSequence *sequence = [sequences objectAtIndex:i];
-		for (NSDictionary *other in [self factsOf:ORMSequenceFact(sequence)]) {
+		for (NSDictionary *other in [self factsOf:[sequence factType]]) {
 			if ([[self projectionOf:other roles:sequence.roles] isEqualToArray:keys]) {
 				return YES;
 			}
@@ -717,7 +705,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	};
 	if (constraint.kind == ORMExclusionConstraint) {
 		for (NSUInteger i = 0; i < [sequences count]; i++) {
-			if (i != mine && ORMSequenceFact([sequences objectAtIndex:i]) != nil && has(i)) {
+			if (i != mine && [[sequences objectAtIndex:i] factType] != nil && has(i)) {
 				return NO;
 			}
 		}
@@ -726,7 +714,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	/* Subset: the first in the second. Equality: each in the others made
 	 * before. */
 	for (NSUInteger i = 0; i < [sequences count]; i++) {
-		ORMFactType *other = ORMSequenceFact([sequences objectAtIndex:i]);
+		ORMFactType *other = [[sequences objectAtIndex:i] factType];
 		if (i == mine || other == nil || other == fact) {
 			continue;
 		}
@@ -975,7 +963,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			NSArray<ORMRoleSequence *> *sequences = constraint.roleSequences;
 			BOOL single = [sequences count] >= 2;
 			for (ORMRoleSequence *sequence in sequences) {
-				single = single && ORMSequenceFact(sequence) != nil;
+				single = single && [sequence factType] != nil;
 			}
 			if (!single) {
 				continue;
@@ -983,7 +971,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 			NSMutableArray<NSSet *> *projections = [NSMutableArray array];
 			for (ORMRoleSequence *sequence in sequences) {
 				NSMutableSet *set = [NSMutableSet set];
-				for (NSDictionary *fact in [self factsOf:ORMSequenceFact(sequence)]) {
+				for (NSDictionary *fact in [self factsOf:[sequence factType]]) {
 					NSArray *keys = [self projectionOf:fact roles:sequence.roles];
 					if (keys != nil) {
 						[set addObject:keys];
@@ -1007,7 +995,7 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 					}
 				}
 				ORMRoleSequence *sequence = [sequences objectAtIndex:i];
-				ORMFactType *fact = ORMSequenceFact(sequence);
+				ORMFactType *fact = [sequence factType];
 				if (fact.objectifyingType != nil) {
 					continue;
 				}
@@ -1201,6 +1189,17 @@ ORMSequenceFact(ORMRoleSequence *sequence)
 	for (ORMConstraint *constraint in _model.constraints) {
 		if (constraint.kind == ORMValueComparisonConstraint) {
 			[self note:@"%@ is not kept: value comparisons are not made up to.", constraint.name];
+		}
+		/* A sequence over a join: its facts are not made up to it. */
+		BOOL joined = NO;
+		if (!constraint.isImplied && (constraint.kind == ORMSubsetConstraint || constraint.kind == ORMEqualityConstraint
+		                              || constraint.kind == ORMExclusionConstraint)) {
+			for (ORMRoleSequence *sequence in constraint.roleSequences) {
+				joined = joined || [sequence factType] == nil;
+			}
+		}
+		if (joined) {
+			[self note:@"%@ is not kept: a sequence over more than one fact type is not made up to.", constraint.name];
 		}
 	}
 	for (ORMFactType *fact in _model.factTypes) {

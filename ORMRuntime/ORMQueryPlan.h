@@ -85,6 +85,17 @@
                        in:(ORMPlanDefinition *)bag
                     where:(NSString *)groupColumn
                        is:(ORMPlanPath *)groupPath;
+/* A value computed from others (docs/EXPRESSIONS.md): the function
+ * ("add", "subtract", "multiply", "divide", "negate", "round", "abs",
+ * "min", "max", "coalesce") of the operands' values; none where an operand
+ * has none, or it is a division by zero. "subtract(x1.quantity, quantity)". */
++ (instancetype)apply:(NSString *)function to:(NSArray<ORMPlanValue *> *)operands;
+/* An applied value's: its operands (function its function); nil for others. */
+@property (nonatomic, readonly, copy) NSArray<ORMPlanValue *> *operands;
+/* The paths it reads: its own, its operands', an aggregate's group's. */
+- (NSArray<ORMPlanPath *> *)paths;
+/* Whether it, or one of its operands, is an aggregate of a bag. */
+- (BOOL)usesBag;
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
 @property (nonatomic, readonly, copy) NSString *text;
 @property (nonatomic, readonly, copy) NSString *attributeType;
@@ -95,6 +106,49 @@
 @property (nonatomic, readonly, copy) NSString *column;
 @property (nonatomic, readonly, copy) NSString *groupColumn;
 @property (nonatomic, readonly, strong) ORMPlanPath *groupPath;
+/* An aggregate for several nodes (docs/EXPRESSIONS.md, grouping): of the
+ * group's tuples, those whose other columns are the values given too
+ * ("where Vehicle is id, Month is month(x1.timestamp)"). */
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
+                     also:(NSArray<NSString *> *)columns
+                      are:(NSArray<ORMPlanValue *> *)values;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *alsoColumns;
+@property (nonatomic, readonly, copy) NSArray<ORMPlanValue *> *alsoValues;
+/* An aggregate over a window (docs/QUERIES.md, decorrelation): of the
+ * group's tuples, those whose column for a node compares ("<", "<=", ">",
+ * ">=") with the value of the object here: "max of Odometer2 in bag2 where
+ * Vehicle is vehicle.id, Odometer2 < odometer", the greatest odometer of
+ * the vehicle's fill-ups below this one's. The bag lists each member of
+ * the group once; a backend sorts a group's tuples by the column once, and
+ * answers each object from its value. */
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
+                   window:(NSString *)windowColumn
+               comparison:(NSString *)comparison
+                     than:(ORMPlanValue *)value;
+@property (nonatomic, readonly, copy) NSString *windowColumn;
+@property (nonatomic, readonly, copy) NSString *windowComparison;
+@property (nonatomic, readonly, strong) ORMPlanValue *windowValue;
+/* A window between two bounds ("Odometer3 > Previous, Odometer3 <=
+ * odometer"): the same aggregate with its other bound; nil for none. */
+- (instancetype)valueBoundedAlso:(NSString *)comparison than:(ORMPlanValue *)value;
+/* A window within each partition's tuples whose other columns are the
+ * values given too ("where Vehicle is vehicle.id, Month2 is month(day),
+ * Day2 < day"): the same aggregate with those. */
+- (instancetype)valueAlso:(NSArray<NSString *> *)columns are:(NSArray<ORMPlanValue *> *)values;
+@property (nonatomic, readonly, copy) NSString *windowOtherComparison;
+@property (nonatomic, readonly, strong) ORMPlanValue *windowOtherValue;
+/* The to-many from the partition to its members ("records"): what a
+ * change to a member reaches the objects whose window it is in by. */
+- (instancetype)valueOfMembers:(NSString *)key;
+@property (nonatomic, readonly, copy) NSString *membersKey;
 @end
 
 typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
@@ -184,6 +238,15 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* The variables the condition names that it does not bind itself: those
  * bound around it, or an enclosing plan's object. */
 - (NSSet<NSString *> *)freeVariables;
+/* The variables it binds, and those under it. */
+- (NSSet<NSString *> *)boundVariables;
+/* An exists', a count's or an aggregate's equality on its member: @[ the
+ * member's key, the value it equals, the subtype the key is of (cast to
+ * on the way: "x1.(Event).(FillUp).odometer") or null ], where that value
+ * names nothing the condition binds (it is the same for every member);
+ * nil for none. Its members can be looked up by the key, not each tried;
+ * one not of the subtype has no key. */
+- (NSArray *)memberProbe;
 
 @property (nonatomic, readonly) ORMPlanConditionKind kind;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanCondition *> *operands;
@@ -251,7 +314,11 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 
 @interface ORMPlanSort : NSObject <NSCopying>
 + (instancetype)sortBy:(ORMPlanPath *)path ascending:(BOOL)ascending;
+/* By a column's value, its node's id: the rows sorted once read
+ * (-[ORMQueryPlan rowSorts]). */
++ (instancetype)sortByColumnOf:(NSString *)nodeId ascending:(BOOL)ascending;
 @property (nonatomic, readonly, strong) ORMPlanPath *path;
+@property (nonatomic, readonly, copy) NSString *nodeId;
 @property (nonatomic, readonly) BOOL ascending;
 @end
 
@@ -284,6 +351,11 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
  * values, a bag. What generated code walks back from a change to the
  * objects it can affect (docs/DERIVATION.md). */
 - (NSArray<NSArray<NSString *> *> *)trailsFromRead;
+/* Whether an aggregate's bag is of the object read itself: its plan reads
+ * the same entity, grouped by the object it reads, here the object read.
+ * Then it can be asked of the objects in memory, and what it reads is read
+ * from the object. */
+- (BOOL)bagIsOfTheObjectRead:(ORMPlanValue *)value;
 /* The key path of a column from the object read, its identifier left
  * out; nil for one computed, or past a join. */
 - (NSArray<NSString *> *)trailOfColumn:(ORMPlanColumn *)column;
@@ -298,6 +370,13 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 /* The same for its sorts, no key. */
 - (BOOL)ordersItsRows;
 @property (nonatomic, readonly, copy) NSArray<ORMPlanSort *> *sorts;
+/* The order of the rows by their columns, where the store cannot sort by
+ * what they are sorted by (a value computed): each read, then the rows
+ * sorted, in memory. Set once, as the planner makes the plan; empty for
+ * none, and then sorts is the order. */
+@property (nonatomic, copy) NSArray<ORMPlanSort *> *rowSorts;
+/* For each row sort, @[ its column's index, @(ascending) ]. */
+- (NSArray<NSArray *> *)rowSortColumns;
 /* What the query says that the plan leaves out. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
 
@@ -312,3 +391,10 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 @end
 
 extern NSString * const ORMQueryPlanErrorDomain;
+
+/* An applied value's function of its operands' values (NSNull, or nil, for
+ * none): nil where one is none, is not a number where arithmetic wants one,
+ * or it divides by zero. Whole numbers stay whole but in a division;
+ * decimals stay decimal; others are doubles. Each evaluator computes with
+ * it. */
+id ORMPlanApply(NSString *function, NSArray *values);

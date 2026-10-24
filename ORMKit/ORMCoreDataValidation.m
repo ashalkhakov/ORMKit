@@ -2,6 +2,8 @@
 #import "ORMCoreDataValidation.h"
 #import "ORMJoinedFacade.h"
 #import "ORMVerbalizer.h"
+#import "ORMVerbalizerPriv.h"
+#import "ORMOutlineReader.h"
 #import "ORMQueryPlanner.h"
 #if __has_include(<ORMRuntime/ORMRuntime.h>)
 #import <ORMRuntime/ORMRuntime.h>
@@ -11,6 +13,12 @@
 #import "ORMCDModel+CoreData.h"
 #import "ORMQuery.h"
 #import "ORMPath.h"
+#import "ORMConstraintQueries.h"
+#import "ORMXML.h"
+#import "ORMQueryPlaces.h"
+#import "ORMPopulationStore.h"
+#import <CoreData/CoreData.h>
+#import <ODataKit/ODataPropertyMapper.h>
 
 /* An Objective-C string literal's contents. */
 static NSString *
@@ -41,6 +49,14 @@ static NSString *
 ORMCommentText(NSString *text)
 {
 	return [text stringByReplacingOccurrencesOfString:@"*/" withString:@"* /"];
+}
+
+/* "Mileage" for "mileage": a name as a rule's begins. */
+static NSString *
+ORMCapitalizedName(NSString *name)
+{
+	return [name length] > 0 ? [[[name substringToIndex:1] uppercaseString] stringByAppendingString:[name substringFromIndex:1]]
+	                         : @"Value";
 }
 
 /* A bound as a number, or nil when it is not one. */
@@ -80,6 +96,13 @@ ORMBound(NSString *value)
 	NSMutableArray<NSArray<NSString *> *> *_queryMethods;
 	/* The joined entity types' code (docs/JOINED-ENTITIES.md). */
 	ORMJoinedFacade *_joined;
+	/* Rules are planned and asked as one predicate; a constraint said as
+	 * rules is made in a copy of the document, not the model's. */
+	ORMQueryPlanner *_planner;
+	ORMQueryInterpreter *_interpreter;
+	ORMEditor *_scratch;
+	/* The reference data, as the tables' seeds. */
+	NSArray<NSDictionary *> *_seeds;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model
@@ -317,7 +340,7 @@ ORMBound(NSString *value)
 	ORMCDEntity *entity = nil;
 	NSArray *places = [self placesOfRoles:[constraint allRoles] entity:&entity];
 	if (places == nil) {
-		[self skip:constraint because:@"its roles are not all properties of one entity"];
+		[self rulesFor:constraint orSkipBecause:@"its roles are not all properties of one entity"];
 		return;
 	}
 	NSMutableArray *terms = [NSMutableArray array];
@@ -355,7 +378,7 @@ ORMBound(NSString *value)
 		[self add:@{ @"all": terms } to:entity for:constraint keys:[self keysOf:places]];
 		return;
 	}
-	[self skip:constraint because:@"its arguments are not properties of one entity"];
+	[self rulesFor:constraint orSkipBecause:@"its arguments are not properties of one entity"];
 }
 
 /* Subset (the first sequence within the second) and equality. */
@@ -382,7 +405,7 @@ ORMBound(NSString *value)
 		}
 	}
 	if ([terms count] == 0) {
-		[self skip:constraint because:@"its arguments are not properties of one entity"];
+		[self rulesFor:constraint orSkipBecause:@"its arguments are not properties of one entity"];
 		return;
 	}
 	[self add:[terms count] == 1 ? [terms firstObject] : @{ @"all": terms } to:entity for:constraint
@@ -441,7 +464,7 @@ ORMBound(NSString *value)
 	if (operator == nil || [places count] != 2
 	    || ![[[places objectAtIndex:0] lastObject] isKindOfClass:[ORMCDAttribute class]]
 	    || ![[[places objectAtIndex:1] lastObject] isKindOfClass:[ORMCDAttribute class]]) {
-		[self skip:constraint because:@"it does not compare two attributes of one entity"];
+		[self rulesFor:constraint orSkipBecause:@"it does not compare two attributes of one entity"];
 		return;
 	}
 	[self add:@{ @"compare": [self keysOf:places], @"comparison": operator }
@@ -523,6 +546,63 @@ ORMBound(NSString *value)
 	  deontic:NO];
 }
 
+/* An absorbed value (a Distance: its quantity and its unit, properties of
+ * whatever refers to it) is all of its parts or none: one that may be
+ * left out is refused set in part. Its parts' sources are the role played
+ * by it and, after a "/", each identifying role. */
+- (void)wholeAbsorbedValuesOf:(ORMCDEntity *)entity
+{
+	NSMutableDictionary<NSString *, NSMutableArray<ORMCDProperty *> *> *parts = [NSMutableDictionary dictionary];
+	NSMutableArray *order = [NSMutableArray array];
+	NSArray *properties = [(NSArray *)entity.attributes arrayByAddingObjectsFromArray:(NSArray *)entity.relationships];
+	for (ORMCDProperty *property in properties) {
+		NSRange slash = [property.source ?: @"" rangeOfString:@"/"];
+		if (slash.location == NSNotFound) {
+			continue;
+		}
+		NSString *head = [property.source substringToIndex:slash.location];
+		ORMRole *role = [_model elementWithId:head];
+		if (![role isKindOfClass:[ORMRole class]] || [[role.player.preferredIdentifier allRoles] count] < 2) {
+			continue;
+		}
+		NSMutableArray *group = [parts objectForKey:head];
+		if (group == nil) {
+			group = [NSMutableArray array];
+			[parts setObject:group forKey:head];
+			[order addObject:head];
+		}
+		[group addObject:property];
+	}
+	for (NSString *head in order) {
+		NSArray *group = [parts objectForKey:head];
+		BOOL optional = NO;
+		for (ORMCDProperty *property in group) {
+			optional = optional || (property.optional && ![[property.userInfo objectForKey:@"ormkit.mandatory"] isEqualToString:@"YES"]);
+		}
+		if ([group count] < 2 || !optional) {
+			continue;
+		}
+		NSMutableArray *present = [NSMutableArray array];
+		NSMutableArray *keys = [NSMutableArray array];
+		for (ORMCDProperty *property in group) {
+			[present addObject:[self presenceOf:@[ entity, property ]]];
+			[keys addObject:property.name];
+		}
+		ORMRole *role = [_model elementWithId:head];
+		NSString *called = [role.name length] > 0 ? role.name : role.player.name;
+		NSString *last = [keys lastObject];
+		NSString *listed = [[[keys subarrayWithRange:NSMakeRange(0, [keys count] - 1)] componentsJoinedByString:@", "]
+			stringByAppendingFormat:@" and %@", last];
+		[self add:@{ @"any": @[ @{ @"all": present }, @{ @"not": @{ @"any": present } } ] }
+		       to:entity
+		    named:[NSString stringWithFormat:@"%@IsWhole", ORMCapitalizedName(called)]
+		     text:[NSString stringWithFormat:@"Each %@'s %@ is a whole %@ or none: %@ are set together or not at all.",
+		                                     entity.name, called, role.player.name, listed]
+		     keys:keys
+		  deontic:NO];
+	}
+}
+
 - (void)collect
 {
 	_derivations = [NSMutableArray array];
@@ -538,6 +618,7 @@ ORMBound(NSString *value)
 		for (ORMCDAttribute *attribute in entity.attributes) {
 			[self valuesOf:attribute on:entity];
 		}
+		[self wholeAbsorbedValuesOf:entity];
 	}
 	/* The constraints the mapper found Core Data cannot enforce. */
 	NSMutableOrderedSet *unenforced = [NSMutableOrderedSet orderedSet];
@@ -577,63 +658,311 @@ ORMBound(NSString *value)
 		}
 	}
 	[self rules];
+	[self subtypeRules];
 	[self derivations];
 	[self queries];
+	[self referenceData];
+}
+
+#pragma mark Reference data
+
+/* A value as a seed keeps it: a decimal as its text, which a property
+ * list would round; nil for one no property list holds. */
+static id
+ORMSeedValueOf(id value)
+{
+	if ([value isKindOfClass:[NSDecimalNumber class]]) {
+		return [value descriptionWithLocale:[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"]];
+	}
+	return [value isKindOfClass:[NSString class]] || [value isKindOfClass:[NSNumber class]] || [value isKindOfClass:[NSDate class]]
+		? value : nil;
+}
+
+/* The reference data (docs/EXPRESSIONS.md): the population of the fact
+ * types marked so, put in a store of the mapping, and each entity object
+ * a fact of them has, as a seed: what finds it (its entity's key), and
+ * the properties those fact types are kept in. A fact kept elsewhere (a
+ * fact type's own entity) is noted, not seeded. The instances of an
+ * entity type marked so are seeds too, by their key alone (a kind named,
+ * CostKind 'Fuel'; a subtype's, of its entity). */
+- (void)referenceData
+{
+	NSMutableArray *facts = [NSMutableArray array];
+	NSMutableArray *types = [NSMutableArray array];
+	NSMutableSet *sources = [NSMutableSet set];
+	for (ORMObjectType *type in _model.objectTypes) {
+		if (type.isReferenceData) {
+			[types addObject:type];
+		}
+	}
+	for (ORMFactType *fact in _model.factTypes) {
+		if (!fact.isReferenceData) {
+			continue;
+		}
+		[facts addObject:fact];
+		for (ORMRole *role in fact.roles) {
+			[sources addObject:[ORMQueryPlaces sourceOfRole:role]];
+		}
+	}
+	_seeds = @[];
+	if ([facts count] == 0 && [types count] == 0) {
+		return;
+	}
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_model coreData:_coreData];
+	NSError *error = nil;
+	if ([store newContextWithError:&error] == nil) {
+		[_notes addObject:[NSString stringWithFormat:@"The reference data is not seeded: %@", error.localizedDescription]];
+		return;
+	}
+	NSMutableArray *objects = [NSMutableArray array];
+	for (ORMObjectType *type in types) {
+		for (ORMInstance *instance in [type instances]) {
+			NSManagedObject *object = [store objectForInstance:instance.identifier];
+			if (object == nil) {
+				[_notes addObject:[NSString stringWithFormat:@"%@ %@: reference data kept in no object, not seeded.", type.name,
+				                                             [instance displayText]]];
+			} else if ([objects indexOfObjectIdenticalTo:object] == NSNotFound) {
+				[objects addObject:object];
+			}
+		}
+	}
+	for (ORMFactType *fact in facts) {
+		BOOL kept = NO;
+		for (ORMFactInstance *each in [fact instances]) {
+			for (ORMInstance *player in [each.instancesByRole allValues]) {
+				NSManagedObject *object = [store objectForInstance:player.identifier];
+				if (object != nil && [objects indexOfObjectIdenticalTo:object] == NSNotFound) {
+					[objects addObject:object];
+				}
+				kept = kept || object != nil;
+			}
+		}
+		if (!kept && [[fact instances] count] > 0) {
+			[_notes addObject:[NSString stringWithFormat:@"\"%@\": reference data kept in no object a player is, not seeded.",
+			                                             [fact displayText]]];
+		}
+	}
+	ODataPropertyMapper *keys = [[ODataPropertyMapper alloc] init];
+	NSMutableArray *seeds = [NSMutableArray array];
+	for (NSManagedObject *object in objects) {
+		NSEntityDescription *entity = object.entity;
+		NSArray *key = [[[keys keyAttributesForEntity:entity] valueForKey:@"name"] sortedArrayUsingSelector:@selector(compare:)];
+		NSMutableDictionary *values = [NSMutableDictionary dictionary];
+		NSMutableDictionary *refs = [NSMutableDictionary dictionary];
+		for (NSAttributeDescription *attribute in [[entity attributesByName] allValues]) {
+			BOOL theirs = [key containsObject:attribute.name]
+				|| [sources containsObject:[attribute.userInfo objectForKey:ORMCDSourceKey] ?: @""];
+			id value = theirs ? ORMSeedValueOf([object valueForKey:attribute.name]) : nil;
+			if (value != nil) {
+				[values setObject:value forKey:attribute.name];
+			}
+		}
+		for (NSRelationshipDescription *relationship in [[entity relationshipsByName] allValues]) {
+			NSUInteger index = !relationship.isToMany
+				&& [sources containsObject:[relationship.userInfo objectForKey:ORMCDSourceKey] ?: @""]
+				? [objects indexOfObjectIdenticalTo:[object valueForKey:relationship.name]] : NSNotFound;
+			if (index != NSNotFound) {
+				[refs setObject:@(index) forKey:relationship.name];
+			}
+		}
+		[seeds addObject:@{ @"entity": entity.name, @"key": key, @"values": values, @"refs": refs }];
+	}
+	_seeds = seeds;
+}
+
+/* <Name>ReferenceData: its one method, seeding a context. */
+- (NSString *)referenceDataInterface
+{
+	if ([_seeds count] == 0) {
+		return @"";
+	}
+	return [NSString stringWithFormat:
+		@"\n/* The model's reference data (docs/EXPRESSIONS.md), from the tables (%@.ormplans):\n"
+		@" * each object found by its key or inserted, given what the reference data\n"
+		@" * says. Call it before a store is first used, and after an update. */\n"
+		@"@interface %@ReferenceData : NSObject\n"
+		@"+ (BOOL)seedContext:(NSManagedObjectContext *)context error:(NSError **)error;\n"
+		@"@end\n",
+		_name, _name];
+}
+
+- (NSString *)referenceDataImplementation
+{
+	if ([_seeds count] == 0) {
+		return @"";
+	}
+	return [NSString stringWithFormat:
+		@"\n@implementation %@ReferenceData\n\n"
+		@"+ (BOOL)seedContext:(NSManagedObjectContext *)context error:(NSError **)error\n"
+		@"{\n"
+		@"\tORMTables *tables = [ORMTables tablesNamed:%@ error:error];\n"
+		@"\treturn tables != nil && [tables seedContext:context error:error];\n"
+		@"}\n\n@end\n",
+		_name, ORMLiteral(_name)];
 }
 
 /* The constraint queries (docs/RULES.md): each a predicate its root's
  * objects must not meet, asked of self. Checked from that entity only: a
  * change elsewhere on the rule's paths is seen when it is saved again, as
  * the check's comment says. */
+/* A constraint query's plan, where the driver can ask it of one object:
+ * it reads an entity, and its condition is one predicate. nil, and why,
+ * where not. */
+- (ORMQueryPlan *)rulePlanOf:(ORMQuery *)query reason:(NSString **)reason
+{
+	if (_planner == nil) {
+		_planner = [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
+		_interpreter = [[ORMQueryInterpreter alloc] initWithModel:[_coreData managedObjectModel]];
+	}
+	ORMQueryPlan *plan = [_planner planForQuery:query];
+	ORMCDEntity *entity = plan.entityName != nil ? [_coreData entityNamed:plan.entityName] : nil;
+	if (entity == nil || [plan.notes count] > 0) {
+		*reason = [plan.notes count] > 0 ? [plan.notes componentsJoinedByString:@" "] : @"it reads no entity";
+		return nil;
+	}
+	/* One predicate; or, where that cannot be, asked of the object in
+	 * memory, as long as that needs no store. */
+	NSString *notOne = nil;
+	if ([_interpreter predicateForPlan:plan reason:&notOne] != nil || [_interpreter asksOfOneObject:plan reason:NULL]) {
+		return plan;
+	}
+	*reason = notOne;
+	return nil;
+}
+
+/* A constraint query as a rule of the entity it reads: its plan, the
+ * predicate its rows meet, which a valid object does not. nil, and why,
+ * where the driver cannot ask it of one object. */
+- (ORMRule *)addRuleOf:(ORMQuery *)query
+                 named:(NSString *)name
+                  text:(NSString *)text
+               deontic:(BOOL)deontic
+                reason:(NSString **)reason
+{
+	ORMQueryPlan *plan = [self rulePlanOf:query reason:reason];
+	if (plan == nil) {
+		return nil;
+	}
+	ORMCDEntity *entity = [_coreData entityNamed:plan.entityName];
+	/* Its rows are what must not be: a valid object is none of them. */
+	ORMRule *rule = [self add:@{ @"not": @{ @"plan": [plan propertyList] } }
+	                       to:entity
+	                    named:name
+	                     text:text
+	                     keys:@[]
+	                  deontic:deontic];
+	/* At save, again for each object a change reaches it from. */
+	NSArray *backs = [self backsFrom:entity trails:[plan trailsFromRead]];
+	if (backs != nil) {
+		NSMutableOrderedSet *all = [_ruleBacks objectForKey:entity.name] ?: [NSMutableOrderedSet orderedSet];
+		[all addObjectsFromArray:backs];
+		[_ruleBacks setObject:all forKey:entity.name];
+		rule.remark = [NSString stringWithFormat:@"Checked from %@, and by orm_prepareForSave: for each %@ a change "
+		                                         @"reaches.",
+		                                         entity.name, entity.name];
+	} else {
+		rule.remark = [NSString stringWithFormat:@"Checked from %@ only: a change to the objects it reaches is seen "
+		                                         @"when %@ is saved again.",
+		                                         entity.name, entity.name];
+	}
+	return rule;
+}
+
+/* A constraint the tables have no check for, as the rules that say it
+ * (ORMConstraintQueries); skipped, with why, where they cannot. */
+- (void)rulesFor:(ORMConstraint *)constraint orSkipBecause:(NSString *)why
+{
+	if (_scratch == nil) {
+		_scratch = [[ORMEditor alloc] initWithDocument:ORMCopyDocument(_model.document) undoManager:nil];
+	}
+	ORMConstraint *copy = [_scratch.model elementWithId:constraint.identifier];
+	NSString *reason = nil;
+	/* Read from what has an entity of its own. */
+	NSMutableSet *readable = [NSMutableSet set];
+	for (ORMCDEntity *entity in _coreData.entities) {
+		if (entity.source != nil) {
+			[readable addObject:entity.source];
+		}
+	}
+	ORMConstraintQueries *builder = [[ORMConstraintQueries alloc] initWithEditor:_scratch];
+	builder.readable = readable;
+	/* Its queries' ids the same each time: they are in the plans written. */
+	ORMBeginIds([NSString stringWithFormat:@"rule.%@", constraint.identifier]);
+	NSArray *made = copy != nil ? [builder queriesFor:copy reason:&reason] : nil;
+	ORMEndIds();
+	/* All its rules, or none. */
+	BOOL plannable = made != nil;
+	for (NSString *identifier in made) {
+		plannable = plannable && [self rulePlanOf:[ORMQuery queryWithId:identifier inModel:_scratch.model] reason:&reason] != nil;
+	}
+	if (!plannable) {
+		[self skip:constraint because:reason != nil ? [NSString stringWithFormat:@"%@; as a rule, %@", why, reason] : why];
+		return;
+	}
+	NSString *name = constraint.name ?: constraint.identifier;
+	for (NSUInteger i = 0; i < [made count]; i++) {
+		NSString *each = [made count] > 1 ? [NSString stringWithFormat:@"%@ (%lu)", name, (unsigned long)i + 1] : name;
+		[self addRuleOf:[ORMQuery queryWithId:[made objectAtIndex:i] inModel:_scratch.model] named:each
+		           text:[self textOf:constraint] deontic:constraint.modality == ORMDeontic reason:&reason];
+	}
+}
+
 - (void)rules
 {
-	ORMQueryPlanner *planner = nil;
-	ORMQueryInterpreter *interpreter = nil;
 	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
 		if (query.kind != ORMQueryConstraint) {
 			continue;
 		}
-		if (planner == nil) {
-			planner = [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
-			interpreter = [[ORMQueryInterpreter alloc] initWithModel:[_coreData managedObjectModel]];
-		}
 		NSArray *sentences = [[[ORMVerbalizer alloc] initWithModel:_model] sentencesForQuery:query];
 		NSString *text = [sentences count] > 0 ? [[sentences valueForKey:@"text"] componentsJoinedByString:@" "] : query.name;
-		ORMQueryPlan *plan = [planner planForQuery:query];
-		ORMCDEntity *entity = plan.entityName != nil ? [_coreData entityNamed:plan.entityName] : nil;
 		NSString *why = nil;
-		NSPredicate *predicate = nil;
-		if (entity == nil || [plan.notes count] > 0) {
-			why = entity == nil ? @"it reads no entity" : [plan.notes componentsJoinedByString:@" "];
-		} else {
-			/* What the driver asks of the object: one predicate. */
-			predicate = [interpreter predicateForPlan:plan reason:&why];
-		}
-		if (predicate == nil) {
+		ORMRule *rule = [self addRuleOf:query named:query.name text:text deontic:query.isDeontic reason:&why];
+		if (rule == nil) {
 			[_skipped addObject:[NSString stringWithFormat:@"%@: %@", query.name, text]];
 			[_notes addObject:[NSString stringWithFormat:@"%@: %@ (%@)", query.name, why ?: @"?", text]];
 			continue;
 		}
-		/* Its rows are what must not be: a valid object is none of them. */
-		ORMRule *rule = [self add:@{ @"not": @{ @"plan": [plan propertyList] } }
-		                       to:entity
-		                    named:query.name
-		                     text:text
-		                     keys:@[]
-		                  deontic:query.isDeontic];
-		/* At save, again for each object a change reaches it from. */
-		NSArray *backs = [self backsFrom:entity trails:[plan trailsFromRead]];
-		if (backs != nil) {
-			NSMutableOrderedSet *all = [_ruleBacks objectForKey:entity.name] ?: [NSMutableOrderedSet orderedSet];
-			[all addObjectsFromArray:backs];
-			[_ruleBacks setObject:all forKey:entity.name];
-			rule.remark = [NSString stringWithFormat:@"Checked from %@, and by orm_prepareForSave: for each %@ a change "
-			                                         @"reaches.",
-			                                         entity.name, entity.name];
-		} else {
-			rule.remark = [NSString stringWithFormat:@"Checked from %@ only: a change to the objects it reaches is seen "
-			                                         @"when %@ is saved again.",
-			                                         entity.name, entity.name];
+	}
+}
+
+/* "Each FillUp is a MeteredEvent", where a rule derives MeteredEvent and
+ * does not store it: FillUp is asserted, and its entity's objects must
+ * meet the rule ("an Event that was at some Distance"), which nothing in
+ * Core Data says, its properties being the supertype's, optional there
+ * (docs/DERIVATION.md). A rule of the subtype's entity, its query "✓FillUp
+ * + not is MeteredEvent", made in the copy of the document; skipped, with
+ * why, where it cannot be planned. */
+- (void)subtypeRules
+{
+	for (ORMObjectType *subtype in _model.objectTypes) {
+		ORMDerivationRule *own = [subtype derivationRule];
+		if (own != nil && !own.isStored) {
+			continue;
+		}
+		for (ORMFactType *fact in subtype.supertypeFacts) {
+			ORMObjectType *supertype = [fact supertype];
+			ORMDerivationRule *rule = [supertype derivationRule];
+			if (rule == nil || rule.isStored || [ORMQuery derivationOfSubtype:supertype inModel:_model] == nil) {
+				continue;
+			}
+			if (_scratch == nil) {
+				_scratch = [[ORMEditor alloc] initWithDocument:ORMCopyDocument(_model.document) undoManager:nil];
+			}
+			NSString *text = [NSString stringWithFormat:@"Each %@ is %@ %@.", subtype.name, ORMArticle(supertype.name),
+			                                            supertype.name];
+			NSString *name = [NSString stringWithFormat:@"%@IsA%@", subtype.name, supertype.name];
+			NSString *outline = [NSString stringWithFormat:@"It is impossible that:\n✓%@\n  + not is %@", subtype.name,
+			                                               supertype.name];
+			NSString *why = nil;
+			ORMBeginIds([NSString stringWithFormat:@"subtype.%@", fact.identifier]);
+			NSString *made = [[[ORMOutlineReader alloc] initWithEditor:_scratch] addQueryNamed:name outline:outline
+			                                                                            reason:&why];
+			ORMEndIds();
+			ORMQuery *query = made != nil ? [ORMQuery queryWithId:made inModel:_scratch.model] : nil;
+			if (query == nil || [self addRuleOf:query named:name text:text deontic:NO reason:&why] == nil) {
+				[_skipped addObject:[NSString stringWithFormat:@"%@: %@", name, text]];
+				[_notes addObject:[NSString stringWithFormat:@"%@: %@ (%@)", name, why ?: @"?", text]];
+			}
 		}
 	}
 }
@@ -671,7 +1000,12 @@ ORMSelectorStem(NSString *name)
 	ORMQueryPlanner *planner = nil;
 	NSMutableSet *stems = [NSMutableSet set];
 	for (ORMQuery *query in [ORMQuery queriesInModel:_model]) {
-		if (query.kind != ORMQueryList && query.kind != ORMQueryCalculation) {
+		/* A subtype's rule, too, where the subtype is no entity of its
+		 * own: which of its supertype's objects are of it (ServiceKind, a
+		 * CostKind 'Maintenance' or 'Repair'), for an app to offer them. */
+		ORMObjectType *subtype = query.kind == ORMQueryDerivation ? query.derivedSubtype : nil;
+		BOOL ofSubtype = subtype != nil && ![[subtype derivationRule] isStored];
+		if (query.kind != ORMQueryList && query.kind != ORMQueryCalculation && !ofSubtype) {
 			continue;
 		}
 		planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
@@ -848,15 +1182,21 @@ ORMInDependencyOrder(NSArray<ORMQuery *> *derivations)
 
 /* The plan's columns for the object read and the node, by object: no
  * identifier's key, so that a row has the objects themselves, which a
- * relationship is set to. nil where the plan lists either by no path. */
+ * relationship is set to; a computed value as it is. nil where the plan
+ * lists the root by no path. */
 static ORMQueryPlan *
-ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
+ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, NSArray<ORMQueryNode *> *nodes)
 {
 	NSMutableArray *columns = [NSMutableArray array];
-	for (ORMQueryNode *each in @[ root, node ]) {
+	for (ORMQueryNode *each in [@[ root ] arrayByAddingObjectsFromArray:nodes]) {
 		ORMPlanColumn *column = [plan columnOfNode:each.identifier];
-		if (column == nil || column.value != nil) {
+		if (column == nil || (column.value != nil && each == root)) {
 			return nil;
+		}
+		/* A value node's, computed: the value itself. */
+		if (column.value != nil) {
+			[columns addObject:column];
+			continue;
 		}
 		[columns addObject:[ORMPlanColumn columnTitled:column.title node:column.nodeId path:column.path
 		                                         trail:column.trail
@@ -869,8 +1209,11 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 /* The stored derived fact types worked out at save (docs/DERIVATION.md),
  * as the tables have them (docs/RUNTIME.md): those Core Data does not
  * derive itself, whose rule goes from the first role's player, the
- * property the second role is mapped to set to what it reaches. The
- * driver asks the rule of each object a change can reach, in memory. */
+ * property the second role is mapped to set to what it reaches (the
+ * properties of the parts of a player of several identifying values,
+ * where it is absorbed). Partly derived, only where the rule derives
+ * something. The driver asks the rule of each object a change can reach,
+ * in memory. */
 - (void)derivations
 {
 	ORMQueryPlanner *planner = nil;
@@ -883,15 +1226,28 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 		NSString *what = [fact displayText];
 		NSString *why = nil;
 		NSArray *roles = [fact visibleRoles];
-		NSArray *columns = [query derivedColumns];
-		NSArray *target = [roles count] == 2 ? [_bySource objectForKey:[(ORMRole *)[roles lastObject] identifier]] : nil;
+		NSArray *groups = [query derivedColumnGroups];
+		ORMRole *far = [roles count] == 2 ? [roles lastObject] : nil;
+		NSArray *target = far != nil ? [_bySource objectForKey:far.identifier] : nil;
 		ORMCDEntity *entity = [target firstObject];
 		ORMCDProperty *property = [target lastObject];
-		if (rule.isPartial) {
-			why = @"partly derived: what is asserted and what is derived are kept in one property";
-		} else if ([roles count] != 2 || [columns count] != 2 || [columns firstObject] != query.root) {
+		/* A player of several identifying values, absorbed: its parts'
+		 * properties on the root's entity, in its identifier's order. */
+		NSMutableArray *targets = [NSMutableArray array];
+		BOOL parted = [ORMQuery partRolesOf:far.player] != nil;
+		if (parted && property == nil) {
+			entity = [_coreData entityWithSource:query.root.objectType.identifier]
+				?: [_coreData entityNamed:[ORMCoreDataMapper entityNameFor:query.root.objectType.name]];
+			ORMQueryPlaces *places = [[ORMQueryPlaces alloc] initWithCoreData:_coreData];
+			for (NSArray *keys in entity != nil ? [places identifyingPartsOfAbsorbed:far.player base:far.identifier on:entity] ?: @[] : @[]) {
+				[targets addObject:[keys firstObject]];
+			}
+		}
+		if ([roles count] != 2 || [groups count] != 2 || [[groups firstObject] firstObject] != query.root) {
 			why = @"its rule does not go from one role's player to the other's";
-		} else if (property == nil) {
+		} else if (parted && [targets count] != [[ORMQuery partRolesOf:far.player] count]) {
+			why = @"its player is identified by several values, kept in no properties of the object";
+		} else if (!parted && property == nil) {
 			why = @"it is mapped to no property";
 		} else if ([property isKindOfClass:[ORMCDAttribute class]] && ((ORMCDAttribute *)property).derivation != nil) {
 			/* Core Data derives it. */
@@ -902,15 +1258,22 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 		if (why == nil) {
 			planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
 			ORMQueryPlan *planned = [planner planForQuery:query];
-			plan = [planned.notes count] == 0 ? ORMObjectColumns(planned, query.root, [columns lastObject]) : nil;
+			plan = [planned.notes count] == 0 ? ORMObjectColumns(planned, query.root, [groups lastObject]) : nil;
 			trails = [plan trailsFromRead];
-			if (plan == nil || ![plan.entityName isEqualToString:entity.name]) {
+			/* Of the entity, or a subentity of it (a Service's cost, kept on
+			 * Record): those objects have the property too. */
+			BOOL of = NO;
+			for (ORMCDEntity *at = plan != nil ? [_coreData entityNamed:plan.entityName] : nil; at != nil && !of;
+			     at = at.parentName != nil ? [_coreData entityNamed:at.parentName] : nil) {
+				of = [at.name isEqualToString:entity.name];
+			}
+			if (!of) {
 				why = @"its rule does not plan from the object the property is of";
-			} else if ([plan.definitions count] > 0 || trails == nil) {
+			} else if (trails == nil) {
 				why = @"its rule reads what no path from the object says, which is not asked of it in memory";
 			}
 		}
-		NSArray *backs = why == nil ? [self backsFrom:entity trails:trails] : nil;
+		NSArray *backs = why == nil ? [self backsFrom:[_coreData entityNamed:plan.entityName] trails:trails] : nil;
 		if (why == nil && backs == nil) {
 			why = @"a relationship on its path has no inverse";
 		}
@@ -918,11 +1281,12 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 			[_notes addObject:[NSString stringWithFormat:@"%@: not worked out at save: %@.", what, why]];
 			continue;
 		}
-		NSString *kind = [property isKindOfClass:[ORMCDAttribute class]] ? @"value"
+		NSString *kind = parted ? @"values" : [property isKindOfClass:[ORMCDAttribute class]] ? @"value"
 			: (((ORMCDRelationship *)property).toMany ? @"objects" : @"object");
-		[_derivations addObject:[ORMStoredDerivation derivationWithText:what root:entity.name plan:plan
-		                                                         target:property.name
+		[_derivations addObject:[ORMStoredDerivation derivationWithText:what root:plan.entityName plan:plan
+		                                                        targets:parted ? targets : @[ property.name ]
 		                                                           kind:kind
+		                                                        partial:rule.isPartial
 		                                                          backs:backs]];
 	}
 }
@@ -934,24 +1298,12 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	[out appendFormat:@"\n@implementation NSManagedObjectContext (ORMSave)\n\n"
 	                  @"- (BOOL)orm_prepareForSave:(NSError **)error\n"
 	                  @"{\n"
-	                  @"\tNSMutableSet *changed = [NSMutableSet setWithSet:[self insertedObjects]];\n"
-	                  @"\t[changed unionSet:[self updatedObjects]];\n"
-	                  @"\t[changed unionSet:[self deletedObjects]];\n"
 	                  @"\t/* The model's tables (%@.ormplans), by the driver. */\n"
 	                  @"\tORMTables *tables = [ORMTables tablesNamed:%@ error:error];\n"
-	                  @"\tif (tables == nil) {\n"
-	                  @"\t\treturn NO;\n"
-	                  @"\t}\n"
-	                  @"\tORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];\n"
-	                  @"\tif (![hook deriveInContext:self changed:changed error:error]) {\n"
-	                  @"\t\treturn NO;\n"
-	                  @"\t}\n"
-	                  @"\tNSMutableArray<NSError *> *violations = [NSMutableArray array];\n",
+	                  @"\treturn tables != nil && [[[ORMSaveHook alloc] initWithTables:tables] prepareForSaveInContext:self "
+	                  @"error:error];\n"
+	                  @"}\n\n@end\n",
 	                  _name, ORMLiteral(_name)];
-	[out appendString:@"\t[hook prepareJoinedInContext:self changed:changed violations:violations];\n"
-	                  @"\t[hook checkInContext:self changed:changed violations:violations];\n"
-	                  @"\treturn [ORMValidator report:violations error:error];\n"
-	                  @"}\n\n@end\n"];
 	return out;
 }
 
@@ -1062,6 +1414,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	}
 	[out appendString:[_joined header]];
 	[out appendString:[self queriesInterface]];
+	[out appendString:[self referenceDataInterface]];
 	if ([self hasSaveHook]) {
 		[out appendString:@"\n/* Saving (docs/DERIVATION.md): call before save:, as Core Data's will-save\n"
 		                  @" * notification cannot refuse one.\n"
@@ -1094,6 +1447,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	}
 	[out appendString:[_joined implementation]];
 	[out appendString:[self queriesImplementation]];
+	[out appendString:[self referenceDataImplementation]];
 	/* Each entity's rules, its ancestors' too, are the driver's to check:
 	 * a category on the topmost classes with rules. */
 	for (ORMCDEntity *entity in [self entitiesWithRules]) {
@@ -1124,14 +1478,16 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, ORMQueryNode *node)
 	for (NSString *entity in _ruleBacks) {
 		[backs setObject:[[_ruleBacks objectForKey:entity] array] forKey:entity];
 	}
-	return [[ORMTables tablesOfModel:_name queries:_queries derivations:_derivations rules:_rules ruleBacks:backs]
+	ORMTables *tables = [[ORMTables tablesOfModel:_name queries:_queries derivations:_derivations rules:_rules ruleBacks:backs]
 		tablesWithJoined:[_joined types]];
+	tables.seeds = _seeds;
+	return tables;
 }
 
 /* Whether the code reads tables: it has rules or a save hook. */
 - (BOOL)hasTables
 {
-	return [_rules count] > 0 || [_queries count] > 0 || [self hasSaveHook];
+	return [_rules count] > 0 || [_queries count] > 0 || [_seeds count] > 0 || [self hasSaveHook];
 }
 
 - (NSDictionary<NSString *, NSString *> *)files

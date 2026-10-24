@@ -34,6 +34,14 @@ ORMRowValueText(id value)
 	if ([value isKindOfClass:[NSManagedObject class]]) {
 		return [NSString stringWithFormat:@"a %@", [[(NSManagedObject *)value entity] name]];
 	}
+	if ([value isKindOfClass:[NSArray class]]) {
+		/* An object identified by several values: "(4, 1, Reserve 1)". */
+		NSMutableArray *parts = [NSMutableArray array];
+		for (id part in value) {
+			[parts addObject:ORMRowValueText(part)];
+		}
+		return [NSString stringWithFormat:@"(%@)", [parts componentsJoinedByString:@", "]];
+	}
 	return [value description];
 }
 
@@ -87,10 +95,21 @@ ORMRowValueText(id value)
 		}
 		__block ORMQueryResult *page = nil;
 		__block NSError *failed = nil;
+		__block NSString *refused = nil;
 		[context performBlockAndWait:^{
-			ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:context error:&failed];
-			page = cursor != nil ? [cursor nextPage:MAX(limit, (NSUInteger)1) error:&failed] : nil;
+			/* A rule the store cannot say is one rule unchecked, not the
+			 * check given up. */
+			@try {
+				ORMQueryCursor *cursor = [interpreter cursorForPlan:plan inContext:context error:&failed];
+				page = cursor != nil ? [cursor nextPage:MAX(limit, (NSUInteger)1) error:&failed] : nil;
+			} @catch (NSException *exception) {
+				refused = [exception reason] ?: [exception name];
+			}
 		}];
+		if (refused != nil) {
+			[_unchecked addObject:[NSString stringWithFormat:@"%@: the store cannot run it: %@", rule.name, refused]];
+			continue;
+		}
 		if (page == nil) {
 			if (error != NULL) {
 				*error = failed;

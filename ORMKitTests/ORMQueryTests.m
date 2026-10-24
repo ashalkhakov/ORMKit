@@ -58,9 +58,13 @@
 	(void)object;
 	return YES;
 }
-- (NSArray<NSArray *> *)rowsOf:(id)object
+- (NSArray<ORMTuple *> *)rowsOf:(id)object
 {
-	return [self.rows objectForKey:object];
+	NSMutableArray *tuples = [NSMutableArray array];
+	for (NSArray *row in [self.rows objectForKey:object]) {
+		[tuples addObject:[ORMTuple tupleWithValues:row]];
+	}
+	return tuples;
 }
 @end
 
@@ -662,15 +666,15 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	 * a key path in the subquery is the fetched object's. */
 	XCTAssertEqualObjects([[self plan:q] text], @"read Employee\n"
 	                                              @"where city is set and country is set and some employees as x1 has "
-	                                              @"(x1.city is city and not (x1.country is country))\n"
+	                                              @"(x1.city is city and x1.country is set and not (x1.country is country))\n"
 	                                              @"list self (nr)");
 	/* In the lambda, the supervisor is $it; a city, a surrogate's, by its key. */
 	XCTAssertEqualObjects([[self odata:q] queryText], @"$filter=City ne null and Country ne null and "
-	                                                   @"Employees/any(x1:x1/City/Id eq $it/City/Id and not "
+	                                                   @"Employees/any(x1:x1/City/Id eq $it/City/Id and x1/Country ne null and not "
 	                                                   @"(x1/Country/Name eq $it/Country/Name))&$select=Nr");
 	XCTAssertEqualObjects([self program:q], @"fetch Employee where (city != nil) AND (country != nil) AND "
-	                                        @"(SUBQUERY(employees, $x1, ($x1.city == city) AND (NOT ($x1.country == "
-	                                        @"country))).@count > 0)\n"
+	                                        @"(SUBQUERY(employees, $x1, ($x1.city == city) AND ($x1.country != nil) AND "
+	                                        @"(NOT ($x1.country == country))).@count > 0)\n"
 	                                        @"sorted by nr; each batch after the last one's");
 }
 
@@ -1757,10 +1761,13 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
 	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
 	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	/* Its city there: each part that identifies it set. */
 	XCTAssertEqualObjects([plan text], @"read Employee\n"
-	                                   @"where cityCityname is set and country is set and some employees as x1 has "
+	                                   @"where cityCityname is set and cityStateCountry is set and cityStateStatecode "
+	                                   @"is set and country is set and some employees as x1 has "
 	                                   @"(x1.cityCityname = cityCityname and x1.cityStateCountry is cityStateCountry and "
-	                                   @"x1.cityStateStatecode = cityStateStatecode and not (x1.country is country))\n"
+	                                   @"x1.cityStateStatecode = cityStateStatecode and x1.country is set and "
+	                                   @"not (x1.country is country))\n"
 	                                   @"list self (nr)");
 	/* The paper's company, its cities absorbed: Bea's employee Fay lives in
 	 * Sydney too, born elsewhere; Ann's Gus in Perth, not Brisbane. */
@@ -2316,14 +2323,14 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 		NSManagedObject *usa = make(@"Country", @{ @"name": @"USA" });
 		NSManagedObject *uk = make(@"Country", @{ @"name": @"UK" });
 		/* A city is identified by its name and state: in OData, by the
-		 * number the service would give it. */
-		NSManagedObject *brisbane = make(@"City", @{ @"id": @1, @"cityname": @"Brisbane", @"stateStatecode": @"QLD",
+		 * UUID whoever makes it gives it. */
+		NSManagedObject *brisbane = make(@"City", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0001-000000000001"], @"cityname": @"Brisbane", @"stateStatecode": @"QLD",
 		                                             @"stateCountry": australia });
-		NSManagedObject *sydney = make(@"City", @{ @"id": @2, @"cityname": @"Sydney", @"stateStatecode": @"NSW",
+		NSManagedObject *sydney = make(@"City", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0001-000000000002"], @"cityname": @"Sydney", @"stateStatecode": @"NSW",
 		                                           @"stateCountry": australia });
-		NSManagedObject *perth = make(@"City", @{ @"id": @3, @"cityname": @"Perth", @"stateStatecode": @"WA",
+		NSManagedObject *perth = make(@"City", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0001-000000000003"], @"cityname": @"Perth", @"stateStatecode": @"WA",
 		                                          @"stateCountry": australia });
-		NSManagedObject *seattle = make(@"City", @{ @"id": @4, @"cityname": @"Seattle", @"stateStatecode": @"WA",
+		NSManagedObject *seattle = make(@"City", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0001-000000000004"], @"cityname": @"Seattle", @"stateStatecode": @"WA",
 		                                            @"stateCountry": usa });
 		NSDictionary *salaries = @{ @50: make(@"Salary", @{ @"usd": @50000 }), @500: make(@"Salary", @{ @"usd": @500000 }),
 		                            @600: make(@"Salary", @{ @"usd": @600000 }) };
@@ -2366,9 +2373,9 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 		NSManagedObject *first = make(@"Rank", @{ @"nr": @1 }), *second = make(@"Rank", @{ @"nr": @2 });
 		NSManagedObject *y1995 = make(@"Year", @{ @"ad": @1995 }), *y1996 = make(@"Year", @{ @"ad": @1996 });
 		NSManagedObject *y2001 = make(@"Year", @{ @"ad": @2001 });
-		make(@"USbranchAchievedRankInYear", @{ @"id": @1, @"uSbranch": us1, @"rank": first, @"year": y1995 });
-		make(@"USbranchAchievedRankInYear", @{ @"id": @2, @"uSbranch": us2, @"rank": first, @"year": y2001 });
-		make(@"USbranchAchievedRankInYear", @{ @"id": @3, @"uSbranch": us2, @"rank": second, @"year": y1996 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0002-000000000001"], @"uSbranch": us1, @"rank": first, @"year": y1995 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0002-000000000002"], @"uSbranch": us2, @"rank": first, @"year": y2001 });
+		make(@"USbranchAchievedRankInYear", @{ @"id": [[NSUUID alloc] initWithUUIDString:@"00000000-0000-0000-0002-000000000003"], @"uSbranch": us2, @"rank": second, @"year": y1996 });
 		NSError *saveError = nil;
 		XCTAssertTrue([context save:&saveError], @"%@", [saveError userInfo]);
 	}];

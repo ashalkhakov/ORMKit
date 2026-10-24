@@ -3,6 +3,26 @@
 
 NSString * const ORMCDSourceKey = @"ormkit.source";
 
+NSString *
+ORMCDIndexName(ORMCDEntity *entity, NSArray<NSString *> *names)
+{
+	NSMutableString *name = [NSMutableString string];
+	if ([entity.parentName length] > 0 && [entity.name length] > 0) {
+		[name appendString:[[[entity.name substringToIndex:1] lowercaseString]
+		                       stringByAppendingString:[entity.name substringFromIndex:1]]];
+		[name appendString:@"By"];
+	} else {
+		[name appendString:@"by"];
+	}
+	for (NSString *each in names) {
+		[name appendString:[each length] > 0 ? [[[each substringToIndex:1] uppercaseString]
+		                                           stringByAppendingString:[each substringFromIndex:1]]
+		                                     : @""];
+	}
+	[name appendString:@"Index"];
+	return name;
+}
+
 static NSString *
 ORMCDAttr(NSXMLElement *element, NSString *name)
 {
@@ -321,6 +341,7 @@ ORMCDUserInfo(NSXMLElement *element)
 	                                                 @"codeGenerationType" ]);
 	entity.userInfo = ORMCDUserInfo(element);
 	NSMutableArray *extras = [NSMutableArray array];
+	NSMutableArray *indexes = [NSMutableArray array];
 	for (NSXMLNode *node in [element children]) {
 		if ([node kind] != NSXMLElementKind) {
 			continue;
@@ -339,8 +360,21 @@ ORMCDUserInfo(NSXMLElement *element)
 				}
 				[entity.uniquenessConstraints addObject:names];
 			}
+		} else if ([name isEqualToString:@"fetchIndex"]) {
+			[indexes addObject:child];
 		} else if (![name isEqualToString:@"userInfo"]) {
 			[extras addObject:[child copy]];
+		}
+	}
+	/* A fetch index an identifier makes is written of it: others are
+	 * kept as they are. */
+	NSMutableSet *implied = [NSMutableSet set];
+	for (NSArray *names in entity.uniquenessConstraints) {
+		[implied addObject:ORMCDIndexName(entity, names)];
+	}
+	for (NSXMLElement *index in indexes) {
+		if (![implied containsObject:ORMCDAttr(index, @"name") ?: @""]) {
+			[extras addObject:[index copy]];
 		}
 	}
 	entity.extraElements = extras;
@@ -613,6 +647,27 @@ ORMCDIsScalar(NSString *type)
 		}
 		for (ORMCDRelationship *relationship in [entity.relationships sortedArrayUsingDescriptors:@[ byName ]]) {
 			[self writeRelationship:relationship of:entity to:out];
+		}
+		/* Each identifier indexed, as Xcode writes a fetch index: the
+		 * store reads by it (the runtime's pages seek on it). */
+		NSMutableSet *indexed = [NSMutableSet set];
+		for (NSArray *names in entity.uniquenessConstraints) {
+			/* One index of the same properties, once. */
+			if ([indexed containsObject:ORMCDIndexName(entity, names)]) {
+				continue;
+			}
+			[indexed addObject:ORMCDIndexName(entity, names)];
+			[out appendString:@"        <fetchIndex"];
+			ORMCDPut(out, @"name", ORMCDIndexName(entity, names));
+			[out appendString:@">\n"];
+			for (NSString *name in names) {
+				[out appendString:@"            <fetchIndexElement"];
+				ORMCDPut(out, @"property", name);
+				ORMCDPut(out, @"type", @"Binary");
+				ORMCDPut(out, @"order", @"ascending");
+				[out appendString:@"/>\n"];
+			}
+			[out appendString:@"        </fetchIndex>\n"];
 		}
 		if ([entity.uniquenessConstraints count] > 0) {
 			[out appendString:@"        <uniquenessConstraints>\n"];

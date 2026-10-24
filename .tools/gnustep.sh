@@ -8,7 +8,7 @@
 # takes the better part of an hour the first time. It is cached after that.
 set -e
 root=$(cd "$(dirname "$0")/.." && pwd)
-image=ormkit-gnustep
+image=ormkit-gnustep:latest
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   cat >&2 <<MSG

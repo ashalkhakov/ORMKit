@@ -42,9 +42,26 @@ ORMIsBack(id back)
 @property (nonatomic, readwrite, copy) NSString *target;
 @property (nonatomic, readwrite, copy) NSString *kind;
 @property (nonatomic, readwrite, copy) NSArray<NSArray *> *backs;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *targets;
+@property (nonatomic, readwrite) BOOL partial;
 @end
 
 @implementation ORMStoredDerivation
+
++ (instancetype)derivationWithText:(NSString *)text
+                              root:(NSString *)root
+                              plan:(ORMQueryPlan *)plan
+                           targets:(NSArray<NSString *> *)targets
+                              kind:(NSString *)kind
+                           partial:(BOOL)partial
+                             backs:(NSArray<NSArray *> *)backs
+{
+	ORMStoredDerivation *derivation = [self derivationWithText:text root:root plan:plan target:[targets firstObject] kind:kind
+	                                                     backs:backs];
+	derivation.targets = targets;
+	derivation.partial = partial;
+	return derivation;
+}
 
 + (instancetype)derivationWithText:(NSString *)text
                               root:(NSString *)root
@@ -60,13 +77,22 @@ ORMIsBack(id back)
 	derivation.target = target;
 	derivation.kind = kind;
 	derivation.backs = backs ?: @[];
+	derivation.targets = target != nil ? @[ target ] : @[];
 	return derivation;
 }
 
 - (id)propertyList
 {
-	return @{ @"text": self.text ?: @"", @"root": self.root, @"plan": [self.plan propertyList], @"target": self.target,
-		      @"kind": self.kind, @"backs": self.backs };
+	NSMutableDictionary *list = [NSMutableDictionary dictionaryWithDictionary:@{
+		@"text": self.text ?: @"", @"root": self.root, @"plan": [self.plan propertyList], @"target": self.target,
+		@"kind": self.kind, @"backs": self.backs }];
+	if ([self.targets count] > 1) {
+		[list setObject:self.targets forKey:@"targets"];
+	}
+	if (self.partial) {
+		[list setObject:@YES forKey:@"partial"];
+	}
+	return list;
 }
 
 + (instancetype)derivationWithPropertyList:(id)list error:(NSError **)error
@@ -79,9 +105,14 @@ ORMIsBack(id back)
 	NSString *target = [list objectForKey:@"target"];
 	NSString *kind = [list objectForKey:@"kind"];
 	NSArray *backs = [list objectForKey:@"backs"];
-	if (!ORMIsText(root) || !ORMIsText(target) || ![@[ @"value", @"object", @"objects" ] containsObject:kind]
-	    || ![backs isKindOfClass:[NSArray class]]) {
-		*error = ORMTablesError(@"a derivation has its root, target, kind (value, object or objects) and backs.");
+	id targets = [list objectForKey:@"targets"] ?: (target != nil ? @[ target ] : @[]);
+	BOOL texts = [targets isKindOfClass:[NSArray class]] && [targets count] > 0;
+	for (id each in texts ? targets : @[]) {
+		texts = texts && ORMIsText(each);
+	}
+	if (!ORMIsText(root) || !ORMIsText(target) || ![@[ @"value", @"object", @"objects", @"values" ] containsObject:kind]
+	    || ![backs isKindOfClass:[NSArray class]] || !texts) {
+		*error = ORMTablesError(@"a derivation has its root, target, kind (value, object, objects or values) and backs.");
 		return nil;
 	}
 	for (id back in backs) {
@@ -94,11 +125,12 @@ ORMIsBack(id back)
 	if (plan == nil) {
 		return nil;
 	}
-	if (![plan.entityName isEqualToString:root] || [plan.columns count] != 2) {
+	if (![plan.entityName isEqualToString:root] || [plan.columns count] != 1 + [targets count]) {
 		*error = ORMTablesError(@"a derivation's plan reads its root, and lists it and what it derives.");
 		return nil;
 	}
-	return [self derivationWithText:[list objectForKey:@"text"] root:root plan:plan target:target kind:kind backs:backs];
+	return [self derivationWithText:[list objectForKey:@"text"] root:root plan:plan targets:targets kind:kind
+	                        partial:[[list objectForKey:@"partial"] boolValue] backs:backs];
 }
 
 @end
@@ -445,6 +477,7 @@ ORMIsMember(id member)
 	                                       rules:self.rules
 	                                   ruleBacks:self.ruleBacks];
 	tables.joined = joined ?: @{};
+	tables.seeds = self.seeds;
 	tables.others = self.others;
 	return tables;
 }
@@ -491,6 +524,9 @@ ORMIsMember(id member)
 		[joined setObject:[[self.joined objectForKey:name] propertyList] forKey:name];
 	}
 	[list setObject:joined forKey:@"joined"];
+	if ([self.seeds count] > 0) {
+		[list setObject:self.seeds forKey:@"seeds"];
+	}
 	return list;
 }
 
@@ -580,10 +616,115 @@ ORMIsMember(id member)
 	                                  rules:rules
 	                              ruleBacks:backLists];
 	tables.joined = joined;
+	id seeds = [list objectForKey:@"seeds"] ?: @[];
+	BOOL valid = [seeds isKindOfClass:[NSArray class]];
+	for (id seed in valid ? seeds : @[]) {
+		valid = valid && [seed isKindOfClass:[NSDictionary class]] && [[seed objectForKey:@"entity"] isKindOfClass:[NSString class]]
+			&& [[seed objectForKey:@"key"] isKindOfClass:[NSArray class]]
+			&& [[seed objectForKey:@"values"] isKindOfClass:[NSDictionary class]]
+			&& [([seed objectForKey:@"refs"] ?: @{}) isKindOfClass:[NSDictionary class]];
+	}
+	if (!valid) {
+		*error = ORMTablesError(@"a seed is an entity, its key, its values and its relationships.");
+		return nil;
+	}
+	tables.seeds = seeds;
 	NSMutableDictionary *others = [NSMutableDictionary dictionaryWithDictionary:list];
-	[others removeObjectsForKeys:@[ @"format", @"model", @"queries", @"derivations", @"rules", @"ruleBacks", @"joined" ]];
+	[others removeObjectsForKeys:@[ @"format", @"model", @"queries", @"derivations", @"rules", @"ruleBacks", @"joined",
+		                            @"seeds" ]];
 	tables.others = others;
 	return tables;
+}
+
+#pragma mark Reference data
+
+/* A seed's value as the attribute holds it: a decimal from its text. */
+static id
+ORMSeedValue(id value, NSAttributeDescription *attribute)
+{
+	if (attribute.attributeType == NSDecimalAttributeType && [value isKindOfClass:[NSString class]]) {
+		return [NSDecimalNumber decimalNumberWithString:value
+		                                         locale:[[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"]];
+	}
+	return value;
+}
+
+/* The seed's object in the context: the one its key finds, or a new one. */
+static NSManagedObject *
+ORMSeedObject(NSDictionary *seed, NSEntityDescription *entity, NSManagedObjectContext *context, NSError **error)
+{
+	NSDictionary *values = [seed objectForKey:@"values"];
+	NSMutableArray *parts = [NSMutableArray array];
+	NSMutableArray *arguments = [NSMutableArray array];
+	for (NSString *key in [seed objectForKey:@"key"]) {
+		NSAttributeDescription *attribute = [[entity attributesByName] objectForKey:key];
+		id value = attribute != nil ? ORMSeedValue([values objectForKey:key], attribute) : nil;
+		if (value == nil) {
+			*error = ORMTablesError([NSString stringWithFormat:@"%@ has no key %@ to find a seed by.", entity.name, key]);
+			return nil;
+		}
+		[parts addObject:[NSString stringWithFormat:@"%@ == %%@", key]];
+		[arguments addObject:value];
+	}
+	NSFetchRequest *fetch = [[NSFetchRequest alloc] initWithEntityName:entity.name];
+	fetch.predicate = [parts count] > 0 ? [NSPredicate predicateWithFormat:[parts componentsJoinedByString:@" AND "]
+	                                                         argumentArray:arguments] : nil;
+	fetch.fetchLimit = 1;
+	NSArray *found = [parts count] > 0 ? [context executeFetchRequest:fetch error:error] : @[];
+	if (found == nil) {
+		return nil;
+	}
+	return [found firstObject] ?: [NSEntityDescription insertNewObjectForEntityForName:entity.name inManagedObjectContext:context];
+}
+
+- (BOOL)seedContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+	NSError * __autoreleasing ignored = nil;
+	if (error == NULL) {
+		error = &ignored;
+	}
+	NSDictionary *entities = [[[context persistentStoreCoordinator] managedObjectModel] entitiesByName];
+	NSMutableArray *objects = [NSMutableArray array];
+	/* Each found or made, with its values; then what each reaches. */
+	for (NSDictionary *seed in self.seeds) {
+		NSEntityDescription *entity = [entities objectForKey:[seed objectForKey:@"entity"]];
+		if (entity == nil) {
+			*error = ORMTablesError([NSString stringWithFormat:@"the model has no entity %@ to seed.", [seed objectForKey:@"entity"]]);
+			return NO;
+		}
+		NSManagedObject *object = ORMSeedObject(seed, entity, context, error);
+		if (object == nil) {
+			return NO;
+		}
+		NSDictionary *values = [seed objectForKey:@"values"];
+		for (NSString *name in values) {
+			NSAttributeDescription *attribute = [[entity attributesByName] objectForKey:name];
+			if (attribute == nil) {
+				*error = ORMTablesError([NSString stringWithFormat:@"%@ has no attribute %@ to seed.", entity.name, name]);
+				return NO;
+			}
+			id value = ORMSeedValue([values objectForKey:name], attribute);
+			if (![[object valueForKey:name] isEqual:value]) {
+				[object setValue:value forKey:name];
+			}
+		}
+		[objects addObject:object];
+	}
+	for (NSUInteger i = 0; i < [self.seeds count]; i++) {
+		NSDictionary *refs = [[self.seeds objectAtIndex:i] objectForKey:@"refs"] ?: @{};
+		NSManagedObject *object = [objects objectAtIndex:i];
+		for (NSString *name in refs) {
+			NSUInteger index = [[refs objectForKey:name] unsignedIntegerValue];
+			if ([[object.entity relationshipsByName] objectForKey:name] == nil || index >= [objects count]) {
+				*error = ORMTablesError([NSString stringWithFormat:@"%@ has no relationship %@ to seed.", object.entity.name, name]);
+				return NO;
+			}
+			if ([object valueForKey:name] != [objects objectAtIndex:index]) {
+				[object setValue:[objects objectAtIndex:index] forKey:name];
+			}
+		}
+	}
+	return YES;
 }
 
 #pragma mark Queries

@@ -143,10 +143,43 @@ Neither needs a new kind of plan.
 |---|---|---|
 | **sample populations** | `ORMPopulationChecker` runs each constraint against the population's store (`ORMPopulationStore`, the document's first mapping or the default). Each row is a violation, with the query's verbalization and the row's values. A constraint the planner cannot plan is in `-unchecked`, with its notes. | `Value` calculations with more than one value are reported. |
 | **a store** | `ORMRuleChecker` (new): each constraint's plan run by the interpreter, the first violations of each. It can check a whole store on demand, a nightly check say. | the interpreter computes the column |
-| **a service** | the same requests to the OData service. The client checks; the service itself does not enforce them yet. | the same, the bag read per page |
-| **validation code** | `ORMValidationGenerator` adds a rule to the root entity's tables ([RUNTIME.md](RUNTIME.md)): the plan, whose condition the driver asks of the object as an `NSPredicate`, for a constraint whose condition is one predicate. Others (a bag, a probed join) are noted, as join paths are today. | none |
+| **a service** | the same requests to the OData service, by a client. The service enforces them as it writes: before it saves a request, or a change set at its end, it asks `willSave` (ODataKit 0.3.7), which the app sets to the generated code's work (`-[ORMSaveHook prepareForSaveInContext:error:]`): stored derivations brought up to date, then each rule checked for every root the change reaches. A violation refuses the save, `400` with each violation a detail, and nothing of the change set is saved. A client save is one change set with its inserts in it where the client gives the keys (`ODataIncrementalStorePostOnObtainPermanentIDsOption` NO); by default each insert is POSTed, and checked, on its own first. | the same, the bag read per page |
+| **validation code** | `ORMValidationGenerator` adds a rule to the root entity's tables ([RUNTIME.md](RUNTIME.md)): the plan, whose condition the driver asks of the object as an `NSPredicate`, for a constraint whose condition is one predicate; one that is not (a computed value, [EXPRESSIONS.md](EXPRESSIONS.md)) but needs no store, the driver asks of the object in memory, as the interpreter checks what it fetched. Others (a bag, a probed join) are noted, as join paths are today. | none |
 | **ormtool** | `ormtool check model.orm` checks the sample population against the constraints too, and says which are violated. | `ormtool query` prints the values |
 | **the designer** | **Kind** in the Queries window. A constraint's Results tab lists its violations in the sample population, and the window's list marks a violated constraint. | the Results tab lists each object and its value |
+
+**A graphical constraint is a rule too** where the tables have no check
+of their own for it: a subset, equality, exclusion, inclusive-or or value
+comparison whose roles are no properties of one entity, over a join path
+or across fact types. `ORMConstraintQueries` says it as the queries whose
+rows break it, made in a copy of the document (they are not the model's),
+and both the validation code and the population checker run those:
+
+```
+If some Trip had driver some User and that Trip is of some Vehicle then
+that User drives that Vehicle.
+
+It is impossible that:
+✓Trip
+  + had driver User1
+  + is of Vehicle
+    + not User1 drives that Vehicle
+```
+
+It reads from what the first sequence's facts are about (the trip), so
+that each column is a step from it, and says what must not be from the
+column nested deepest, where the others are in scope: one fetch,
+`driver != nil AND NOT (SUBQUERY(vehicle.vehicleDrivers, $x1, $x1.user ==
+driver).@count > 0)`. A label met again across a to-many would be one
+among many, which says less.
+
+A subset is its first sequence's facts and not its second's, an equality a
+subset each way, an exclusion two sequences' facts at once, an inclusive-or
+none of its roles, a value comparison the values compared the other way.
+A variable of a subtype met at its supertype's role is stepped down to it
+("is Event", "is FillUp"). Read from an object type with an entity of its
+own. One through a derived fact type that is not stored stays unchecked,
+with why.
 
 **Validation code checks from one object,** when that object is inserted or
 updated. A change to another object on the join path (the head's salary
@@ -231,16 +264,16 @@ which objects the rule depends on. The notes call such a constraint
   TotalSalary is over a million"). That is a derived fact type, "Branch has
   TotalSalary", which is ConQuer-II's macros and NORMA's derivation rules:
   [DERIVATION.md](DERIVATION.md).
-- **The service enforcing constraints** as it writes (ODataKit's service
-  hooks).
 - **Transition constraints**, about what may change into what. Dataphor has
   them; this does not.
 - **Constraints checked at commit,** not only from the root object, so that
   a change anywhere on a rule's join path is seen. **Done** with
   derived-and-stored fact types: the generated `orm_prepareForSave:` brings
   their facts up to date, then checks each rule again for every root a
-  change reaches ([DERIVATION.md](DERIVATION.md), step 6). What is left
-  here: the same in the OData service, at the end of a change set. Dataphor compiles each
+  change reaches ([DERIVATION.md](DERIVATION.md), step 6). **Done** in the
+  OData service too, at the end of a change set: the service asks the same
+  before it saves (`willSave`, above; `testAServiceKeepsTheRulesOfAChangeSet`).
+  Dataphor compiles each
   database constraint into checks on the tables it reads, restricted to
   the rows a change touches. The literature calls this incremental
   integrity checking: Nicolas, "Logic for Improving Integrity Checking in
@@ -262,5 +295,6 @@ which objects the rule depends on. The notes call such a constraint
     app calls this in its own save path, as it calls
     `orm_validateConstraints:` today. Deletions matter too: deleting an
     Employee can break a rule about Branches.
-  - **The same for the OData service:** at the end of a change set, through
-    ODataKit's service hooks, before the transaction commits.
+  - **The same for the OData service:** at the end of a change set, before
+    it is saved: `service.willSave` set to
+    `[hook prepareForSaveInContext:context error:error]`. Done.

@@ -349,6 +349,18 @@ CA
                                     <action selector="showOnDiagram:" target="-1" id="showSelectiononDiagramAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Add Another Shape" id="addAnotherShape">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="addAnotherShape:" target="-1" id="addAnotherShapeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Delete Extra Shape" id="deleteExtraShape">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="deleteExtraShape:" target="-1" id="deleteExtraShapeAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Show Related" keyEquivalent="r" id="showRelated">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
                                 <connections>
@@ -360,9 +372,19 @@ CA
                                     <action selector="arrangeDiagram:" target="-1" id="arrangeAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Arrange in Groups" id="arrangeInGroups">
+                                <connections>
+                                    <action selector="arrangeDiagramInGroups:" target="-1" id="arrangeInGroupsAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Rotate Fact Type" id="rotateFactType">
                                 <connections>
                                     <action selector="rotateFactType:" target="-1" id="rotateFactTypeAction"/>
+                                </connections>
+                            </menuItem>
+                            <menuItem title="Orient Fact Types" id="orientFactTypes">
+                                <connections>
+                                    <action selector="orientFactTypes:" target="-1" id="orientFactTypesAction"/>
                                 </connections>
                             </menuItem>
                             <menuItem title="Reverse Role Order" id="reverseRoleOrder">
