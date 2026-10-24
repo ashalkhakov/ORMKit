@@ -1279,6 +1279,35 @@
 	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Add Another Shape");
 }
 
+/* An element chosen (from the browser, the search) selects every shape of
+ * it on the diagram; a role, every shape of its fact type. */
+- (void)testChoosingAnElementSelectsAllItsShapes
+{
+	_document = [[ORMDocument alloc] init];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	                                                     onDiagram:diagram at:NSMakePoint(100, 100) reason:NULL];
+	NSString *country = [editor.objectTypeEditor addEntityTypeNamed:@"Country" referenceMode:@"code" kind:ORMReferenceModePopular
+	                                                      onDiagram:diagram at:NSMakePoint(300, 100) reason:NULL];
+	NSString *born = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, country ] reading:@"{0} was born in {1}"
+	                                                     onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	XCTAssertNotNil([editor.diagramEditor addShapeOfElement:person onDiagram:diagram at:ORMAutomaticPlacement]);
+	XCTAssertNotNil([editor.diagramEditor addShapeOfElement:born onDiagram:diagram at:ORMAutomaticPlacement]);
+	[_controller.canvas modelDidChange];
+	[_controller.canvas selectElements:@[ person ]];
+	XCTAssertEqual([[_controller.canvas selectedShapes] count], 2u);
+	NSString *role = [[[[editor.model elementWithId:born] roles] firstObject] identifier];
+	[_controller.canvas selectRole:role];
+	NSSet *factShapes = [NSSet setWithArray:[[[editor.model.diagrams firstObject] shapesForSubject:born] valueForKey:@"identifier"]];
+	XCTAssertEqualObjects([NSSet setWithArray:[_controller.canvas selectedShapes]], factShapes);
+	XCTAssertEqualObjects([_controller.canvas selectedRoles], @[ role ]);
+	[_controller.canvas selectElements:@[ role ]];
+	XCTAssertEqualObjects([NSSet setWithArray:[_controller.canvas selectedShapes]], factShapes);
+}
+
 - (void)testTwoEntityTypesAreMergedFromTheMenu
 {
 	_document = [[ORMDocument alloc] init];

@@ -248,15 +248,27 @@ static const double ORMCanvasMargin = 240.0;
 	return elements;
 }
 
+/* Every shape of the element on this diagram, added to the selection:
+ * an element shown more than once is selected wherever it is. */
+- (void)addShapesOf:(NSString *)elementId
+{
+	for (ORMShape *shape in [[self diagram] shapesForSubject:elementId]) {
+		if (![_selectedShapes containsObject:shape.identifier]) {
+			[_selectedShapes addObject:shape.identifier];
+		}
+	}
+}
+
 - (void)selectRole:(NSString *)roleId
 {
 	ORMRole *role = [self.editor.model elementWithId:roleId];
-	ORMShape *shape = [role isKindOfClass:[ORMRole class]] ? [[self diagram] shapeForSubject:role.factType.identifier] : nil;
 	[_selectedShapes removeAllObjects];
 	[_selectedRoles removeAllObjects];
-	if (shape != nil) {
-		[_selectedShapes addObject:shape.identifier];
-		[_selectedRoles addObject:roleId];
+	if ([role isKindOfClass:[ORMRole class]]) {
+		[self addShapesOf:role.factType.identifier];
+		if ([_selectedShapes count] > 0) {
+			[_selectedRoles addObject:roleId];
+		}
 	}
 	_clickedRole = [roleId copy];
 	[self selectionChanged];
@@ -292,21 +304,14 @@ static const double ORMCanvasMargin = 240.0;
 	_clickedRole = nil;
 	[_selectedShapes removeAllObjects];
 	[_selectedRoles removeAllObjects];
-	ORMDiagram *diagram = [self diagram];
 	for (NSString *elementId in elementIds) {
 		id element = [self.editor.model elementWithId:elementId];
 		if ([element isKindOfClass:[ORMRole class]]) {
 			[_selectedRoles addObject:elementId];
-			ORMShape *shape = [diagram shapeForSubject:[(ORMRole *)element factType].identifier];
-			if (shape != nil && ![_selectedShapes containsObject:shape.identifier]) {
-				[_selectedShapes addObject:shape.identifier];
-			}
+			[self addShapesOf:[(ORMRole *)element factType].identifier];
 			continue;
 		}
-		ORMShape *shape = [diagram shapeForSubject:elementId];
-		if (shape != nil && ![_selectedShapes containsObject:shape.identifier]) {
-			[_selectedShapes addObject:shape.identifier];
-		}
+		[self addShapesOf:elementId];
 	}
 	[self selectionChanged];
 	[self scrollToSelection];
