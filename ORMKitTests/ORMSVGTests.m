@@ -64,6 +64,25 @@
 	XCTAssertTrue([svg rangeOfString:@"stroke-dasharray"].location != NSNotFound);
 }
 
+/* An element with more than one shape (on any diagram) is shaded, as
+ * NORMA shades it: each of its shapes has a shadow; one shape, none. */
+- (void)testAnElementWithShapesElsewhereIsShaded
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *diagramId = [[editor.model.diagrams firstObject] identifier];
+	NSString *reason = nil;
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	                                                     onDiagram:diagramId at:ORMAutomaticPlacement reason:&reason];
+	XCTAssertNotNil(person, @"%@", reason);
+	NSString *shadow = [NSString stringWithFormat:@"fill=\"%@\"", ORMColorHex(ORMDiagramShadow(NO))];
+	NSString *svg = ORMSVGOfDiagram([editor.model.diagrams firstObject], NO);
+	XCTAssertEqual([[svg componentsSeparatedByString:shadow] count], (NSUInteger)1, @"one shape: no shadow");
+	XCTAssertNotNil([editor.diagramEditor addShapeOfElement:person onDiagram:diagramId at:ORMAutomaticPlacement]);
+	svg = ORMSVGOfDiagram([editor.model.diagrams firstObject], NO);
+	XCTAssertEqual([[svg componentsSeparatedByString:shadow] count] - 1, (NSUInteger)2, @"two shapes, each shaded");
+	[self parse:svg];
+}
+
 - (void)testDarkPaper
 {
 	ORMModel *model = [ORMModel modelOfDocument:[self fixtureDocument:@"StockMate.orm"] reason:NULL];

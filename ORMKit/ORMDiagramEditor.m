@@ -240,15 +240,30 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 
 - (NSString *)placeElement:(NSString *)elementId onDiagram:(NSString *)diagramId at:(NSPoint)point
 {
+	ORMShape *existing = [[self diagramWithId:diagramId] shapeForSubject:elementId];
+	if (existing != nil) {
+		return existing.identifier;
+	}
+	return [self newShapeOf:elementId onDiagram:diagramId at:point];
+}
+
+- (NSString *)addShapeOfElement:(NSString *)elementId onDiagram:(NSString *)diagramId at:(NSPoint)point
+{
+	id element = [_editor.model elementWithId:elementId];
+	if (![element isKindOfClass:[ORMObjectType class]] && ![element isKindOfClass:[ORMFactType class]]) {
+		return nil;
+	}
+	return [self newShapeOf:elementId onDiagram:diagramId at:point];
+}
+
+- (NSString *)newShapeOf:(NSString *)elementId onDiagram:(NSString *)diagramId at:(NSPoint)point
+{
 	ORMDiagram *diagram = [self diagramWithId:diagramId];
 	id element = [_editor.model elementWithId:elementId];
 	if (diagram == nil || element == nil) {
 		return nil;
 	}
 	ORMShape *existing = [diagram shapeForSubject:elementId];
-	if (existing != nil) {
-		return existing.identifier;
-	}
 	ORMShapeKind kind = ORMShapeUnknown;
 	if ([element isKindOfClass:[ORMObjectType class]]) {
 		if ([(ORMObjectType *)element isImplicitBooleanValue]) {
@@ -277,11 +292,14 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	NSSize size = [self defaultSizeOf:element];
 	NSPoint origin = point;
 	if (ORMIsAutomaticPlacement(point)) {
-		origin = ORMFreeSpotNear(diagram, [self placeFor:elementId onDiagram:diagramId], size, @[]);
+		/* Another shape: beside the first, clear of it. */
+		NSPoint near = existing != nil ? NSMakePoint(NSMaxX(existing.bounds) + ORMSpacing + size.width / 2, NSMidY(existing.bounds))
+		                               : [self placeFor:elementId onDiagram:diagramId];
+		origin = ORMFreeSpotNear(diagram, near, size, @[]);
 	}
 	NSRect bounds = NSMakeRect(origin.x, origin.y, size.width, size.height);
 	__block NSString *created = nil;
-	[_editor modelChange:@"Place on Diagram" with:^{
+	[_editor modelChange:existing != nil ? @"Add Another Shape" : @"Place on Diagram" with:^{
 		ORMShape *shape = [self addShape:kind of:element bounds:bounds parent:nil on:diagram];
 		if ([element isKindOfClass:[ORMFactType class]]) {
 			ORMFactType *fact = element;

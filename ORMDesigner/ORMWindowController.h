@@ -45,6 +45,9 @@
 - (IBAction)chooseDiagram:(id)sender;
 - (IBAction)arrangeDiagram:(id)sender;
 - (IBAction)showOnDiagram:(id)sender;
+/* Another shape of each object type and fact type picked, beside its
+ * first, as NORMA allows; the new ones selected. */
+- (IBAction)addAnotherShape:(id)sender;
 - (IBAction)showRelated:(id)sender;
 - (IBAction)objectifyFactType:(id)sender;
 - (IBAction)unobjectifyFactType:(id)sender;

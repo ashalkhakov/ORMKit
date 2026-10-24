@@ -1248,6 +1248,37 @@
 /* Two entity types that are one thing kept twice (docs/JOINED-ENTITIES.md),
  * merged from the Model menu: the value they share joins them, and the
  * Core Data window says where the one left is kept. */
+/* Diagram > Add Another Shape: of what is selected, if it is an object
+ * type or a fact type; the new shape selected, beside the first; both
+ * shaded. */
+- (void)testAnotherShapeFromTheMenu
+{
+	_document = [[ORMDocument alloc] init];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	                                                     onDiagram:diagram at:NSMakePoint(100, 100) reason:NULL];
+	NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Add Another Shape" action:@selector(addAnotherShape:) keyEquivalent:@""];
+	[_controller.canvas clearSelection];
+	XCTAssertFalse([(id)_controller validateMenuItem:item], @"nothing selected");
+	[_controller.canvas selectElements:@[ person ]];
+	NSString *first = [[_controller.canvas selectedShapes] firstObject];
+	XCTAssertTrue([(id)_controller validateMenuItem:item]);
+	[_controller addAnotherShape:nil];
+	NSArray *shapes = [[editor.model.diagrams firstObject] shapesForSubject:person];
+	XCTAssertEqual([shapes count], 2u);
+	NSString *selected = [[_controller.canvas selectedShapes] firstObject];
+	XCTAssertEqual([[_controller.canvas selectedShapes] count], 1u);
+	XCTAssertNotEqualObjects(selected, first, @"the new shape selected");
+	NSString *shadow = [NSString stringWithFormat:@"fill=\"%@\"", ORMColorHex(ORMDiagramShadow(NO))];
+	XCTAssertEqual([[ORMSVGOfDiagram([editor.model.diagrams firstObject], NO) componentsSeparatedByString:shadow] count] - 1, 2u);
+	/* Undone under its name (ORMEditorTests undoes it: here, with no
+	   event loop, the undo manager's one group has the person too). */
+	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Add Another Shape");
+}
+
 - (void)testTwoEntityTypesAreMergedFromTheMenu
 {
 	_document = [[ORMDocument alloc] init];

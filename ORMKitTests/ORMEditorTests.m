@@ -655,6 +655,40 @@
 	XCTAssertEqualWithAccuracy(NSMinY(moved.bounds), NSMinY(before) + 20, 0.001);
 }
 
+/* Another shape of an element the diagram shows already, as NORMA has, to
+ * keep a busy diagram's lines short: its own, beside the first; placing
+ * the element again finds the first; undone as one change. */
+- (void)testAnElementHasAnotherShape
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *country = [self entity:@"Country" mode:@"code" in:editor];
+	NSString *born = [self fact:@[ person, country ] reading:@"{0} was born in {1}" in:editor];
+	NSString *diagramId = [self diagramOf:editor];
+	NSString *first = [[[editor.model.diagrams firstObject] shapeForSubject:country] identifier];
+	NSString *second = [editor.diagramEditor addShapeOfElement:country onDiagram:diagramId at:ORMAutomaticPlacement];
+	XCTAssertNotNil(second);
+	XCTAssertNotEqualObjects(second, first);
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	NSArray *shapes = [diagram shapesForSubject:country];
+	XCTAssertEqual([shapes count], (NSUInteger)2);
+	XCTAssertFalse(NSIntersectsRect([shapes[0] bounds], [shapes[1] bounds]), @"placed clear of the first");
+	XCTAssertEqualObjects([editor.diagramEditor placeElement:country onDiagram:diagramId at:ORMAutomaticPlacement], first);
+	/* A fact type's too, with its reading. */
+	NSString *bornAgain = [editor.diagramEditor addShapeOfElement:born onDiagram:diagramId at:NSMakePoint(400, 400)];
+	NSArray *bornShapes = [[editor.model.diagrams firstObject] shapesForSubject:born];
+	XCTAssertEqual([bornShapes count], (NSUInteger)2);
+	ORMShape *again = [[bornShapes filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"identifier == %@", bornAgain]]
+	                   firstObject];
+	XCTAssertEqual([again.relativeShapes count], (NSUInteger)1);
+	/* Not of what has no shape of its own on a diagram. */
+	XCTAssertNil([editor.diagramEditor addShapeOfElement:[[[editor.model elementWithId:born] roles][0] identifier]
+	                                           onDiagram:diagramId at:ORMAutomaticPlacement]);
+	[self.undoManager undo];
+	[self.undoManager undo];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:country] count], (NSUInteger)1);
+}
+
 - (void)testReadingsAreChecked
 {
 	ORMEditor *editor = [self newEditor];

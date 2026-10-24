@@ -276,6 +276,16 @@ static const double ORMCanvasMargin = 240.0;
 	[self selectionChanged];
 }
 
+- (void)selectShapes:(NSArray<NSString *> *)shapeIds
+{
+	_clickedRole = nil;
+	[_selectedShapes removeAllObjects];
+	[_selectedRoles removeAllObjects];
+	[_selectedShapes addObjectsFromArray:shapeIds];
+	[self selectionChanged];
+	[self scrollToSelection];
+}
+
 - (void)selectElements:(NSArray<NSString *> *)elementIds
 {
 	/* Not a click: no role was clicked to follow. */

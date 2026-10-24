@@ -81,6 +81,12 @@ ORMDiagramError(void)
 	return ORMColorMake(0.85, 0.10, 0.10, 1);
 }
 
+ORMColor
+ORMDiagramShadow(BOOL dark)
+{
+	return dark ? ORMColorMake(0.40, 0.40, 0.40, 1) : ORMColorMake(0.70, 0.70, 0.70, 1);
+}
+
 @implementation ORMDrawingFont
 
 + (instancetype)fontNamed:(NSString *)name size:(double)size bold:(BOOL)bold
@@ -462,7 +468,41 @@ typedef struct {
 	__unsafe_unretained id<ORMDrawingSurface> surface;
 	__unsafe_unretained ORMDrawingState *state;
 	BOOL dark;
+	/* The elements with more than one shape in the model: shaded. */
+	__unsafe_unretained NSSet<NSString *> *shaded;
 } ORMPainting;
+
+/* NORMA's shading: a shadow down and to the right of the shape. */
+static const double ORMShadowOffset = 3.0;
+
+static void
+ORMDrawShadow(ORMPainting *p, ORMDrawPath *path)
+{
+	[p->surface fillPath:path color:ORMDiagramShadow(p->dark)];
+}
+
+/* The elements of the shapes on every diagram of the model, seen more than
+ * once. */
+static NSSet<NSString *> *
+ORMShadedElements(ORMDiagram *diagram)
+{
+	NSArray *diagrams = diagram.model.diagrams ?: @[ diagram ];
+	NSCountedSet *seen = [NSCountedSet set];
+	for (ORMDiagram *each in diagrams) {
+		for (ORMShape *shape in each.shapes) {
+			if ((shape.kind == ORMShapeObjectType || shape.kind == ORMShapeFactType) && shape.subjectId != nil) {
+				[seen addObject:shape.subjectId];
+			}
+		}
+	}
+	NSMutableSet *shaded = [NSMutableSet set];
+	for (NSString *subject in seen) {
+		if ([seen countForObject:subject] > 1) {
+			[shaded addObject:subject];
+		}
+	}
+	return shaded;
+}
 
 static void
 ORMStroke(ORMPainting *p, ORMDrawPath *path, ORMColor color, double width, BOOL dashed)
@@ -495,6 +535,9 @@ ORMDrawObjectType(ORMPainting *p, ORMShape *shape)
 	ORMDrawingState *state = p->state;
 	NSRect rect = NSInsetRect(shape.bounds, 0.5, 0.5);
 	ORMDrawPath *outline = [ORMDrawPath roundedRect:rect];
+	if ([p->shaded containsObject:type.identifier]) {
+		ORMDrawShadow(p, [ORMDrawPath roundedRect:NSOffsetRect(rect, ORMShadowOffset, ORMShadowOffset)]);
+	}
 	[p->surface fillPath:outline color:ORMDiagramPaper(p->dark)];
 	ORMStroke(p, outline, ORMDiagramObjectType(p->dark), 1.0, type.kind == ORMValueType);
 	ORMDrawingFont *font = [ORMDrawingFont fontOfDiagram:shape.diagram bold:NO];
@@ -639,6 +682,13 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 		}
 	}
 
+	if ([p->shaded containsObject:fact.identifier] && [boxes count] > 0) {
+		NSRect row = NSZeroRect;
+		for (NSValue *box in boxes) {
+			row = NSIsEmptyRect(row) ? [box rectValue] : NSUnionRect(row, [box rectValue]);
+		}
+		ORMDrawShadow(p, [ORMDrawPath rect:NSOffsetRect(row, ORMShadowOffset, ORMShadowOffset)]);
+	}
 	for (NSUInteger i = 0; i < [boxes count]; i++) {
 		NSRect box = [[boxes objectAtIndex:i] rectValue];
 		ORMRole *role = [roles objectAtIndex:i];
@@ -999,7 +1049,8 @@ void
 ORMPaintDiagram(ORMDiagram *diagram, id<ORMDrawingSurface> surface, ORMDrawingState *state)
 {
 	ORMDrawingState *drawing = state ?: [[ORMDrawingState alloc] init];
-	ORMPainting painting = { surface, drawing, drawing.dark };
+	NSSet *shaded = ORMShadedElements(diagram);
+	ORMPainting painting = { surface, drawing, drawing.dark, shaded };
 	ORMPainting *p = &painting;
 	ORMDrawSubtypeLinks(p, diagram);
 	/* Fact types (with their lines) under object types, constraints and

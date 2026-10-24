@@ -349,6 +349,12 @@ CA
                                     <action selector="showOnDiagram:" target="-1" id="showSelectiononDiagramAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Add Another Shape" id="addAnotherShape">
+                                <modifierMask key="keyEquivalentModifierMask"/>
+                                <connections>
+                                    <action selector="addAnotherShape:" target="-1" id="addAnotherShapeAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Show Related" keyEquivalent="r" id="showRelated">
                                 <modifierMask key="keyEquivalentModifierMask" command="YES" option="YES"/>
                                 <connections>
