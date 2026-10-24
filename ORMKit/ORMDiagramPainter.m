@@ -396,15 +396,19 @@ ORMReadingPhrase(ORMShape *factTypeShape, ORMReadingOrder *order)
 	/* A binary or unary reading in its boxes' order loses its
 	 * placeholders; one against them is marked so. */
 	BOOL simple = [shown count] <= 2;
-	BOOL along = [order.roles isEqualToArray:shown];
-	BOOL against = [shown count] == 2 && [order.roles isEqualToArray:[[shown reverseObjectEnumerator] allObjects]];
+	/* The boxes as they are seen: down, on a fact type turned left, from
+	 * the bottom. Against them, a reading is marked: ◀ across, ▲ down. */
+	BOOL vertical = factTypeShape.orientation != ORMFactTypeHorizontal;
+	NSArray *seen = factTypeShape.orientation == ORMFactTypeVerticalRotatedLeft ? [[shown reverseObjectEnumerator] allObjects] : shown;
+	BOOL along = [order.roles isEqualToArray:seen];
+	BOOL against = [shown count] == 2 && [order.roles isEqualToArray:[[seen reverseObjectEnumerator] allObjects]];
 	if (simple && (along || against || [shown count] == 1)) {
 		NSString *phrase = [text expandWithNames:^NSString *(NSUInteger index, NSString *pre, NSString *post) {
 			(void)index;
 			return [NSString stringWithFormat:@"%@%@", pre ?: @"", post ?: @""];
 		}];
 		phrase = [phrase stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
-		return against ? [@"◀ " stringByAppendingString:phrase] : phrase;
+		return against ? [(vertical ? @"▲ " : @"◀ ") stringByAppendingString:phrase] : phrase;
 	}
 	NSString *phrase = [text expandWithNames:^NSString *(NSUInteger index, NSString *pre, NSString *post) {
 		(void)index;

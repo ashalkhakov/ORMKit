@@ -1340,6 +1340,24 @@
 	[_controller arrangeDiagramInGroups:nil];
 	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Arrange in Groups");
 	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:person] count], 1u);
+	/* Country put left of Person: the fact type follows, from the menu. */
+	ORMDiagram *shown = [editor.model.diagrams firstObject];
+	ORMShape *personShape = [shown shapeForSubject:person];
+	ORMShape *countryShape = [shown shapeForSubject:country];
+	ORMShape *factShape = [shown shapeForSubject:born];
+	NSArray *roles = [[editor.model elementWithId:born] roles];
+	XCTAssertTrue(([editor.diagramEditor setRoleDisplayOrder:@[ [roles[0] identifier], [roles[1] identifier] ]
+	                                                 ofShape:factShape.identifier reason:NULL]));
+	[editor.diagramEditor moveShapes:@[ countryShape.identifier ]
+	                              by:NSMakeSize(NSMinX(factShape.bounds) - 200 - NSMinX(countryShape.bounds),
+	                                            NSMidY(factShape.bounds) - NSMidY(countryShape.bounds))];
+	[editor.diagramEditor moveShapes:@[ personShape.identifier ]
+	                              by:NSMakeSize(NSMaxX(factShape.bounds) + 200 - NSMinX(personShape.bounds),
+	                                            NSMidY(factShape.bounds) - NSMidY(personShape.bounds))];
+	[_controller.canvas clearSelection];
+	[_controller orientFactTypes:nil];
+	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Orient Fact Types");
+	XCTAssertEqualObjects([[shown shapeForSubject:born] roleDisplayOrder], (@[ roles[1], roles[0] ]));
 }
 
 - (void)testTwoEntityTypesAreMergedFromTheMenu

@@ -45,6 +45,13 @@ typedef NS_ENUM(NSInteger, ORMAlignment) {
 /* A fact type shape's role boxes in a new order. */
 - (BOOL)setRoleDisplayOrder:(NSArray<NSString *> *)roleIds ofShape:(NSString *)shapeId reason:(NSString **)reason;
 - (void)setOrientation:(ORMFactTypeOrientation)orientation ofShape:(NSString *)shapeId;
+/* The fact type shapes (every one on the diagram when none is named)
+ * turned and their role boxes ordered to where their players are, as
+ * Halpin draws them: across, or down when the players are more above one
+ * another than beside; each role's box on its player's side, the reading
+ * marked when it runs against them. Their readings and role names moved
+ * with them. Arrange does it too. One change; how many changed. */
+- (NSUInteger)orientFactTypes:(NSArray<NSString *> *)shapeIds onDiagram:(NSString *)diagramId;
 /* The shapes lined up, each moved with what is placed on it (its readings,
  * role names), as one change. NO, and why, for fewer than two shapes
  * (three to distribute). */

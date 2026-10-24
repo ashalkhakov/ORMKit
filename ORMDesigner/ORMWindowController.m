@@ -670,6 +670,12 @@ static const double ORMFactBarHeight = 30;
 	[[self editor].diagramEditor arrangeDiagramInGroups:_canvas.diagramId];
 }
 
+- (IBAction)orientFactTypes:(id)sender
+{
+	(void)sender;
+	[[self editor].diagramEditor orientFactTypes:[_canvas selectedShapes] onDiagram:_canvas.diagramId];
+}
+
 /* The elements picked: on the canvas, or else in the inspector (from the
  * browser). */
 - (NSArray<NSString *> *)pickedElements

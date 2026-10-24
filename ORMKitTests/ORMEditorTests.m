@@ -868,6 +868,63 @@
 	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:item] count], (NSUInteger)1);
 }
 
+/* The shape moved so its centre is at the point. */
+- (void)move:(ORMShape *)shape to:(NSPoint)point in:(ORMEditor *)editor
+{
+	[editor.diagramEditor moveShapes:@[ shape.identifier ]
+	                              by:NSMakeSize(point.x - NSMidX(shape.bounds), point.y - NSMidY(shape.bounds))];
+}
+
+/* A fact type is turned and its roles ordered to where its players are,
+ * as Halpin draws them: across, its first player's box nearest it, the
+ * reading marked ◀ when it runs right to left; down when the players are
+ * above one another, marked ▲ when it runs upward. Its reading goes with
+ * it. Done again, nothing to do. */
+- (void)testFactTypesAreOrientedToTheirPlayers
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *diagramId = [self diagramOf:editor];
+	NSString *person = [self entity:@"Person" mode:@"id" in:editor];
+	NSString *city = [self entity:@"City" mode:@"name" in:editor];
+	NSString *lives = [self fact:@[ person, city ] reading:@"{0} lives in {1}" in:editor];
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	ORMShape *fact = [diagram shapeForSubject:lives];
+	NSArray *roles = [[editor.model elementWithId:lives] roles];
+	[self move:[diagram shapeForSubject:lives] to:NSMakePoint(300, 300) in:editor];
+	[self move:[diagram shapeForSubject:person] to:NSMakePoint(500, 300) in:editor];
+	[self move:[diagram shapeForSubject:city] to:NSMakePoint(100, 300) in:editor];
+	XCTAssertEqual([editor.diagramEditor orientFactTypes:@[] onDiagram:diagramId], (NSUInteger)1);
+	XCTAssertEqualObjects([self.undoManager undoActionName], @"Orient Fact Types");
+	XCTAssertEqual(fact.orientation, ORMFactTypeHorizontal);
+	XCTAssertEqualObjects(fact.roleDisplayOrder, (@[ roles[1], roles[0] ]), @"City's box on the left");
+	XCTAssertTrue([ORMSVGOfDiagram(diagram, NO) containsString:@"◀ lives in"]);
+	XCTAssertEqual([editor.diagramEditor orientFactTypes:@[] onDiagram:diagramId], (NSUInteger)0, @"nothing to do");
+
+	[self move:[diagram shapeForSubject:person] to:NSMakePoint(300, 500) in:editor];
+	[self move:[diagram shapeForSubject:city] to:NSMakePoint(300, 100) in:editor];
+	XCTAssertEqual([editor.diagramEditor orientFactTypes:@[ fact.identifier ] onDiagram:diagramId], (NSUInteger)1);
+	XCTAssertEqual(fact.orientation, ORMFactTypeVerticalRotatedRight);
+	XCTAssertEqualObjects(fact.roleDisplayOrder, (@[ roles[1], roles[0] ]), @"City's box on top");
+	XCTAssertGreaterThan(NSHeight(fact.bounds), NSWidth(fact.bounds));
+	XCTAssertTrue([ORMSVGOfDiagram(diagram, NO) containsString:@"▲ lives in"]);
+	ORMShape *reading = nil;
+	for (ORMShape *child in fact.relativeShapes) {
+		if (child.kind == ORMShapeReading) {
+			reading = child;
+		}
+	}
+	XCTAssertGreaterThan(NSMinX(reading.bounds), NSMidX(fact.bounds), @"the reading beside it");
+
+	[self move:[diagram shapeForSubject:person] to:NSMakePoint(300, 100) in:editor];
+	[self move:[diagram shapeForSubject:city] to:NSMakePoint(300, 500) in:editor];
+	[editor.diagramEditor orientFactTypes:@[] onDiagram:diagramId];
+	XCTAssertEqualObjects(fact.roleDisplayOrder, (@[ roles[0], roles[1] ]));
+	NSString *svg = ORMSVGOfDiagram(diagram, NO);
+	XCTAssertTrue([svg containsString:@">lives in<"], @"read downward, unmarked");
+	[self.undoManager undo];
+	XCTAssertEqualObjects(fact.roleDisplayOrder, (@[ roles[1], roles[0] ]));
+}
+
 - (void)testReadingsAreChecked
 {
 	ORMEditor *editor = [self newEditor];

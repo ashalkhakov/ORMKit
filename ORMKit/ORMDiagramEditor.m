@@ -767,6 +767,169 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	}];
 }
 
+#pragma mark Orienting fact types
+
+/* The centre of the player's shape nearest the point, on the diagram: its
+ * own, or its objectified fact type's; NO when none is shown. */
+static BOOL
+ORMNearestPlayerCentre(ORMObjectType *player, ORMDiagram *diagram, NSPoint from, NSPoint *centre)
+{
+	NSMutableArray *candidates = [[diagram shapesForSubject:player.identifier] mutableCopy];
+	if (player.nestedFactType != nil) {
+		[candidates addObjectsFromArray:[diagram shapesForSubject:player.nestedFactType.identifier]];
+	}
+	double distance = DBL_MAX;
+	for (ORMShape *candidate in candidates) {
+		if (candidate.parent != nil) {
+			continue;
+		}
+		double d = hypot(NSMidX(candidate.bounds) - from.x, NSMidY(candidate.bounds) - from.y);
+		if (d < distance) {
+			distance = d;
+			*centre = NSMakePoint(NSMidX(candidate.bounds), NSMidY(candidate.bounds));
+		}
+	}
+	return distance < DBL_MAX;
+}
+
+/* Roles by where their players are along one axis, as a sort sees them. */
+static NSInteger
+ORMCompareAlong(NSArray *a, NSArray *b, void *context)
+{
+	(void)context;
+	double x = [[a objectAtIndex:1] doubleValue];
+	double y = [[b objectAtIndex:1] doubleValue];
+	if (x != y) {
+		return x < y ? NSOrderedAscending : NSOrderedDescending;
+	}
+	return [[a objectAtIndex:2] compare:[b objectAtIndex:2]];
+}
+
+/* The fact type shape turned and its role boxes ordered as Halpin draws
+ * them: along the line its players' shapes lie on (across, or down when
+ * they are more above one another than beside), each role's box on its
+ * player's side. Its reading and role names moved with it. Inside a model
+ * change; whether it changed. */
+- (BOOL)orientShape:(ORMShape *)shape
+{
+	if (shape.kind != ORMShapeFactType || shape.parent != nil || shape.factType == nil) {
+		return NO;
+	}
+	NSArray *roles = shape.roleDisplayOrder;
+	NSPoint centre = NSMakePoint(NSMidX(shape.bounds), NSMidY(shape.bounds));
+	NSMutableArray *placed = [NSMutableArray array];
+	double minX = DBL_MAX, maxX = -DBL_MAX, minY = DBL_MAX, maxY = -DBL_MAX;
+	for (NSUInteger i = 0; i < [roles count]; i++) {
+		ORMRole *role = [roles objectAtIndex:i];
+		NSPoint at;
+		if (role.player == nil || role.player.isImplicitBooleanValue
+		    || !ORMNearestPlayerCentre(role.player, shape.diagram, centre, &at)) {
+			continue;
+		}
+		[placed addObject:@[ role, [NSValue valueWithPoint:at], @(i) ]];
+		minX = MIN(minX, at.x);
+		maxX = MAX(maxX, at.x);
+		minY = MIN(minY, at.y);
+		maxY = MAX(maxY, at.y);
+	}
+	/* Two players or more, apart: a ring of one shape stays as it is. */
+	if ([placed count] < 2 || (maxX - minX < 1 && maxY - minY < 1)) {
+		return NO;
+	}
+	BOOL vertical = maxY - minY > maxX - minX;
+	NSMutableArray *keyed = [NSMutableArray array];
+	for (NSArray *entry in placed) {
+		NSPoint at = [[entry objectAtIndex:1] pointValue];
+		[keyed addObject:@[ [entry objectAtIndex:0], @(vertical ? at.y : at.x), [entry objectAtIndex:2] ]];
+	}
+	[keyed sortUsingFunction:ORMCompareAlong context:NULL];
+	NSMutableArray *order = [NSMutableArray array];
+	for (NSArray *entry in keyed) {
+		[order addObject:[entry objectAtIndex:0]];
+	}
+	/* Roles with no player shown keep their places after. */
+	for (ORMRole *role in roles) {
+		if ([order indexOfObjectIdenticalTo:role] == NSNotFound) {
+			[order addObject:role];
+		}
+	}
+	ORMFactTypeOrientation orientation = vertical ? ORMFactTypeVerticalRotatedRight : ORMFactTypeHorizontal;
+	if (orientation == shape.orientation && [order isEqualToArray:roles]) {
+		return NO;
+	}
+	if ((shape.orientation != ORMFactTypeHorizontal) != vertical) {
+		NSRect bounds = shape.bounds;
+		shape.bounds = NSMakeRect(round(centre.x - NSHeight(bounds) / 2), round(centre.y - NSWidth(bounds) / 2), NSHeight(bounds),
+		                          NSWidth(bounds));
+	}
+	shape.orientation = orientation;
+	shape.roleDisplayOrder = order;
+	[_editor wrote:shape];
+	/* The reading under it, or beside it; each role name over its box, or
+	 * before it. */
+	NSRect strip = ORMRoleStrip(shape);
+	for (ORMShape *child in shape.relativeShapes) {
+		NSRect bounds = child.bounds;
+		if (child.kind == ORMShapeReading) {
+			bounds.origin = vertical ? NSMakePoint(NSMaxX(strip) + ORMReadingGap, NSMidY(strip) - NSHeight(bounds) / 2)
+			                         : NSMakePoint(NSMinX(strip), NSMaxY(strip) + ORMReadingGap);
+		} else if (child.kind == ORMShapeRoleName && [child.subject isKindOfClass:[ORMRole class]]) {
+			NSRect box = ORMRoleBox(shape, child.subject);
+			if (NSIsEmptyRect(box)) {
+				continue;
+			}
+			/* Its text runs on from its point: before the box, a text's
+			 * width before it, as near as the editor can tell without
+			 * drawing (the diagram's font, half as wide as it is high). */
+			double width = ([[(ORMRole *)child.subject name] length] + 2) * 0.55 * shape.diagram.baseFontSize;
+			bounds.origin = vertical ? NSMakePoint(NSMinX(box) - width - ORMReadingGap, NSMidY(box) - NSHeight(bounds) / 2)
+			                         : NSMakePoint(NSMinX(box) + 0.25 * NSWidth(box), NSMinY(box) - ORMRoleNameRise);
+		} else {
+			continue;
+		}
+		bounds.origin = NSMakePoint(round(bounds.origin.x), round(bounds.origin.y));
+		if (!NSEqualRects(bounds, child.bounds)) {
+			child.bounds = bounds;
+			[_editor wrote:child];
+		}
+	}
+	return YES;
+}
+
+/* Every fact type shape on the diagram oriented; inside a model change. */
+- (NSUInteger)orientShapesOn:(ORMDiagram *)diagram
+{
+	NSUInteger changed = 0;
+	for (ORMShape *shape in [diagram.shapes copy]) {
+		changed += [self orientShape:shape];
+	}
+	return changed;
+}
+
+- (NSUInteger)orientFactTypes:(NSArray<NSString *> *)shapeIds onDiagram:(NSString *)diagramId
+{
+	ORMDiagram *diagram = [self diagramWithId:diagramId];
+	if (diagram == nil) {
+		return 0;
+	}
+	NSMutableArray *shapes = [NSMutableArray array];
+	for (ORMShape *shape in diagram.shapes) {
+		if (shape.kind == ORMShapeFactType && ([shapeIds count] == 0 || [shapeIds containsObject:shape.identifier])) {
+			[shapes addObject:shape];
+		}
+	}
+	__block NSUInteger changed = 0;
+	[_editor group:@"Orient Fact Types" trying:^BOOL {
+		[self->_editor modelChange:@"Orient Fact Types" with:^{
+			for (ORMShape *shape in shapes) {
+				changed += [self orientShape:shape];
+			}
+		}];
+		return changed > 0;
+	}];
+	return changed;
+}
+
 /* A node of the layout: a top-level shape, where it is, and how big. */
 typedef struct {
 	double x, y;   /* centre */
@@ -938,6 +1101,7 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 				[_editor wrote:moved];
 			}
 		}
+		[self orientShapesOn:diagram];
 	}];
 }
 
@@ -1415,6 +1579,7 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 			x += group.size.width + ORMGroupGap;
 			rowHeight = MAX(rowHeight, group.size.height);
 		}
+		[self orientShapesOn:diagram];
 	}];
 }
 

@@ -382,6 +382,11 @@ CA
                                     <action selector="rotateFactType:" target="-1" id="rotateFactTypeAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="Orient Fact Types" id="orientFactTypes">
+                                <connections>
+                                    <action selector="orientFactTypes:" target="-1" id="orientFactTypesAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Reverse Role Order" id="reverseRoleOrder">
                                 <connections>
                                     <action selector="reverseRoleOrder:" target="-1" id="reverseRoleOrderAction"/>

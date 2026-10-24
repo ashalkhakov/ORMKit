@@ -47,6 +47,9 @@
 /* Diagram > Arrange in Groups: its hubs shown in each group that uses
  * them, the groups side by side. */
 - (IBAction)arrangeDiagramInGroups:(id)sender;
+/* Diagram > Orient Fact Types: those selected, or all, turned and their
+ * roles ordered to where their players are. */
+- (IBAction)orientFactTypes:(id)sender;
 - (IBAction)showOnDiagram:(id)sender;
 /* Another shape of each object type and fact type picked, beside its
  * first, as NORMA allows; the new ones selected. */
