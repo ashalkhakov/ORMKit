@@ -411,4 +411,46 @@
 	XCTAssertEqual([[schedule valueForKey:@"reminders"] count], 2u);
 }
 
+/* A unary derived and stored is its object's flag, worked out at save:
+ * true while the rule lists the object, false once it does not. A
+ * schedule is open while one of its reminders is not done. */
+- (void)testAUnaryIsWorkedOutAtSave
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Moment is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Schedule is an entity type.\n"
+	                 @"Reference Mode: .id\n"
+	                 @"Reminder(.id) comes from Schedule\n"
+	                 @"Each Reminder comes from at most one Schedule.\n"
+	                 @"Reminder was done at Moment (as DoneAt)\n"
+	                 @"Each Reminder was done at at most one Moment.\n"
+	                 @"Schedule is open\n"
+	                 @"** By query OpenSchedule.\n"
+	                 @"\n"
+	                 @"Query OpenSchedule:\n"
+	                 @"Derivation of \"Schedule is open\":\n"
+	                 @"✓Schedule\n"
+	                 @"  + Reminder comes from that Schedule\n"
+	                 @"    + not was done at Moment\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMTables *tables = [self tablesOf:[self generatorFor:editor]];
+	XCTAssertEqualObjects([tables.derivations valueForKey:@"kind"], @[ @"flag" ]);
+	XCTAssertEqualObjects([tables.derivations valueForKey:@"target"], @[ @"isOpen" ]);
+	NSManagedObjectContext *context = [self contextFor:editor];
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	NSManagedObject *schedule = [NSEntityDescription insertNewObjectForEntityForName:@"Schedule" inManagedObjectContext:context];
+	[schedule setValue:@1 forKey:@"id"];
+	NSManagedObject *reminder = [NSEntityDescription insertNewObjectForEntityForName:@"Reminder" inManagedObjectContext:context];
+	[reminder setValuesForKeysWithDictionary:@{ @"id": @1, @"schedule": schedule }];
+	NSError *error = nil;
+	XCTAssertTrue([hook prepareForSaveInContext:context error:&error], @"%@", error);
+	XCTAssertEqualObjects([schedule valueForKey:@"isOpen"], @YES, @"its reminder not done");
+	XCTAssertTrue([context save:&error], @"%@", error);
+	[reminder setValue:@5 forKey:@"doneAt"];
+	XCTAssertTrue([hook prepareForSaveInContext:context error:&error], @"%@", error);
+	XCTAssertEqualObjects([schedule valueForKey:@"isOpen"], @NO, @"done: open no more");
+}
+
 @end

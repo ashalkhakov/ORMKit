@@ -796,6 +796,12 @@ ORMStatementComparable(NSString *line)
 				if (existing != nil && [ORMStatementTrimmed([existing outlineText]) isEqualToString:ORMStatementTrimmed(body)]) {
 					about = @[ existing.identifier ];
 				} else {
+					/* A derivation replaced keeps what its fact type's facts
+					 * are: partly derived, stored, as they were. */
+					ORMFactType *derived = existing.derivedFactType;
+					ORMDerivationRule *rule = derived != nil ? [self.editor.model.derivationRules objectForKey:derived.identifier] : nil;
+					BOOL partial = rule.isPartial;
+					BOOL stored = rule.isStored;
 					if (existing != nil) {
 						[[[ORMQueryEditor alloc] initWithEditor:self.editor] removeQuery:existing.identifier];
 						said = nil;
@@ -804,6 +810,9 @@ ORMStatementComparable(NSString *line)
 						addQueryNamed:[name length] > 0 ? name : nil outline:body reason:&why];
 					read = made != nil;
 					about = made != nil ? @[ made ] : nil;
+					if (read && rule != nil && [ORMQuery derivationOf:derived inModel:self.editor.model] != nil) {
+						read = [self.editor.factTypeEditor setDerivationPartial:partial stored:stored of:derived.identifier reason:&why];
+					}
 				}
 				lastFact = nil;
 			} else if ([line hasPrefix:@"Reference Mode: "] || [line hasPrefix:@"Portable data type: "]) {

@@ -97,7 +97,7 @@ by name:
 | Kind | Written | Meaning |
 | --- | --- | --- |
 | arithmetic | `a + b`, `a − b`, `a × b` (or `*`), `a ÷ b` (or `/`), `−a`, parentheses | numbers; `÷` by zero is no value |
-| numbers | `round(a, n)`, `abs(a)`, `min(a, b)`, `max(a, b)` | |
+| numbers | `round(a, n)`, `floor(a)`, `ceil(a)`, `abs(a)`, `min(a, b)`, `max(a, b)` | `floor` and `ceil` the whole number at or below a, at or above it: how many batches some stock makes, how many make so many |
 | dates | `date(m)`, `days(d1, d2)`, `months(d1, d2)`, `minutes(m1, m2)`, `addDays(d, n)`, `addMonths(d, n)`, `month(d)` (its first day), `today()` | moments and dates, in UTC; whole days, months and minutes from the first to the second; `month` is the key for grouping by month |
 | dates in a zone | `dateIn(m, z)`, `monthIn(m, z)`, `todayIn(z)` | the day (the month's first day) a moment is on, today, where the time zone named z (an IANA name, `Asia/Almaty`) is; the date as every date is, midnight UTC of that day; a zone of no name, or one no zone has, is UTC |
 | choice | `a ?? b` | a, or b where a has no value |
@@ -340,7 +340,7 @@ its id:
 
 The expression is the outline's with node ids for designations and
 functions by name (`add`, `subtract`, `multiply`, `divide`, `negate`,
-`round`, `abs`, `min`, `max`, `coalesce`; the date functions with step
+`round`, `floor`, `ceil`, `abs`, `min`, `max`, `coalesce`; the date functions with step
 3); a constant is a number or quoted text (`'a''b'`). One attribute
 rather than nested elements: a rename of a node rewrites it, and nothing
 else reads it. A value node is listed, compared and sorted with the

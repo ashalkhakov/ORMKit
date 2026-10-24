@@ -1227,14 +1227,20 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, NSArray<ORMQueryNode *>
 		NSString *why = nil;
 		NSArray *roles = [fact visibleRoles];
 		NSArray *groups = [query derivedColumnGroups];
+		/* A unary's: its object's flag, the attribute traced to its implicit
+		 * role; true for the objects its rule lists. */
+		BOOL unary = [roles count] == 1;
 		ORMRole *far = [roles count] == 2 ? [roles lastObject] : nil;
+		for (ORMRole *role in unary ? fact.roles : @[]) {
+			far = role.player.isImplicitBooleanValue ? role : far;
+		}
 		NSArray *target = far != nil ? [_bySource objectForKey:far.identifier] : nil;
 		ORMCDEntity *entity = [target firstObject];
 		ORMCDProperty *property = [target lastObject];
 		/* A player of several identifying values, absorbed: its parts'
 		 * properties on the root's entity, in its identifier's order. */
 		NSMutableArray *targets = [NSMutableArray array];
-		BOOL parted = [ORMQuery partRolesOf:far.player] != nil;
+		BOOL parted = !unary && [ORMQuery partRolesOf:far.player] != nil;
 		if (parted && property == nil) {
 			entity = [_coreData entityWithSource:query.root.objectType.identifier]
 				?: [_coreData entityNamed:[ORMCoreDataMapper entityNameFor:query.root.objectType.name]];
@@ -1243,7 +1249,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, NSArray<ORMQueryNode *>
 				[targets addObject:[keys firstObject]];
 			}
 		}
-		if ([roles count] != 2 || [groups count] != 2 || [[groups firstObject] firstObject] != query.root) {
+		if ([roles count] != (unary ? 1 : 2) || [groups count] != [roles count] || [[groups firstObject] firstObject] != query.root) {
 			why = @"its rule does not go from one role's player to the other's";
 		} else if (parted && [targets count] != [[ORMQuery partRolesOf:far.player] count]) {
 			why = @"its player is identified by several values, kept in no properties of the object";
@@ -1258,7 +1264,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, NSArray<ORMQueryNode *>
 		if (why == nil) {
 			planner = planner ?: [[ORMQueryPlanner alloc] initWithCoreData:_coreData];
 			ORMQueryPlan *planned = [planner planForQuery:query];
-			plan = [planned.notes count] == 0 ? ORMObjectColumns(planned, query.root, [groups lastObject]) : nil;
+			plan = [planned.notes count] == 0 ? ORMObjectColumns(planned, query.root, unary ? @[] : [groups lastObject]) : nil;
 			trails = [plan trailsFromRead];
 			/* Of the entity, or a subentity of it (a Service's cost, kept on
 			 * Record): those objects have the property too. */
@@ -1281,7 +1287,7 @@ ORMObjectColumns(ORMQueryPlan *plan, ORMQueryNode *root, NSArray<ORMQueryNode *>
 			[_notes addObject:[NSString stringWithFormat:@"%@: not worked out at save: %@.", what, why]];
 			continue;
 		}
-		NSString *kind = parted ? @"values" : [property isKindOfClass:[ORMCDAttribute class]] ? @"value"
+		NSString *kind = unary ? @"flag" : parted ? @"values" : [property isKindOfClass:[ORMCDAttribute class]] ? @"value"
 			: (((ORMCDRelationship *)property).toMany ? @"objects" : @"object");
 		[_derivations addObject:[ORMStoredDerivation derivationWithText:what root:plan.entityName plan:plan
 		                                                        targets:parted ? targets : @[ property.name ]

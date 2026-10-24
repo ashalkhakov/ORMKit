@@ -100,8 +100,10 @@
 	e = [ORMQueryExpression expressionWithText:@"round(abs(A), 2) + coalesce(B, 'none''s')" designations:ids reason:NULL];
 	XCTAssertEqualObjects([e canonicalText], @"add(round(abs(#_a), 2), coalesce(#_b, 'none''s'))");
 	XCTAssertEqualObjects([e textWithDesignations:names], @"round(abs(A), 2) + coalesce(B, 'none''s')");
+	e = [ORMQueryExpression expressionWithText:@"floor(A / B) * ceil(C)" designations:ids reason:NULL];
+	XCTAssertEqualObjects([e canonicalText], @"multiply(floor(divide(#_a, #_b)), ceil(#_c))");
 	/* What is none. */
-	for (NSString *wrong in @[ @"A -", @"(A", @"D + 1", @"sqrt(A)", @"round(A)", @"A B", @"'open" ]) {
+	for (NSString *wrong in @[ @"A -", @"(A", @"D + 1", @"sqrt(A)", @"round(A)", @"floor(A, 2)", @"A B", @"'open" ]) {
 		reason = nil;
 		XCTAssertNil([ORMQueryExpression expressionWithText:wrong designations:ids reason:&reason], @"%@", wrong);
 		XCTAssertTrue([reason length] > 0, @"%@", wrong);
@@ -992,6 +994,44 @@
 		                              changed:[NSSet setWithObject:vehicle] inContext:context];
 		XCTAssertEqualObjects(reached, [NSSet setWithObject:station]);
 	}];
+}
+
+/* A derivation's query said again, changed: its fact type's facts are what
+ * they were, derived and stored, as the query it replaced left them. */
+- (void)testADerivationReplacedKeepsItsStorage
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Person(.name) is an entity type.\n"
+	                 @"Car(.reg) is an entity type.\n"
+	                 @"Car is owned by Person\n"
+	                 @"Each Car is owned by exactly one Person.\n"
+	                 @"Car is driven by Person\n"
+	                 @"Person drives Car\n"
+	                 @"** By query OwnerDrives.\n"
+	                 @"\n"
+	                 @"Query OwnerDrives:\n"
+	                 @"Derivation of \"Person drives Car\":\n"
+	                 @"✓Person\n"
+	                 @"  + ✓Car is owned by that Person\n"
+	                 @"\n";
+	NSArray *failures = nil;
+	ORMSentenceEditor *sentences = [[ORMSentenceEditor alloc] initWithEditor:editor];
+	XCTAssertTrue([sentences addFromText:text failures:&failures], @"%@", failures);
+	ORMFactType *drives = nil;
+	for (ORMFactType *fact in [editor.model ordinaryFactTypes]) {
+		drives = [[[fact primaryReading] expandedText] isEqualToString:@"Person drives Car"] ? fact : drives;
+	}
+	XCTAssertTrue([drives derivationRule].isStored);
+	XCTAssertTrue([sentences addFromText:@"Query OwnerDrives:\n"
+	                                     @"Derivation of \"Person drives Car\":\n"
+	                                     @"✓Person\n"
+	                                     @"  + ✓Car is driven by that Person\n"
+	                                     @"\n"
+	                            failures:&failures], @"%@", failures);
+	XCTAssertEqualObjects([[ORMQuery derivationOf:drives inModel:editor.model] name], @"OwnerDrives");
+	XCTAssertTrue([[[ORMQuery derivationOf:drives inModel:editor.model] outlineText] containsString:@"is driven by"], @"replaced");
+	XCTAssertTrue([drives derivationRule].isStored, @"still stored");
+	XCTAssertFalse([drives derivationRule].isPartial);
 }
 
 /* A fact type partly derived and not stored: its facts entered are rows,
@@ -1960,6 +2000,13 @@
 	XCTAssertEqualObjects(ORMPlanApply(@"round", @[ @2.5, @0 ]), @3);
 	XCTAssertEqualObjects(ORMPlanApply(@"negate", @[ @2 ]), @-2);
 	XCTAssertEqualObjects(ORMPlanApply(@"abs", @[ @-2.5 ]), @2.5);
+	/* Whole: down and up, below zero too; a whole number as it is. */
+	XCTAssertEqualObjects(ORMPlanApply(@"floor", @[ @2.75 ]), @2);
+	XCTAssertEqualObjects(ORMPlanApply(@"floor", @[ @-2.25 ]), @-3);
+	XCTAssertEqualObjects(ORMPlanApply(@"ceil", @[ @2.25 ]), @3);
+	XCTAssertEqualObjects(ORMPlanApply(@"ceil", @[ @-2.75 ]), @-2);
+	XCTAssertEqualObjects(ORMPlanApply(@"floor", @[ @4 ]), @4);
+	XCTAssertEqualObjects(ORMPlanApply(@"floor", @[ ORMPlanApply(@"divide", @[ @7, @3 ]) ]), @2, @"7 make 2 batches of 3");
 	XCTAssertEqualObjects(ORMPlanApply(@"max", @[ @2, @3.5 ]), @3.5);
 	XCTAssertEqualObjects(ORMPlanApply(@"min", @[ @"b", @"a" ]), @"a");
 	XCTAssertEqualObjects(ORMPlanApply(@"coalesce", @[ [NSNull null], @"none" ]), @"none");

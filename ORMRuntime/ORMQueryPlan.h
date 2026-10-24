@@ -86,7 +86,7 @@
                     where:(NSString *)groupColumn
                        is:(ORMPlanPath *)groupPath;
 /* A value computed from others (docs/EXPRESSIONS.md): the function
- * ("add", "subtract", "multiply", "divide", "negate", "round", "abs",
+ * ("add", "subtract", "multiply", "divide", "negate", "round", "floor", "ceil", "abs",
  * "min", "max", "coalesce") of the operands' values; none where an operand
  * has none, or it is a division by zero. "subtract(x1.quantity, quantity)". */
 + (instancetype)apply:(NSString *)function to:(NSArray<ORMPlanValue *> *)operands;

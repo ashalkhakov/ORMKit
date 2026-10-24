@@ -1612,12 +1612,12 @@ ORMArithmetic(NSString *function, NSNumber *a, NSNumber *b)
 
 /* The number rounded to the places, half away from zero. */
 static NSNumber *
-ORMRounded(NSNumber *number, NSInteger places)
+ORMRounded(NSNumber *number, NSInteger places, NSRoundingMode mode)
 {
 	if (ORMIsWhole(number) && places >= 0) {
 		return number;
 	}
-	NSDecimalNumberHandler *handler = [NSDecimalNumberHandler decimalNumberHandlerWithRoundingMode:NSRoundPlain
+	NSDecimalNumberHandler *handler = [NSDecimalNumberHandler decimalNumberHandlerWithRoundingMode:mode
 	                                                                                         scale:(short)places
 	                                                                              raiseOnExactness:NO
 	                                                                               raiseOnOverflow:NO
@@ -1783,7 +1783,15 @@ ORMPlanApply(NSString *function, NSArray *values)
 		return [first doubleValue] < 0 ? ORMArithmetic(@"subtract", @0, first) : first;
 	}
 	if ([function isEqualToString:@"round"] && [given count] == 2) {
-		return ORMRounded(first, [second integerValue]);
+		return ORMRounded(first, [second integerValue], NSRoundPlain);
+	}
+	/* Whole: down (how many batches some stock makes), or up (how many
+	 * batches make so many). */
+	if ([function isEqualToString:@"floor"] && [given count] == 1) {
+		return ORMRounded(first, 0, NSRoundDown);
+	}
+	if ([function isEqualToString:@"ceil"] && [given count] == 1) {
+		return ORMRounded(first, 0, NSRoundUp);
 	}
 	if ([given count] == 2 && [@[ @"add", @"subtract", @"multiply", @"divide" ] containsObject:function ?: @""]) {
 		return ORMArithmetic(function, first, second);
@@ -1797,7 +1805,7 @@ ORMPlanApply(NSString *function, NSArray *values)
 static NSDictionary<NSString *, NSNumber *> *
 ORMPlanFunctionArities(void)
 {
-	return @{ @"add": @2, @"subtract": @2, @"multiply": @2, @"divide": @2, @"negate": @1, @"round": @2, @"abs": @1,
+	return @{ @"add": @2, @"subtract": @2, @"multiply": @2, @"divide": @2, @"negate": @1, @"round": @2, @"floor": @1, @"ceil": @1, @"abs": @1,
 		      @"min": @2, @"max": @2, @"coalesce": @2, @"date": @1, @"days": @2, @"months": @2, @"minutes": @2,
 		      @"addDays": @2, @"addMonths": @2, @"month": @1, @"today": @0, @"dateIn": @2, @"monthIn": @2, @"todayIn": @1 };
 }

@@ -381,7 +381,8 @@ ORMArithmeticPrecedence(ORMTerm *term)
 - (BOOL)sayArithmetic:(ORMTerm *)term into:(ORMSentenceBuilder *)b
 {
 	NSDictionary *infix = @{ @"add": @" plus ", @"subtract": @" minus ", @"multiply": @" times ", @"divide": @" divided by " };
-	NSDictionary *prefix = @{ @"negate": @"minus ", @"abs": @"the absolute value of " };
+	NSDictionary *prefix = @{ @"negate": @"minus ", @"abs": @"the absolute value of ", @"floor": @"the whole part of ",
+		                      @"ceil": @"the least whole number not less than " };
 	NSDictionary *pairs = @{ @"min": @"the lesser of ", @"max": @"the greater of " };
 	NSString *name = term.functionName;
 	NSArray *arguments = term.arguments;

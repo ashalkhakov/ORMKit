@@ -13,7 +13,7 @@ ORMParametersOf(NSString *function)
 	if (parameters == nil) {
 		NSArray *pair = @[ @"left", @"right" ];
 		parameters = @{ @"add": pair, @"subtract": pair, @"multiply": pair, @"divide": pair, @"negate": @[ @"value" ],
-			            @"abs": @[ @"value" ], @"round": @[ @"value", @"places" ], @"min": @[ @"first", @"second" ],
+			            @"abs": @[ @"value" ], @"round": @[ @"value", @"places" ], @"floor": @[ @"value" ], @"ceil": @[ @"value" ], @"min": @[ @"first", @"second" ],
 			            @"max": @[ @"first", @"second" ], @"coalesce": @[ @"first", @"second" ],
 			            @"date": @[ @"moment" ], @"month": @[ @"moment" ], @"days": @[ @"from", @"to" ],
 			            @"months": @[ @"from", @"to" ], @"minutes": @[ @"from", @"to" ],

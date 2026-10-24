@@ -283,6 +283,10 @@ That takes the place of the dependency order of step 3.
      is the column the property is set to; a player of several values
      (Money, absorbed as an amount and a currency) sets each part's
      property (kind `values`).
+   - **A unary** ("SaleOrder is fully shipped") is its object's flag, the
+     attribute traced to its implicit role: true for the roots its rule
+     lists, false for the others it is asked of (kind `flag`); partly
+     derived, what was asserted stays where the rule lists nothing.
    - **An aggregate grouped by the object itself** (the sum of a service's
      items) is asked of the same objects in memory: its bag's plan run over
      them, its trails the bag's. **A window** ("the one before",

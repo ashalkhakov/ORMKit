@@ -240,6 +240,16 @@ ORMSetDerived(NSManagedObject *object, NSString *key, id value, NSString *kind)
 			}
 			continue;
 		}
+		/* A unary's flag: whether the rule lists the object. */
+		if ([derivation.kind isEqualToString:@"flag"]) {
+			if ([rows count] == 0 && derivation.partial) {
+				continue;
+			}
+			if (ORMSetDerived(root, derivation.target, @([rows count] > 0), @"value")) {
+				[changed addObject:root];
+			}
+			continue;
+		}
 		id value = ORMDerivedValue(rows, derivation.kind);
 		/* Partly derived: what was asserted stays where nothing is. */
 		if (derivation.partial && (value == nil || ([value isKindOfClass:[NSSet class]] && [value count] == 0))) {

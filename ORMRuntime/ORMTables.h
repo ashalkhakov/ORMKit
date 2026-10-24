@@ -42,7 +42,8 @@ extern const NSUInteger ORMTablesFormat;
  * or none where there are none or several), or "objects"; or "values",
  * the properties a player of several identifying values is kept in (an
  * absorbed Money's amount and currency), in targets, each set to its
- * column after the first. */
+ * column after the first; or "flag", a unary's attribute, true for the
+ * objects the plan lists. */
 @property (nonatomic, readonly, copy) NSString *target;
 @property (nonatomic, readonly, copy) NSString *kind;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *targets;

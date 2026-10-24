@@ -110,9 +110,9 @@ ORMIsBack(id back)
 	for (id each in texts ? targets : @[]) {
 		texts = texts && ORMIsText(each);
 	}
-	if (!ORMIsText(root) || !ORMIsText(target) || ![@[ @"value", @"object", @"objects", @"values" ] containsObject:kind]
+	if (!ORMIsText(root) || !ORMIsText(target) || ![@[ @"value", @"object", @"objects", @"values", @"flag" ] containsObject:kind]
 	    || ![backs isKindOfClass:[NSArray class]] || !texts) {
-		*error = ORMTablesError(@"a derivation has its root, target, kind (value, object, objects or values) and backs.");
+		*error = ORMTablesError(@"a derivation has its root, target, kind (value, object, objects, values or flag) and backs.");
 		return nil;
 	}
 	for (id back in backs) {
@@ -125,7 +125,9 @@ ORMIsBack(id back)
 	if (plan == nil) {
 		return nil;
 	}
-	if (![plan.entityName isEqualToString:root] || [plan.columns count] != 1 + [targets count]) {
+	/* A flag's lists its root alone: whether it is there. */
+	NSUInteger listed = [kind isEqualToString:@"flag"] ? 1 : 1 + [targets count];
+	if (![plan.entityName isEqualToString:root] || [plan.columns count] != listed) {
 		*error = ORMTablesError(@"a derivation's plan reads its root, and lists it and what it derives.");
 		return nil;
 	}
