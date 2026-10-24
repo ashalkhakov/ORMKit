@@ -798,6 +798,76 @@
 	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:date] count], (NSUInteger)1);
 }
 
+/* The shape of the element nearest the point. */
+- (ORMShape *)shapeOf:(NSString *)subject nearest:(NSPoint)point on:(ORMDiagram *)diagram
+{
+	ORMShape *best = nil;
+	double distance = DBL_MAX;
+	for (ORMShape *each in [diagram shapesForSubject:subject]) {
+		double d = hypot(NSMidX(each.bounds) - point.x, NSMidY(each.bounds) - point.y);
+		if (d < distance) {
+			distance = d;
+			best = each;
+		}
+	}
+	return best;
+}
+
+/* An entity type much used is an anchor, at the head of a group of its
+ * own: a fact type of two anchors goes with its first player's, which
+ * shows the other once more. A constraint over fact types in two groups
+ * is in one, and shows the other's fact type there too. */
+- (void)testEachAnchorHasAGroupOfItsOwn
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *diagramId = [self diagramOf:editor];
+	NSString *order = [self entity:@"Order" mode:@"nr" in:editor];
+	NSString *item = [self entity:@"Item" mode:@"sku" in:editor];
+	NSString *customer = [self entity:@"Customer" mode:@"id" in:editor];
+	NSString *address = [self entity:@"Address" mode:@"id" in:editor];
+	NSString *kind = [self entity:@"Kind" mode:@"code" in:editor];
+	NSString *shelf = [self entity:@"Shelf" mode:@"nr" in:editor];
+	NSString *supplier = [self entity:@"Supplier" mode:@"id" in:editor];
+	NSString *isFor = [self fact:@[ order, item ] reading:@"{0} is for {1}" in:editor];
+	NSString *placed = [self fact:@[ order, customer ] reading:@"{0} is placed by {1}" in:editor];
+	NSString *shipped = [self fact:@[ order, address ] reading:@"{0} is shipped to {1}" in:editor];
+	NSString *billed = [self fact:@[ order, address ] reading:@"{0} is billed to {1}" in:editor];
+	NSString *isOf = [self fact:@[ item, kind ] reading:@"{0} is of {1}" in:editor];
+	NSString *kept = [self fact:@[ item, shelf ] reading:@"{0} is kept on {1}" in:editor];
+	NSString *supplied = [self fact:@[ item, supplier ] reading:@"{0} is supplied by {1}" in:editor];
+	NSArray *forRoles = [[editor.model elementWithId:isFor] roles];
+	NSArray *ofRoles = [[editor.model elementWithId:isOf] roles];
+	NSString *reason = nil;
+	NSString *subset = [editor.constraintEditor addSetComparisonConstraint:ORMSubsetConstraint
+	                                                             sequences:@[ @[ [forRoles[1] identifier] ], @[ [ofRoles[0] identifier] ] ]
+	                                                                reason:&reason];
+	XCTAssertNotNil(subset, @"%@", reason);
+	[editor.diagramEditor arrangeDiagramInGroups:diagramId];
+
+	ORMDiagram *diagram = [editor.model.diagrams firstObject];
+	XCTAssertEqual([[diagram shapesForSubject:order] count], (NSUInteger)1);
+	XCTAssertEqual([[diagram shapesForSubject:item] count], (NSUInteger)2, @"its own, and Order's");
+	NSRect orders = [self extentOf:[self shapesOf:@[ order, isFor, placed, shipped, billed, customer, address ] on:diagram]];
+	NSRect items = [self extentOf:[self shapesOf:@[ kept, supplied, shelf, supplier ] on:diagram]];
+	XCTAssertFalse(NSIntersectsRect(orders, items), @"the groups apart: %@ %@", NSStringFromRect(orders), NSStringFromRect(items));
+	/* What a line joins is near: Item to Order's fact type, the
+	 * constraint to both its fact types (Item's, once more). */
+	ORMShape *forShape = [diagram shapeForSubject:isFor];
+	NSPoint forAt = NSMakePoint(NSMidX(forShape.bounds), NSMidY(forShape.bounds));
+	ORMShape *itemThere = [self shapeOf:item nearest:forAt on:diagram];
+	XCTAssertLessThan(hypot(NSMidX(itemThere.bounds) - forAt.x, NSMidY(itemThere.bounds) - forAt.y), 2 * 72.0);
+	XCTAssertEqual([[diagram shapesForSubject:isOf] count], (NSUInteger)2);
+	ORMShape *constraint = [diagram shapeForSubject:subset];
+	NSPoint at = NSMakePoint(NSMidX(constraint.bounds), NSMidY(constraint.bounds));
+	for (NSString *fact in @[ isFor, isOf ]) {
+		ORMShape *near = [self shapeOf:fact nearest:at on:diagram];
+		XCTAssertLessThan(hypot(NSMidX(near.bounds) - at.x, NSMidY(near.bounds) - at.y), 2 * 72.0, @"%@",
+		                  [[editor.model elementWithId:fact] name]);
+	}
+	[self.undoManager undo];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:item] count], (NSUInteger)1);
+}
+
 - (void)testReadingsAreChecked
 {
 	ORMEditor *editor = [self newEditor];

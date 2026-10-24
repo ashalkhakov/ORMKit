@@ -24,10 +24,9 @@ static const double ORMSpacing = 0.5 * 72.0;
 
 #pragma mark Arranging in groups
 
-/* An object type that is a hub of a diagram, as Arrange in Groups takes
- * hubs out: used by two of its fact types or more, and a value type or an
- * entity type in this many or more. */
-static const NSUInteger ORMHubDegree = 5;
+/* An entity type that heads a group of its own in Arrange in Groups: used
+ * by this many of the diagram's fact types and subtypings or more. */
+static const NSUInteger ORMAnchorDegree = 4;
 /* Between groups, across and down. */
 static const double ORMGroupGap = 0.75 * 72.0;
 
@@ -60,6 +59,29 @@ ORMGroupJoin(NSMutableDictionary<NSString *, NSString *> *parents, NSString *a, 
 	if (![ra isEqualToString:rb]) {
 		[parents setObject:ra forKey:rb];
 	}
+}
+
+/* The two keys' sets made one, unless each has an anchor (the sets'
+ * anchors kept by root). Whether they are one. */
+static BOOL
+ORMGroupJoinApart(NSMutableDictionary<NSString *, NSString *> *parents, NSMutableDictionary<NSString *, NSString *> *anchored,
+                  NSString *a, NSString *b)
+{
+	NSString *ra = ORMGroupRoot(parents, a);
+	NSString *rb = ORMGroupRoot(parents, b);
+	if ([ra isEqualToString:rb]) {
+		return YES;
+	}
+	NSString *anchor = [anchored objectForKey:ra];
+	NSString *other = [anchored objectForKey:rb];
+	if (anchor != nil && other != nil) {
+		return NO;
+	}
+	[parents setObject:ra forKey:rb];
+	if (anchor == nil && other != nil) {
+		[anchored setObject:other forKey:ra];
+	}
+	return YES;
 }
 
 /* The element an object type is shown as on the diagram: itself, or the
@@ -444,24 +466,31 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 	NSRect bounds = NSMakeRect(origin.x, origin.y, size.width, size.height);
 	__block NSString *created = nil;
 	[_editor modelChange:existing != nil ? @"Add Another Shape" : @"Place on Diagram" with:^{
-		ORMShape *shape = [self addShape:kind of:element bounds:bounds parent:nil on:diagram];
-		if ([element isKindOfClass:[ORMFactType class]]) {
-			ORMFactType *fact = element;
-			shape.roleDisplayOrder = fact.roles;
-			ORMReadingOrder *order = [[fact primaryReading] readingOrder];
-			if (order != nil) {
-				NSString *text = [[fact primaryReading] expandedText];
-				NSRect readingBounds = NSMakeRect(NSMinX(bounds), NSMaxY(bounds) + ORMReadingGap,
-				                                  MAX(0.2, 0.05 * [text length]) * 72.0, ORMReadingShapeHeight);
-				[self addShape:ORMShapeReading of:order bounds:readingBounds parent:shape on:diagram];
-			}
-			for (ORMRole *role in fact.roles) {
-				[self showNameOfRole:role onShape:shape];
-			}
-		}
-		created = shape.identifier;
+		created = [self addShape:kind of:element bounds:bounds on:diagram].identifier;
 	}];
 	return created;
+}
+
+/* A new top-level shape, inside a model change; a fact type's with its
+ * reading and role names. */
+- (ORMShape *)addShape:(ORMShapeKind)kind of:(ORMElement *)element bounds:(NSRect)bounds on:(ORMDiagram *)diagram
+{
+	ORMShape *shape = [self addShape:kind of:element bounds:bounds parent:nil on:diagram];
+	if ([element isKindOfClass:[ORMFactType class]]) {
+		ORMFactType *fact = (ORMFactType *)element;
+		shape.roleDisplayOrder = fact.roles;
+		ORMReadingOrder *order = [[fact primaryReading] readingOrder];
+		if (order != nil) {
+			NSString *text = [[fact primaryReading] expandedText];
+			NSRect readingBounds = NSMakeRect(NSMinX(bounds), NSMaxY(bounds) + ORMReadingGap,
+			                                  MAX(0.2, 0.05 * [text length]) * 72.0, ORMReadingShapeHeight);
+			[self addShape:ORMShapeReading of:order bounds:readingBounds parent:shape on:diagram];
+		}
+		for (ORMRole *role in fact.roles) {
+			[self showNameOfRole:role onShape:shape];
+		}
+	}
+	return shape;
 }
 
 - (void)showFactType:(NSString *)factTypeId onDiagram:(NSString *)diagramId at:(NSPoint)point
@@ -915,12 +944,11 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 #pragma mark Arranging in groups
 
 
-/* The hubs of the diagram: object types its fact types and subtyping link
- * to twice or more, value types, and entity types used ORMHubDegree times
- * or more. */
-- (NSSet<NSString *> *)hubsOf:(ORMDiagram *)diagram
+/* How often the diagram uses each object type it shows: once for each of
+ * its fact types the type plays in, once for each subtyping. */
+- (NSCountedSet<NSString *> *)usesOn:(ORMDiagram *)diagram
 {
-	NSCountedSet *degree = [NSCountedSet set];
+	NSCountedSet *uses = [NSCountedSet set];
 	NSMutableSet *facts = [NSMutableSet set];
 	for (ORMShape *shape in diagram.shapes) {
 		if (shape.kind == ORMShapeFactType && shape.factType != nil && ![facts containsObject:shape.factType.identifier]) {
@@ -932,81 +960,153 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 				}
 			}
 			for (NSString *player in players) {
-				[degree addObject:player];
+				[uses addObject:player];
 			}
 		}
 	}
+	NSMutableSet *types = [NSMutableSet set];
 	for (ORMShape *shape in diagram.shapes) {
 		ORMObjectType *type = shape.kind == ORMShapeObjectType ? shape.objectType : nil;
+		if (type == nil || [types containsObject:type.identifier]) {
+			continue;
+		}
+		[types addObject:type.identifier];
 		for (ORMObjectType *supertype in type.supertypes) {
 			if ([diagram shapeForSubject:supertype.identifier] != nil) {
-				[degree addObject:type.identifier];
-				[degree addObject:supertype.identifier];
+				[uses addObject:type.identifier];
+				[uses addObject:supertype.identifier];
 			}
 		}
 	}
+	return uses;
+}
+
+/* The hubs of the diagram, shown in each group that uses them: value types
+ * used twice or more. */
+- (NSSet<NSString *> *)hubsOf:(ORMDiagram *)diagram
+{
+	NSCountedSet *uses = [self usesOn:diagram];
 	NSMutableSet *hubs = [NSMutableSet set];
-	for (NSString *typeId in degree) {
+	for (NSString *typeId in uses) {
 		ORMObjectType *type = [_editor.model elementWithId:typeId];
-		NSUInteger uses = [degree countForObject:typeId];
-		if (uses >= 2 && (type.kind == ORMValueType || uses >= ORMHubDegree)) {
+		if (type.kind == ORMValueType && [uses countForObject:typeId] >= 2) {
 			[hubs addObject:typeId];
 		}
 	}
 	return hubs;
 }
 
+/* The anchors of the diagram, each at the head of a group of its own:
+ * entity types used ORMAnchorDegree times or more. */
+- (NSSet<NSString *> *)anchorsOf:(ORMDiagram *)diagram
+{
+	NSCountedSet *uses = [self usesOn:diagram];
+	NSMutableSet *anchors = [NSMutableSet set];
+	for (NSString *typeId in uses) {
+		ORMObjectType *type = [_editor.model elementWithId:typeId];
+		if (type.isEntity && [uses countForObject:typeId] >= ORMAnchorDegree) {
+			[anchors addObject:typeId];
+		}
+	}
+	return anchors;
+}
 
-/* The diagram's elements in groups: what its fact types and subtyping
- * link once the hubs are taken out; a fact type of hubs alone goes with
- * its first player's. Each group's elements, in the diagram's order. */
-- (NSArray<NSArray<NSString *> *> *)groupsOf:(ORMDiagram *)diagram hubs:(NSSet<NSString *> *)hubs
+/* The diagram's elements in groups, each anchor in one of its own: a fact
+ * type with an anchor among its players goes with the first, and brings
+ * along what else it links where that is not another anchor's; a fact type
+ * of hubs alone goes with its first player's. Each group's elements, in the
+ * diagram's order. */
+- (NSArray<NSArray<NSString *> *> *)groupsOf:(ORMDiagram *)diagram hubs:(NSSet<NSString *> *)hubs anchors:(NSSet<NSString *> *)anchors
 {
 	NSMutableDictionary *parents = [NSMutableDictionary dictionary];
+	NSMutableDictionary *anchored = [NSMutableDictionary dictionary];
 	NSMutableOrderedSet *elements = [NSMutableOrderedSet orderedSet];
 	for (ORMShape *shape in diagram.shapes) {
-		if (shape.subjectId == nil || [hubs containsObject:shape.subjectId]) {
+		if (shape.subjectId != nil && ![hubs containsObject:shape.subjectId]) {
+			[elements addObject:shape.subjectId];
+			ORMGroupRoot(parents, shape.subjectId);
+		}
+	}
+	for (NSString *anchor in anchors) {
+		[anchored setObject:anchor forKey:ORMGroupRoot(parents, anchor)];
+	}
+	/* What each fact type links, apart from itself and the hubs; and its
+	 * anchor, its first player that is one. */
+	NSMutableDictionary *players = [NSMutableDictionary dictionary];
+	NSMutableDictionary *homes = [NSMutableDictionary dictionary];
+	for (NSString *element in elements) {
+		ORMFactType *fact = [_editor.model elementWithId:element];
+		if (![fact isKindOfClass:[ORMFactType class]]) {
 			continue;
 		}
-		[elements addObject:shape.subjectId];
-		ORMGroupRoot(parents, shape.subjectId);
-		if (shape.kind == ORMShapeFactType && shape.factType != nil) {
-			NSString *first = nil;
-			BOOL joined = NO;
-			for (ORMRole *role in [shape.factType visibleRoles]) {
-				NSString *node = ORMShownNode(role.player, diagram);
-				if (node == nil || [node isEqualToString:shape.subjectId]) {
-					continue;
-				}
-				first = first ?: node;
-				if (![hubs containsObject:node]) {
-					ORMGroupJoin(parents, shape.subjectId, node);
-					joined = YES;
-				}
+		NSMutableArray *linked = [NSMutableArray array];
+		NSString *first = nil;
+		for (ORMRole *role in [fact visibleRoles]) {
+			NSString *node = ORMShownNode(role.player, diagram);
+			if (node == nil || [node isEqualToString:element]) {
+				continue;
 			}
-			if (!joined && first != nil) {
-				ORMGroupJoin(parents, shape.subjectId, [@"hub:" stringByAppendingString:first]);
+			first = first ?: node;
+			if ([anchors containsObject:node] && [homes objectForKey:element] == nil) {
+				[homes setObject:node forKey:element];
 			}
-		} else if (shape.kind == ORMShapeObjectType && shape.objectType != nil) {
-			for (ORMObjectType *supertype in shape.objectType.supertypes) {
+			if (![hubs containsObject:node]) {
+				[linked addObject:node];
+			}
+		}
+		if ([linked count] == 0 && first != nil) {
+			[linked addObject:[@"hub:" stringByAppendingString:first]];
+		}
+		[players setObject:linked forKey:element];
+	}
+	/* What is linked without an anchor first; each anchor's fact types
+	 * then; subtyping; what the anchors' fact types bring along; and last
+	 * the constraints and notes, with what they are about. Two anchors are
+	 * never joined: what would join them is shown in both. */
+	for (NSString *element in elements) {
+		if ([homes objectForKey:element] == nil) {
+			for (NSString *node in [players objectForKey:element]) {
+				ORMGroupJoinApart(parents, anchored, element, node);
+			}
+		}
+	}
+	for (NSString *element in elements) {
+		NSString *home = [homes objectForKey:element];
+		if (home != nil) {
+			ORMGroupJoinApart(parents, anchored, home, element);
+		}
+	}
+	for (NSString *element in elements) {
+		ORMObjectType *type = [_editor.model elementWithId:element];
+		if ([type isKindOfClass:[ORMObjectType class]]) {
+			for (ORMObjectType *supertype in type.supertypes) {
 				NSString *node = ORMShownNode(supertype, diagram);
 				if (node != nil && ![hubs containsObject:node]) {
-					ORMGroupJoin(parents, shape.subjectId, node);
+					ORMGroupJoinApart(parents, anchored, element, node);
 				}
 			}
-		} else {
-			/* A constraint or note: with all it is about, which it keeps
-			 * together, its lines short. */
-			for (ORMShape *linked in [self linkedShapesOf:shape.subject on:diagram]) {
-				if (linked.subjectId != nil && ![hubs containsObject:linked.subjectId]) {
-					ORMGroupJoin(parents, shape.subjectId, linked.subjectId);
-				}
+		}
+	}
+	for (NSString *element in elements) {
+		if ([homes objectForKey:element] != nil) {
+			for (NSString *node in [players objectForKey:element]) {
+				ORMGroupJoinApart(parents, anchored, element, node);
+			}
+		}
+	}
+	for (NSString *element in elements) {
+		id subject = [_editor.model elementWithId:element];
+		if (![subject isKindOfClass:[ORMConstraint class]] && ![subject isKindOfClass:[ORMModelNote class]]) {
+			continue;
+		}
+		for (ORMShape *linked in [self linkedShapesOf:subject on:diagram]) {
+			if (linked.subjectId != nil && ![hubs containsObject:linked.subjectId]) {
+				ORMGroupJoinApart(parents, anchored, element, linked.subjectId);
 			}
 		}
 	}
 	NSMutableDictionary *byRoot = [NSMutableDictionary dictionary];
 	NSMutableArray *order = [NSMutableArray array];
-	NSMutableArray *loose = [NSMutableArray array];
 	for (NSString *element in elements) {
 		NSString *root = ORMGroupRoot(parents, element);
 		NSMutableArray *group = [byRoot objectForKey:root];
@@ -1017,61 +1117,63 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 		}
 		[group addObject:element];
 	}
-	/* A group about one entity hub alone (its attributes, what only it
-	 * links) is that hub's: in its home group, with the facts of hubs
-	 * alone it comes first in. What is linked to nothing, together. */
+	/* What is linked to nothing, together; but not what the groups show
+	 * already (an anchor whose fact types all went to others). */
 	NSMutableArray *groups = [NSMutableArray array];
-	NSMutableDictionary *homes = [NSMutableDictionary dictionary];
+	NSMutableArray *loose = [NSMutableArray array];
+	NSMutableSet *shown = [NSMutableSet set];
 	for (NSMutableArray *group in order) {
 		if ([group count] == 1 && [[[diagram shapeForSubject:group[0]] subject] isKindOfClass:[ORMObjectType class]]) {
 			[loose addObjectsFromArray:group];
-			continue;
-		}
-		NSString *root = ORMGroupRoot(parents, group[0]);
-		NSString *home = [root hasPrefix:@"hub:"] ? [root substringFromIndex:4] : nil;
-		if (home == nil) {
-			NSOrderedSet *used = [self hubsOfGroup:group on:diagram hubs:hubs];
-			ORMObjectType *only = [used count] == 1 ? [_editor.model elementWithId:[used firstObject]] : nil;
-			home = [only isKindOfClass:[ORMObjectType class]] && only.isEntity ? only.identifier : nil;
-		}
-		if (home == nil) {
+		} else {
 			[groups addObject:group];
-			continue;
+			[shown addObjectsFromArray:[[self outsidersOfGroup:group on:diagram] array]];
 		}
-		NSMutableArray *homeGroup = [homes objectForKey:home];
-		if (homeGroup == nil) {
-			homeGroup = [NSMutableArray array];
-			[homes setObject:homeGroup forKey:home];
-			[groups addObject:homeGroup];
-		}
-		[homeGroup addObjectsFromArray:group];
 	}
+	[loose removeObjectsInArray:[shown allObjects]];
 	if ([loose count] > 0) {
 		[groups addObject:loose];
 	}
 	return groups;
 }
 
-/* The hubs a group's elements link to, in the order met. */
-- (NSOrderedSet<NSString *> *)hubsOfGroup:(NSArray<NSString *> *)group on:(ORMDiagram *)diagram hubs:(NSSet<NSString *> *)hubs
+/* What a group's elements link to that is not in it, in the order met:
+ * each shown in it too. The object types its fact types and subtypings
+ * link to; the fact types its constraints and notes are about, and their
+ * players. */
+- (NSOrderedSet<NSString *> *)outsidersOfGroup:(NSArray<NSString *> *)group on:(ORMDiagram *)diagram
 {
+	NSSet *members = [NSSet setWithArray:group];
 	NSMutableOrderedSet *used = [NSMutableOrderedSet orderedSet];
+	NSMutableArray *pending = [group mutableCopy];
 	for (NSString *element in group) {
 		id subject = [_editor.model elementWithId:element];
+		if (![subject isKindOfClass:[ORMConstraint class]] && ![subject isKindOfClass:[ORMModelNote class]]) {
+			continue;
+		}
+		for (ORMShape *linked in [self linkedShapesOf:subject on:diagram]) {
+			if (linked.kind == ORMShapeFactType && ![members containsObject:linked.subjectId] && ![used containsObject:linked.subjectId]) {
+				[used addObject:linked.subjectId];
+				[pending addObject:linked.subjectId];
+			}
+		}
+	}
+	for (NSString *element in pending) {
+		id subject = [_editor.model elementWithId:element];
+		NSMutableArray *types = [NSMutableArray array];
 		if ([subject isKindOfClass:[ORMFactType class]]) {
 			for (ORMRole *role in [(ORMFactType *)subject visibleRoles]) {
-				NSString *node = ORMShownNode(role.player, diagram);
-				if (node != nil && [hubs containsObject:node]) {
-					[used addObject:node];
-				}
+				[types addObject:role.player ?: (id)[NSNull null]];
 			}
 		} else if ([subject isKindOfClass:[ORMObjectType class]]) {
-			NSArray *related = [[(ORMObjectType *)subject supertypes] arrayByAddingObjectsFromArray:[(ORMObjectType *)subject subtypes]];
-			for (ORMObjectType *other in related) {
-				NSString *node = ORMShownNode(other, diagram);
-				if (node != nil && [hubs containsObject:node]) {
-					[used addObject:node];
-				}
+			[types addObjectsFromArray:[(ORMObjectType *)subject supertypes]];
+			[types addObjectsFromArray:[(ORMObjectType *)subject subtypes]];
+		}
+		for (id type in types) {
+			NSString *node = type != [NSNull null] ? ORMShownNode(type, diagram) : nil;
+			/* An objectified fact type stays where it is. */
+			if (node != nil && [node isEqualToString:[type identifier]] && ![members containsObject:node]) {
+				[used addObject:node];
 			}
 		}
 	}
@@ -1222,35 +1324,38 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 		return;
 	}
 	NSSet *hubs = [self hubsOf:diagram];
-	NSArray *elementGroups = [self groupsOf:diagram hubs:hubs];
+	NSArray *elementGroups = [self groupsOf:diagram hubs:hubs anchors:[self anchorsOf:diagram]];
 	NSMutableArray<ORMLayoutGroup *> *groups = [NSMutableArray array];
-	/* An element of a group needs one shape: its lines all stay in it. */
-	NSMutableArray *extra = [NSMutableArray array];
+	/* An element of a group has one shape there; the rest are spare, and
+	 * every shape of what is in none (a hub, an anchor shown elsewhere). */
+	NSMutableDictionary<NSString *, NSMutableArray *> *spares = [NSMutableDictionary dictionary];
+	for (ORMShape *shape in diagram.shapes) {
+		if (shape.subjectId != nil && [spares objectForKey:shape.subjectId] == nil) {
+			[spares setObject:[[diagram shapesForSubject:shape.subjectId] mutableCopy] forKey:shape.subjectId];
+		}
+	}
+	NSMutableOrderedSet *shown = [NSMutableOrderedSet orderedSet];
 	for (NSArray *elements in elementGroups) {
 		ORMLayoutGroup *group = [[ORMLayoutGroup alloc] init];
 		for (NSString *element in elements) {
 			NSArray *shapes = [diagram shapesForSubject:element];
 			if ([shapes count] > 0) {
 				[group.shapes addObject:[shapes firstObject]];
-				[extra addObjectsFromArray:[shapes subarrayWithRange:NSMakeRange(1, [shapes count] - 1)]];
+				[spares setObject:[[shapes subarrayWithRange:NSMakeRange(1, [shapes count] - 1)] mutableCopy] forKey:element];
 			}
 		}
-		[group.hubs unionOrderedSet:[self hubsOfGroup:elements on:diagram hubs:hubs]];
+		[group.hubs unionOrderedSet:[self outsidersOfGroup:elements on:diagram]];
+		[shown unionOrderedSet:group.hubs];
 		[groups addObject:group];
 	}
 	[_editor modelChange:@"Arrange in Groups" with:^{
-		[self removeShapes:extra];
-		/* One shape of each hub for each group that uses it: its shapes
-		 * reused, the group's nearest first; more made; the rest removed. */
-		for (NSString *hub in [[hubs allObjects] sortedArrayUsingSelector:@selector(compare:)]) {
-			NSMutableArray *spare = [NSMutableArray array];
-			for (ORMShape *shape in [diagram shapesForSubject:hub]) {
-				if (shape.kind == ORMShapeObjectType) {
-					[spare addObject:shape];
-				}
-			}
+		/* A shape of each outsider for each group that links to it: its
+		 * spare shapes reused, the group's nearest first; more made; the
+		 * rest removed. */
+		for (NSString *outsider in shown) {
+			NSMutableArray *spare = [spares objectForKey:outsider] ?: [NSMutableArray array];
 			for (ORMLayoutGroup *group in groups) {
-				if (![group.hubs containsObject:hub]) {
+				if (![group.hubs containsObject:outsider]) {
 					continue;
 				}
 				NSPoint centre = ORMCentreOf(group.shapes);
@@ -1258,7 +1363,7 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 				double distance = DBL_MAX;
 				for (ORMShape *shape in spare) {
 					double d = hypot(NSMidX(shape.bounds) - centre.x, NSMidY(shape.bounds) - centre.y);
-					if (d < distance) {
+					if (shape.parent == nil && d < distance) {
 						distance = d;
 						best = shape;
 					}
@@ -1266,16 +1371,20 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 				if (best != nil) {
 					[spare removeObject:best];
 				} else {
-					ORMObjectType *type = [self->_editor.model elementWithId:hub];
-					NSSize size = [self defaultSizeOf:type];
-					best = [self addShape:ORMShapeObjectType of:type
-					               bounds:NSMakeRect(centre.x, centre.y, size.width, size.height) parent:nil on:diagram];
+					id element = [self->_editor.model elementWithId:outsider];
+					NSSize size = [self defaultSizeOf:element];
+					best = [self addShape:[element isKindOfClass:[ORMFactType class]] ? ORMShapeFactType : ORMShapeObjectType
+					                   of:element bounds:NSMakeRect(centre.x, centre.y, size.width, size.height) on:diagram];
 				}
-				[group.hubShapes setObject:best forKey:hub];
+				[group.hubShapes setObject:best forKey:outsider];
 				[group.shapes addObject:best];
 			}
-			[self removeShapes:spare];
 		}
+		NSMutableArray *spare = [NSMutableArray array];
+		for (NSString *element in [[spares allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+			[spare addObjectsFromArray:[spares objectForKey:element]];
+		}
+		[self removeShapes:spare];
 		/* Each group laid out, then the groups in rows, the largest first. */
 		double area = 0;
 		double widest = 0;

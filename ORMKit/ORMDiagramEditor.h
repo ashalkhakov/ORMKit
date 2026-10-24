@@ -51,12 +51,13 @@ typedef NS_ENUM(NSInteger, ORMAlignment) {
 - (BOOL)alignShapes:(NSArray<NSString *> *)shapeIds as:(ORMAlignment)alignment reason:(NSString **)reason;
 /* Lays the diagram out from scratch: what it shows, placed by its links. */
 - (void)arrangeDiagram:(NSString *)diagramId;
-/* Lays the diagram out in groups: its hubs (value types and much-used
- * entity types) taken out, what its fact types still link is a group; each
- * group laid out on its own with a shape of each hub it uses, and the
- * groups side by side. A hub's shapes are reused where they are, more made
- * as needed, the rest removed; any other element keeps one shape, the
- * group's. One change. */
+/* Lays the diagram out in groups: each anchor (an entity type much used)
+ * heads one of its own, with the fact types it plays in first and what
+ * they bring along; what the rest of the fact types link is a group too.
+ * A group shows each object type it links to that is elsewhere (a value
+ * type used more than once, another anchor) once more, its lines kept
+ * inside it; the groups side by side. Spare shapes are reused, more made
+ * as needed, the rest removed. One change. */
 - (void)arrangeDiagramInGroups:(NSString *)diagramId;
 
 @end
