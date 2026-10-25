@@ -217,6 +217,48 @@ ORMViolation(NSManagedObject *object, ORMRule *rule)
 	return predicate != [NSNull null] ? predicate : nil;
 }
 
+/* No other object of the entity that has the keys (its own, or the
+ * topmost of its ancestors that has them all), saved or in the context,
+ * not deleted, has the object's values of them; one with a key not set
+ * holds. A store's own uniqueness constraint is not every store's (not
+ * FreeCoreData's), nor said in the model's words. */
+static BOOL
+ORMUniqueHolds(NSManagedObject *object, NSArray<NSString *> *keys)
+{
+	NSMutableArray *conditions = [NSMutableArray array];
+	NSMutableArray *values = [NSMutableArray array];
+	for (NSString *key in keys) {
+		id value = [object valueForKey:key];
+		if (value == nil) {
+			return YES;
+		}
+		[conditions addObject:@"%K == %@"];
+		[values addObject:key];
+		[values addObject:value];
+	}
+	NSEntityDescription *entity = [object entity];
+	while (entity.superentity != nil) {
+		BOOL has = YES;
+		for (NSString *key in keys) {
+			has = has && [entity.superentity.propertiesByName objectForKey:key] != nil;
+		}
+		if (!has) {
+			break;
+		}
+		entity = entity.superentity;
+	}
+	NSFetchRequest *fetch = [[NSFetchRequest alloc] init];
+	fetch.entity = entity;
+	fetch.predicate = [NSPredicate predicateWithFormat:[conditions componentsJoinedByString:@" AND "] argumentArray:values];
+	NSArray *alike = [[object managedObjectContext] executeFetchRequest:fetch error:NULL];
+	for (NSManagedObject *other in alike) {
+		if (other != object && ![other isDeleted]) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
 - (BOOL)check:(ORMRuleCheck *)check holdsOf:(NSManagedObject *)object
 {
 	NSString *kind = check.kind;
@@ -262,6 +304,9 @@ ORMViolation(NSManagedObject *object, ORMRule *rule)
 			}
 		}
 		return YES;
+	}
+	if ([kind isEqualToString:@"unique"]) {
+		return ORMUniqueHolds(object, check.keys);
 	}
 	if ([kind isEqualToString:@"compare"]) {
 		id a = [object valueForKey:key];

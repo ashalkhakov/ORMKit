@@ -276,9 +276,15 @@ make `orm_validateConstraints:` fail; `orm_deonticViolations` returns them.
 
 A subentity with rules of its own checks its parent's too.
 
+A uniqueness the mapping gives an entity (Core Data's constraint) is a rule
+too, checked by a fetch of the entity, saved and pending: not every store
+enforces Core Data's (FreeCoreData's does not), and the rule says it in the
+model's words, not as the store's merge error. An identifier's own
+uniqueness is left to the store's key.
+
 What one object cannot check is listed in the notes and in a comment at the
 top of the `.m`:
-- uniqueness across objects, which needs a fetch;
+- a uniqueness across objects the mapping gives no entity;
 - frequencies over several roles;
 - set comparisons through join paths;
 - constraints over the roles of n-ary fact types.

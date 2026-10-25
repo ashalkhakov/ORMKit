@@ -252,6 +252,15 @@ ORMAreTexts(id list, NSUInteger count)
 		}
 		return check;
 	}
+	if ([list objectForKey:@"unique"] != nil) {
+		check.kind = @"unique";
+		check.keys = [list objectForKey:@"unique"];
+		if (!ORMAreTexts(check.keys, 0) || [check.keys count] == 0) {
+			*error = ORMTablesError(@"a unique check is of keys.");
+			return nil;
+		}
+		return check;
+	}
 	if ([list objectForKey:@"ring"] != nil) {
 		check.kind = @"ring";
 		check.properties = [list objectForKey:@"ring"];

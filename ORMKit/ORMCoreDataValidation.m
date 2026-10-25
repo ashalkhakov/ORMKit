@@ -603,6 +603,47 @@ ORMBound(NSString *value)
 	}
 }
 
+/* Each uniqueness the mapping gave an entity (Core Data's constraint, which
+ * not every store enforces: FreeCoreData's does not), checked as a rule:
+ * no other object of the entity has the same values. Said as the model's
+ * constraint whose roles its properties are traced to; an identifier's
+ * own uniqueness is its store's key. */
+- (void)uniquenesses
+{
+	NSMutableDictionary<NSSet *, ORMConstraint *> *byRoles = [NSMutableDictionary dictionary];
+	for (ORMConstraint *constraint in _model.constraints) {
+		if (constraint.kind == ORMUniquenessConstraint) {
+			[byRoles setObject:constraint forKey:[NSSet setWithArray:[[constraint allRoles] valueForKey:@"identifier"]]];
+		}
+	}
+	for (ORMCDEntity *entity in _coreData.entities) {
+		for (NSArray<NSString *> *names in entity.uniquenessConstraints) {
+			NSMutableSet *sources = [NSMutableSet set];
+			BOOL key = NO;
+			for (NSString *name in names) {
+				ORMCDProperty *property = nil;
+				for (ORMCDProperty *each in [entity properties]) {
+					property = [each.name isEqualToString:name] ? each : property;
+				}
+				key = key || property == nil || [[property.userInfo objectForKey:@"OData.key"] isEqualToString:@"YES"];
+				if (property.source != nil) {
+					[sources addObject:property.source];
+				}
+			}
+			if (key) {
+				continue;
+			}
+			ORMConstraint *constraint = [byRoles objectForKey:sources];
+			NSString *name = constraint.name ?: [NSString stringWithFormat:@"%@Unique%@", entity.name,
+			                                                               [names componentsJoinedByString:@"And"]];
+			NSString *text = constraint != nil ? [self textOf:constraint]
+			                                   : [NSString stringWithFormat:@"Each %@ has a %@ of its own.", entity.name,
+			                                                                [names componentsJoinedByString:@" and "]];
+			[self add:@{ @"unique": names } to:entity named:name text:text keys:names deontic:NO];
+		}
+	}
+}
+
 - (void)collect
 {
 	_derivations = [NSMutableArray array];
@@ -657,6 +698,7 @@ ORMBound(NSString *value)
 			break;
 		}
 	}
+	[self uniquenesses];
 	[self rules];
 	[self subtypeRules];
 	[self derivations];

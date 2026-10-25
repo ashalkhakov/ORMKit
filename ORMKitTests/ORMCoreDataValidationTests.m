@@ -453,4 +453,53 @@
 	XCTAssertEqualObjects([schedule valueForKey:@"isOpen"], @NO, @"done: open no more");
 }
 
+/* A uniqueness the mapping gives an entity is a rule too: not every store
+ * enforces Core Data's constraint (FreeCoreData's does not), and its words
+ * are the model's. Two orders of one shop by one number: refused as validated,
+ * as the constraint says; of another shop, or another number, kept. */
+- (void)testAUniquenessIsChecked
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Shop(.id) is an entity type.\n"
+	                 @"Nr is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Order(.id) is of Shop\n"
+	                 @"Each Order is of exactly one Shop.\n"
+	                 @"Order has Nr\n"
+	                 @"Each Order has exactly one Nr.\n"
+	                 @"For each Shop and Nr, at most one Order is of that Shop and has that Nr.\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMTables *tables = [self tablesOf:[self generatorFor:editor]];
+	NSArray *rules = [tables.rules objectForKey:@"Order"];
+	ORMRule *unique = nil;
+	for (ORMRule *rule in rules) {
+		unique = [rule.check.kind isEqualToString:@"unique"] ? rule : unique;
+	}
+	XCTAssertEqualObjects(unique.check.keys, (@[ @"shop", @"nr" ]));
+	XCTAssertTrue([unique.text containsString:@"at most one Order is of that Shop and has that Nr"], @"%@", unique.text);
+	for (ORMRule *rule in [tables.rules objectForKey:@"Shop"]) {
+		XCTAssertFalse([rule.check.kind isEqualToString:@"unique"], @"an identifier is its store's key: %@", rule.text);
+	}
+	NSManagedObjectContext *context = [self contextFor:editor];
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	NSManagedObject *corner = [NSEntityDescription insertNewObjectForEntityForName:@"Shop" inManagedObjectContext:context];
+	[corner setValue:@1 forKey:@"id"];
+	NSManagedObject *market = [NSEntityDescription insertNewObjectForEntityForName:@"Shop" inManagedObjectContext:context];
+	[market setValue:@2 forKey:@"id"];
+	NSManagedObject *first = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[first setValuesForKeysWithDictionary:@{ @"id": @1, @"shop": corner, @"nr": @7 }];
+	NSManagedObject *elsewhere = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[elsewhere setValuesForKeysWithDictionary:@{ @"id": @2, @"shop": market, @"nr": @7 }];
+	XCTAssertEqualObjects([self broken:elsewhere by:validator], @[], @"another shop's 7");
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSManagedObject *again = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[again setValuesForKeysWithDictionary:@{ @"id": @3, @"shop": corner, @"nr": @7 }];
+	XCTAssertFalse([validator validate:again error:&error], @"the corner shop's 7 again");
+	XCTAssertTrue([[error description] containsString:@"at most one Order"], @"%@", error);
+	[again setValue:@8 forKey:@"nr"];
+	XCTAssertTrue([validator validate:again error:&error], @"%@", error);
+}
+
 @end

@@ -82,6 +82,9 @@ extern const NSUInteger ORMTablesFormat;
  *                                      (subset, equal)
  *   { ring = (acyclic, ...); key = k; }       each ring property of the
  *                                      relationship from the entity to itself
+ *   { unique = (catalog, sku); }      no other object of the entity, saved
+ *                                      or not, has the same values of the
+ *                                      keys (when each is set)
  *   { compare = (a, b); comparison = ">="; }  when both are set
  *   { within = key; ranges = ( { min = 0; max = 17; } ); }   when set; a
  *                                      bound left out is none, minOpen and
@@ -92,7 +95,7 @@ extern const NSUInteger ORMTablesFormat;
 + (instancetype)checkWithPropertyList:(id)list error:(NSError **)error;
 - (id)propertyList;
 /* "present", "true", "all", "any", "not", "count", "sets", "ring",
- * "compare", "within", "plan". */
+ * "unique", "compare", "within", "plan". */
 @property (nonatomic, readonly, copy) NSString *kind;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *keys;
 @property (nonatomic, readonly, copy) NSArray<ORMRuleCheck *> *operands;

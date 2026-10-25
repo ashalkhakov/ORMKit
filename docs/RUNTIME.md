@@ -97,8 +97,9 @@ a change to the model shows as a readable diff.
   `+planWithPropertyList:error:` reads it back, checking each part.
 - **A rule's check** is a tree of a few kinds the driver knows
   (`ORMRuleCheck`): presence, all, any, not, counts, set comparisons,
-  ring properties (`ring = ( acyclic ); key = reportsTo`), comparisons
-  and ranges. A constraint query's is its plan:
+  ring properties (`ring = ( acyclic ); key = reportsTo`), uniqueness
+  across the entity's objects (`unique = ( catalog, sku )`, a fetch),
+  comparisons and ranges. A constraint query's is its plan:
   `{ not = { plan = ... }; }`, the object violating the rule where the
   plan's condition holds of it.
 - **A derivation** is its plan, the property it sets, and the trails back

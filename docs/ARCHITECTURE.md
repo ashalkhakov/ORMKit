@@ -211,8 +211,8 @@ Not done yet:
 - **Verbalization**: wording checked against NORMA's report only by eye.
 - **Core Data**: per-relationship deletion rule overrides; watching the
   `.xcdatamodeld` for changes; a live `NSManagedObjectModel` preview with
-  FreeCoreData; rules for what needs a fetch (uniqueness across objects,
-  frequencies over several roles) and for set comparisons through join
+  FreeCoreData; rules for what needs a fetch (a uniqueness the mapping
+  gives no entity, frequencies over several roles) and for set comparisons through join
   paths; class names that clash with the SDK's (`Comment` and
   `Component` are Carbon types, so a class of that name does not compile).
 
