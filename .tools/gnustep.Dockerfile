@@ -21,8 +21,9 @@ RUN set -e; \
     for name in GNUSTEP_PATCHES FREECOREDATA GCDWEBSERVER ODATAKIT; do \
       version=$(sed -n "s/^${name}_VERSION=//p" /tmp/pins.env); \
       repo=$(echo "$name" | tr 'A-Z_' 'a-z-'); \
-      curl -fsSL "https://github.com/ashalkhakov/$repo/releases/download/v$version/$repo-$version-ubuntu22.04-$(uname -m).tar.xz" \
-        | tar -C / -xJ; \
+      curl -fsSL --retry 5 --retry-all-errors -o /tmp/release.tar.xz \
+        "https://github.com/ashalkhakov/$repo/releases/download/v$version/$repo-$version-ubuntu22.04-$(uname -m).tar.xz"; \
+      tar -C / -xJf /tmp/release.tar.xz; rm /tmp/release.tar.xz; \
     done; \
     grep -v '^#' /opt/gnustep/share/gnustep-patches/packages-ubuntu.txt \
       | xargs apt-get install -y --no-install-recommends libsqlite3-dev; \
