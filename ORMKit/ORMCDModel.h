@@ -73,6 +73,11 @@ NSString *ORMCDIndexName(ORMCDEntity *entity, NSArray<NSString *> *names);
 @property (nonatomic, strong) NSMutableArray<ORMCDRelationship *> *relationships;
 /* Each a list of attribute (or to-one relationship) names, unique together. */
 @property (nonatomic, strong) NSMutableArray<NSArray<NSString *> *> *uniquenessConstraints;
+/* The same, of names one of which is optional: unique only where each is
+ * set, which Core Data cannot say (it takes nil for a value, and two
+ * objects without one for the same). Not written into the Core Data model;
+ * checked as rules (ORMCoreDataValidation). */
+@property (nonatomic, strong) NSMutableArray<NSArray<NSString *> *> *checkedUniquenesses;
 @property (nonatomic, copy) NSDictionary<NSString *, NSString *> *userInfo;
 @property (nonatomic, readonly, copy) NSString *source;
 - (void)setSource:(NSString *)source;

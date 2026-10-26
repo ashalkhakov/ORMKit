@@ -280,7 +280,13 @@ A uniqueness the mapping gives an entity (Core Data's constraint) is a rule
 too, checked by a fetch of the entity, saved and pending: not every store
 enforces Core Data's (FreeCoreData's does not), and the rule says it in the
 model's words, not as the store's merge error. An identifier's own
-uniqueness is left to the store's key.
+uniqueness is left to the store's key. A uniqueness over a role that is
+optional ("for each Catalog and User, at most one Contact is of that Catalog
+and stands for that User", the user optional) holds only where each role is
+played. Core Data would take two missing values for the same one, so the
+mapping gives it no constraint (`checkedUniquenesses`, not
+`uniquenessConstraints`), and the rule alone checks it: an object with a
+value missing passes.
 
 What one object cannot check is listed in the notes and in a comment at the
 top of the `.m`:

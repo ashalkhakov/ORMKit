@@ -1352,7 +1352,8 @@ ORMDeletionRule(ORMRole *far)
 		NSArray *names = [self absorb:far.player into:entity prefix:prefix source:far.identifier
 		                     optional:![self mandatoryHere:near]];
 		if (far.isAlethicUnique && [names count] > 0) {
-			[entity.uniquenessConstraints addObject:names];
+			[ORMCoreDataMapper anyOptionalOf:names in:entity] ? [entity.checkedUniquenesses addObject:names]
+			                                                  : [entity.uniquenessConstraints addObject:names];
 		}
 		return;
 	}
@@ -1563,9 +1564,22 @@ ORMDeletionRule(ORMRole *far)
 			}
 		}
 		if (covered == [[constraint allRoles] count]) {
-			[entity.uniquenessConstraints addObject:unique];
+			[ORMCoreDataMapper anyOptionalOf:unique in:entity] ? [entity.checkedUniquenesses addObject:unique]
+			                                                   : [entity.uniquenessConstraints addObject:unique];
 		}
 	}
+}
+
+/* Whether a property of these names is optional. */
++ (BOOL)anyOptionalOf:(NSArray<NSString *> *)names in:(ORMCDEntity *)entity
+{
+	NSArray<ORMCDProperty *> *properties = entity.attributes;
+	for (ORMCDProperty *property in [properties arrayByAddingObjectsFromArray:entity.relationships]) {
+		if (property.optional && [names containsObject:property.name]) {
+			return YES;
+		}
+	}
+	return NO;
 }
 
 - (BOOL)isMappable:(ORMFactType *)fact
@@ -1667,7 +1681,8 @@ ORMDeletionRule(ORMRole *far)
 		[names addObject:property.name];
 	}
 	if (names != nil && [names count] > 0) {
-		[entity.uniquenessConstraints addObject:names];
+		[ORMCoreDataMapper anyOptionalOf:names in:entity] ? [entity.checkedUniquenesses addObject:names]
+		                                                  : [entity.uniquenessConstraints addObject:names];
 	} else {
 		[self unenforced:constraint];
 	}

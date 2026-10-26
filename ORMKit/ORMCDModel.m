@@ -168,6 +168,7 @@ ORMCDUserInfo(NSXMLElement *element)
 		_attributes = [NSMutableArray array];
 		_relationships = [NSMutableArray array];
 		_uniquenessConstraints = [NSMutableArray array];
+		_checkedUniquenesses = [NSMutableArray array];
 		_userInfo = @{};
 		_extraAttributes = @{};
 		_extraElements = @[];
@@ -206,6 +207,7 @@ ORMCDUserInfo(NSXMLElement *element)
 		[copy.relationships addObject:[relationship copy]];
 	}
 	[copy.uniquenessConstraints addObjectsFromArray:self.uniquenessConstraints];
+	[copy.checkedUniquenesses addObjectsFromArray:self.checkedUniquenesses];
 	copy.userInfo = self.userInfo;
 	copy.extraAttributes = self.extraAttributes;
 	NSMutableArray *extras = [NSMutableArray array];

@@ -453,6 +453,53 @@
 	XCTAssertEqualObjects([schedule valueForKey:@"isOpen"], @NO, @"done: open no more");
 }
 
+/* A uniqueness over a role that is optional holds where each role is
+ * played: two orders of one shop for no one are fine. Core Data's
+ * constraint would take the two missing people for the same one, so the
+ * mapping gives none, and the rule alone checks it: two orders of the shop
+ * for the same person refused. */
+- (void)testAUniquenessOfAnOptionalRoleIsARuleAlone
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Shop(.id) is an entity type.\n"
+	                 @"Person(.id) is an entity type.\n"
+	                 @"Order(.id) is of Shop\n"
+	                 @"Each Order is of exactly one Shop.\n"
+	                 @"Order is for Person\n"
+	                 @"Each Order is for at most one Person.\n"
+	                 @"For each Shop and Person, at most one Order is of that Shop and is for that Person.\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMTables *tables = [self tablesOf:[self generatorFor:editor]];
+	ORMRule *unique = nil;
+	for (ORMRule *rule in [tables.rules objectForKey:@"Order"]) {
+		unique = [rule.check.kind isEqualToString:@"unique"] ? rule : unique;
+	}
+	XCTAssertEqualObjects(unique.check.keys, (@[ @"shop", @"person" ]), @"checked as a rule");
+	NSManagedObjectContext *context = [self contextFor:editor];
+	NSEntityDescription *order = context.persistentStoreCoordinator.managedObjectModel.entitiesByName[@"Order"];
+	for (NSArray *constraint in order.uniquenessConstraints) {
+		XCTAssertFalse([constraint containsObject:@"person"], @"not Core Data's: %@", constraint);
+	}
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	NSManagedObject *corner = [NSEntityDescription insertNewObjectForEntityForName:@"Shop" inManagedObjectContext:context];
+	[corner setValue:@1 forKey:@"id"];
+	NSManagedObject *ann = [NSEntityDescription insertNewObjectForEntityForName:@"Person" inManagedObjectContext:context];
+	[ann setValue:@1 forKey:@"id"];
+	for (NSNumber *n in @[ @1, @2 ]) {
+		NSManagedObject *anyone = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+		[anyone setValuesForKeysWithDictionary:@{ @"id": n, @"shop": corner }];
+		XCTAssertEqualObjects([self broken:anyone by:validator], @[], @"an order for no one");
+	}
+	NSManagedObject *anns = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[anns setValuesForKeysWithDictionary:@{ @"id": @3, @"shop": corner, @"person": ann }];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"two orders for no one, one for Ann: %@", error);
+	NSManagedObject *again = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[again setValuesForKeysWithDictionary:@{ @"id": @4, @"shop": corner, @"person": ann }];
+	XCTAssertFalse([validator validate:again error:&error], @"Ann's again");
+}
+
 /* A uniqueness the mapping gives an entity is a rule too: not every store
  * enforces Core Data's constraint (FreeCoreData's does not), and its words
  * are the model's. Two orders of one shop by one number: refused as validated,

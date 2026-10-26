@@ -617,7 +617,7 @@ ORMBound(NSString *value)
 		}
 	}
 	for (ORMCDEntity *entity in _coreData.entities) {
-		for (NSArray<NSString *> *names in entity.uniquenessConstraints) {
+		for (NSArray<NSString *> *names in [entity.uniquenessConstraints arrayByAddingObjectsFromArray:entity.checkedUniquenesses]) {
 			NSMutableSet *sources = [NSMutableSet set];
 			BOOL key = NO;
 			for (NSString *name in names) {

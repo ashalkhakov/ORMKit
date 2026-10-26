@@ -435,6 +435,9 @@ main(int argc, const char *argv[])
 				}
 				ORMPrint([NSString stringWithFormat:@"%lu constraints checked in %@\n",
 				                                    (unsigned long)generator.ruleCount, validation]);
+				for (NSString *note in generator.notes) {
+					ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
+				}
 			}
 			for (ORMMappingNote *note in mapper.notes) {
 				NSString *kind = note.kind == ORMMappingAbsorbed ? @"absorbed"
