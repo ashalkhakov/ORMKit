@@ -12,10 +12,18 @@ ORMKitTests_OBJC_FILES = \
   ORMFileTests.m \
   ORMModelTests.m \
   ORMTextTests.m \
+  ORMSchemaTextTests.m \
   ORMEditorTests.m \
   ORMWriterTests.m \
   ORMLogicTests.m \
   ORMConstraintSentenceTests.m \
+  ORMValuePatternTests.m \
+  ORMConstraintQueriesTests.m \
+  ORMSubtypeDerivationTests.m \
+  ORMQueryExpressionTests.m \
+  ORMDerivationPathTests.m \
+  ORMWindowTests.m \
+  ORMReferenceDataTests.m \
   ORMSVGTests.m \
   ORMVerbalizerTests.m \
   ORMCoreDataTests.m \

@@ -43,6 +43,8 @@
 @property (nonatomic, readwrite, weak) ORMDataType *dataType;
 @property (nonatomic, readwrite) NSInteger dataTypeLength;
 @property (nonatomic, readwrite) NSInteger dataTypeScale;
+@property (nonatomic, readwrite, copy) NSString *valuePattern;
+@property (nonatomic, readwrite) BOOL isReferenceData;
 /* What the file says, as against what is derived: its own value
  * constraint (valueConstraint is an entity type's reference mode's too),
  * and NORMA's _ReferenceMode, which settles how a value type's name reads. */
@@ -71,6 +73,7 @@
  * type, nil where it keeps none. Its name is the one given, else the
  * derived one. */
 @property (nonatomic, readwrite, copy) NSString *explicitName;
+@property (nonatomic, readwrite) BOOL isReferenceData;
 /* A unary's reading as the last change left it (nil for another fact
  * type): when it is no longer that, its implicit type is named after it. */
 @property (nonatomic, readwrite, copy) NSString *lastUnaryReading;
@@ -201,6 +204,9 @@
 - (void)readDocumentAgain:(NSXMLDocument *)document;
 /* Whether the element is in the model: the links to it are kept up. */
 - (BOOL)holds:(ORMElement *)element;
+/* "InternalUniquenessConstraint8": the prefix and a number above every
+ * one a name of the model has had with it since it was read. */
+- (NSString *)nextNameWithPrefix:(NSString *)prefix;
 /* A new diagram in the model, after the others. */
 - (void)addDiagram:(ORMDiagram *)diagram;
 /* A new element taken into the model: registered, and listed where its
@@ -220,10 +226,9 @@
 @property (nonatomic, readwrite, copy) NSArray<ORMCoreDataMapping *> *coreDataMappings;
 /* The queries the document keeps, in order. */
 @property (nonatomic, copy) NSArray<ORMStoredQuery *> *storedQueries;
-/* While a change is made: the names of the elements it took out, the
- * document's until it is written; their ids; and the object types whose
- * links it changed (the roles they play, those roles' constraints). */
-@property (nonatomic, strong) NSMutableSet<NSString *> *removedNames;
+/* While a change is made: the ids of the elements it took out, and the
+ * object types whose links it changed (the roles they play, those roles'
+ * constraints). */
 @property (nonatomic, strong) NSMutableSet<NSString *> *removedIds;
 @property (nonatomic, strong) NSHashTable<ORMObjectType *> *relinkedTypes;
 /* Whether a reading of the file has NORMA's <orm:ExpandedData>. */
@@ -271,6 +276,11 @@
 @property (nonatomic, readwrite) BOOL materializesIdentifiers;
 @property (nonatomic, readwrite) BOOL servesOData;
 @property (nonatomic, readwrite, copy) NSString *odataNamespace;
+@property (nonatomic, readwrite) ORMSyncDirection syncDirection;
+@property (nonatomic, readwrite, copy) NSString *syncConflicts;
+/* <Sync> elements, in the order of the document: [source id, direction
+ * name, conflicts or ""]. */
+@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *syncs;
 @property (nonatomic, readwrite) ORMMappingStyle style;
 /* Set for the mapping, nil for the style's. */
 @property (nonatomic, copy) NSNumber *flattensSubtypesSet;
@@ -300,6 +310,12 @@
 @interface ORMQueryPart : NSObject <NSCopying>
 @property (nonatomic, copy) NSString *identifier;
 @property (nonatomic) BOOL isStep;
+/* A value node (ormq:Value), under the node it is computed for: its name,
+ * and its expression as the file keeps it (docs/EXPRESSIONS.md); ref its
+ * value type. */
+@property (nonatomic) BOOL isValue;
+@property (nonatomic, copy) NSString *name;
+@property (nonatomic, copy) NSString *expression;
 @property (nonatomic, copy) NSString *ref;
 @property (nonatomic, copy) NSString *roleId;
 @property (nonatomic, copy) NSString *projected;
@@ -325,6 +341,8 @@
 - (NSUInteger)index;
 - (NSArray<ORMQueryPart *> *)steps;
 - (NSArray<ORMQueryPart *> *)nodes;
+/* A node's value nodes. */
+- (NSArray<ORMQueryPart *> *)values;
 - (void)addPart:(ORMQueryPart *)part;
 - (void)insertPart:(ORMQueryPart *)part atIndex:(NSUInteger)index;
 - (void)detach;
@@ -344,6 +362,12 @@
 
 @interface ORMModel (ORMQueryReading)
 - (void)readQueries;
+@end
+
+@interface ORMNormaWriter (ORMDerivations)
+/* The derivation rule of the fact type or subtype of the id written: a
+ * derivation query's path with it. */
+- (void)writeDerivationOf:(NSString *)identifier;
 @end
 
 @interface ORMNormaWriter (ORMQueries)
@@ -433,6 +457,7 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 @property (nonatomic, readwrite) BOOL isNegated;
 @property (nonatomic, readwrite, strong) ORMValueConstraint *valueConstraint;
 @property (nonatomic, readwrite, weak) ORMPathedRole *correlatedWith;
+@property (nonatomic, readwrite, copy) NSString *unifierId;
 @property (nonatomic, readwrite, weak) ORMRolePath *path;
 @end
 
@@ -441,6 +466,7 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 @property (nonatomic, readwrite, copy) NSString *rootId;
 @property (nonatomic, readwrite) BOOL rootIsNegated;
 @property (nonatomic, readwrite, strong) ORMValueConstraint *rootValueConstraint;
+@property (nonatomic, readwrite, copy) NSString *rootUnifierId;
 @property (nonatomic, readwrite, copy) NSArray<ORMPathedRole *> *pathedRoles;
 @property (nonatomic, readwrite, copy) NSArray<ORMRolePath *> *subPaths;
 @property (nonatomic, readwrite) ORMPathSplit split;
@@ -508,5 +534,7 @@ NSXMLElement *ORMModelElementOfDocument(NSXMLDocument *document);
 /* A fact type's rule set, or taken away (nil), inside a model change; the
  * fact type derived while it has one with a path or an expression. */
 - (void)setDerivationRule:(ORMDerivationRule *)rule ofFactType:(ORMFactType *)fact;
+/* A subtype's, likewise. */
+- (void)setDerivationRule:(ORMDerivationRule *)rule ofSubtype:(ORMObjectType *)type;
 @end
 

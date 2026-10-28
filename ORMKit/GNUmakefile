@@ -42,6 +42,8 @@ ORMKit_HEADER_FILES = \
   ORMConstraintSentence.h \
   ORMSentenceEditor.h \
   ORMJoinPathBuilder.h \
+  ORMDerivationPathWriter.h \
+  ORMConstraintQueries.h \
   ORMCDModel.h \
   ORMCoreDataMapping.h \
   ORMCoreDataMapper.h \
@@ -50,6 +52,7 @@ ORMKit_HEADER_FILES = \
   ORMCoreDataValidation.h \
   ORMODataAnnotator.h \
   ORMQuery.h \
+  ORMQueryExpression.h \
   ORMCDModel+CoreData.h \
   ORMQueryPlanner.h \
   ORMQueryOData+ORMKit.h \
@@ -58,7 +61,8 @@ ORMKit_HEADER_FILES = \
   ORMDeriver.h \
   ORMJoinedFacade.h \
   ORMEntityMerger.h \
-  ORMOutlineReader.h
+  ORMOutlineReader.h \
+  ORMSchemaText.h
 ORMKit_OBJC_FILES = \
   ORMXML.m \
   ORMModel.m \
@@ -85,7 +89,10 @@ ORMKit_OBJC_FILES = \
   ORMVerbalizer+Logic.m \
   ORMFactSentence.m \
   ORMConstraintSentence.m \
+  ORMStatementSentence.m \
   ORMJoinPathBuilder.m \
+  ORMDerivationPathWriter.m \
+  ORMConstraintQueries.m \
   ORMCDModel.m \
   ORMCoreDataMapping.m \
   ORMCoreDataMapper.m \
@@ -94,6 +101,7 @@ ORMKit_OBJC_FILES = \
   ORMCoreDataValidation.m \
   ORMODataAnnotator.m \
   ORMQuery.m \
+  ORMQueryExpression.m \
   ORMCDModel+CoreData.m \
   ORMQueryPlaces.m \
   ORMQueryPlanner.m \
@@ -103,6 +111,7 @@ ORMKit_OBJC_FILES = \
   ORMJoinedFacade.m \
   ORMEntityMerger.m \
   ORMOutlineReader.m \
+  ORMSchemaText.m \
   ORMQueryOData+ORMKit.m
 
 # AddressSanitizer: names the write and the allocation it ran past, at the

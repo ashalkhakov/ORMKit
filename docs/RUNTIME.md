@@ -87,6 +87,7 @@ a change to the model shows as a readable diff.
   rules = { Employee = ( { constraint = "..."; text = "..."; keys = (...); check = {...}; deontic = NO; } ); ... };
   derivations = ( { text = "..."; root = Employee; plan = {...}; target = reportsTo; kind = objects; backs = (...); } );
   joined = { Customer = { hub = CRMCustomer; members = ( { entity = BillingAccount; via = CRMCustomer; on = ((userId, userId)); outer = YES; holds = (balance); } ); }; };
+  seeds = ( { entity = DistanceUnit; key = (code); values = { code = mi; factor = "1.609344"; }; refs = {}; } );
 }
 ```
 
@@ -96,8 +97,9 @@ a change to the model shows as a readable diff.
   `+planWithPropertyList:error:` reads it back, checking each part.
 - **A rule's check** is a tree of a few kinds the driver knows
   (`ORMRuleCheck`): presence, all, any, not, counts, set comparisons,
-  ring properties (`ring = ( acyclic ); key = reportsTo`), comparisons
-  and ranges. A constraint query's is its plan:
+  ring properties (`ring = ( acyclic ); key = reportsTo`), uniqueness
+  across the entity's objects (`unique = ( catalog, sku )`, a fetch),
+  comparisons and ranges. A constraint query's is its plan:
   `{ not = { plan = ... }; }`, the object violating the rule where the
   plan's condition holds of it.
 - **A derivation** is its plan, the property it sets, and the trails back
@@ -105,6 +107,10 @@ a change to the model shows as a readable diff.
   in dependency order.
 - **A joined type** is its members as the mapper names them, and its
   façade's properties, each the key and the entity that keeps it.
+- **A seed** is an object of the model's reference data
+  ([EXPRESSIONS.md](EXPRESSIONS.md#conversion-is-reference-data-and-arithmetic)):
+  its entity, the key that finds it, its values (a decimal as its text)
+  and the seeds its to-one relationships reach, by index.
 
 The tables are made when the code is: by Synchronize, `ormtool coredata`
 and `ormtool validation`. Planning stays in ORMKit, and the driver never
@@ -145,9 +151,15 @@ Declarations, and calls into the driver:
   main bundle or a framework or bundle loaded, unless tables of the name
   were registered (a test's, a download).
 - A query is two methods of `<Name>Queries`: run in a context, or as a
-  request to the model's OData service.
+  request to the model's OData service. A list, a calculation, and the
+  rule of a subtype that is no entity of its own (which objects are of
+  it).
 - `orm_prepareForSave:` loads the tables and calls `ORMSaveHook`: derive,
   prepare the joined types, check the rules, report.
+- `+[<Name>ReferenceData seedContext:error:]` puts the reference data in
+  a context: each seed found by its key or inserted, and given what the
+  reference data says, a user's change to it put right. An app calls it
+  before a store is first used, and after an update.
 
 ## Testing
 
@@ -175,10 +187,69 @@ Declarations, and calls into the driver:
   interpreter does, so it is the runtime's. ORMKit's ways to make one of
   an `ORMCDModel`, or of a query, planned first, are a category of its own
   (`ORMQueryOData+ORMKit.h`).
-- **Speed:** a plan interpreted, not compiled. It costs its fetches. If a
-  plan ever shows up in a profile, it can be compiled to code behind the
-  same interface (re2c's answer for a hot lexer), but nothing asks for
-  that now.
+- **Speed:** a plan interpreted, not compiled; what it costs is measured
+  (below), and must stay linear in what it reads.
+
+### What it costs
+
+A benchmark (vehicles and their fill-ups, populations growing tenfold,
+each query in a fresh context on SQLite) times each shape of plan. What
+the first runs found, and what fixed it:
+- **Rows are tuples** (`ORMTuple`), made once where a row is made (a run's
+  `-rowsOf:`, a service's rows) with a hash of their values, and used as
+  they are where rows are kept apart (Distinct, a bag's groups). An
+  NSArray's hash is its count: a set of rows of one width compared each
+  new row with all before it. A page gives the app plain arrays.
+- **An aggregate is made once for each group** of its bag, not once for
+  each row that asks for it.
+- **An exists that binds nothing used is a semi-join:** one member that
+  holds is enough. A bag's existential step had multiplied its ways by
+  every member.
+- **Each identifier is indexed** ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)):
+  a page seeks on the key, which without an index made the store sort the
+  rest of the table for every page.
+
+- **A collection shared through a to-one is grafted** (OData): what is
+  checked through it ("the fill-up of the vehicle at the previous
+  odometer") is not expanded with each object read, which was quadratic
+  over the wire (a vehicle of 600 fill-ups: 360,000 objects), but read
+  once for each page's owners not yet read in the run, and put in their
+  JSON (`FillUps of each page's Vehicle, once each: GET FillUps?...`).
+
+With these, plain reads, joins, computed columns, sorts and per-object
+aggregates take about ten times as long for ten times the objects (100,000
+fill-ups: 0.6 s to list each with its vehicle, 2.4 s computing a column,
+1.3 s for a total per vehicle). "The one before" (an aggregate of the
+earlier ones of the same vehicle) is decorrelated
+([QUERIES.md](QUERIES.md#decorrelation)): a window over each vehicle's
+fill-ups, made once in a run, its existence a window's count, and the
+fill-up at the previous odometer looked up by it: 5 s for 100,000 where it
+took 480 s, 0.58 s for one vehicle of 10,000. The same where the member is
+reached as a supertype and taken down to a subtype ("Record is of that
+Vehicle, is Event, is FillUp2"), its values are parts of a type absorbed
+into it (a distance's quantity and unit), and it is partitioned further
+by what equals the object's (the same unit): one vehicle of 3,000 such
+records, 92 s to 0.17 s against Core Data. A stored derivation over a
+window is worked out at save the same way.
+
+Not yet:
+- **More decorrelation.** Still a bag of the whole query, read for each
+  object: a window whose key or value is of another entity the member
+  reaches (a fill-up's station's price), one whose member is reached
+  through more than one to-many, and an aggregate for several groups
+  above it (ConQuer-II's "for Branch, Year").
+- **An existence the service asks of a grafted collection.** "The one
+  before" down subtypes still has the service check that some record of
+  the vehicle is such a fill-up (`Vehicle/Records/any(...)`), which Core
+  Data on the Mac says as a correlated `COUNT`: a vehicle of 3,000
+  fill-ups takes 65 s there (FreeCoreData's `EXISTS`, and the runner's
+  own lookup over the graft, are fast).
+- **Flat typed values.** Values boxed as objects (NSNumber, NSDecimalNumber,
+  key-value coding for each path) are most of what a row costs now. Column
+  kinds are known when a plan is made: a tuple can be a flat array of
+  typed values, compared, hashed, computed and aggregated in C, boxed only
+  where rows reach the app. Dataphor's interpreter boxes every value and
+  row, and is the cautionary tale.
 
 ## Steps
 

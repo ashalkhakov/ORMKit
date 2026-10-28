@@ -172,6 +172,65 @@
 	}];
 }
 
+- (void)setSyncDirection:(ORMSyncDirection)direction ofMapping:(NSString *)mappingId
+{
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || mapping.syncDirection == direction) {
+		return;
+	}
+	[_editor modelChange:@"Set Sync Direction" with:^{
+		mapping.syncDirection = direction;
+		[_editor wrote:mapping];
+	}];
+}
+
+- (void)setSyncConflicts:(NSString *)rule ofMapping:(NSString *)mappingId
+{
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	NSString *value = [rule length] > 0 ? rule : nil;
+	if (mapping == nil || mapping.syncConflicts == value || [mapping.syncConflicts isEqualToString:value]) {
+		return;
+	}
+	[_editor modelChange:@"Set Sync Conflicts" with:^{
+		mapping.syncConflicts = value;
+		[_editor wrote:mapping];
+	}];
+}
+
+- (void)setSyncDirection:(NSNumber *)direction conflicts:(NSString *)rule ofSource:(NSString *)sourceId
+               inMapping:(NSString *)mappingId
+{
+	ORMCoreDataMapping *mapping = [self mapping:mappingId];
+	if (mapping == nil || sourceId == nil) {
+		return;
+	}
+	NSString *named = direction != nil
+		? [ORMCoreDataMapping nameOfSyncDirection:(ORMSyncDirection)[direction integerValue]] ?: @"none" : @"";
+	NSArray *wanted = named.length > 0 || rule.length > 0 ? @[ sourceId, named, rule ?: @"" ] : nil;
+	NSArray *own = [mapping.syncOverrides objectForKey:sourceId];
+	if ((own == nil && wanted == nil)
+	    || (own != nil && wanted != nil && [own isEqualToArray:[wanted subarrayWithRange:NSMakeRange(1, 2)]])) {
+		return;
+	}
+	[_editor modelChange:@"Set Sync Direction" with:^{
+		NSMutableArray *syncs = [NSMutableArray array];
+		BOOL set = NO;
+		for (NSArray *sync in mapping.syncs) {
+			if (![[sync firstObject] isEqualToString:sourceId]) {
+				[syncs addObject:sync];
+			} else if (wanted != nil && !set) {
+				[syncs addObject:wanted];
+				set = YES;
+			}
+		}
+		if (wanted != nil && !set) {
+			[syncs addObject:wanted];
+		}
+		mapping.syncs = syncs;
+		[_editor wrote:mapping];
+	}];
+}
+
 - (void)setStyle:(ORMMappingStyle)style ofMapping:(NSString *)mappingId
 {
 	ORMCoreDataMapping *mapping = [self mapping:mappingId];
@@ -438,8 +497,11 @@
 	if (mapping == nil) {
 		return;
 	}
-	NSString *contents = [[NSString alloc] initWithData:[model contentsXML] encoding:NSUTF8StringEncoding];
-	if ([mapping.baselineXML isEqualToString:contents]) {
+	/* None: the mapping's model is only ever generated (a build output
+	 * nobody edits), so there is nothing to merge with. */
+	NSString *contents = model != nil ? [[NSString alloc] initWithData:[model contentsXML] encoding:NSUTF8StringEncoding]
+	                                  : nil;
+	if (mapping.baselineXML == contents || [mapping.baselineXML isEqualToString:contents]) {
 		return;
 	}
 	[_editor modelChange:@"Synchronize Core Data" with:^{

@@ -21,7 +21,7 @@ mapping's treatment of identity and of many-to-many fact types.
 | Entity type | Entity |
 | Entity type identified by a reference mode and playing nothing else of its own (`Weight(kg:)`, played only in "Product has Weight") | absorbed: an attribute where it is used (`Product.weight`, Decimal) |
 | Value type | the type of the attributes it is the value of |
-| Reference mode (`Product(.Id)`) | an attribute (`id`), mandatory, in a uniqueness constraint |
+| Reference mode (`Product(.Id)`) | an attribute (`id`), mandatory, in a uniqueness constraint, and indexed (a fetch index, `byIdIndex`; a subentity's named after it, as its tree is one table) |
 | Binary fact type, functional on an entity type `A`, other role played by a value type | attribute of `A`; optional unless `A`'s role is mandatory |
 | Binary fact type between two entity types | a relationship and its inverse; to-one on the side whose role is unique |
 | Many-to-many binary fact type between entity types | to-many relationships both ways |
@@ -35,6 +35,8 @@ mapping's treatment of identity and of many-to-many fact types.
 | Frequency on a single role | `minCount` / `maxCount` |
 | Value constraint (numbers, dates) | `minValueString` / `maxValueString` |
 | Value constraint (a list of text values) | `regularExpressionString` (`^(?:M|F)$`) |
+| A subtype derived by a rule, not stored | no entity of its own: its fact types are its supertype's entity's, optional there ([DERIVATION.md](DERIVATION.md#subtypes)) |
+| A value type's pattern (ORMKit's own, `-[ORMObjectType valuePattern]`) | `regularExpressionString` (`^(?:[A-Z]{3})$`); beside a list of values, as a lookahead (`^(?=(?:[A-Z]{3})$)(?:EUR|USD)$`). ODataKit serves it as `Validation.Pattern` |
 | Text data type length | `maxValueString` (Core Data's string bounds are lengths) |
 | Ring, exclusion, subset, equality, value comparison, frequency over several roles, deontic rules | not expressible: kept on the entity as `userInfo` entries holding their FORML verbalization, and listed in the mapping's report as unenforced |
 
@@ -152,7 +154,8 @@ subset, a read-only cache. Each mapping has
   subtypes are separate entities or flattened into their supertype, whether
   many-to-many value facts get an entity or a transformable attribute,
   whether the model is annotated for ODataKit to serve ([ODATA.md](ODATA.md); on unless
-  `ServeOData="false"`);
+  `ServeOData="false"`), and whether, and which way, its entities sync
+  offline (`Sync`, [ODATA.md](ODATA.md#offline-odatasync));
 - overrides: per element, a name, or how an object type maps (entity,
   absorbed, ignored);
 - the **baseline**: the Core Data model as last written, with every element
@@ -172,6 +175,11 @@ own namespace beside NORMA's bridges:
 ```
 
 so a model and its mappings are one document to open, save, undo and version.
+The baseline is there to merge edits made on the Core Data side (below): a
+mapping whose `.xcdatamodeld` is only ever generated, a build's output that
+no one edits in Xcode, has nothing to merge and keeps none
+(`-[ORMMappingEditor setBaseline:nil ofMapping:]` takes one away), so the
+model is not kept a second time in the `.orm`.
 **Save a Copy for NORMA** writes the file without it, for a NORMA that does
 not know the namespace.
 
@@ -253,6 +261,7 @@ beside it. It is regenerated with the model, so it is never edited:
 | ring | each of its properties (irreflexive, asymmetric, acyclic, intransitive, ...) over the entity's relationship to itself |
 | value comparison | the two attributes compared, when both are set |
 | value constraint with several ranges or open bounds, on a number | the value is within one of the ranges |
+| an absorbed value that may be left out (a Distance: its quantity and its unit, properties of what has it) | all its properties are set, or none is: a quantity is not saved without its unit (`MileageIsWhole`) |
 
 A violation is an `NSError` like Core Data's own: `NSCocoaErrorDomain`,
 `NSManagedObjectValidationError`, with the constraint's verbalization as its
@@ -267,9 +276,21 @@ make `orm_validateConstraints:` fail; `orm_deonticViolations` returns them.
 
 A subentity with rules of its own checks its parent's too.
 
+A uniqueness the mapping gives an entity (Core Data's constraint) is a rule
+too, checked by a fetch of the entity, saved and pending: not every store
+enforces Core Data's (FreeCoreData's does not), and the rule says it in the
+model's words, not as the store's merge error. An identifier's own
+uniqueness is left to the store's key. A uniqueness over a role that is
+optional ("for each Catalog and User, at most one Contact is of that Catalog
+and stands for that User", the user optional) holds only where each role is
+played. Core Data would take two missing values for the same one, so the
+mapping gives it no constraint (`checkedUniquenesses`, not
+`uniquenessConstraints`), and the rule alone checks it: an object with a
+value missing passes.
+
 What one object cannot check is listed in the notes and in a comment at the
 top of the `.m`:
-- uniqueness across objects, which needs a fetch;
+- a uniqueness across objects the mapping gives no entity;
 - frequencies over several roles;
 - set comparisons through join paths;
 - constraints over the roles of n-ary fact types.

@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMEditor.h"
 #import "ORMLogic.h"
+#import "ORMQueryExpression.h"
 
 /* Conceptual queries, after Bloesch and Halpin's ConQuer: a query is a path
  * through the model's fact types, an outline of object types joined by
@@ -78,7 +79,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 
 @class ORMQueryStep;
 
-/* An object type in the outline. */
+/* An object type in the outline; or a value node (docs/EXPRESSIONS.md),
+ * computed from other nodes rather than reached by a step: "Length =
+ * Quantity2 - Quantity1", under the node it is computed for. */
 @interface ORMQueryNode : NSObject
 @property (nonatomic, readonly, copy) NSString *identifier;
 @property (nonatomic, readonly, strong) ORMObjectType *objectType;
@@ -92,16 +95,28 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * role at its place. */
 @property (nonatomic, readonly, weak) ORMRole *derivedRole;
 /* A condition on it: "=", "<>", "<", "<=", ">", ">=", and the value, as
- * typed (an entity's is its identifier's). nil for none. */
+ * typed (an entity's is its identifier's); or "in", one of a list ("in
+ * ('Maintenance', 'Repair')"), the value the list. nil for none. */
 @property (nonatomic, readonly, copy) NSString *comparison;
 @property (nonatomic, readonly, copy) NSString *value;
+/* The values it is compared with: the value; for "in", each of the list
+ * the value is ("'Maintenance', 'Repair'", "4, 5"), unquoted. */
+- (NSArray<NSString *> *)comparedValues;
 /* A condition comparing it with another node instead of a value: "Country2
  * <> Country1". */
 @property (nonatomic, readonly, weak) ORMQueryNode *comparedNode;
 /* ConQuer's subscript: nodes of one object type with the same label are the
  * same object ("lives in City1 ... lives in City1"). nil for none. */
 @property (nonatomic, readonly, copy) NSString *label;
-/* Its name and label: "City1". */
+/* A value node's: its name, what it computes, and the node it is under
+ * (its objectType the value type it is of; no role, no step). */
+@property (nonatomic, readonly) BOOL isValue;
+@property (nonatomic, readonly, copy) NSString *name;
+@property (nonatomic, readonly, strong) ORMQueryExpression *expression;
+@property (nonatomic, readonly, weak) ORMQueryNode *valueOf;
+/* The value nodes under it, in order. */
+@property (nonatomic, readonly, copy) NSArray<ORMQueryNode *> *values;
+/* Its name and label: "City1"; a value node's name. */
 - (NSString *)designation;
 /* Its steps, each from it; alternatives when combinesWithOr. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryStep *> *steps;
@@ -162,6 +177,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* A derivation's fact type: its listed columns are that fact type's roles,
  * in its order (nil: none yet). */
 @property (nonatomic, readonly, weak) ORMFactType *derivedFactType;
+/* A derivation's subtype: its rows are the instances of its root's type
+ * that are of the subtype (nil: it derives a fact type, or none yet). */
+@property (nonatomic, readonly, weak) ORMObjectType *derivedSubtype;
 /* "value", "count", "total", "avg", "max", "min". */
 + (NSString *)nameOfCalculationFunction:(ORMQueryCalculationFunction)function;
 
@@ -170,6 +188,8 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 + (ORMQuery *)queryWithId:(NSString *)identifier inModel:(ORMModel *)model;
 /* The derivation of the fact type, if a query derives it. */
 + (ORMQuery *)derivationOf:(ORMFactType *)factType inModel:(ORMModel *)model;
+/* The derivation of the subtype, if a query derives it. */
++ (ORMQuery *)derivationOfSubtype:(ORMObjectType *)subtype inModel:(ORMModel *)model;
 /* The model's derivations: its derivation queries, and the rules NORMA
  * keeps as a role path, read as queries where one is plain (one path, no
  * split, calculation, condition, negation or outer join, each role
@@ -180,6 +200,14 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * the role its node says it is, else the one at its place; nil when they
  * are not one of each role. */
 - (NSArray<ORMQueryNode *> *)derivedColumns;
+/* The same, a role's columns each: one, or for a role played by a type
+ * identified by several values (Money: an amount and a currency), a
+ * ticked node for each, in its identifier's order, of each part's type.
+ * nil where they are not that. */
+- (NSArray<NSArray<ORMQueryNode *> *> *)derivedColumnGroups;
+/* The roles of the player's identifier where it is identified by several
+ * values, in order; nil otherwise. */
++ (NSArray<ORMRole *> *)partRolesOf:(ORMObjectType *)player;
 /* The query as the planner plans it (docs/DERIVATION.md): each step through
  * a derived fact type that is not stored put as its derivation's path, the
  * derivation's columns for the step's roles the step's nodes. The query
@@ -196,16 +224,15 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * type and label, in outline order; the node itself when it is that one, or
  * has no label. */
 - (ORMQueryNode *)firstOccurrenceOf:(ORMQueryNode *)node;
-/* Every node, depth first; the ticked ones. */
+/* Every node, depth first, each node's value nodes after what its steps
+ * reach; the ticked ones. */
 - (NSArray<ORMQueryNode *> *)nodes;
 - (NSArray<ORMQueryNode *> *)projectedNodes;
 /* ConQuer's outline, as above. */
 - (NSString *)outlineText;
-/* The query as a relation: its formula over a variable for each node, its
- * columns the ticked nodes', in outline order. */
+/* The query as a relation: its formula over a variable for each node (its
+ * variables, by node id), its columns the ticked nodes', in outline order. */
 - (ORMRelation *)relation;
-/* The variable of each node in -relation, by node id. */
-- (NSDictionary<NSString *, ORMVariable *> *)variablesOfRelation:(ORMRelation *)relation;
 /* ConQuer's names for them: "count", "total", "avg", "max", "min". */
 + (NSString *)nameOfAggregate:(ORMQueryAggregate)aggregate;
 /* What a step reads as from the node above: "was awarded {1} in {2}",
@@ -231,9 +258,18 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * constraint's modality, a calculation's function and node). */
 - (BOOL)setKind:(ORMQueryKind)kind ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* The fact type a derivation derives, written for NORMA too as the fact
- * type's DerivationRule (docs/DERIVATION.md). NO for a query of another
- * kind, a fact type another query derives, or one with NORMA's own rule. */
+ * type's DerivationRule (docs/DERIVATION.md): its words the query's, which
+ * a note the fact type has gives way to; whether it is partly derived and
+ * stored stays. NO for a query of another kind, a fact type another query
+ * derives, or one with NORMA's own rule. */
 - (BOOL)setDerivedFactType:(NSString *)factTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
+/* The subtype a derivation derives: each instance of the query's root
+ * type that it finds is one. Its root is a supertype of it. The subtype
+ * keeps its rule's words, or is given the query's name for them, as
+ * NORMA's SubtypeDerivationRule. NO for a query of another kind, a type no
+ * supertype of the root, one another query derives, or one with NORMA's own
+ * path. */
+- (BOOL)setDerivedSubtype:(NSString *)objectTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* A constraint's modality; NO for a query of another kind. */
 - (BOOL)setDeontic:(BOOL)deontic ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* A calculation's function, of a node of the query below its root; NO for
@@ -277,6 +313,22 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
                       ofStep:(NSString *)stepId
                       reason:(NSString **)reason;
 - (void)setSortOrder:(ORMQuerySort)order ofNode:(NSString *)nodeId;
+/* A value node under the node, computed by the expression as the outline
+ * says it (each node by its designation: "Quantity2 - Quantity1"), of the
+ * value type (nil: the first node it uses' type). Listed, compared and
+ * sorted as any node is, by the methods above. Its id; nil, and why, for a
+ * name a node of the query has, an expression that is none or names a node
+ * not before it, arithmetic of what is not a number, or a type that is no
+ * value type. */
+- (NSString *)addValueNamed:(NSString *)name
+                         to:(NSString *)nodeId
+                 expression:(NSString *)expression
+                       type:(NSString *)valueTypeId
+                     reason:(NSString **)reason;
+/* What it computes, said again; NO and why as above. */
+- (BOOL)setExpression:(NSString *)expression ofValue:(NSString *)valueId reason:(NSString **)reason;
+/* NO, and why, while another node uses it. */
+- (BOOL)removeValue:(NSString *)valueId reason:(NSString **)reason;
 /* comparison nil clears the count. */
 - (BOOL)setCount:(NSString *)comparison
            value:(NSUInteger)value

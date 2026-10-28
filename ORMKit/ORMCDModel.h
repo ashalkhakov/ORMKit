@@ -14,6 +14,13 @@
 /* The key in an element's userInfo naming the ORM element it maps. */
 extern NSString * const ORMCDSourceKey;
 
+@class ORMCDEntity;
+
+/* The name of the entity's fetch index of the properties: "byIdIndex", as
+ * Xcode names one; a subentity's after it too ("moonByNameIndex"), as an
+ * inheritance tree is one table, whose indexes are named apart. */
+NSString *ORMCDIndexName(ORMCDEntity *entity, NSArray<NSString *> *names);
+
 @interface ORMCDProperty : NSObject <NSCopying>
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic) BOOL optional;
@@ -66,6 +73,11 @@ extern NSString * const ORMCDSourceKey;
 @property (nonatomic, strong) NSMutableArray<ORMCDRelationship *> *relationships;
 /* Each a list of attribute (or to-one relationship) names, unique together. */
 @property (nonatomic, strong) NSMutableArray<NSArray<NSString *> *> *uniquenessConstraints;
+/* The same, of names one of which is optional: unique only where each is
+ * set, which Core Data cannot say (it takes nil for a value, and two
+ * objects without one for the same). Not written into the Core Data model;
+ * checked as rules (ORMCoreDataValidation). */
+@property (nonatomic, strong) NSMutableArray<NSArray<NSString *> *> *checkedUniquenesses;
 @property (nonatomic, copy) NSDictionary<NSString *, NSString *> *userInfo;
 @property (nonatomic, readonly, copy) NSString *source;
 - (void)setSource:(NSString *)source;

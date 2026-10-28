@@ -1248,6 +1248,118 @@
 /* Two entity types that are one thing kept twice (docs/JOINED-ENTITIES.md),
  * merged from the Model menu: the value they share joins them, and the
  * Core Data window says where the one left is kept. */
+/* Diagram > Add Another Shape: of what is selected, if it is an object
+ * type or a fact type; the new shape selected, beside the first; both
+ * shaded. */
+- (void)testAnotherShapeFromTheMenu
+{
+	_document = [[ORMDocument alloc] init];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	                                                     onDiagram:diagram at:NSMakePoint(100, 100) reason:NULL];
+	NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"Add Another Shape" action:@selector(addAnotherShape:) keyEquivalent:@""];
+	[_controller.canvas clearSelection];
+	XCTAssertFalse([(id)_controller validateMenuItem:item], @"nothing selected");
+	[_controller.canvas selectElements:@[ person ]];
+	NSString *first = [[_controller.canvas selectedShapes] firstObject];
+	XCTAssertTrue([(id)_controller validateMenuItem:item]);
+	[_controller addAnotherShape:nil];
+	NSArray *shapes = [[editor.model.diagrams firstObject] shapesForSubject:person];
+	XCTAssertEqual([shapes count], 2u);
+	NSString *selected = [[_controller.canvas selectedShapes] firstObject];
+	XCTAssertEqual([[_controller.canvas selectedShapes] count], 1u);
+	XCTAssertNotEqualObjects(selected, first, @"the new shape selected");
+	NSString *shadow = [NSString stringWithFormat:@"fill=\"%@\"", ORMColorHex(ORMDiagramShadow(NO))];
+	XCTAssertEqual([[ORMSVGOfDiagram([editor.model.diagrams firstObject], NO) componentsSeparatedByString:shadow] count] - 1, 2u);
+	/* Undone under its name (ORMEditorTests undoes it: here, with no
+	   event loop, the undo manager's one group has the person too). */
+	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Add Another Shape");
+}
+
+/* An element chosen (from the browser, the search) selects every shape of
+ * it on the diagram; a role, every shape of its fact type. */
+- (void)testChoosingAnElementSelectsAllItsShapes
+{
+	_document = [[ORMDocument alloc] init];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	                                                     onDiagram:diagram at:NSMakePoint(100, 100) reason:NULL];
+	NSString *country = [editor.objectTypeEditor addEntityTypeNamed:@"Country" referenceMode:@"code" kind:ORMReferenceModePopular
+	                                                      onDiagram:diagram at:NSMakePoint(300, 100) reason:NULL];
+	NSString *born = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, country ] reading:@"{0} was born in {1}"
+	                                                     onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	XCTAssertNotNil([editor.diagramEditor addShapeOfElement:person onDiagram:diagram at:ORMAutomaticPlacement]);
+	XCTAssertNotNil([editor.diagramEditor addShapeOfElement:born onDiagram:diagram at:ORMAutomaticPlacement]);
+	[_controller.canvas modelDidChange];
+	[_controller.canvas selectElements:@[ person ]];
+	XCTAssertEqual([[_controller.canvas selectedShapes] count], 2u);
+	NSString *role = [[[[editor.model elementWithId:born] roles] firstObject] identifier];
+	[_controller.canvas selectRole:role];
+	NSSet *factShapes = [NSSet setWithArray:[[[editor.model.diagrams firstObject] shapesForSubject:born] valueForKey:@"identifier"]];
+	XCTAssertEqualObjects([NSSet setWithArray:[_controller.canvas selectedShapes]], factShapes);
+	XCTAssertEqualObjects([_controller.canvas selectedRoles], @[ role ]);
+	[_controller.canvas selectElements:@[ role ]];
+	XCTAssertEqualObjects([NSSet setWithArray:[_controller.canvas selectedShapes]], factShapes);
+}
+
+/* A fact type has another shape from the menu too; an extra shape
+ * selected, Delete Extra Shape takes it and keeps the element; the last
+ * shape it leaves. Arrange in Groups lays the diagram out. */
+- (void)testAnExtraShapeIsDeletedFromTheMenu
+{
+	_document = [[ORMDocument alloc] init];
+	[_document makeWindowControllers];
+	_controller = [[_document windowControllers] firstObject];
+	ORMEditor *editor = _document.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
+	                                                     onDiagram:diagram at:NSMakePoint(100, 100) reason:NULL];
+	NSString *country = [editor.objectTypeEditor addEntityTypeNamed:@"Country" referenceMode:@"code" kind:ORMReferenceModePopular
+	                                                      onDiagram:diagram at:NSMakePoint(300, 100) reason:NULL];
+	NSString *born = [editor.factTypeEditor addFactTypeWithPlayers:@[ person, country ] reading:@"{0} was born in {1}"
+	                                                     onDiagram:diagram at:ORMAutomaticPlacement reason:NULL];
+	[_controller.canvas modelDidChange];
+	NSMenuItem *delete = [[NSMenuItem alloc] initWithTitle:@"Delete Extra Shape" action:@selector(deleteExtraShape:) keyEquivalent:@""];
+	[_controller.canvas selectElements:@[ born ]];
+	XCTAssertFalse([(id)_controller validateMenuItem:delete], @"its only shape");
+	[_controller addAnotherShape:nil];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:born] count], 2u);
+	XCTAssertTrue([(id)_controller validateMenuItem:delete], @"the new shape selected");
+	[_controller deleteExtraShape:nil];
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:born] count], 1u);
+	XCTAssertNotNil([editor.model elementWithId:born], @"the fact type kept");
+	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Delete Extra Shape");
+	[_controller.canvas selectElements:@[ born ]];
+	XCTAssertFalse([(id)_controller validateMenuItem:delete]);
+	[_controller arrangeDiagramInGroups:nil];
+	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Arrange in Groups");
+	XCTAssertEqual([[[editor.model.diagrams firstObject] shapesForSubject:person] count], 1u);
+	/* Country put left of Person: the fact type follows, from the menu. */
+	ORMDiagram *shown = [editor.model.diagrams firstObject];
+	ORMShape *personShape = [shown shapeForSubject:person];
+	ORMShape *countryShape = [shown shapeForSubject:country];
+	ORMShape *factShape = [shown shapeForSubject:born];
+	NSArray *roles = [[editor.model elementWithId:born] roles];
+	XCTAssertTrue(([editor.diagramEditor setRoleDisplayOrder:@[ [roles[0] identifier], [roles[1] identifier] ]
+	                                                 ofShape:factShape.identifier reason:NULL]));
+	[editor.diagramEditor moveShapes:@[ countryShape.identifier ]
+	                              by:NSMakeSize(NSMinX(factShape.bounds) - 200 - NSMinX(countryShape.bounds),
+	                                            NSMidY(factShape.bounds) - NSMidY(countryShape.bounds))];
+	[editor.diagramEditor moveShapes:@[ personShape.identifier ]
+	                              by:NSMakeSize(NSMaxX(factShape.bounds) + 200 - NSMinX(personShape.bounds),
+	                                            NSMidY(factShape.bounds) - NSMidY(personShape.bounds))];
+	[_controller.canvas clearSelection];
+	[_controller orientFactTypes:nil];
+	XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Orient Fact Types");
+	XCTAssertEqualObjects([[shown shapeForSubject:born] roleDisplayOrder], (@[ roles[1], roles[0] ]));
+}
+
 - (void)testTwoEntityTypesAreMergedFromTheMenu
 {
 	_document = [[ORMDocument alloc] init];

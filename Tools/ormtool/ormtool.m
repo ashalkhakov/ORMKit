@@ -15,9 +15,10 @@
  *                                            constraints and constraint queries
  *                                            (1 when it breaks an alethic one)
  *   ormtool normalize model.orm [out.orm]    NORMA's derived data brought up to date
- *   ormtool coredata model.orm Out.xcdatamodeld [mapping name]
+ *   ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]
  *                                            the model mapped to Core Data, with the mapping's report;
- *                                            the validation code too, where the mapping keeps it
+ *                                            the validation code too, where the mapping keeps it or
+ *                                            into dir/ (what a build generates, outside the sources)
  *   ormtool validation model.orm dir/ [mapping name]
  *                                            code checking what Core Data cannot enforce:
  *                                            <Name>Validation.h and .m, a category on each class
@@ -34,7 +35,25 @@
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
- *                                            output, with what ORM cannot say on standard error */
+ *                                            output, with what ORM cannot say on standard error
+ *   ormtool forml model.orm [out.forml]      the model as schema text (ORMSchemaText.h): a listing,
+ *                                            a statement a line, by diagram, with each element's
+ *                                            note as a comment; what build and apply read
+ *   ormtool apply model.orm changes.forml [out.orm]
+ *                                            lines of schema text applied to the model, as one change:
+ *                                            what they say made, what "- line" says taken away, a
+ *                                            query of a name the model has replaced; the file written
+ *                                            back (or out.orm) only when every line was read (1)
+ *   ormtool sync model.orm direction [Entity=direction[/rule] ...] [--conflicts rule] [--mapping name]
+ *                                            the mapping's offline sync (docs/ODATA.md, Offline): every
+ *                                            entity's direction (none, down, up, both), each named
+ *                                            entity's own (Entity= takes its own away), and how a both
+ *                                            entity's conflicts are settled (remote, local, lastWriter,
+ *                                            merge); the file written back
+ *   ormtool build schema.txt model.orm      a new model from its sentences, as the verbalizer says
+ *                                            them, a line each (-[ORMSentenceEditor addFromText:]);
+ *                                            each line not read, with why, on standard error (1).
+ *                                            An existing model is changed by apply, not rebuilt */
 
 static void
 ORMPrint(NSString *text)
@@ -48,11 +67,15 @@ ORMUsage(void)
 	fputs("usage: ormtool verbalize [--html] model.orm\n"
 	      "       ormtool check model.orm      (1 when the sample population breaks an alethic constraint)\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
-	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name]\n"
+	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]\n"
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
-	      "       ormtool import Model.xcdatamodeld [model.orm]\n", stderr);
+	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
+	      "       ormtool forml model.orm [out.forml]\n"
+	      "       ormtool apply model.orm changes.forml [out.orm]\n"
+	      "       ormtool sync model.orm direction [Entity=direction[/rule] ...] [--conflicts rule] [--mapping name]\n"
+	      "       ormtool build schema.txt model.orm\n", stderr);
 	return 2;
 }
 
@@ -108,6 +131,141 @@ ORMImport(NSArray<NSString *> *args)
 		return [data writeToFile:out atomically:YES] ? 0 : 1;
 	}
 	fwrite([data bytes], 1, [data length], stdout);
+	return 0;
+}
+
+static int
+ORMBuild(NSArray<NSString *> *args)
+{
+	NSString *source = [args objectAtIndex:1];
+	NSString *out = [args objectAtIndex:2];
+	NSError *error = nil;
+	NSString *text = [NSString stringWithContentsOfFile:source encoding:NSUTF8StringEncoding error:&error];
+	if (text == nil) {
+		fprintf(stderr, "ormtool: cannot read %s\n", [source UTF8String]);
+		return 1;
+	}
+	NSString *name = [[out lastPathComponent] stringByDeletingPathExtension];
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:name] undoManager:nil];
+	NSArray *failures = nil;
+	BOOL read = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures];
+	for (NSString *failure in failures) {
+		fprintf(stderr, "%s:%s\n", [source UTF8String], [failure UTF8String]);
+	}
+	if (![ORMDataOfDocument([editor documentForSaving]) writeToFile:out atomically:YES]) {
+		fprintf(stderr, "ormtool: cannot write %s\n", [out UTF8String]);
+		return 1;
+	}
+	return read ? 0 : 1;
+}
+
+/* Lines of schema text applied to the model in the file, as one change:
+ * what they say made, what a "- " line says taken away. Written back
+ * (or to out.orm) only when every line was read. */
+static int
+ORMApply(NSArray<NSString *> *args)
+{
+	NSString *path = [args objectAtIndex:1];
+	NSString *source = [args objectAtIndex:2];
+	NSString *out = [args count] > 3 ? [args objectAtIndex:3] : path;
+	NSString *text = [source isEqualToString:@"-"]
+		? [[NSString alloc] initWithData:[[NSFileHandle fileHandleWithStandardInput] readDataToEndOfFile]
+		                        encoding:NSUTF8StringEncoding]
+		: [NSString stringWithContentsOfFile:source encoding:NSUTF8StringEncoding error:NULL];
+	if (text == nil) {
+		fprintf(stderr, "ormtool: cannot read %s\n", [source UTF8String]);
+		return 1;
+	}
+	ORMEditor *editor = ORMOpen(path);
+	if (editor == nil) {
+		return 1;
+	}
+	NSArray *failures = nil;
+	BOOL read = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures];
+	for (NSString *failure in failures) {
+		fprintf(stderr, "%s:%s\n", [source UTF8String], [failure UTF8String]);
+	}
+	if (!read) {
+		fprintf(stderr, "ormtool: %s left as it was\n", [out UTF8String]);
+		return 1;
+	}
+	if (![[editor dataForSaving] writeToFile:out atomically:YES]) {
+		fprintf(stderr, "ormtool: cannot write %s\n", [out UTF8String]);
+		return 1;
+	}
+	return 0;
+}
+
+/* The value of a flag (--name value), taken out of the arguments; nil
+ * when it is not there. */
+static NSString *
+ORMTakeFlag(NSMutableArray<NSString *> *args, NSString *flag)
+{
+	NSUInteger index = [args indexOfObject:flag];
+	if (index == NSNotFound || index + 1 >= [args count]) {
+		return nil;
+	}
+	NSString *value = [args objectAtIndex:index + 1];
+	[args removeObjectsInRange:NSMakeRange(index, 2)];
+	return value;
+}
+
+static int
+ORMSync(NSArray<NSString *> *given)
+{
+	NSMutableArray *args = [given mutableCopy];
+	NSString *mappingName = ORMTakeFlag(args, @"--mapping");
+	NSString *rule = ORMTakeFlag(args, @"--conflicts");
+	NSString *path = [args objectAtIndex:1];
+	ORMSyncDirection direction = ORMSyncNone;
+	if ([args count] < 3 || ![ORMCoreDataMapping syncDirection:&direction named:[args objectAtIndex:2]]) {
+		return ORMUsage();
+	}
+	ORMEditor *editor = ORMOpen(path);
+	if (editor == nil) {
+		return 1;
+	}
+	ORMCoreDataMapping *mapping = nil;
+	for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
+		if (mappingName == nil || [each.name isEqualToString:mappingName]) {
+			mapping = each;
+			break;
+		}
+	}
+	if (mapping == nil) {
+		fprintf(stderr, "ormtool: %s has no Core Data mapping%s%s\n", [path UTF8String], mappingName ? " named " : "",
+		        mappingName ? [mappingName UTF8String] : "");
+		return 1;
+	}
+	ORMMappingEditor *mappings = [[ORMMappingEditor alloc] initWithEditor:editor];
+	[mappings setSyncDirection:direction ofMapping:mapping.identifier];
+	if (rule != nil) {
+		[mappings setSyncConflicts:rule ofMapping:mapping.identifier];
+	}
+	/* An entity by its name in the mapping, as its source. */
+	ORMCDModel *mapped = [[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:mapping] map];
+	for (NSString *each in [args subarrayWithRange:NSMakeRange(3, [args count] - 3)]) {
+		NSRange equals = [each rangeOfString:@"="];
+		NSString *name = equals.location != NSNotFound ? [each substringToIndex:equals.location] : each;
+		NSString *said = equals.location != NSNotFound ? [each substringFromIndex:NSMaxRange(equals)] : @"";
+		NSArray *parts = [said componentsSeparatedByString:@"/"];
+		ORMCDEntity *entity = [mapped entityNamed:name];
+		ORMSyncDirection its = ORMSyncNone;
+		NSString *named = [parts firstObject];
+		if (entity.source == nil || ([named length] > 0 && ![ORMCoreDataMapping syncDirection:&its named:named])) {
+			fprintf(stderr, "ormtool: %s: %s\n", [each UTF8String],
+			        entity.source == nil ? "no entity of that name" : "no such direction");
+			return 1;
+		}
+		[mappings setSyncDirection:[named length] > 0 ? @(its) : nil
+		                 conflicts:[parts count] > 1 ? [parts objectAtIndex:1] : nil
+		                  ofSource:entity.source
+		                 inMapping:mapping.identifier];
+	}
+	if (![[editor dataForSaving] writeToFile:path atomically:YES]) {
+		fprintf(stderr, "ormtool: cannot write %s\n", [path UTF8String]);
+		return 1;
+	}
 	return 0;
 }
 
@@ -170,14 +328,44 @@ main(int argc, const char *argv[])
 		[args removeObject:@"--html"];
 		BOOL dark = [args containsObject:@"--dark"];
 		[args removeObject:@"--dark"];
+		/* coredata's validation code written there, not where the mapping
+		 * keeps it: a build's output. */
+		NSString *validationDirectory = nil;
+		NSUInteger flag = [args indexOfObject:@"--validation"];
+		if (flag != NSNotFound && flag + 1 < [args count]) {
+			validationDirectory = [args objectAtIndex:flag + 1];
+			[args removeObjectsInRange:NSMakeRange(flag, 2)];
+		}
 		if ([command isEqualToString:@"import"]) {
 			return ORMImport(args);
+		}
+		if ([command isEqualToString:@"build"]) {
+			return [args count] >= 3 ? ORMBuild(args) : ORMUsage();
+		}
+		if ([command isEqualToString:@"apply"]) {
+			return [args count] >= 3 ? ORMApply(args) : ORMUsage();
+		}
+		if ([command isEqualToString:@"sync"]) {
+			return [args count] >= 3 ? ORMSync(args) : ORMUsage();
 		}
 		ORMEditor *editor = ORMOpen([args objectAtIndex:1]);
 		if (editor == nil) {
 			return 1;
 		}
 		ORMModel *model = editor.model;
+		if ([command isEqualToString:@"forml"]) {
+			NSString *text = [[[ORMSchemaText alloc] initWithEditor:editor] textFromFile:[args objectAtIndex:1]];
+			if ([args count] > 2) {
+				NSError *error = nil;
+				if (![text writeToFile:[args objectAtIndex:2] atomically:YES encoding:NSUTF8StringEncoding error:&error]) {
+					fprintf(stderr, "ormtool: cannot write %s\n", [[args objectAtIndex:2] UTF8String]);
+					return 1;
+				}
+				return 0;
+			}
+			ORMPrint(text);
+			return 0;
+		}
 		if ([command isEqualToString:@"verbalize"]) {
 			NSArray *sentences = [[[ORMVerbalizer alloc] initWithModel:model] sentencesForModel];
 			ORMPrint(html ? [ORMVerbalizer HTMLOfSentences:sentences title:model.name]
@@ -236,16 +424,20 @@ main(int argc, const char *argv[])
 				return 1;
 			}
 			ORMPrint([NSString stringWithFormat:@"%lu entities\n", (unsigned long)[mapped.entities count]]);
-			NSString *validation = [mapping resolvedValidationPathRelativeTo:[args objectAtIndex:1]];
+			NSString *validation = validationDirectory ?: [mapping resolvedValidationPathRelativeTo:[args objectAtIndex:1]];
 			if (validation != nil) {
+				NSString *name = mapping.name ?: [[[args objectAtIndex:1] lastPathComponent] stringByDeletingPathExtension];
 				ORMValidationGenerator *generator = [[ORMValidationGenerator alloc]
-					initWithModel:model coreData:mapped notes:mapper.notes name:mapping.name];
+					initWithModel:model coreData:mapped notes:mapper.notes name:name];
 				if (![generator writeToDirectory:validation error:&error]) {
 					fprintf(stderr, "ormtool: %s\n", [[error localizedDescription] UTF8String]);
 					return 1;
 				}
 				ORMPrint([NSString stringWithFormat:@"%lu constraints checked in %@\n",
 				                                    (unsigned long)generator.ruleCount, validation]);
+				for (NSString *note in generator.notes) {
+					ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
+				}
 			}
 			for (ORMMappingNote *note in mapper.notes) {
 				NSString *kind = note.kind == ORMMappingAbsorbed ? @"absorbed"

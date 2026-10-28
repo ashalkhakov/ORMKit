@@ -7,11 +7,12 @@ NSString * const ORMDiagramNamespace = @"http://schemas.neumont.edu/ORM/2006-04/
 NSString * const ORMDiagramDisplayNamespace = @"http://schemas.neumont.edu/ORM/2008-11/DiagramDisplay";
 NSString * const ORMCoreDataNamespace = @"http://schemas.ormkit.org/2026-10/CoreDataBridge";
 NSString * const ORMQueryNamespace = @"http://schemas.ormkit.org/2026-10/Queries";
+NSString * const ORMValuesNamespace = @"http://schemas.ormkit.org/2026-10/Values";
 
 NSArray<NSString *> *
 ORMKitNamespaces(void)
 {
-	return @[ ORMCoreDataNamespace, ORMQueryNamespace ];
+	return @[ ORMCoreDataNamespace, ORMQueryNamespace, ORMValuesNamespace ];
 }
 
 const double ORMPointsPerInch = 72.0;
@@ -204,7 +205,8 @@ ORMUsualPrefix(NSString *uri)
 {
 	NSDictionary *prefixes = @{ ORMRootNamespace: @"ormRoot", ORMCoreNamespace: @"orm",
 	                            ORMDiagramNamespace: @"ormDiagram", ORMDiagramDisplayNamespace: @"diagramDisplay",
-	                            ORMCoreDataNamespace: @"ormcd", ORMQueryNamespace: @"ormq" };
+	                            ORMCoreDataNamespace: @"ormcd", ORMQueryNamespace: @"ormq",
+	                            ORMValuesNamespace: @"ormv" };
 	return [prefixes objectForKey:uri] ?: @"ns";
 }
 
@@ -266,10 +268,11 @@ ORMRank(NSString *local)
 	if (ranks == nil) {
 		NSArray *order = @[
 			/* An ORMModel's sections. */
-			@"Objects", @"Facts", @"Constraints", @"DataTypes", @"CustomReferenceModes", @"ModelNotes",
+			@"Objects", @"Facts", @"Constraints", @"DataTypes", @"Functions", @"CustomReferenceModes", @"ModelNotes",
 			@"ModelErrors", @"ReferenceModeKinds", @"RecognizedPhrases", @"Extensions",
 			/* An object type's. */
-			@"Definitions", @"Notes", @"Abbreviations", @"PlayedRoles", @"PreferredIdentifier",
+			@"Definitions", @"Notes", @"Abbreviations", @"CardinalityRestriction", @"PlayedRoles",
+			@"SubtypeDerivationRule", @"PreferredIdentifier",
 			@"NestedPredicate", @"ConceptualDataType", @"ValueRestriction", @"Instances",
 			/* A fact type's. */
 			@"FactRoles", @"ReadingOrders", @"InternalConstraints", @"DerivationRule",
@@ -370,7 +373,52 @@ ORMPruneIfEmpty(NSXMLElement *element)
 NSString *
 ORMNewId(void)
 {
+	NSMutableDictionary *thread = [[NSThread currentThread] threadDictionary];
+	NSString *prefix = [thread objectForKey:@"ORMIdPrefix"];
+	if (prefix != nil) {
+		NSUInteger count = [[thread objectForKey:@"ORMIdCount"] unsignedIntegerValue] + 1;
+		[thread setObject:@(count) forKey:@"ORMIdCount"];
+		return [NSString stringWithFormat:@"_%@.%lu", prefix, (unsigned long)count];
+	}
 	return [@"_" stringByAppendingString:[[[NSUUID UUID] UUIDString] uppercaseString]];
+}
+
+/* FNV-1a over the bytes, from the offset basis given. */
+static uint64_t
+ORMHash64(const unsigned char *bytes, NSUInteger length, uint64_t hash)
+{
+	for (NSUInteger i = 0; i < length; i++) {
+		hash ^= bytes[i];
+		hash *= 0x100000001B3ULL;
+	}
+	return hash;
+}
+
+NSString *
+ORMStableId(NSString *seed)
+{
+	NSData *data = [seed dataUsingEncoding:NSUTF8StringEncoding];
+	uint64_t high = ORMHash64([data bytes], [data length], 0xCBF29CE484222325ULL);
+	uint64_t low = ORMHash64([data bytes], [data length], 0x84222325CBF29CE4ULL);
+	return [NSString stringWithFormat:@"_%08X-%04X-%04X-%04X-%012llX", (unsigned)(high >> 32),
+	                                  (unsigned)((high >> 16) & 0xFFFF), (unsigned)(high & 0xFFFF),
+	                                  (unsigned)(low >> 48), (unsigned long long)(low & 0xFFFFFFFFFFFFULL)];
+}
+
+void
+ORMBeginIds(NSString *prefix)
+{
+	NSMutableDictionary *thread = [[NSThread currentThread] threadDictionary];
+	[thread setObject:prefix forKey:@"ORMIdPrefix"];
+	[thread setObject:@0 forKey:@"ORMIdCount"];
+}
+
+void
+ORMEndIds(void)
+{
+	NSMutableDictionary *thread = [[NSThread currentThread] threadDictionary];
+	[thread removeObjectForKey:@"ORMIdPrefix"];
+	[thread removeObjectForKey:@"ORMIdCount"];
 }
 
 NSXMLElement *

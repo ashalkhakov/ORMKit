@@ -12,7 +12,9 @@
  * over the boxes, mandatory constraints dots where the line meets its object
  * type. External constraints are circles joined to their roles by dashed
  * lines; subtyping is an arrow to the supertype. NORMA keeps none of the
- * lines, so they are drawn from the model each time. */
+ * lines, so they are drawn from the model each time, each to the nearest of
+ * its ends' shapes. An object type or fact type with more than one shape in
+ * the model is shaded, as NORMA shades it: a shadow behind each. */
 
 typedef struct {
 	double red, green, blue, alpha;
@@ -32,6 +34,9 @@ ORMColor ORMDiagramConstraint(ORMModality modality, BOOL dark);
 ORMColor ORMDiagramSelection(void);
 ORMColor ORMDiagramPick(void);
 ORMColor ORMDiagramError(void);
+/* The shadow behind a shape whose element has others, on this diagram or
+ * another: NORMA's shading of an element shown more than once. */
+ORMColor ORMDiagramShadow(BOOL dark);
 
 /* A font by name (nil: the surface's own sans serif), size and weight. */
 @interface ORMDrawingFont : NSObject

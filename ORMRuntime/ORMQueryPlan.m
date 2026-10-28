@@ -180,6 +180,109 @@ ORMPlanKindNames(void)
 	return value;
 }
 
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
+                     also:(NSArray<NSString *> *)columns
+                      are:(NSArray<ORMPlanValue *> *)values
+{
+	ORMPlanValue *value = [self aggregate:function of:column in:bag where:groupColumn is:groupPath];
+	value->_alsoColumns = [columns count] > 0 ? [columns copy] : nil;
+	value->_alsoValues = [columns count] > 0 ? [values copy] : nil;
+	return value;
+}
+
++ (instancetype)aggregate:(NSString *)function
+                       of:(NSString *)column
+                       in:(ORMPlanDefinition *)bag
+                    where:(NSString *)groupColumn
+                       is:(ORMPlanPath *)groupPath
+                   window:(NSString *)windowColumn
+               comparison:(NSString *)comparison
+                     than:(ORMPlanValue *)than
+{
+	ORMPlanValue *value = [self aggregate:function of:column in:bag where:groupColumn is:groupPath];
+	value->_windowColumn = [windowColumn copy];
+	value->_windowComparison = [comparison copy];
+	value->_windowValue = than;
+	return value;
+}
+
+- (ORMPlanValue *)windowCopy
+{
+	ORMPlanValue *value = [ORMPlanValue aggregate:_function of:_column in:_bag where:_groupColumn is:_groupPath
+	                                       window:_windowColumn comparison:_windowComparison than:_windowValue];
+	value->_windowOtherComparison = _windowOtherComparison;
+	value->_windowOtherValue = _windowOtherValue;
+	value->_alsoColumns = _alsoColumns;
+	value->_alsoValues = _alsoValues;
+	value->_membersKey = _membersKey;
+	return value;
+}
+
+- (instancetype)valueOfMembers:(NSString *)key
+{
+	ORMPlanValue *value = [self windowCopy];
+	value->_membersKey = [key copy];
+	return value;
+}
+
+- (instancetype)valueBoundedAlso:(NSString *)comparison than:(ORMPlanValue *)than
+{
+	ORMPlanValue *value = [self windowCopy];
+	value->_windowOtherComparison = [comparison copy];
+	value->_windowOtherValue = than;
+	return value;
+}
+
+- (instancetype)valueAlso:(NSArray<NSString *> *)columns are:(NSArray<ORMPlanValue *> *)values
+{
+	ORMPlanValue *value = [self windowCopy];
+	value->_alsoColumns = [columns count] > 0 ? [columns copy] : nil;
+	value->_alsoValues = [columns count] > 0 ? [values copy] : nil;
+	return value;
+}
+
++ (instancetype)apply:(NSString *)function to:(NSArray<ORMPlanValue *> *)operands
+{
+	ORMPlanValue *value = [[self alloc] init];
+	value->_function = [function copy];
+	value->_operands = [operands copy] ?: @[];
+	return value;
+}
+
+- (NSArray<ORMPlanPath *> *)paths
+{
+	NSMutableArray *paths = [NSMutableArray array];
+	if (_path != nil) {
+		[paths addObject:_path];
+	}
+	if (_groupPath != nil) {
+		[paths addObject:_groupPath];
+	}
+	for (ORMPlanValue *operand in [(_operands ?: @[]) arrayByAddingObjectsFromArray:_alsoValues ?: @[]]) {
+		[paths addObjectsFromArray:[operand paths]];
+	}
+	[paths addObjectsFromArray:[_windowValue paths] ?: @[]];
+	[paths addObjectsFromArray:[_windowOtherValue paths] ?: @[]];
+	return paths;
+}
+
+- (BOOL)usesBag
+{
+	if (_bag != nil) {
+		return YES;
+	}
+	for (ORMPlanValue *operand in _operands) {
+		if ([operand usesBag]) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
 /* A bag's column's title, by its node. */
 static NSString *
 ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
@@ -203,11 +306,23 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 	if (_path != nil) {
 		return [_path description];
 	}
+	if (_operands != nil) {
+		return [NSString stringWithFormat:@"%@(%@)", _function, [[_operands valueForKey:@"description"] componentsJoinedByString:@", "]];
+	}
 	if (_bag != nil) {
 		NSString *of = _column != nil ? [NSString stringWithFormat:@"%@ of %@", _function, ORMColumnTitle(_bag, _column)]
 		                              : _function;
-		return [NSString stringWithFormat:@"%@ in %@ where %@ is %@", of, _bag.name, ORMColumnTitle(_bag, _groupColumn),
-		                                  _groupPath];
+		NSMutableString *where = [NSMutableString stringWithFormat:@"%@ is %@", ORMColumnTitle(_bag, _groupColumn), _groupPath];
+		for (NSUInteger i = 0; i < [_alsoColumns count]; i++) {
+			[where appendFormat:@", %@ is %@", ORMColumnTitle(_bag, [_alsoColumns objectAtIndex:i]), [_alsoValues objectAtIndex:i]];
+		}
+		if (_windowColumn != nil) {
+			[where appendFormat:@", %@ %@ %@", ORMColumnTitle(_bag, _windowColumn), _windowComparison, _windowValue];
+		}
+		if (_windowOtherComparison != nil) {
+			[where appendFormat:@", %@ %@ %@", ORMColumnTitle(_bag, _windowColumn), _windowOtherComparison, _windowOtherValue];
+		}
+		return [NSString stringWithFormat:@"%@ in %@ where %@", of, _bag.name, where];
 	}
 	BOOL quoted = [_attributeType isEqualToString:@"String"] || [_attributeType isEqualToString:@"Date"];
 	return quoted ? [NSString stringWithFormat:@"'%@'", [_text stringByReplacingOccurrencesOfString:@"'" withString:@"''"]]
@@ -436,10 +551,9 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	}
 	ORMAddVariable(free, self.path);
 	ORMAddVariable(free, self.otherPath);
-	ORMAddVariable(free, self.left.path);
-	ORMAddVariable(free, self.right.path);
-	ORMAddVariable(free, self.left.groupPath);
-	ORMAddVariable(free, self.right.groupPath);
+	for (ORMPlanPath *path in [([self.left paths] ?: @[]) arrayByAddingObjectsFromArray:[self.right paths] ?: @[]]) {
+		ORMAddVariable(free, path);
+	}
 	for (NSArray *pair in self.pairs) {
 		ORMAddVariable(free, [pair firstObject]);
 	}
@@ -467,6 +581,56 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 		[free unionSet:inner];
 	}
 	return free;
+}
+
+- (NSSet<NSString *> *)boundVariables
+{
+	NSMutableSet *bound = [NSMutableSet set];
+	if ((self.kind == ORMPlanExists || self.kind == ORMPlanMaybe) && self.variable != nil) {
+		[bound addObject:self.variable];
+	}
+	if (self.kind == ORMPlanMatches && self.boundVariable != nil) {
+		[bound addObject:self.boundVariable];
+	}
+	for (ORMPlanCondition *operand in self.operands) {
+		[bound unionSet:[operand boundVariables]];
+	}
+	if (self.operand != nil) {
+		[bound unionSet:[self.operand boundVariables]];
+	}
+	return bound;
+}
+
+- (NSArray *)memberProbe
+{
+	if ((self.kind != ORMPlanExists && self.kind != ORMPlanCount && self.kind != ORMPlanAggregate && self.kind != ORMPlanMaybe)
+	    || self.variable == nil || self.operand == nil || [self.path.steps count] == 0) {
+		return nil;
+	}
+	NSArray *conjuncts = self.operand.kind == ORMPlanAnd ? self.operand.operands : @[ self.operand ];
+	NSSet *bound = [self boundVariables];
+	for (ORMPlanCondition *each in conjuncts) {
+		if (each.kind != ORMPlanCompare || ![each.comparison isEqualToString:@"="] || each.left == nil || each.right == nil) {
+			continue;
+		}
+		for (NSArray *sides in @[ @[ each.left, each.right ], @[ each.right, each.left ] ]) {
+			ORMPlanPath *path = [(ORMPlanValue *)[sides firstObject] path];
+			ORMPlanValue *theirs = [sides lastObject];
+			ORMPlanStep *cast = [path.steps count] > 1 ? [path.steps objectAtIndex:[path.steps count] - 2] : nil;
+			if (path == nil || ![path.variable isEqualToString:self.variable] || [path.keys count] != 1
+			    || [(ORMPlanStep *)[path.steps lastObject] key] == nil || ([path.steps count] > 1 && cast.entityName == nil)) {
+				continue;
+			}
+			BOOL invariant = YES;
+			for (ORMPlanPath *used in [theirs paths]) {
+				invariant = invariant && (used.variable == nil || ![bound containsObject:used.variable]);
+			}
+			if (invariant) {
+				return @[ [path.keys firstObject], theirs, cast.entityName ?: (id)[NSNull null] ];
+			}
+		}
+	}
+	return nil;
 }
 
 - (id)copyWithZone:(NSZone *)zone
@@ -686,6 +850,14 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	return sort;
 }
 
++ (instancetype)sortByColumnOf:(NSString *)nodeId ascending:(BOOL)ascending
+{
+	ORMPlanSort *sort = [[self alloc] init];
+	sort->_nodeId = [nodeId copy];
+	sort->_ascending = ascending;
+	return sort;
+}
+
 - (id)copyWithZone:(NSZone *)zone
 {
 	(void)zone;
@@ -694,7 +866,8 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 
 - (NSString *)description
 {
-	return [NSString stringWithFormat:@"%@ %@", _path, _ascending ? @"ascending" : @"descending"];
+	return [NSString stringWithFormat:@"%@ %@", _path ?: (id)[@"column of " stringByAppendingString:_nodeId ?: @"?"],
+	                                  _ascending ? @"ascending" : @"descending"];
 }
 
 @end
@@ -714,7 +887,13 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	NSMutableArray *listed = [NSMutableArray array];
 	for (ORMPlanColumn *column in self.columns) {
 		if (column.value != nil) {
-			/* Computed of the object read: listed with it, or not at all. */
+			/* Computed of the object read: listed with it, or not at all; of
+			 * what a variable is bound to, not of the object alone. */
+			for (ORMPlanPath *path in [column.value paths]) {
+				if (path.variable != nil && column.value.operands != nil) {
+					return nil;
+				}
+			}
 			continue;
 		}
 		if (column.path.variable != nil) {
@@ -834,8 +1013,16 @@ ORMCompareTrails(NSArray *a, NSArray *b, void *context)
 
 /* What the condition reads, into trails; NO where it reads what no path
  * says. */
+static BOOL ORMCollectTrailsIn(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet *trails, BOOL bags);
+
 static BOOL
 ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet *trails)
+{
+	return ORMCollectTrailsIn(condition, bound, trails, NO);
+}
+
+static BOOL
+ORMCollectTrailsIn(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet *trails, BOOL bags)
 {
 	if (condition == nil) {
 		return YES;
@@ -845,17 +1032,18 @@ ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet 
 	case ORMPlanAnd:
 	case ORMPlanOr:
 		for (ORMPlanCondition *operand in condition.operands) {
-			ok = ORMCollectTrails(operand, bound, trails) && ok;
+			ok = ORMCollectTrailsIn(operand, bound, trails, bags) && ok;
 		}
 		return ok;
 	case ORMPlanNot:
-		return ORMCollectTrails(condition.operand, bound, trails);
+		return ORMCollectTrailsIn(condition.operand, bound, trails, bags);
 	case ORMPlanCompare:
-		if (condition.left.bag != nil || condition.right.bag != nil) {
+		if (!bags && ([condition.left usesBag] || [condition.right usesBag])) {
 			return NO;
 		}
-		ORMAddTrail(condition.left.path, bound, trails);
-		ORMAddTrail(condition.right.path, bound, trails);
+		for (ORMPlanPath *path in [([condition.left paths] ?: @[]) arrayByAddingObjectsFromArray:[condition.right paths] ?: @[]]) {
+			ORMAddTrail(path, bound, trails);
+		}
 		return YES;
 	case ORMPlanNotNull:
 	case ORMPlanIsOf:
@@ -887,12 +1075,20 @@ ORMCollectTrails(ORMPlanCondition *condition, NSDictionary *bound, NSMutableSet 
 				[trails addObject:value];
 			}
 		}
-		return ORMCollectTrails(condition.operand, inner, trails);
+		return ORMCollectTrailsIn(condition.operand, inner, trails, bags);
 	}
 	case ORMPlanMatches:
 		return NO;
 	}
 	return NO;
+}
+
+/* What the condition reads, as ORMCollectTrails, its bags' aggregates
+ * read already (their group paths are what is compared). */
+static BOOL
+ORMCollectTrailsAllowingBags(ORMPlanCondition *condition, NSMutableSet *trails)
+{
+	return ORMCollectTrailsIn(condition, @{}, trails, YES);
 }
 
 /* The variables bound where the condition binds them, to their trails. */
@@ -916,15 +1112,144 @@ ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionar
 	ORMBindings(condition.operand, inner, all);
 }
 
+/* The bags the value aggregates, its operands' too. */
+static void
+ORMBagValuesOf(ORMPlanValue *value, NSMutableArray *into)
+{
+	if (value.bag != nil) {
+		[into addObject:value];
+	}
+	for (ORMPlanValue *operand in [(value.operands ?: @[]) arrayByAddingObjectsFromArray:value.alsoValues ?: @[]]) {
+		ORMBagValuesOf(operand, into);
+	}
+	if (value.windowValue != nil) {
+		ORMBagValuesOf(value.windowValue, into);
+	}
+	if (value.windowOtherValue != nil) {
+		ORMBagValuesOf(value.windowOtherValue, into);
+	}
+}
+
+static void
+ORMBagValuesIn(ORMPlanCondition *condition, NSMutableArray *into)
+{
+	if (condition == nil) {
+		return;
+	}
+	if (condition.left != nil) {
+		ORMBagValuesOf(condition.left, into);
+	}
+	if (condition.right != nil) {
+		ORMBagValuesOf(condition.right, into);
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		ORMBagValuesIn(operand, into);
+	}
+	ORMBagValuesIn(condition.operand, into);
+}
+
+/* Whether the aggregate's bag is of the object read itself: its plan
+ * reads the same entity, grouped by the object it reads, here the object
+ * read (by its identifier). Then what the bag reads is read from the
+ * object too. */
+- (BOOL)bagIsOfTheObjectRead:(ORMPlanValue *)value
+{
+	ORMPlanColumn *group = [value.bag.plan columnOfNode:value.groupColumn ?: @""];
+	return [value.bag.plan.entityName isEqualToString:self.entityName] && group != nil && group.path.variable == nil
+		&& [group.path.keys count] == 0 && value.groupPath.variable == nil && [value.groupPath.keys count] <= 1
+		&& [value.alsoColumns count] == 0 && value.windowColumn == nil;
+}
+
+/* A window's trails from the object read: to its partition, and down to
+ * the members and what its bag reads of each (a member changed changes
+ * the window of every object of its partition); and what its bounds and
+ * equalities read here. nil where its partition is not reached from the
+ * object read, or its members are not named. */
+- (NSArray<NSArray<NSString *> *> *)trailsOfWindow:(ORMPlanValue *)value
+{
+	NSArray *keys = value.groupPath.keys;
+	NSArray *theirs = [value.bag.plan trailsFromRead];
+	if (value.groupPath.variable != nil || [keys count] == 0 || value.membersKey == nil || theirs == nil) {
+		return nil;
+	}
+	NSArray *partition = [keys subarrayWithRange:NSMakeRange(0, [keys count] - 1)];
+	NSArray *down = [partition arrayByAddingObject:value.membersKey];
+	NSArray *up = [[value.bag.plan columnOfNode:value.groupColumn ?: @""] path].keys;
+	NSMutableArray *trails = [NSMutableArray arrayWithObjects:keys, down, nil];
+	for (NSArray *trail in theirs) {
+		/* Back up to the partition from a member: from the partition. */
+		if ([up count] > 0 && [trail count] >= [up count] && [[trail subarrayWithRange:NSMakeRange(0, [up count])] isEqualToArray:up]) {
+			NSArray *rest = [trail subarrayWithRange:NSMakeRange([up count], [trail count] - [up count])];
+			if ([partition count] + [rest count] > 0) {
+				[trails addObject:[partition arrayByAddingObjectsFromArray:rest]];
+			}
+			continue;
+		}
+		[trails addObject:[down arrayByAddingObjectsFromArray:trail]];
+	}
+	NSMutableArray *here = [NSMutableArray arrayWithArray:value.alsoValues ?: @[]];
+	[here addObject:value.windowValue];
+	if (value.windowOtherValue != nil) {
+		[here addObject:value.windowOtherValue];
+	}
+	for (ORMPlanValue *each in here) {
+		for (ORMPlanPath *path in [each paths]) {
+			if (path.variable != nil) {
+				return nil;
+			}
+			if ([path.keys count] > 0) {
+				[trails addObject:path.keys];
+			}
+		}
+	}
+	return trails;
+}
+
 - (NSArray<NSArray<NSString *> *> *)trailsFromRead
 {
 	NSMutableSet *trails = [NSMutableSet set];
-	if (!ORMCollectTrails(self.condition, @{}, trails) || [self.definitions count] > 0) {
-		return nil;
-	}
+	/* Aggregates of bags of the object read: what each bag reads. */
+	NSMutableArray *bagged = [NSMutableArray array];
+	ORMBagValuesIn(self.condition, bagged);
 	for (ORMPlanColumn *column in self.columns) {
 		if (column.value != nil) {
+			ORMBagValuesOf(column.value, bagged);
+		}
+	}
+	NSMutableSet *bags = [NSMutableSet set];
+	for (ORMPlanValue *value in bagged) {
+		NSArray *theirs = value.windowColumn != nil ? [self trailsOfWindow:value]
+			: [self bagIsOfTheObjectRead:value] ? [value.bag.plan trailsFromRead] : nil;
+		if (theirs == nil) {
 			return nil;
+		}
+		[trails addObjectsFromArray:theirs];
+		[bags addObject:value.bag.name];
+	}
+	/* Sets it defines are those bags, or ones they define. */
+	for (ORMPlanDefinition *definition in self.definitions) {
+		if (![bags containsObject:definition.name] && ![definition.name hasPrefix:@"bag"]) {
+			return nil;
+		}
+	}
+	if (!ORMCollectTrailsAllowingBags(self.condition, trails)) {
+		return nil;
+	}
+	NSMutableDictionary *bindings = [NSMutableDictionary dictionary];
+	ORMBindings(self.condition, @{}, bindings);
+	for (ORMPlanColumn *column in self.columns) {
+		if (column.value != nil) {
+			/* Computed: what it is computed from; a bag's, above. */
+			for (ORMPlanPath *path in [column.value paths]) {
+				NSArray *trail = ORMTrailOf(path, bindings);
+				if (trail == nil) {
+					return nil;
+				}
+				if ([trail count] > 0) {
+					[trails addObject:trail];
+				}
+			}
+			continue;
 		}
 		NSArray *trail = [self trailOfColumn:column];
 		if (trail == nil) {
@@ -1015,7 +1340,30 @@ ORMBindings(ORMPlanCondition *condition, NSDictionary *bound, NSMutableDictionar
 	if ([_sorts count] > 0) {
 		[lines addObject:[@"order by " stringByAppendingString:[[_sorts valueForKey:@"description"] componentsJoinedByString:@", "]]];
 	}
+	if ([_rowSorts count] > 0) {
+		/* By each column, its title. */
+		NSMutableArray *by = [NSMutableArray array];
+		for (NSArray *each in [self rowSortColumns]) {
+			ORMPlanColumn *column = [_columns objectAtIndex:[[each firstObject] unsignedIntegerValue]];
+			[by addObject:[NSString stringWithFormat:@"%@ %@", column.title, [[each lastObject] boolValue] ? @"ascending" : @"descending"]];
+		}
+		[lines addObject:[@"rows sorted by " stringByAppendingString:[by componentsJoinedByString:@", "]]];
+	}
 	return [lines componentsJoinedByString:@"\n"];
+}
+
+- (NSArray<NSArray *> *)rowSortColumns
+{
+	NSMutableArray *columns = [NSMutableArray array];
+	for (ORMPlanSort *sort in _rowSorts) {
+		for (NSUInteger i = 0; i < [_columns count]; i++) {
+			if ([[[_columns objectAtIndex:i] nodeId] isEqualToString:sort.nodeId ?: @""]) {
+				[columns addObject:@[ @(i), @(sort.ascending) ]];
+				break;
+			}
+		}
+	}
+	return columns;
 }
 
 - (NSString *)description
@@ -1044,12 +1392,39 @@ static id ORMConditionList(ORMPlanCondition *condition);
 static id
 ORMValueList(ORMPlanValue *value)
 {
+	if (value.operands != nil) {
+		NSMutableArray *operands = [NSMutableArray array];
+		for (ORMPlanValue *operand in value.operands) {
+			[operands addObject:ORMValueList(operand)];
+		}
+		return @{ @"apply": value.function, @"to": operands };
+	}
 	if (value.bag != nil) {
 		NSMutableDictionary *list = [NSMutableDictionary dictionaryWithObjectsAndKeys:value.function, @"aggregate",
 		                                                 value.bag.name, @"in", value.groupColumn ?: @"", @"where",
 		                                                 ORMPathList(value.groupPath), @"is", nil];
 		if (value.column != nil) {
 			[list setObject:value.column forKey:@"of"];
+		}
+		if ([value.alsoColumns count] > 0) {
+			NSMutableArray *values = [NSMutableArray array];
+			for (ORMPlanValue *each in value.alsoValues) {
+				[values addObject:ORMValueList(each)];
+			}
+			[list setObject:value.alsoColumns forKey:@"alsoWhere"];
+			[list setObject:values forKey:@"alsoAre"];
+		}
+		if (value.windowColumn != nil) {
+			[list setObject:value.windowColumn forKey:@"window"];
+			[list setObject:value.windowComparison forKey:@"windowIs"];
+			[list setObject:ORMValueList(value.windowValue) forKey:@"than"];
+			if (value.membersKey != nil) {
+				[list setObject:value.membersKey forKey:@"members"];
+			}
+		}
+		if (value.windowOtherComparison != nil) {
+			[list setObject:value.windowOtherComparison forKey:@"windowAlsoIs"];
+			[list setObject:ORMValueList(value.windowOtherValue) forKey:@"alsoThan"];
 		}
 		return list;
 	}
@@ -1169,11 +1544,271 @@ ORMConditionList(ORMPlanCondition *condition)
 		[sorts addObject:@{ @"path": ORMPathList(sort.path), @"ascending": @(sort.ascending) }];
 	}
 	[list setObject:sorts forKey:@"sorts"];
+	if ([_rowSorts count] > 0) {
+		NSMutableArray *rowSorts = [NSMutableArray array];
+		for (ORMPlanSort *sort in _rowSorts) {
+			[rowSorts addObject:@{ @"column": sort.nodeId ?: @"", @"ascending": @(sort.ascending) }];
+		}
+		[list setObject:rowSorts forKey:@"rowSorts"];
+	}
 	[list setObject:_notes forKey:@"notes"];
 	return list;
 }
 
+#pragma mark Computing
+
+/* Whether a number is held whole: not a decimal, not a float or double. */
+static BOOL
+ORMIsWhole(NSNumber *number)
+{
+	if ([number isKindOfClass:[NSDecimalNumber class]]) {
+		return NO;
+	}
+	const char *type = [number objCType];
+	return type != NULL && strcmp(type, @encode(double)) != 0 && strcmp(type, @encode(float)) != 0;
+}
+
+static NSDecimalNumber *
+ORMDecimalOf(NSNumber *number)
+{
+	return [number isKindOfClass:[NSDecimalNumber class]] ? (NSDecimalNumber *)number
+		: [NSDecimalNumber decimalNumberWithDecimal:[number decimalValue]];
+}
+
+/* Two numbers' sum, difference, product or quotient (function's), in the
+ * kind both are: nil for a division by zero. */
+static NSNumber *
+ORMArithmetic(NSString *function, NSNumber *a, NSNumber *b)
+{
+	BOOL divide = [function isEqualToString:@"divide"];
+	if (divide && [b doubleValue] == 0) {
+		return nil;
+	}
+	if ([a isKindOfClass:[NSDecimalNumber class]] || [b isKindOfClass:[NSDecimalNumber class]]) {
+		NSDecimalNumber *x = ORMDecimalOf(a), *y = ORMDecimalOf(b);
+		@try {
+			if ([function isEqualToString:@"add"]) {
+				return [x decimalNumberByAdding:y];
+			}
+			if ([function isEqualToString:@"subtract"]) {
+				return [x decimalNumberBySubtracting:y];
+			}
+			if ([function isEqualToString:@"multiply"]) {
+				return [x decimalNumberByMultiplyingBy:y];
+			}
+			return [x decimalNumberByDividingBy:y];
+		} @catch (NSException *exception) {
+			return nil;
+		}
+	}
+	if (ORMIsWhole(a) && ORMIsWhole(b) && !divide) {
+		long long x = [a longLongValue], y = [b longLongValue];
+		return @([function isEqualToString:@"add"] ? x + y : [function isEqualToString:@"subtract"] ? x - y : x * y);
+	}
+	double x = [a doubleValue], y = [b doubleValue];
+	return @([function isEqualToString:@"add"] ? x + y : [function isEqualToString:@"subtract"] ? x - y
+	         : [function isEqualToString:@"multiply"] ? x * y : x / y);
+}
+
+/* The number rounded to the places, half away from zero. */
+static NSNumber *
+ORMRounded(NSNumber *number, NSInteger places, NSRoundingMode mode)
+{
+	if (ORMIsWhole(number) && places >= 0) {
+		return number;
+	}
+	NSDecimalNumberHandler *handler = [NSDecimalNumberHandler decimalNumberHandlerWithRoundingMode:mode
+	                                                                                         scale:(short)places
+	                                                                              raiseOnExactness:NO
+	                                                                               raiseOnOverflow:NO
+	                                                                              raiseOnUnderflow:NO
+	                                                                           raiseOnDivideByZero:NO];
+	NSDecimalNumber *rounded = [ORMDecimalOf(number) decimalNumberByRoundingAccordingToBehavior:handler];
+	return [number isKindOfClass:[NSDecimalNumber class]] ? rounded : @([rounded doubleValue]);
+}
+
+/* The calendar dates are computed in: Gregorian, UTC, as the sample
+ * populations' moments are. */
+static NSCalendar *
+ORMUTCCalendar(void)
+{
+	NSCalendar *calendar = [[NSCalendar alloc] initWithCalendarIdentifier:NSCalendarIdentifierGregorian];
+	calendar.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+	return calendar;
+}
+
+/* The moment the date's day starts, in the calendar's time zone (GNUstep's
+ * NSCalendar has no -startOfDayForDate:). */
+static NSDate *
+ORMStartOfDay(NSCalendar *calendar, NSDate *date)
+{
+	NSDateComponents *parts = [calendar components:NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay fromDate:date];
+	return [calendar dateFromComponents:parts];
+}
+
+/* A moment: a date, or ISO 8601 text as a service answers with one; nil
+ * for anything else. */
+static NSDate *
+ORMMomentOf(id value)
+{
+	if ([value isKindOfClass:[NSDate class]]) {
+		return value;
+	}
+	if (![value isKindOfClass:[NSString class]]) {
+		return nil;
+	}
+	NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+	formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+	formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+	for (NSString *format in @[ @"yyyy-MM-dd'T'HH:mm:ss.SSSXXXXX", @"yyyy-MM-dd'T'HH:mm:ssXXXXX", @"yyyy-MM-dd'T'HH:mm:ss.SSS",
+	                            @"yyyy-MM-dd'T'HH:mm:ss", @"yyyy-MM-dd HH:mm:ss", @"yyyy-MM-dd" ]) {
+		formatter.dateFormat = format;
+		NSDate *date = [formatter dateFromString:value];
+		if (date != nil) {
+			return date;
+		}
+	}
+	return nil;
+}
+
+/* The day (or the month's first day, by the units) a moment is on in
+ * the zone named, as a date: midnight UTC of that day, as every date is.
+ * A zone of no name, or of a name no zone has, is UTC. */
+static NSDate *
+ORMDayIn(NSDate *moment, id zone, NSCalendarUnit units)
+{
+	NSCalendar *there = ORMUTCCalendar();
+	NSTimeZone *named = [zone isKindOfClass:[NSString class]] ? [NSTimeZone timeZoneWithName:zone] : nil;
+	if (named != nil) {
+		there.timeZone = named;
+	}
+	return [ORMUTCCalendar() dateFromComponents:[there components:units fromDate:moment]];
+}
+
+/* A date function's value (docs/EXPRESSIONS.md), in UTC or in the zone
+ * given; nil where an argument is not of its kind. */
+static id
+ORMDateFunction(NSString *function, NSArray *given)
+{
+	NSCalendar *calendar = ORMUTCCalendar();
+	NSCalendarUnit day = NSCalendarUnitYear | NSCalendarUnitMonth | NSCalendarUnitDay;
+	if ([function isEqualToString:@"today"]) {
+		return ORMStartOfDay(calendar, [NSDate date]);
+	}
+	if ([function isEqualToString:@"todayIn"]) {
+		return ORMDayIn([NSDate date], [given firstObject], day);
+	}
+	NSDate *first = ORMMomentOf([given firstObject]);
+	if (first == nil) {
+		return nil;
+	}
+	if ([function isEqualToString:@"date"]) {
+		return ORMStartOfDay(calendar, first);
+	}
+	if ([function isEqualToString:@"dateIn"] || [function isEqualToString:@"monthIn"]) {
+		id zone = [given count] > 1 ? [given objectAtIndex:1] : nil;
+		return ORMDayIn(first, zone, [function isEqualToString:@"dateIn"] ? day : NSCalendarUnitYear | NSCalendarUnitMonth);
+	}
+	if ([function isEqualToString:@"month"]) {
+		NSDateComponents *parts = [calendar components:NSCalendarUnitYear | NSCalendarUnitMonth fromDate:first];
+		return [calendar dateFromComponents:parts];
+	}
+	id second = [given count] > 1 ? [given objectAtIndex:1] : nil;
+	if ([function isEqualToString:@"addDays"] || [function isEqualToString:@"addMonths"]) {
+		if (![second isKindOfClass:[NSNumber class]]) {
+			return nil;
+		}
+		NSDateComponents *by = [[NSDateComponents alloc] init];
+		if ([function isEqualToString:@"addDays"]) {
+			by.day = [second integerValue];
+		} else {
+			by.month = [second integerValue];
+		}
+		return [calendar dateByAddingComponents:by toDate:first options:0];
+	}
+	NSDate *last = ORMMomentOf(second);
+	if (last == nil) {
+		return nil;
+	}
+	if ([function isEqualToString:@"minutes"]) {
+		return @((long long)([last timeIntervalSinceDate:first] / 60));
+	}
+	if ([function isEqualToString:@"days"]) {
+		NSDateComponents *span = [calendar components:NSCalendarUnitDay fromDate:ORMStartOfDay(calendar, first)
+		                                       toDate:ORMStartOfDay(calendar, last) options:0];
+		return @(span.day);
+	}
+	NSDateComponents *span = [calendar components:NSCalendarUnitMonth fromDate:first toDate:last options:0];
+	return @(span.month);
+}
+
+id
+ORMPlanApply(NSString *function, NSArray *values)
+{
+	NSMutableArray *given = [NSMutableArray array];
+	for (id value in values) {
+		[given addObject:value != nil ? value : [NSNull null]];
+	}
+	id first = [given count] > 0 ? [given objectAtIndex:0] : [NSNull null];
+	id second = [given count] > 1 ? [given objectAtIndex:1] : [NSNull null];
+	if ([function isEqualToString:@"coalesce"]) {
+		id chosen = first != [NSNull null] ? first : second;
+		return chosen != [NSNull null] ? chosen : nil;
+	}
+	if ([function isEqualToString:@"min"] || [function isEqualToString:@"max"]) {
+		BOOL alike = NO;
+		for (Class kind in @[ [NSNumber class], [NSString class], [NSDate class] ]) {
+			alike = alike || ([first isKindOfClass:kind] && [second isKindOfClass:kind]);
+		}
+		if (!alike) {
+			return nil;
+		}
+		NSComparisonResult order = [first compare:second];
+		BOOL min = [function isEqualToString:@"min"];
+		return (order == NSOrderedDescending) == min ? second : first;
+	}
+	if ([@[ @"date", @"days", @"months", @"minutes", @"addDays", @"addMonths", @"month", @"today", @"dateIn", @"monthIn", @"todayIn" ]
+	        containsObject:function ?: @""]) {
+		return ORMDateFunction(function, given);
+	}
+	for (id value in given) {
+		if (![value isKindOfClass:[NSNumber class]]) {
+			return nil;
+		}
+	}
+	if ([function isEqualToString:@"negate"] && [given count] == 1) {
+		return ORMArithmetic(@"subtract", @0, first);
+	}
+	if ([function isEqualToString:@"abs"] && [given count] == 1) {
+		return [first doubleValue] < 0 ? ORMArithmetic(@"subtract", @0, first) : first;
+	}
+	if ([function isEqualToString:@"round"] && [given count] == 2) {
+		return ORMRounded(first, [second integerValue], NSRoundPlain);
+	}
+	/* Whole: down (how many batches some stock makes), or up (how many
+	 * batches make so many). */
+	if ([function isEqualToString:@"floor"] && [given count] == 1) {
+		return ORMRounded(first, 0, NSRoundDown);
+	}
+	if ([function isEqualToString:@"ceil"] && [given count] == 1) {
+		return ORMRounded(first, 0, NSRoundUp);
+	}
+	if ([given count] == 2 && [@[ @"add", @"subtract", @"multiply", @"divide" ] containsObject:function ?: @""]) {
+		return ORMArithmetic(function, first, second);
+	}
+	return nil;
+}
+
 /* Reading back: each part checked, the first wrong one the error. */
+
+/* The functions a value applies, and how many operands each takes. */
+static NSDictionary<NSString *, NSNumber *> *
+ORMPlanFunctionArities(void)
+{
+	return @{ @"add": @2, @"subtract": @2, @"multiply": @2, @"divide": @2, @"negate": @1, @"round": @2, @"floor": @1, @"ceil": @1, @"abs": @1,
+		      @"min": @2, @"max": @2, @"coalesce": @2, @"date": @1, @"days": @2, @"months": @2, @"minutes": @2,
+		      @"addDays": @2, @"addMonths": @2, @"month": @1, @"today": @0, @"dateIn": @2, @"monthIn": @2, @"todayIn": @1 };
+}
 
 static NSError *
 ORMPlanError(NSString *text)
@@ -1216,6 +1851,25 @@ static ORMPlanCondition *ORMReadCondition(id list, NSDictionary<NSString *, ORMP
 static ORMPlanValue *
 ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, NSError **error)
 {
+	if ([list isKindOfClass:[NSDictionary class]] && [list objectForKey:@"apply"] != nil) {
+		id function = [list objectForKey:@"apply"];
+		id to = [list objectForKey:@"to"];
+		NSNumber *arity = [ORMPlanFunctionArities() objectForKey:[function isKindOfClass:[NSString class]] ? function : @""];
+		if (arity == nil || ![to isKindOfClass:[NSArray class]] || [to count] != [arity unsignedIntegerValue]) {
+			*error = ORMPlanError([NSString stringWithFormat:@"%@ is no function of %lu values.", function,
+			                                                 (unsigned long)([to isKindOfClass:[NSArray class]] ? [to count] : 0)]);
+			return nil;
+		}
+		NSMutableArray *operands = [NSMutableArray array];
+		for (id each in to) {
+			ORMPlanValue *operand = ORMReadValueIn(each, defined, error);
+			if (operand == nil) {
+				return nil;
+			}
+			[operands addObject:operand];
+		}
+		return [ORMPlanValue apply:function to:operands];
+	}
 	if ([list isKindOfClass:[NSDictionary class]] && [list objectForKey:@"aggregate"] != nil) {
 		id function = [list objectForKey:@"aggregate"];
 		/* As the interpreter reads them: also the one value, and how many
@@ -1239,7 +1893,57 @@ ORMReadValueIn(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined, 
 			}
 			return nil;
 		}
-		return [ORMPlanValue aggregate:function of:of in:bag where:where is:is];
+		id alsoWhere = [list objectForKey:@"alsoWhere"] ?: @[];
+		id alsoAre = [list objectForKey:@"alsoAre"] ?: @[];
+		if (![alsoWhere isKindOfClass:[NSArray class]] || ![alsoAre isKindOfClass:[NSArray class]]
+		    || [alsoWhere count] != [alsoAre count]) {
+			*error = ORMPlanError(@"an aggregate's other groups are columns and their values, as many of each.");
+			return nil;
+		}
+		NSMutableArray *values = [NSMutableArray array];
+		for (id each in alsoAre) {
+			ORMPlanValue *also = ORMReadValueIn(each, defined, error);
+			if (also == nil) {
+				return nil;
+			}
+			[values addObject:also];
+		}
+		id window = [list objectForKey:@"window"];
+		if (window != nil) {
+			id comparison = [list objectForKey:@"windowIs"];
+			if (![window isKindOfClass:[NSString class]] || ![@[ @"<", @"<=", @">", @">=" ] containsObject:comparison ?: @""]) {
+				*error = ORMPlanError(@"an aggregate's window is a column, compared (<, <=, >, >=) with a value.");
+				return nil;
+			}
+			ORMPlanValue *than = ORMReadValueIn([list objectForKey:@"than"], defined, error);
+			if (than == nil) {
+				return nil;
+			}
+			ORMPlanValue *windowed = [ORMPlanValue aggregate:function of:of in:bag where:where is:is window:window
+			                                      comparison:comparison than:than];
+			if ([values count] > 0) {
+				windowed = [windowed valueAlso:alsoWhere are:values];
+			}
+			id members = [list objectForKey:@"members"];
+			if (members != nil && ![members isKindOfClass:[NSString class]]) {
+				*error = ORMPlanError(@"a window's members are a key.");
+				return nil;
+			}
+			if (members != nil) {
+				windowed = [windowed valueOfMembers:members];
+			}
+			id other = [list objectForKey:@"windowAlsoIs"];
+			if (other == nil) {
+				return windowed;
+			}
+			if (![@[ @"<", @"<=", @">", @">=" ] containsObject:other]) {
+				*error = ORMPlanError(@"an aggregate's window's other bound is compared with <, <=, > or >=.");
+				return nil;
+			}
+			ORMPlanValue *otherThan = ORMReadValueIn([list objectForKey:@"alsoThan"], defined, error);
+			return otherThan != nil ? [windowed valueBoundedAlso:other than:otherThan] : nil;
+		}
+		return [ORMPlanValue aggregate:function of:of in:bag where:where is:is also:alsoWhere are:values];
 	}
 	return ORMReadValue(list, error);
 }
@@ -1493,8 +2197,19 @@ ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined
 		}
 		[sorts addObject:[ORMPlanSort sortBy:path ascending:[[item objectForKey:@"ascending"] boolValue]]];
 	}
-	return [self planReading:entity where:condition columns:columns sorts:sorts notes:[list objectForKey:@"notes"] ?: @[]
-	             definitions:definitions];
+	NSMutableArray *rowSorts = [NSMutableArray array];
+	for (id item in [list objectForKey:@"rowSorts"] ?: @[]) {
+		id column = [item isKindOfClass:[NSDictionary class]] ? [item objectForKey:@"column"] : nil;
+		if (![column isKindOfClass:[NSString class]]) {
+			*reason = ORMPlanError(@"a row sort names its column's node.");
+			return nil;
+		}
+		[rowSorts addObject:[ORMPlanSort sortByColumnOf:column ascending:[[item objectForKey:@"ascending"] boolValue]]];
+	}
+	ORMQueryPlan *plan = [self planReading:entity where:condition columns:columns sorts:sorts
+	                                 notes:[list objectForKey:@"notes"] ?: @[] definitions:definitions];
+	plan.rowSorts = rowSorts;
+	return plan;
 }
 
 @end

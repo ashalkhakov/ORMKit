@@ -12,7 +12,10 @@
  * type names are unique in a model; a reference mode's value type is
  * renamed along with its entity type. */
 - (BOOL)rename:(NSString *)elementId to:(NSString *)name reason:(NSString **)reason;
-/* Free text on an object type or fact type: NORMA's Definition and Note. */
+/* Free text on an object type, fact type or constraint: NORMA's
+ * Definition and Note. A query has a note too, in ORMKit's namespace. The
+ * schema text (ORMSchemaText.h) says a note as the comment before what it
+ * is of. */
 - (BOOL)setDefinition:(NSString *)text of:(NSString *)elementId reason:(NSString **)reason;
 - (BOOL)setNote:(NSString *)text of:(NSString *)elementId reason:(NSString **)reason;
 - (NSString *)addNote:(NSString *)text

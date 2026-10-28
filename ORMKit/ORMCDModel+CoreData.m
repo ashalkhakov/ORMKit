@@ -10,7 +10,8 @@ ORMAttributeTypeNamed(NSString *name)
 	                         @"Double": @(NSDoubleAttributeType), @"Float": @(NSFloatAttributeType),
 	                         @"String": @(NSStringAttributeType), @"Boolean": @(NSBooleanAttributeType),
 	                         @"Date": @(NSDateAttributeType), @"Binary": @(NSBinaryDataAttributeType),
-	                         @"Transformable": @(NSTransformableAttributeType) };
+	                         @"Transformable": @(NSTransformableAttributeType), @"UUID": @(NSUUIDAttributeType),
+	                         @"URI": @(NSURIAttributeType) };
 	NSNumber *type = [types objectForKey:name ?: @""];
 	return type != nil ? (NSAttributeType)[type unsignedIntegerValue] : NSStringAttributeType;
 }
@@ -51,6 +52,36 @@ ORMDerivationExpression(NSString *text)
 }
 
 @implementation ORMCDModel (CoreData)
+
+/* Each identifier a fetch index, as the source's: the store reads by it
+ * (the runtime's pages seek on it), with an index of the table. */
+- (void)index:(NSEntityDescription *)described as:(ORMCDEntity *)entity
+{
+	NSMutableArray *indexes = [NSMutableArray array];
+	NSDictionary *properties = [described propertiesByName];
+	NSMutableSet *indexed = [NSMutableSet set];
+	for (NSArray *names in entity.uniquenessConstraints) {
+		/* One index of the same properties, once. */
+		if ([indexed containsObject:ORMCDIndexName(entity, names)]) {
+			continue;
+		}
+		[indexed addObject:ORMCDIndexName(entity, names)];
+		NSMutableArray *elements = [NSMutableArray array];
+		for (NSString *name in names) {
+			NSPropertyDescription *property = [properties objectForKey:name];
+			if (property != nil) {
+				[elements addObject:[[NSFetchIndexElementDescription alloc] initWithProperty:property
+				                                                               collationType:NSFetchIndexElementTypeBinary]];
+			}
+		}
+		if ([elements count] == [names count] && [elements count] > 0) {
+			[indexes addObject:[[NSFetchIndexDescription alloc] initWithName:ORMCDIndexName(entity, names) elements:elements]];
+		}
+	}
+	if ([indexes count] > 0) {
+		described.indexes = indexes;
+	}
+}
 
 - (NSManagedObjectModel *)managedObjectModel
 {
@@ -102,6 +133,7 @@ ORMDerivationExpression(NSString *text)
 			[relationships setObject:described forKey:[NSString stringWithFormat:@"%@.%@", entity.name, relationship.name]];
 		}
 		[[entities objectForKey:entity.name] setProperties:properties];
+		[self index:[entities objectForKey:entity.name] as:entity];
 	}
 	for (ORMCDEntity *entity in self.entities) {
 		for (ORMCDRelationship *relationship in entity.relationships) {

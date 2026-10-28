@@ -9,12 +9,24 @@
  *   its name in the mapping's namespace   OData.type: Default.Employee
  *   the preferred identifier, where       OData.key = YES on each attribute
  *     every role of it is an attribute
- *   any other identifier                  a surrogate: an Integer64 "id",
- *                                         OData.key and OData.computed, that
- *                                         the service numbers on insert
+ *   any other identifier                  a surrogate: a UUID "id", OData.key
+ *                                         and ormkit.surrogate, that whoever
+ *                                         makes the object gives it (a client
+ *                                         offline too)
  *   a definition                          OData.description
  *   a value list, an open bound           OData.annotations: AllowedValues,
  *                                         Minimum@Exclusive, Maximum@Exclusive
+ *
+ * and, for offline sync (ODataKit's ODataSync), where the mapping says a
+ * direction (-[ORMCoreDataMapping syncDirectionOf:]):
+ *
+ *   the entity's direction                ODataSync.direction: down, up, both
+ *   its conflict rule (both)              ODataSync.conflicts
+ *   what a device changes (up, both)      bookkeeping attributes, optional
+ *                                         Strings marked ormkit.bookkeeping:
+ *                                         syncVersions (ODataSync.versions),
+ *                                         syncModified (ODataSync.modified);
+ *                                         its key preserveAfterDeletion
  *
  * Minimums, maximums and patterns Core Data holds already, and ODataKit
  * reads them from there. Subentities are served in their root's set, by its

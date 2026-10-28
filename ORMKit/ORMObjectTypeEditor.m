@@ -275,6 +275,122 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	return YES;
 }
 
+- (BOOL)setValuePattern:(NSString *)pattern of:(NSString *)objectTypeId reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	if ([type isKindOfClass:[ORMObjectType class]] && type.isEntity) {
+		type = type.referenceModeValueType;
+	}
+	if (![type isKindOfClass:[ORMObjectType class]] || type.kind != ORMValueType) {
+		if (reason != NULL) {
+			*reason = @"Only a value type, or an entity type with a reference mode, has a pattern.";
+		}
+		return NO;
+	}
+	NSString *kept = [pattern length] > 0 ? pattern : nil;
+	NSError *error = nil;
+	if (kept != nil && [NSRegularExpression regularExpressionWithPattern:kept options:0 error:&error] == nil) {
+		if (reason != NULL) {
+			*reason = [NSString stringWithFormat:@"'%@' is no regular expression.", kept];
+		}
+		return NO;
+	}
+	if ((kept == nil && type.valuePattern == nil) || [kept isEqualToString:type.valuePattern]) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Pattern" with:^{
+		type.valuePattern = kept;
+		[_editor wrote:type];
+	}];
+	return YES;
+}
+
+- (BOOL)setReferenceData:(BOOL)flag of:(NSString *)objectTypeId reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	NSString *why = ![type isKindOfClass:[ORMObjectType class]] || !type.isEntity || type.nestedFactType != nil
+		? @"Only an entity type's instances are reference data."
+		: flag && [type derivationRule] != nil ? @"A derived subtype's instances follow from others: they are no reference data."
+		: nil;
+	if (why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return NO;
+	}
+	if (type.isReferenceData == flag) {
+		return YES;
+	}
+	[_editor modelChange:flag ? @"Make Reference Data" : @"Make Not Reference Data" with:^{
+		type.isReferenceData = flag;
+		[_editor wrote:type];
+	}];
+	return YES;
+}
+
+- (BOOL)setDerivationNote:(NSString *)text ofSubtype:(NSString *)objectTypeId reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	if (![type isKindOfClass:[ORMObjectType class]] || [type.supertypes count] == 0) {
+		if (reason != NULL) {
+			*reason = @"Only a subtype is derived by a rule.";
+		}
+		return NO;
+	}
+	ORMDerivationRule *rule = [_editor.model.derivationRules objectForKey:type.identifier];
+	NSString *words = [text length] > 0 ? text : nil;
+	if ([words ?: @"" isEqualToString:rule.informalText ?: @""] && (rule != nil) == (words != nil)) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Derivation" with:^{
+		if (words == nil) {
+			[_editor.model setDerivationRule:nil ofSubtype:type];
+		} else {
+			ORMDerivationRule *kept = rule;
+			if (kept == nil) {
+				kept = [[ORMDerivationRule alloc] initWithModel:_editor.model];
+				kept.identifier = nil;
+				kept.isSubtypeRule = YES;
+				kept.paths = @[];
+				kept.calculations = @[];
+				kept.conditions = @[];
+				kept.projections = @{};
+			}
+			kept.pathId = kept.pathId ?: ORMNewId();
+			kept.noteId = kept.noteId ?: ORMNewId();
+			kept.informalText = words;
+			[_editor.model setDerivationRule:kept ofSubtype:type];
+		}
+		[_editor wrote:type];
+	}];
+	return YES;
+}
+
+- (BOOL)setDerivationPartial:(BOOL)partial
+                      stored:(BOOL)stored
+                   ofSubtype:(NSString *)objectTypeId
+                      reason:(NSString **)reason
+{
+	ORMObjectType *type = [_editor.model elementWithId:objectTypeId];
+	ORMDerivationRule *rule = [type isKindOfClass:[ORMObjectType class]]
+		? [_editor.model.derivationRules objectForKey:type.identifier] : nil;
+	if (rule.pathId == nil) {
+		if (reason != NULL) {
+			*reason = rule != nil ? @"Its rule is an older one, which says this itself." : @"It is not derived.";
+		}
+		return NO;
+	}
+	if (rule.isPartial == partial && rule.isStored == stored) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Derivation" with:^{
+		rule.isPartial = partial;
+		rule.isStored = stored;
+		[_editor wrote:type];
+	}];
+	return YES;
+}
+
 /* One of an object type's flags, by its property's key. */
 - (BOOL)setFlag:(NSString *)key to:(BOOL)flag of:(NSString *)objectTypeId named:(NSString *)action
          reason:(NSString **)reason
@@ -323,7 +439,7 @@ ORMDefaultDataTypeForMode(NSString *mode, ORMReferenceModeKind kind)
 	if ((type.kind == ORMValueType) == value) {
 		return YES;
 	}
-	if (value && (type.preferredIdentifier != nil || [type.subtypes count] > 0 || [type.supertypes count] > 0)) {
+	if (value && (type.preferredIdentifier != nil || [type isInSubtypeHierarchy])) {
 		if (reason != NULL) {
 			*reason = @"An entity type with an identifier or subtypes cannot become a value type; remove them first.";
 		}

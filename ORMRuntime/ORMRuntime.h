@@ -4,6 +4,8 @@
  * model, no XML: ORMKit makes the plans, this runs them. */
 #import "ORMQueryPlan.h"
 #import "ORMQueryInterpreter.h"
+#import "ORMTuple.h"
+#import "ORMWindow.h"
 #import "ORMCursor.h"
 #import "ORMQueryOData.h"
 #import "ORMTables.h"

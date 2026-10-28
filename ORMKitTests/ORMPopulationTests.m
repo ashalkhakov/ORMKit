@@ -754,7 +754,7 @@ ORMViolationTexts(ORMModel *model)
 		}
 	}
 	/* What the generator cannot yet make whole: docs/POPULATIONS.md. */
-	XCTAssertEqualObjects(broken, ([NSSet setWithArray:@[ @"Diplomacy.orm", @"Metamodel.orm" ]]));
+	XCTAssertEqualObjects(broken, ([NSSet setWithArray:@[ @"Diplomacy.orm", @"Metamodel.orm", @"VenueSeating.orm" ]]));
 }
 
 /* The samples' own populations: each query finds what its paper says, or

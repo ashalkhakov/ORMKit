@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <CoreData/CoreData.h>
+#import "ORMTuple.h"
 #import "ORMCursor.h"
 #import "ORMQueryInterpreter.h"
 #import "ORMQueryPlan.h"
@@ -142,9 +143,14 @@
 	id<ORMCursor> _input;
 	id<ORMBatchEvaluator> _evaluator;
 	NSArray<NSString *> *_titles;
-	NSMutableSet<NSArray *> *_given;
+	NSMutableSet<ORMTuple *> *_given;
 	/* In order: the last object's rows. */
-	NSMutableSet<NSArray *> *_previous;
+	NSMutableSet<ORMTuple *> *_previous;
+	/* Sorting: each row read, @[ its object, the row ], until all are;
+	 * then in order, and how many are given. */
+	NSMutableArray<NSArray *> *_owned;
+	BOOL _sorted;
+	NSUInteger _taken;
 }
 
 - (instancetype)initWithInput:(id<ORMCursor>)input
@@ -162,6 +168,9 @@
 
 - (BOOL)atEnd
 {
+	if ([_sortColumns count] > 0) {
+		return _sorted && _taken >= [_owned count];
+	}
 	return _input.atEnd;
 }
 
@@ -175,16 +184,21 @@
 {
 	_evaluator.answers = batch.answers;
 	for (id object in batch.objects) {
-		BOOL own = _objectsApart || _rowsInOrder;
-		NSMutableSet *given = own ? [NSMutableSet set] : _given;
-		for (NSArray *tuple in [_evaluator rowsOf:object]) {
-			if (![given containsObject:tuple] && !(_rowsInOrder && !_objectsApart && [_previous containsObject:tuple])) {
-				[rows addObject:tuple];
+		/* What making an object's rows makes, gone with it. */
+		@autoreleasepool {
+			BOOL own = _objectsApart || _rowsInOrder;
+			NSMutableSet *given = own ? [NSMutableSet set] : _given;
+			for (ORMTuple *tuple in [_evaluator rowsOf:object]) {
+				if (![given containsObject:tuple] && !(_rowsInOrder && !_objectsApart && [_previous containsObject:tuple])) {
+					/* The row given: its values, a plain array. */
+					[rows addObject:[tuple values]];
+					[_owned addObject:@[ object, tuple ]];
+				}
+				[given addObject:tuple];
 			}
-			[given addObject:tuple];
-		}
-		if (_rowsInOrder && !_objectsApart && [given count] > 0) {
-			_previous = given;
+			if (_rowsInOrder && !_objectsApart && [given count] > 0) {
+				_previous = given;
+			}
 		}
 	}
 	_evaluator.answers = nil;
@@ -240,9 +254,84 @@
 	completion([ORMQueryResult resultWithObjects:objects columnTitles:_titles rows:rows], nil);
 }
 
+/* Two rows, @[ object, row ] each, in the sort columns' order: a missing
+ * value first, values of one kind by their own order. */
+static NSInteger
+ORMCompareOwnedRows(NSArray *a, NSArray *b, void *context)
+{
+	for (NSArray *by in (__bridge NSArray *)context) {
+		NSUInteger index = [[by firstObject] unsignedIntegerValue];
+		id x = [[a lastObject] objectAtIndex:index];
+		id y = [[b lastObject] objectAtIndex:index];
+		BOOL xNone = x == [NSNull null], yNone = y == [NSNull null];
+		NSComparisonResult order = NSOrderedSame;
+		if (xNone || yNone) {
+			order = xNone == yNone ? NSOrderedSame : xNone ? NSOrderedAscending : NSOrderedDescending;
+		} else if ([x isKindOfClass:[NSNumber class]] && [y isKindOfClass:[NSNumber class]]) {
+			order = [x compare:y];
+		} else if ([x respondsToSelector:@selector(compare:)] && [x class] == [y class]) {
+			order = [x compare:y];
+		} else {
+			order = [[x description] compare:[y description]];
+		}
+		if (order != NSOrderedSame) {
+			return [[by lastObject] boolValue] ? order : -order;
+		}
+	}
+	return NSOrderedSame;
+}
+
+/* The next size of the sorted rows, with their objects. */
+- (ORMQueryResult *)sortedPage:(NSUInteger)size
+{
+	NSUInteger end = MIN(_taken + size, [_owned count]);
+	NSMutableArray *objects = [NSMutableArray array];
+	NSMutableArray *rows = [NSMutableArray array];
+	for (NSUInteger i = _taken; i < end; i++) {
+		NSArray *owned = [_owned objectAtIndex:i];
+		if ([objects indexOfObjectIdenticalTo:[owned firstObject]] == NSNotFound) {
+			[objects addObject:[owned firstObject]];
+		}
+		[rows addObject:[(ORMTuple *)[owned lastObject] values]];
+	}
+	_taken = end;
+	return [ORMQueryResult resultWithObjects:objects columnTitles:_titles rows:rows];
+}
+
 - (void)nextPage:(NSUInteger)size completion:(void (^)(ORMQueryResult *page, NSError *error))completion
 {
-	[self fill:[NSMutableArray array] rows:[NSMutableArray array] size:MAX(size, (NSUInteger)1) completion:completion];
+	size = MAX(size, (NSUInteger)1);
+	if ([_sortColumns count] == 0) {
+		[self fill:[NSMutableArray array] rows:[NSMutableArray array] size:size completion:completion];
+		return;
+	}
+	if (_sorted) {
+		completion([self sortedPage:size], nil);
+		return;
+	}
+	/* All of it first, then sorted. */
+	_owned = [NSMutableArray array];
+	[self readAll:size completion:completion];
+}
+
+/* The input read to its end, a batch at a time; then the rows sorted and
+ * the first page given. */
+- (void)readAll:(NSUInteger)size completion:(void (^)(ORMQueryResult *page, NSError *error))completion
+{
+	[self fill:[NSMutableArray array] rows:[NSMutableArray array] size:256
+	completion:^(ORMQueryResult *page, NSError *error) {
+		if (page == nil) {
+			completion(nil, error);
+			return;
+		}
+		if (!self->_input.atEnd) {
+			[self readAll:size completion:completion];
+			return;
+		}
+		[self->_owned sortUsingFunction:ORMCompareOwnedRows context:(__bridge void *)self->_sortColumns];
+		self->_sorted = YES;
+		completion([self sortedPage:size], nil);
+	}];
 }
 
 @end

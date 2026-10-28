@@ -56,6 +56,8 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
 - (NSArray<NSString *> *)selectedElements;
 /* Selects the shapes on this diagram for the elements. */
 - (void)selectElements:(NSArray<NSString *> *)elementIds;
+/* Selects these shapes, by id: one of an element's several. */
+- (void)selectShapes:(NSArray<NSString *> *)shapeIds;
 /* A role box selected, as a second click on it selects it. */
 - (void)selectRole:(NSString *)roleId;
 /* The role box the last click was on, whatever it selected: the first

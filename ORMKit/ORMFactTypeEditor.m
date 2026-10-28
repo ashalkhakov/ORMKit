@@ -276,6 +276,28 @@
 	return YES;
 }
 
+- (BOOL)setReferenceData:(BOOL)flag of:(NSString *)factTypeId reason:(NSString **)reason
+{
+	ORMFactType *fact = [_editor.model elementWithId:factTypeId];
+	NSString *why = ![fact isKindOfClass:[ORMFactType class]] || fact.kind != ORMFactTypeOrdinary
+		? @"Only a fact type's facts are reference data."
+		: flag && fact.isDerived ? @"A derived fact type's facts follow from others: they are no reference data." : nil;
+	if (why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return NO;
+	}
+	if (fact.isReferenceData == flag) {
+		return YES;
+	}
+	[_editor modelChange:flag ? @"Make Reference Data" : @"Make Not Reference Data" with:^{
+		fact.isReferenceData = flag;
+		[_editor wrote:fact];
+	}];
+	return YES;
+}
+
 /* The fact type's rule, made with a path (and so derived) where it has
  * none; one without a path gets one. */
 - (ORMDerivationRule *)ruleOf:(ORMFactType *)fact

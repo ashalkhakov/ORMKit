@@ -5,7 +5,9 @@
 
 /* A derived fact: the player of each of its fact type's roles, by role id.
  * An ORMInstance of the sample population; or, for a value type's role
- * whose value no instance has, the value's text. */
+ * whose value no instance has, the value's text; or, for a player of
+ * several identifying values no instance has, those parts, by their roles'
+ * ids, each an instance or a value's text. */
 @interface ORMDerivedFact : NSObject
 @property (nonatomic, readonly, strong) ORMFactType *factType;
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, id> *players;

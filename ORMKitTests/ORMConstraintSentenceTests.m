@@ -51,6 +51,16 @@ ORMSpecIs(ORMSentenceConstraint *spec, id element)
 		return NO;
 	}
 	switch (constraint.kind) {
+	case ORMFrequencyConstraint:
+		if (spec.minFrequency != constraint.minFrequency || spec.maxFrequency != constraint.maxFrequency) {
+			return NO;
+		}
+		break;
+	case ORMValueComparisonConstraint:
+		if (![spec.comparisonOperator isEqualToString:constraint.comparisonOperator]) {
+			return NO;
+		}
+		break;
 	case ORMMandatoryConstraint:
 		if (spec.isExclusiveOr != (constraint.exclusiveOrPartner != nil)) {
 			return NO;
@@ -103,7 +113,7 @@ ORMSpecIs(ORMSentenceConstraint *spec, id element)
 }
 
 /* What the parser reads now: constraints over the fact types their roles
- * are in, not over join paths, and not frequency. */
+ * are in, not over join paths. */
 static BOOL
 ORMSaidWithoutJoins(id element)
 {
@@ -111,17 +121,15 @@ ORMSaidWithoutJoins(id element)
 		return YES;
 	}
 	ORMConstraint *constraint = element;
-	if (constraint.kind == ORMFrequencyConstraint) {
-		return NO;
-	}
 	for (ORMRoleSequence *sequence in constraint.roleSequences) {
 		if ([sequence joinPath] != nil) {
 			return NO;
 		}
 		BOOL spans = [[NSSet setWithArray:[sequence.roles valueForKey:@"factType"]] count] > 1;
-		/* An external uniqueness or inclusive-or spans fact types by
-		 * nature; the others over several are joins. */
-		BOOL byNature = constraint.kind == ORMUniquenessConstraint || constraint.kind == ORMMandatoryConstraint;
+		/* An external uniqueness, an inclusive-or or a value comparison
+		 * spans fact types by nature; the others over several are joins. */
+		BOOL byNature = constraint.kind == ORMUniquenessConstraint || constraint.kind == ORMMandatoryConstraint
+			|| constraint.kind == ORMValueComparisonConstraint;
 		if (spans && !byNature) {
 			return NO;
 		}
@@ -141,6 +149,17 @@ ORMSaidWithoutJoins(id element)
 		return [players count] == 1;
 	}
 	return YES;
+}
+
+/* The role names shown on a fact type's shape. */
+static NSUInteger
+ORMRoleNameShapes(ORMShape *factShape)
+{
+	NSUInteger count = 0;
+	for (ORMShape *child in factShape.relativeShapes) {
+		count += child.kind == ORMShapeRoleName ? 1 : 0;
+	}
+	return count;
 }
 
 @implementation ORMConstraintSentenceTests
@@ -356,6 +375,330 @@ ORMSaidWithoutJoins(id element)
 	ORMObjectType *person = [model objectTypeNamed:@"Person"];
 	XCTAssertEqual([[[model objectTypeNamed:@"Gender"] valueConstraint].ranges count], (NSUInteger)2);
 	XCTAssertNotNil(person);
+}
+
+/* A value comparison, and over a supertype's fact type and a subtype's,
+ * said "For each" the subtype. */
+- (void)testAValueComparisonFromASentence
+{
+	NSString *dates = @"For each Project, if that Project starts on some Date1 and that Project ends on some Date2 then "
+	                  @"Date1 is less than or equal to Date2.";
+	ORMEditor *editor = [self editorWith:@[ @"Each Project starts on exactly one Date.", @"Each Project ends on at most one Date.",
+	                                        dates, @"Each Event is at exactly one Moment.", @"Each Trip is an Event.",
+	                                        @"Each Trip ended at at most one Moment." ]];
+	NSString *moments = @"For each Trip, if that Trip is at some Moment1 and that Trip ended at some Moment2 then "
+	                    @"Moment1 is less than Moment2.";
+	NSString *reason = nil;
+	NSArray *made = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:moments onDiagram:nil
+	                                                                                  at:ORMAutomaticPlacement
+	                                                                              reason:&reason];
+	XCTAssertEqual([made count], (NSUInteger)1, @"%@", reason);
+	NSMutableArray *comparisons = [NSMutableArray array];
+	for (ORMConstraint *constraint in editor.model.constraints) {
+		if (constraint.kind == ORMValueComparisonConstraint) {
+			[comparisons addObject:constraint];
+		}
+	}
+	XCTAssertEqual([comparisons count], (NSUInteger)2);
+	XCTAssertEqualObjects([[comparisons firstObject] comparisonOperator], @"LessThanOrEqual");
+	XCTAssertEqualObjects([[comparisons lastObject] comparisonOperator], @"LessThan");
+	XCTAssertTrue([[self textsOf:[[comparisons firstObject] identifier] in:editor.model] containsObject:dates]);
+	XCTAssertTrue([[self textsOf:[[comparisons lastObject] identifier] in:editor.model] containsObject:moments]);
+	/* No "some" to compare. */
+	XCTAssertNil(([[[ORMSentenceEditor alloc] initWithEditor:editor]
+		addFromSentence:@"For each Project, if that Project starts on some Date1 then Date1 is less than Date3."
+		      onDiagram:nil at:ORMAutomaticPlacement reason:&reason]));
+	XCTAssertTrue([reason rangeOfString:@"Date3"].location != NSNotFound, @"%@", reason);
+}
+
+/* What the verbalizer says of object types reads back as them. */
+- (void)testObjectTypesFromStatements
+{
+	ORMEditor *editor = [self editorWith:@[ @"Amount is a value type.", @"Currency is an entity type.",
+	                                        @"Each Money has exactly one Amount.", @"Each Money is in exactly one Currency.",
+	                                        (@"For each Amount and Currency, at most one Money has that Amount and is in that "
+	                                         @"Currency."),
+	                                        (@"This association with Amount and Currency provides the preferred "
+	                                         @"identification scheme for Money."),
+	                                        @"Each Male is a Person.",
+	                                        @"Each Adult is by definition a Person who is of some Age.",
+	                                        @"Enrolment is where Student enrolled in Course." ]];
+	ORMModel *model = editor.model;
+	XCTAssertFalse([[model objectTypeNamed:@"Amount"] isEntity]);
+	XCTAssertTrue([[model objectTypeNamed:@"Currency"] isEntity]);
+	ORMObjectType *money = [model objectTypeNamed:@"Money"];
+	XCTAssertEqual([[[money preferredIdentifier] allRoles] count], (NSUInteger)2);
+	ORMObjectType *person = [model objectTypeNamed:@"Person"];
+	XCTAssertTrue([[model objectTypeNamed:@"Male"] isSubtypeOf:person]);
+	ORMObjectType *adult = [model objectTypeNamed:@"Adult"];
+	XCTAssertTrue([adult isSubtypeOf:person]);
+	/* The rule as NORMA keeps a subtype's, said back as it was written. */
+	XCTAssertEqualObjects([adult derivationRule].informalText, @"a Person who is of some Age");
+	XCTAssertTrue([adult derivationRule].isSubtypeRule);
+	XCTAssertTrue([[self textsOf:adult.identifier in:model]
+		containsObject:@"Each Adult is by definition a Person who is of some Age."], @"%@", [self textsOf:adult.identifier in:model]);
+	NSString *saved = [[NSString alloc] initWithData:[editor dataForSaving] encoding:NSUTF8StringEncoding];
+	NSRange rule = [saved rangeOfString:@"<orm:SubtypeDerivationRule>"];
+	XCTAssertTrue(rule.location != NSNotFound);
+	NSString *after = rule.location != NSNotFound ? [saved substringFromIndex:rule.location] : @"";
+	XCTAssertTrue([after rangeOfString:@"<orm:SubtypeDerivationPath id="].location
+	              < [after rangeOfString:@"<orm:Body>a Person who is of some Age</orm:Body>"].location);
+	ORMModel *reread = [ORMModel modelOfDocument:ORMParseDocument([editor dataForSaving], NULL) reason:NULL];
+	XCTAssertEqualObjects([[reread objectTypeNamed:@"Adult"] derivationRule].informalText, @"a Person who is of some Age");
+	ORMObjectType *enrolment = [model objectTypeNamed:@"Enrolment"];
+	XCTAssertEqualObjects([[enrolment.nestedFactType primaryReading] text], @"{0} enrolled in {1}");
+	XCTAssertTrue([[self textsOf:money.identifier in:model]
+		containsObject:@"Reference Scheme: Money has Amount; Money is in Currency."]);
+	/* Said again of one the model has: nothing new. */
+	NSUInteger count = [model.objectTypes count];
+	NSString *reason = nil;
+	NSArray *made = [[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:@"Currency is an entity type."
+	                                                                         onDiagram:nil at:ORMAutomaticPlacement
+	                                                                            reason:&reason];
+	XCTAssertEqualObjects(made, @[ [[model objectTypeNamed:@"Currency"] identifier] ]);
+	XCTAssertEqual([editor.model.objectTypes count], count);
+	XCTAssertNil(([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:@"Amount is an entity type."
+	                                                                       onDiagram:nil at:ORMAutomaticPlacement
+	                                                                          reason:&reason]));
+	XCTAssertTrue([reason length] > 0);
+}
+
+/* An entity type with its reference mode, as a fact sentence writes one:
+ * the entity type and its identifier, no unary "is an entity type". */
+- (void)testAnEntityTypeWithItsReferenceMode
+{
+	ORMEditor *editor = [self editorWith:@[ @"Vehicle(.id) is an entity type.", @"Mass(kg:) is an entity type.",
+	                                        @"Country(Code) is an entity type." ]];
+	ORMModel *model = editor.model;
+	ORMObjectType *vehicle = [model objectTypeNamed:@"Vehicle"];
+	XCTAssertTrue([vehicle isEntity]);
+	XCTAssertEqual([[model objectTypeNamed:@"Vehicle_id"] kind], ORMValueType);
+	XCTAssertEqual([[[vehicle preferredIdentifier] allRoles] count], (NSUInteger)1);
+	XCTAssertNotNil([model objectTypeNamed:@"kgValue"]);
+	XCTAssertNotNil([model objectTypeNamed:@"Code"]);
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		XCTAssertTrue([[[fact primaryReading] expandedText] rangeOfString:@"entity type"].location == NSNotFound,
+		              @"%@", [[fact primaryReading] expandedText]);
+	}
+	NSString *reason = nil;
+	XCTAssertNil(([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromSentence:@"Rating(.nr) is a value type."
+	                                                                       onDiagram:nil at:ORMAutomaticPlacement
+	                                                                          reason:&reason]));
+	XCTAssertTrue([reason rangeOfString:@"reference mode"].location != NSNotFound, @"%@", reason);
+}
+
+/* A schema as text: diagrams by heading, details and derivations going on
+ * from the line before, every line not read said with its number. */
+- (void)testASchemaFromText
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"// Money and records\n"
+	                 @"# Money\n"
+	                 @"Amount is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                 @"Currency is an entity type.\n"
+	                 @"Reference Mode: .code\n"
+	                 @"Each Money has exactly one Amount.\n"
+	                 @"\n"
+	                 @"# Records\n"
+	                 @"Record(.id) cost Money\n"
+	                 @"Fact Type Name: RecordCost\n"
+	                 @"** the sum of its items' costs\n"
+	                 @"is late, and lazy.\n"
+	                 @"Portable data type: Numeric: Whatever\n";
+	NSArray *failures = nil;
+	XCTAssertFalse([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures]);
+	XCTAssertEqual([failures count], (NSUInteger)2, @"%@", failures);
+	XCTAssertTrue([[failures firstObject] hasPrefix:@"13: "], @"%@", failures);
+	XCTAssertTrue([[failures lastObject] hasPrefix:@"14: "], @"%@", failures);
+	ORMModel *model = editor.model;
+	XCTAssertEqualObjects([model.diagrams valueForKey:@"name"], (@[ @"Money", @"Records" ]));
+	ORMObjectType *amount = [model objectTypeNamed:@"Amount"];
+	XCTAssertEqualObjects(amount.dataType.typeName, @"DecimalNumericDataType");
+	XCTAssertEqual(amount.dataTypeLength, (NSInteger)19);
+	XCTAssertEqual(amount.dataTypeScale, (NSInteger)4);
+	XCTAssertEqualObjects([[model objectTypeNamed:@"Currency"] referenceMode], @"code");
+	ORMFactType *cost = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] text] isEqualToString:@"{0} cost {1}"]) {
+			cost = fact;
+		}
+	}
+	XCTAssertTrue(cost.isDerived);
+	XCTAssertEqualObjects(cost.explicitName, @"RecordCost");
+	XCTAssertTrue([[self textsOf:cost.identifier in:model] containsObject:@"** the sum of its items' costs."],
+	              @"%@", [self textsOf:cost.identifier in:model]);
+	/* Each diagram has what its lines named. */
+	ORMDiagram *records = [model.diagrams lastObject];
+	XCTAssertNotNil([records shapeForSubject:cost.identifier]);
+	XCTAssertNotNil([records shapeForSubject:[[model objectTypeNamed:@"Money"] identifier]]);
+	/* One step to undo. */
+	[self.undoManager undo];
+	XCTAssertNil([editor.model objectTypeNamed:@"Amount"]);
+}
+
+/* A role named as CQL names it: shown on the diagram as NORMA shows it,
+ * and the attribute Core Data gets is called so. */
+- (void)testARoleNamedInASentence
+{
+	ORMEditor *editor = [self editorWith:@[ @"Vehicle(.id) was acquired on Date() (as PurchaseDate)",
+	                                        @"Each Vehicle was acquired on at most one Date." ]];
+	ORMModel *model = editor.model;
+	ORMFactType *acquired = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] text] isEqualToString:@"{0} was acquired on {1}"]) {
+			acquired = fact;
+		}
+	}
+	XCTAssertNotNil(acquired);
+	ORMRole *date = [[acquired visibleRoles] lastObject];
+	XCTAssertEqualObjects(date.name, @"PurchaseDate");
+	ORMDiagram *diagram = [model.diagrams firstObject];
+	ORMShape *factShape = [diagram shapeForSubject:acquired.identifier];
+	XCTAssertEqual(ORMRoleNameShapes(factShape), (NSUInteger)1);
+	ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:model mapping:nil] map];
+	NSMutableArray *names = [NSMutableArray array];
+	for (ORMCDEntity *entity in coreData.entities) {
+		if ([entity.name isEqualToString:@"Vehicle"]) {
+			[names addObjectsFromArray:[entity.attributes valueForKey:@"name"]];
+		}
+	}
+	XCTAssertTrue([names containsObject:@"purchaseDate"], @"%@", names);
+	/* Its name taken away, so is its shape. */
+	XCTAssertTrue([editor.elementEditor rename:date.identifier to:@"" reason:NULL]);
+	factShape = [[editor.model.diagrams firstObject] shapeForSubject:acquired.identifier];
+	XCTAssertEqual(ORMRoleNameShapes(factShape), (NSUInteger)0);
+}
+
+/* Frequency, in both of the verbalizer's forms, said back as written. */
+- (void)testFrequencyFromSentences
+{
+	NSString *phones = @"Each Person that has some PhoneNr has at least 2 and at most 5 PhoneNr.";
+	NSString *speaks = (@"Each Person, Language combination that occurs in the population of Person speaks Language occurs "
+	                    @"there exactly 2 times.");
+	ORMEditor *editor = [self editorWith:@[ @"Person(.nr) has PhoneNr()", @"Person speaks Language(.code)", phones, speaks ]];
+	NSMutableArray *frequencies = [NSMutableArray array];
+	for (ORMConstraint *constraint in editor.model.constraints) {
+		if (constraint.kind == ORMFrequencyConstraint) {
+			[frequencies addObject:constraint];
+		}
+	}
+	XCTAssertEqual([frequencies count], (NSUInteger)2);
+	ORMConstraint *first = [frequencies firstObject];
+	XCTAssertEqual(first.minFrequency, (NSUInteger)2);
+	XCTAssertEqual(first.maxFrequency, (NSUInteger)5);
+	XCTAssertTrue([[self textsOf:first.identifier in:editor.model] containsObject:phones]);
+	XCTAssertTrue([[self textsOf:[[frequencies lastObject] identifier] in:editor.model] containsObject:speaks],
+	              @"%@", [self textsOf:[[frequencies lastObject] identifier] in:editor.model]);
+}
+
+/* The fact type that reads so, and its role played by the named type. */
+static ORMRole *
+ORMRoleOf(ORMModel *model, NSString *reading, NSString *player)
+{
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:reading]) {
+			for (ORMRole *role in [fact visibleRoles]) {
+				if ([role.player.name isEqualToString:player]) {
+					return role;
+				}
+			}
+		}
+	}
+	return nil;
+}
+
+/* A rule stepping to a subtype through a to-many, from schema text, run
+ * against a sample population in a SQLite store: the subtype asked of
+ * each object's entity inside the subquery. */
+- (void)testARuleThroughASubtypeRunsAgainstAPopulation
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Reading is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Record(.id) is of Vehicle(.id)\n"
+	                 @"Each Record is of exactly one Vehicle.\n"
+	                 @"Each Event is a Record.\n"
+	                 @"Each Document is a Record.\n"
+	                 @"Event shows Reading\n"
+	                 @"Each Event shows at most one Reading.\n"
+	                 @"\n"
+	                 @"Query HighReading:\n"
+	                 @"It is impossible that:\n"
+	                 @"✓Vehicle\n"
+	                 @"  + Record is of that Vehicle\n"
+	                 @"    + is Event\n"
+	                 @"      + shows Reading > 100\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMModel *model = editor.model;
+	ORMPopulationEditor *population = editor.populationEditor;
+	ORMRole *record = ORMRoleOf(model, @"Record is of Vehicle", @"Record");
+	ORMRole *vehicle = ORMRoleOf(model, @"Record is of Vehicle", @"Vehicle");
+	ORMRole *event = ORMRoleOf(model, @"Event shows Reading", @"Event");
+	ORMRole *reading = ORMRoleOf(model, @"Event shows Reading", @"Reading");
+	NSString *reason = nil;
+	/* Ids are counters (.id with no data type): numbers. */
+	for (NSArray *each in @[ @[ @"Event", @"11", @"1", @"150" ], @[ @"Event", @"12", @"2", @"90" ],
+	                         @[ @"Document", @"13", @"3", @"" ] ]) {
+		XCTAssertNotNil([population addInstanceOf:[[model objectTypeNamed:each[0]] identifier] named:each[1] reason:&reason],
+		                @"%@", reason);
+		XCTAssertNotNil(([population addFactOf:record.factType.identifier
+		                                 named:@{ record.identifier: each[1], vehicle.identifier: each[2] } reason:&reason]),
+		                @"%@", reason);
+		if ([each[3] length] > 0) {
+			XCTAssertNotNil(([population addFactOf:event.factType.identifier
+			                                 named:@{ event.identifier: each[1], reading.identifier: each[3] } reason:&reason]),
+			                @"%@", reason);
+		}
+	}
+	NSArray *violations = [[[ORMPopulationChecker alloc] initWithModel:editor.model] violations];
+	XCTAssertEqual([violations count], (NSUInteger)1, @"%@", [violations valueForKey:@"text"]);
+	XCTAssertEqualObjects([[violations firstObject] text], @"HighReading: Vehicle 1.");
+}
+
+/* Queries in a schema's text: each its outline under a "Query" line, up
+ * to a blank one, read back as -outlineText writes it. */
+- (void)testQueriesInASchemaText
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Salary is a value type.\n"
+	                 @"Employee(.nr) works for Branch(.nr) / Branch employs Employee\n"
+	                 @"Each Employee works for exactly one Branch.\n"
+	                 @"Branch is headed by Employee\n"
+	                 @"Each Branch is headed by at most one Employee.\n"
+	                 @"Employee earns Salary\n"
+	                 @"Each Employee earns at most one Salary.\n"
+	                 @"\n"
+	                 @"Query Headless:\n"
+	                 @"It is impossible that:\n"
+	                 @"✓Branch\n"
+	                 @"  + not is headed by Employee\n"
+	                 @"\n"
+	                 @"Query Payroll:\n"
+	                 @"Payroll of each Branch is total(Salary) of:\n"
+	                 @"✓Branch\n"
+	                 @"  + employs Employee\n"
+	                 @"    + earns Salary\n"
+	                 @"\n"
+	                 @"Query Martian:\n"
+	                 @"✓Employee\n"
+	                 @"  + flies to Mars\n";
+	NSArray *failures = nil;
+	XCTAssertFalse([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures]);
+	XCTAssertEqual([failures count], (NSUInteger)1, @"%@", failures);
+	XCTAssertTrue([[failures firstObject] hasPrefix:@"20: Line 2"], @"%@", failures);
+	NSArray *queries = [ORMQuery queriesInModel:editor.model];
+	XCTAssertEqualObjects([queries valueForKey:@"name"], (@[ @"Headless", @"Payroll" ]));
+	ORMQuery *headless = [queries firstObject];
+	XCTAssertEqual(headless.kind, ORMQueryConstraint);
+	XCTAssertEqualObjects([headless outlineText], @"It is impossible that:\n✓Branch\n  + not is headed by Employee\n");
+	XCTAssertEqual(((ORMQuery *)[queries lastObject]).kind, ORMQueryCalculation);
+	/* Queries alone make no diagram. */
+	NSUInteger diagrams = [editor.model.diagrams count];
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor]
+		addFromText:@"Query Headed:\nIt is impossible that:\n✓Branch\n  + is headed by Employee\n" failures:NULL]);
+	XCTAssertEqual([editor.model.diagrams count], diagrams);
 }
 
 - (void)testWhatIsNotUnderstoodSaysWhy

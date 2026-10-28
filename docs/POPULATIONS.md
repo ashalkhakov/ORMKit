@@ -61,8 +61,10 @@ store of the document's first mapping, each row a violation
 population meets the graphical constraints, not necessarily the rules.
 
 The structural constraints of subtype and link fact types are not checked.
-Value comparisons, and sequences that span fact types, are listed as
-unchecked.
+Value comparisons, and subsets, equalities, exclusions and inclusive-ors
+whose sequences span fact types, are checked as the rule queries that say
+them ([RULES.md](RULES.md), `ORMConstraintQueries`); one that goes through
+a derived fact type that is not stored is listed as unchecked.
 
 ## Making one up
 
@@ -91,7 +93,7 @@ model:
 
 What it cannot make keep a constraint is in its `notes`. Every model it is
 tested on gets a population that is written, read back and put in a store,
-and most break nothing: the samples, StockMate, WorkMate, and 24 of the 29
+and most break nothing: the samples, StockMate, WorkMate, and 23 of the 29
 ActiveFacts models. The rest are listed under [Not done yet](#not-done-yet).
 
 ## In a store
@@ -177,6 +179,30 @@ type's or object type's population as a table, a column for each role
   adds the row once each is named. Removal is refused while the instance plays in a fact or
   identifies another.
 
+## Reference data
+
+A fact type may be marked as reference data (`setReferenceData:of:`,
+"Reference data: km, 1" in a schema's text): its facts in the population
+are not a sample but what every store of an app starts with, the app's own
+(units and their factors). ORMKit keeps the mark in its own namespace,
+`<ormv:ReferenceData>true</ormv:ReferenceData>` in the fact type, which a
+copy for NORMA leaves out. The generated tables carry those facts as seeds
+([RUNTIME.md](RUNTIME.md#the-tables)): each entity object a fact of them
+has, put in a store of the mapping as the population is here, with the
+key that finds it and the properties those fact types are kept in. A fact
+kept in no object a player is (a fact type's own entity) is noted, not
+seeded.
+
+An entity type may be marked so too (the object type editor's
+`setReferenceData:of:`, "Reference data: Fuel" after the type in a
+schema's text, a subtype's after its subtyping): its instances are the
+app's, where nothing more is said of them than their names (the kinds of
+cost a logbook starts with, CostKind 'Fuel'; an expense kind, a subtype's
+instance). The mark is kept the same way, in the object type's element;
+each instance is a seed of its most specific type's entity, by its key
+alone. One a marked subtype's instance is, is said under the subtype, not
+again under its supertype.
+
 ## Derived fact types
 
 A fact type a query derives ([DERIVATION.md](DERIVATION.md)) has its facts
@@ -227,12 +253,14 @@ The generator sizes and shapes the population for what must be played:
     instances, grown for what one subtype needs but not balanced among
     several (the ActiveFacts Metamodel's eight kinds of Shape);
   - external uniqueness over more than binaries;
-  - value comparisons;
+  - value comparisons, and subsets, equalities and exclusions over join
+    paths (VenueSeating's ticket at the venue of its event), which it
+    notes and does not make up to;
   - derived fact types, which it leaves out.
 - **Unary facts kept on their player** (`EntityTypeUnaryRoleInstance`, as
   newer NORMA versions write them) are read, but not written or removed
   one by one: ORMKit writes a unary fact as a fact instance.
-- **The checker's limits:** value comparisons, and sequences that need a
-  join path.
+- **The checker's limits:** constraints through a derived fact type that
+  is not stored.
 - **Populations in OData:** posting a population to a running ODataKit
   service, so the OData request can be tried against it as well.

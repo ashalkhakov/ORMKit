@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <Foundation/Foundation.h>
+#import "ORMTuple.h"
 
 @class ORMQueryResult, NSEntityDescription;
 
@@ -35,7 +36,7 @@
 /* Whether the object meets what the read could not ask. */
 - (BOOL)keeps:(id)object;
 /* Its rows: a tuple for each way it meets the conditions. */
-- (NSArray<NSArray *> *)rowsOf:(id)object;
+- (NSArray<ORMTuple *> *)rowsOf:(id)object;
 @end
 
 /* The input's objects the evaluator keeps. */
@@ -74,6 +75,11 @@ typedef void (^ORMBindRead)(NSArray *values, void (^done)(id answer, NSError *er
 @property (nonatomic) BOOL rowsInOrder;
 /* How many rows are kept to give none twice. */
 @property (nonatomic, readonly) NSUInteger rowsKept;
+/* The rows' order where the input is not in it (-[ORMQueryPlan
+ * rowSortColumns]): @[ a column's index, @(ascending) ] each. Then the
+ * whole input is read at the first page, its rows sorted, and each page is
+ * size of them, with their objects. Empty by default. */
+@property (nonatomic, copy) NSArray<NSArray *> *sortColumns;
 @end
 
 /* The order a Scan reads in, made total by the entity's key, and where its

@@ -513,16 +513,7 @@ ORMInsert(NSManagedObjectContext *context, NSString *entity, NSDictionary *value
 		BOOL (*prepared)(id, SEL, NSError **) = (BOOL (*)(id, SEL, NSError **))[_context methodForSelector:prepare];
 		return prepared(_context, prepare, error);
 	}
-	NSMutableSet *changed = [NSMutableSet setWithSet:[_context insertedObjects]];
-	[changed unionSet:[_context updatedObjects]];
-	[changed unionSet:[_context deletedObjects]];
-	if (![_hook deriveInContext:_context changed:changed error:error]) {
-		return NO;
-	}
-	NSMutableArray *violations = [NSMutableArray array];
-	[_hook prepareJoinedInContext:_context changed:changed violations:violations];
-	[_hook checkInContext:_context changed:changed violations:violations];
-	return [ORMValidator report:violations error:error];
+	return [_hook prepareForSaveInContext:_context error:error];
 }
 
 - (void)updateCustomersThroughTheJoin

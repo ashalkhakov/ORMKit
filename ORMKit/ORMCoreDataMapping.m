@@ -63,6 +63,9 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 	self.materializesIdentifiers = YES;
 	self.servesOData = YES;
 	self.odataNamespace = @"Default";
+	self.syncDirection = ORMSyncNone;
+	self.syncConflicts = nil;
+	self.syncs = @[];
 	self.style = ORMStyleApplication;
 	self.flattensSubtypesSet = nil;
 	self.absorbsIdentifierTypesSet = nil;
@@ -97,6 +100,21 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 	self.materializesIdentifiers = ORMBoolAttribute(element, @"MaterializeIdentifiers", YES);
 	self.servesOData = ORMBoolAttribute(element, @"ServeOData", YES);
 	self.odataNamespace = ORMNonEmpty(ORMAttribute(element, @"ODataNamespace")) ?: @"Default";
+	ORMSyncDirection direction = ORMSyncNone;
+	self.syncDirection = [ORMCoreDataMapping syncDirection:&direction named:ORMAttribute(element, @"Sync")] ? direction
+	                                                                                                     : ORMSyncNone;
+	self.syncConflicts = ORMNonEmpty(ORMAttribute(element, @"SyncConflicts"));
+	NSMutableArray *syncs = [NSMutableArray array];
+	for (NSXMLElement *sync in ORMChildren(element, CD, @"Sync")) {
+		NSString *source = ORMRef(sync);
+		NSString *named = ORMAttribute(sync, @"Direction");
+		ORMSyncDirection its = ORMSyncNone;
+		if (source != nil && (named == nil || [ORMCoreDataMapping syncDirection:&its named:named])) {
+			[syncs addObject:@[ source, named != nil ? [ORMCoreDataMapping nameOfSyncDirection:its] ?: @"none" : @"",
+			                    ORMAttribute(sync, @"Conflicts") ?: @"" ]];
+		}
+	}
+	self.syncs = syncs;
 	NSString *style = ORMAttribute(element, @"Style");
 	self.style = [style isEqualToString:@"Relational"] ? ORMStyleRelational
 		: [style isEqualToString:@"Entities"] ? ORMStyleEntities : ORMStyleApplication;
@@ -244,6 +262,54 @@ ORMBoolSet(NSXMLElement *element, NSString *attribute)
 		[joins setObject:members forKey:option.objectTypeId];
 	}
 	return joins;
+}
+
+- (NSDictionary<NSString *, NSArray *> *)syncOverrides
+{
+	NSMutableDictionary *overrides = [NSMutableDictionary dictionary];
+	for (NSArray *sync in self.syncs) {
+		[overrides setObject:@[ [sync objectAtIndex:1], [sync objectAtIndex:2] ] forKey:[sync firstObject]];
+	}
+	return overrides;
+}
+
++ (NSString *)nameOfSyncDirection:(ORMSyncDirection)direction
+{
+	switch (direction) {
+	case ORMSyncDown:
+		return @"down";
+	case ORMSyncUp:
+		return @"up";
+	case ORMSyncBoth:
+		return @"both";
+	default:
+		return nil;
+	}
+}
+
++ (BOOL)syncDirection:(ORMSyncDirection *)direction named:(NSString *)name
+{
+	NSUInteger index = [@[ @"none", @"down", @"up", @"both" ] indexOfObject:[name lowercaseString] ?: @""];
+	if (index == NSNotFound) {
+		return NO;
+	}
+	*direction = (ORMSyncDirection)index;
+	return YES;
+}
+
+- (ORMSyncDirection)syncDirectionOf:(NSString *)sourceId
+{
+	NSString *own = [(NSArray *)[self.syncOverrides objectForKey:sourceId ?: @""] firstObject];
+	ORMSyncDirection direction = self.syncDirection;
+	if ([own length] > 0) {
+		[ORMCoreDataMapping syncDirection:&direction named:own];
+	}
+	return direction;
+}
+
+- (NSString *)syncConflictsOf:(NSString *)sourceId
+{
+	return ORMNonEmpty([(NSArray *)[self.syncOverrides objectForKey:sourceId ?: @""] lastObject]) ?: self.syncConflicts;
 }
 
 - (NSSet<NSString *> *)excludedSources
@@ -423,6 +489,13 @@ ORMKeepChildren(NSXMLElement *parent, NSString *local, NSString *attribute, NSAr
 	if (was.servesOData != mapping.servesOData) {
 		ORMSetAttribute(element, @"ServeOData", mapping.servesOData ? nil : @"false");
 	}
+	if (was.syncDirection != mapping.syncDirection) {
+		NSString *name = [ORMCoreDataMapping nameOfSyncDirection:mapping.syncDirection];
+		ORMSetAttribute(element, @"Sync", name != nil ? [name capitalizedString] : nil);
+	}
+	if (!ORMSameObject(was.syncConflicts, mapping.syncConflicts)) {
+		ORMSetAttribute(element, @"SyncConflicts", mapping.syncConflicts);
+	}
 	if (!ORMSameObject(was.flattensSubtypesSet, mapping.flattensSubtypesSet)) {
 		ORMSetAttribute(element, @"FlattenSubtypes", mapping.flattensSubtypesSet == nil ? nil
 		                                             : [mapping.flattensSubtypesSet boolValue] ? @"true" : @"false");
@@ -460,6 +533,21 @@ ORMKeepChildren(NSXMLElement *parent, NSString *local, NSString *attribute, NSAr
 		ORMWriteAttribute(child, @"Name", [override lastObject]);
 	}
 	[self writeOptionsOf:mapping into:element];
+	NSMutableArray *synced = [NSMutableArray array];
+	for (NSArray *sync in mapping.syncs) {
+		[synced addObject:[sync firstObject]];
+	}
+	NSDictionary *syncs = ORMKeepChildren(element, @"Sync", @"ref", synced);
+	for (NSArray *sync in mapping.syncs) {
+		NSXMLElement *child = [syncs objectForKey:[sync firstObject]];
+		if (child == nil) {
+			child = ORMNewRef(document, CD, @"Sync", [sync firstObject]);
+			ORMAddToMapping(element, child);
+		}
+		NSString *direction = ORMNonEmpty([sync objectAtIndex:1]);
+		ORMWriteAttribute(child, @"Direction", direction != nil ? [direction capitalizedString] : nil);
+		ORMWriteAttribute(child, @"Conflicts", ORMNonEmpty([sync objectAtIndex:2]));
+	}
 	NSDictionary *excluded = ORMKeepChildren(element, @"Exclude", @"ref", mapping.excluded);
 	for (NSString *source in mapping.excluded) {
 		if ([excluded objectForKey:source] == nil) {

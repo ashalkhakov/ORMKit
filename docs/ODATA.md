@@ -17,7 +17,7 @@ after the rest of the mapping is made:
 | an entity, not a subentity | `OData.entitySet`: the plural of its name | the entity set; a subentity's objects are in its root's set, as a derived type |
 | an entity, in the mapping's namespace (`ODataNamespace`, `Default` unless set) | `OData.type`: `Default.Employee` | its type's name, which a cast to a subtype names; ODataKit's mapper knows it without `$metadata` |
 | the preferred identifier, when each of its roles is a required attribute (a reference mode, an absorbed identifier's parts, a value entity's value) | `OData.key` = `YES` on each attribute | the key |
-| any other identifier (one with roles of entity types, an objectification's, a fact type's entity) | a surrogate: an Integer 64 attribute `id`, required, with `OData.key` and `OData.computed` | a key the service numbers on insert (one more than the largest); `Core.Computed`, so clients never send it |
+| any other identifier (one with roles of entity types, an objectification's, a fact type's entity) | a surrogate: a UUID attribute `id`, required, with `OData.key` and `ormkit.surrogate` | a key whoever makes the object gives it, a client too, offline as well as on line; the service keeps the one it is sent |
 | an object type's definition; a value type's, on the attributes it is the value of | `OData.description` | `Core.Description` |
 | a value list | `OData.annotations` `{"Validation.AllowedValues": [...]}` | `Validation.AllowedValues` |
 | an open bound of a single numeric range | `OData.annotations`: `Validation.Minimum` / `Maximum` with `@Validation.Exclusive` | an exclusive bound |
@@ -28,8 +28,11 @@ Ranges and patterns that Core Data holds already (`minValue`, `maxValue`,
 
 A surrogate is named `id` (or `id2` and so on, if that name is taken); an
 override on the source `<object type id>.key` renames it. The mapping notes
-each one. ODataKit's service fills it in on insert. An application that
-writes to the store directly, not through the service, must set it itself.
+each one. It is a UUID, not a number the service counts, so that a client
+can make the object and refer to it before the service has seen it: in a
+change set whose other requests bind to it, and offline (ODataSync). A
+number the service gives as well would be another identifier of the object
+type, a second reference scheme beside this one, not its key.
 
 What a user writes in Xcode under any other key, their own `OData.entitySet`
 for instance, is kept on synchronization: only `ormkit.` entries belong to
@@ -41,8 +44,9 @@ Importing a Core Data model that ODataKit serves reads the annotations back:
 
 - an attribute with `OData.key` alone is the reference mode;
 - several are the preferred identifier, an external uniqueness;
-- a surrogate (`OData.key` and `OData.computed`, an integer) is no fact type,
-  and its name is kept as an override;
+- a surrogate (`OData.key` with `ormkit.surrogate`; or, as mappings made it
+  before, `OData.computed` on an integer) is no fact type, and its name is
+  kept as an override;
 - an entity with a key of its own takes no other identifier from its
   uniqueness constraints;
 - `OData.description` is the definition.
@@ -57,8 +61,9 @@ each with `momc`. It then served them with `ODataService` over SQLite on
 macOS:
 
 - every entity set answers;
-- `$metadata` has the keys, the AllowedValues and Core.Computed;
-- two posts to a surrogate-keyed set got the ids 1 and 2.
+- `$metadata` has the keys and the AllowedValues;
+- two posts to a surrogate-keyed set, each with the UUID its client gave
+  it, are kept under those keys.
 
 ## Queries as requests
 
@@ -201,11 +206,65 @@ it is read whole before the first page. Each aggregate is worked out from
 the bag's rows with the group's identifier. A page's rows are made as its
 objects arrive, while the bags' rows are theirs.
 
+**The service aggregates** a bag where it can (Data Aggregation's
+`$apply`): a bag of the object read, of a member of one of its to-many
+relationships, a member's own attribute aggregated (sum, max, min,
+average, or a count). The bag's condition, as the member sees it (the
+object read's paths through the member's inverse), filters the members,
+which are grouped by the object:
+
+```
+bag1.sum, aggregated by the service for each page's groups:
+GET Costs?$apply=filter(Amount gt 5 and (Vehicle/Id eq 1 or Vehicle/Id eq 2))/groupby((Vehicle/Id),aggregate(Amount with sum as Value))
+```
+
+One value for each group comes back, not every tuple. A request is made
+for each aggregate of the bag. Where the service refuses (a service
+without Data Aggregation, or an aggregate along a path it cannot follow:
+ODataKit's service, through Core Data, aggregates no key path through a
+to-one), the bag's rows are read instead, from then on.
+
+**The service computes** a listed value node ([EXPRESSIONS.md](EXPRESSIONS.md))
+of the object read's own values, in arithmetic `$filter` says (`add`,
+`sub`, `mul`, a minus): `$compute=EndedAtKilometres sub Kilometres as
+Computed2`, listed from the answer.
+
 `testTheServiceAnswersTheQueries` serves the mapped model with `ODataService`
 over SQLite and checks the rows that Q1 to Q5, the payroll query and a count
 return; `testTheServiceRowsAreTheStoresRows` checks every row against the
 interpreter's. Both run on macOS and GNUstep. The Query window has an OData
 tab, and `ormtool query` prints the request.
+
+## Offline: ODataSync
+
+A device can keep a store of its own and sync it with the service
+(ODataKit's ODataSync, its `docs/offline-sync.md`). What ODataSync needs of
+the model is the mapping's too, in the same `userInfo`, so that the device's
+model and the server's are one, made from the `.orm`:
+
+| The mapping says | `userInfo` | For |
+| --- | --- | --- |
+| a direction (`Sync="Both"` on the mapping; each entity's own, `<ormcd:Sync ref="<its source>" Direction="Down" />`) | `ODataSync.direction` (`down`, `up`, `both`) on each root entity; a subentity goes its root's way | which way its objects go: the service's to read, the device's to make, either's to change |
+| a conflict rule (`SyncConflicts`; an entity's `Conflicts`) | `ODataSync.conflicts`, on a `both` entity | how a change made on both sides is settled, unless the app sets a resolver; none: the app's, or ODataSync's default (the service's version) |
+| a device changes it (`up`, `both`) | two bookkeeping attributes, optional Strings marked `ormkit.bookkeeping`: `syncVersions` (`ODataSync.versions`) and `syncModified` (`ODataSync.modified`); its key kept on deletion (`preserveAfterDeletion`) | each object's version vector, which tells older from newer from a conflict, at the device and at the service (`ODataSyncService`); its last change's stamp, for last writer wins; a deletion sent by its key |
+
+The bookkeeping is no fact of the domain, any more than a surrogate is: the
+conceptual model says nothing of it, an import leaves it out (and reads the
+directions back into the mapping), and it is named as any property is,
+`syncVersions2` where the entity has a `syncVersions` of its own, or as an
+override on `<its source>.syncVersions` says. A mapping with no direction
+says nothing of sync. The mapping's report says which entities go which
+way.
+
+```sh
+ormtool sync Model.orm both Country=down Currency=down   # the rest both ways
+ormtool sync Model.orm both Person=both/lastWriter --conflicts remote
+ormtool sync Model.orm none                               # nothing of sync
+```
+
+(`-[ORMMappingEditor setSyncDirection:ofMapping:]`,
+`setSyncConflicts:ofMapping:` and
+`setSyncDirection:conflicts:ofSource:inMapping:` from code.)
 
 ## Building with ODataKit
 
@@ -215,6 +274,10 @@ query builder is the client's). The tests also link `ODataService`.
 - **GNUstep:** link an installed ODataKit, over FreeCoreData, or a built
   checkout (`make ODATAKIT=../ODataKit`, `odatakit.make`).
 - **CI:** both by their releases' exact versions, in `.github/pins.env`.
+- **iOS:** `ORMRuntime` builds for iOS too (a device and the simulator, over
+  ODataKit's iOS slices): what an app built from a model runs there, built
+  with an iOS destination (`xcodebuild -scheme ORMRuntime -destination
+  'generic/platform=iOS'`, or `'generic/platform=iOS Simulator'`).
 
 ## Not done yet
 

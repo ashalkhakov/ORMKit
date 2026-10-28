@@ -261,4 +261,292 @@
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
+/* An absorbed value that may be left out (a trip's Distance: its
+ * quantity and its unit, properties of the trip) is all of it or none:
+ * set in part, it is refused. */
+- (void)testAnAbsorbedValueIsWholeOrNone
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Quantity is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal\n"
+	                 @"DistanceUnit is an entity type.\n"
+	                 @"Reference Mode: .code\n"
+	                 @"Distance has Quantity\n"
+	                 @"Each Distance has exactly one Quantity.\n"
+	                 @"Distance is in DistanceUnit\n"
+	                 @"Each Distance is in exactly one DistanceUnit.\n"
+	                 @"For each Quantity and DistanceUnit, at most one Distance has that Quantity and is in that DistanceUnit.\n"
+	                 @"This association with Quantity and DistanceUnit provides the preferred identification scheme for Distance.\n"
+	                 @"Trip(.id) covered Distance (as Length)\n"
+	                 @"Each Trip covered at most one Distance.\n"
+	                 @"Trip started at Distance (as Start)\n"
+	                 @"Each Trip started at exactly one Distance.\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMValidationGenerator *generator = [self generatorFor:editor];
+	ORMTables *tables = [self tablesOf:generator];
+	/* The optional one has a rule; the mandatory one, whose parts Core
+	 * Data requires, none. */
+	NSArray *rules = [tables.rules objectForKey:@"Trip"];
+	NSArray *names = [rules valueForKey:@"constraint"];
+	XCTAssertTrue([names containsObject:@"LengthIsWhole"], @"%@", names);
+	XCTAssertFalse([names containsObject:@"StartIsWhole"], @"%@", names);
+	ORMRule *whole = [names containsObject:@"LengthIsWhole"] ? [rules objectAtIndex:[names indexOfObject:@"LengthIsWhole"]] : nil;
+	XCTAssertEqualObjects([[whole keys] sortedArrayUsingSelector:@selector(compare:)],
+	                      (@[ @"lengthDistanceUnit", @"lengthQuantity" ]));
+	XCTAssertTrue([whole.text containsString:@"lengthQuantity and lengthDistanceUnit"], @"%@", whole.text);
+
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	NSManagedObjectContext *context = [self contextFor:editor];
+	NSManagedObject *km = [NSEntityDescription insertNewObjectForEntityForName:@"DistanceUnit" inManagedObjectContext:context];
+	[km setValue:@"km" forKey:@"code"];
+	NSManagedObject *trip = [NSEntityDescription insertNewObjectForEntityForName:@"Trip" inManagedObjectContext:context];
+	[trip setValuesForKeysWithDictionary:@{ @"startQuantity": [NSDecimalNumber decimalNumberWithString:@"10"],
+		                                    @"startDistanceUnit": km }];
+	XCTAssertTrue([validator validate:trip error:NULL]);
+	[trip setValue:[NSDecimalNumber decimalNumberWithString:@"12.5"] forKey:@"lengthQuantity"];
+	XCTAssertEqualObjects([self broken:trip by:validator], @[ @"lengthQuantity" ]);
+	[trip setValue:km forKey:@"lengthDistanceUnit"];
+	XCTAssertTrue([validator validate:trip error:NULL]);
+	[trip setValue:nil forKey:@"lengthQuantity"];
+	XCTAssertEqual([[self broken:trip by:validator] count], 1u, @"%@", [self broken:trip by:validator]);
+	[trip setValue:nil forKey:@"lengthDistanceUnit"];
+	XCTAssertTrue([validator validate:trip error:NULL]);
+}
+
+/* A schedule and its reminders, and the rule that at most one of them is
+ * open (not done), as LogBook has it. */
+- (ORMEditor *)reminders
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Moment is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Schedule is an entity type.\n"
+	                 @"Reference Mode: .id\n"
+	                 @"Reminder(.id) comes from Schedule\n"
+	                 @"Each Reminder comes from at most one Schedule.\n"
+	                 @"Reminder was done at Moment (as DoneAt)\n"
+	                 @"Each Reminder was done at at most one Moment.\n"
+	                 @"\n"
+	                 @"Query OneOpenReminder:\n"
+	                 @"It is impossible that:\n"
+	                 @"✓Schedule\n"
+	                 @"  + Reminder comes from that Schedule\n"
+	                 @"    + count(Reminder) for Schedule > 1\n"
+	                 @"    + not was done at Moment\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	return editor;
+}
+
+/* A schedule saved with an open reminder and a done one. */
+- (NSManagedObject *)scheduleIn:(NSManagedObjectContext *)context
+{
+	NSManagedObject *schedule = [NSEntityDescription insertNewObjectForEntityForName:@"Schedule" inManagedObjectContext:context];
+	[schedule setValue:@1 forKey:@"id"];
+	NSManagedObject *open = [NSEntityDescription insertNewObjectForEntityForName:@"Reminder" inManagedObjectContext:context];
+	[open setValuesForKeysWithDictionary:@{ @"id": @1, @"schedule": schedule }];
+	NSManagedObject *done = [NSEntityDescription insertNewObjectForEntityForName:@"Reminder" inManagedObjectContext:context];
+	[done setValuesForKeysWithDictionary:@{ @"id": @2, @"schedule": schedule, @"doneAt": @5 }];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	return schedule;
+}
+
+- (NSManagedObject *)reminder:(NSNumber *)number of:(NSManagedObject *)schedule
+{
+	for (NSManagedObject *reminder in [schedule valueForKey:@"reminders"]) {
+		if ([[reminder valueForKey:@"id"] isEqual:number]) {
+			return reminder;
+		}
+	}
+	return nil;
+}
+
+/* A reminder deleted counts for nothing at the save: the open one deleted
+ * and a new one opened in one change is one open, not two. The hook
+ * processes the context's pending changes first, as a save does, which
+ * takes the deleted one out of its schedule's reminders; and a rule asked
+ * before (the validator, the interpreter) passes it by where its schedule
+ * still holds it. */
+- (void)testADeletedObjectCountsForNothing
+{
+	ORMEditor *editor = [self reminders];
+	ORMTables *tables = [self tablesOf:[self generatorFor:editor]];
+	XCTAssertEqualObjects([[tables.rules objectForKey:@"Schedule"] valueForKey:@"constraint"], @[ @"OneOpenReminder" ]);
+	NSManagedObjectContext *context = [self contextFor:editor];
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	NSManagedObject *schedule = [self scheduleIn:context];
+	NSManagedObject *open = [self reminder:@1 of:schedule];
+	NSError *error = nil;
+
+	/* Two open: refused. */
+	NSManagedObject *another = [NSEntityDescription insertNewObjectForEntityForName:@"Reminder" inManagedObjectContext:context];
+	[another setValuesForKeysWithDictionary:@{ @"id": @3, @"schedule": schedule }];
+	XCTAssertFalse([hook prepareForSaveInContext:context error:&error]);
+	XCTAssertTrue([[error localizedDescription] containsString:@"Reminder"], @"%@", error);
+	[context rollback];
+
+	/* Before the event's changes are processed, the schedule still holds
+	 * the one deleted: the rule, asked of it, passes it by. */
+	[context deleteObject:open];
+	another = [NSEntityDescription insertNewObjectForEntityForName:@"Reminder" inManagedObjectContext:context];
+	[another setValuesForKeysWithDictionary:@{ @"id": @3, @"schedule": schedule }];
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	XCTAssertEqualObjects([self broken:schedule by:validator], @[], @"%@", [schedule valueForKey:@"reminders"]);
+	ORMRule *rule = [[tables.rules objectForKey:@"Schedule"] firstObject];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[context.persistentStoreCoordinator managedObjectModel]];
+	ORMQueryPlan *plan = [[rule.check.operands firstObject] plan];
+	XCTAssertNotNil(plan);
+	XCTAssertFalse([interpreter plan:plan holdsOf:schedule]);
+	NSError *failed = nil;
+	ORMQueryResult *rows = [interpreter executePlan:plan ofObjects:@[ schedule ] inContext:context error:&failed];
+	XCTAssertNotNil(rows, @"%@", failed);
+	XCTAssertEqual([rows.rows count], 0u);
+
+	/* The hook, and the save. */
+	XCTAssertTrue([hook prepareForSaveInContext:context error:&error], @"%@", error);
+	XCTAssertTrue([context save:&error], @"%@", error);
+	XCTAssertFalse([[schedule valueForKey:@"reminders"] containsObject:open]);
+	XCTAssertEqual([[schedule valueForKey:@"reminders"] count], 2u);
+}
+
+/* A unary derived and stored is its object's flag, worked out at save:
+ * true while the rule lists the object, false once it does not. A
+ * schedule is open while one of its reminders is not done. */
+- (void)testAUnaryIsWorkedOutAtSave
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Moment is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Schedule is an entity type.\n"
+	                 @"Reference Mode: .id\n"
+	                 @"Reminder(.id) comes from Schedule\n"
+	                 @"Each Reminder comes from at most one Schedule.\n"
+	                 @"Reminder was done at Moment (as DoneAt)\n"
+	                 @"Each Reminder was done at at most one Moment.\n"
+	                 @"Schedule is open\n"
+	                 @"** By query OpenSchedule.\n"
+	                 @"\n"
+	                 @"Query OpenSchedule:\n"
+	                 @"Derivation of \"Schedule is open\":\n"
+	                 @"✓Schedule\n"
+	                 @"  + Reminder comes from that Schedule\n"
+	                 @"    + not was done at Moment\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMTables *tables = [self tablesOf:[self generatorFor:editor]];
+	XCTAssertEqualObjects([tables.derivations valueForKey:@"kind"], @[ @"flag" ]);
+	XCTAssertEqualObjects([tables.derivations valueForKey:@"target"], @[ @"isOpen" ]);
+	NSManagedObjectContext *context = [self contextFor:editor];
+	ORMSaveHook *hook = [[ORMSaveHook alloc] initWithTables:tables];
+	NSManagedObject *schedule = [NSEntityDescription insertNewObjectForEntityForName:@"Schedule" inManagedObjectContext:context];
+	[schedule setValue:@1 forKey:@"id"];
+	NSManagedObject *reminder = [NSEntityDescription insertNewObjectForEntityForName:@"Reminder" inManagedObjectContext:context];
+	[reminder setValuesForKeysWithDictionary:@{ @"id": @1, @"schedule": schedule }];
+	NSError *error = nil;
+	XCTAssertTrue([hook prepareForSaveInContext:context error:&error], @"%@", error);
+	XCTAssertEqualObjects([schedule valueForKey:@"isOpen"], @YES, @"its reminder not done");
+	XCTAssertTrue([context save:&error], @"%@", error);
+	[reminder setValue:@5 forKey:@"doneAt"];
+	XCTAssertTrue([hook prepareForSaveInContext:context error:&error], @"%@", error);
+	XCTAssertEqualObjects([schedule valueForKey:@"isOpen"], @NO, @"done: open no more");
+}
+
+/* A uniqueness over a role that is optional holds where each role is
+ * played: two orders of one shop for no one are fine. Core Data's
+ * constraint would take the two missing people for the same one, so the
+ * mapping gives none, and the rule alone checks it: two orders of the shop
+ * for the same person refused. */
+- (void)testAUniquenessOfAnOptionalRoleIsARuleAlone
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Shop(.id) is an entity type.\n"
+	                 @"Person(.id) is an entity type.\n"
+	                 @"Order(.id) is of Shop\n"
+	                 @"Each Order is of exactly one Shop.\n"
+	                 @"Order is for Person\n"
+	                 @"Each Order is for at most one Person.\n"
+	                 @"For each Shop and Person, at most one Order is of that Shop and is for that Person.\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMTables *tables = [self tablesOf:[self generatorFor:editor]];
+	ORMRule *unique = nil;
+	for (ORMRule *rule in [tables.rules objectForKey:@"Order"]) {
+		unique = [rule.check.kind isEqualToString:@"unique"] ? rule : unique;
+	}
+	XCTAssertEqualObjects(unique.check.keys, (@[ @"shop", @"person" ]), @"checked as a rule");
+	NSManagedObjectContext *context = [self contextFor:editor];
+	NSEntityDescription *order = context.persistentStoreCoordinator.managedObjectModel.entitiesByName[@"Order"];
+	for (NSArray *constraint in order.uniquenessConstraints) {
+		XCTAssertFalse([constraint containsObject:@"person"], @"not Core Data's: %@", constraint);
+	}
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	NSManagedObject *corner = [NSEntityDescription insertNewObjectForEntityForName:@"Shop" inManagedObjectContext:context];
+	[corner setValue:@1 forKey:@"id"];
+	NSManagedObject *ann = [NSEntityDescription insertNewObjectForEntityForName:@"Person" inManagedObjectContext:context];
+	[ann setValue:@1 forKey:@"id"];
+	for (NSNumber *n in @[ @1, @2 ]) {
+		NSManagedObject *anyone = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+		[anyone setValuesForKeysWithDictionary:@{ @"id": n, @"shop": corner }];
+		XCTAssertEqualObjects([self broken:anyone by:validator], @[], @"an order for no one");
+	}
+	NSManagedObject *anns = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[anns setValuesForKeysWithDictionary:@{ @"id": @3, @"shop": corner, @"person": ann }];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"two orders for no one, one for Ann: %@", error);
+	NSManagedObject *again = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[again setValuesForKeysWithDictionary:@{ @"id": @4, @"shop": corner, @"person": ann }];
+	XCTAssertFalse([validator validate:again error:&error], @"Ann's again");
+}
+
+/* A uniqueness the mapping gives an entity is a rule too: not every store
+ * enforces Core Data's constraint (FreeCoreData's does not), and its words
+ * are the model's. Two orders of one shop by one number: refused as validated,
+ * as the constraint says; of another shop, or another number, kept. */
+- (void)testAUniquenessIsChecked
+{
+	ORMEditor *editor = [self newEditor];
+	NSString *text = @"Shop(.id) is an entity type.\n"
+	                 @"Nr is a value type.\n"
+	                 @"Portable data type: Numeric: Signed Integer\n"
+	                 @"Order(.id) is of Shop\n"
+	                 @"Each Order is of exactly one Shop.\n"
+	                 @"Order has Nr\n"
+	                 @"Each Order has exactly one Nr.\n"
+	                 @"For each Shop and Nr, at most one Order is of that Shop and has that Nr.\n";
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMTables *tables = [self tablesOf:[self generatorFor:editor]];
+	NSArray *rules = [tables.rules objectForKey:@"Order"];
+	ORMRule *unique = nil;
+	for (ORMRule *rule in rules) {
+		unique = [rule.check.kind isEqualToString:@"unique"] ? rule : unique;
+	}
+	XCTAssertEqualObjects(unique.check.keys, (@[ @"shop", @"nr" ]));
+	XCTAssertTrue([unique.text containsString:@"at most one Order is of that Shop and has that Nr"], @"%@", unique.text);
+	for (ORMRule *rule in [tables.rules objectForKey:@"Shop"]) {
+		XCTAssertFalse([rule.check.kind isEqualToString:@"unique"], @"an identifier is its store's key: %@", rule.text);
+	}
+	NSManagedObjectContext *context = [self contextFor:editor];
+	ORMValidator *validator = [[ORMValidator alloc] initWithTables:tables];
+	NSManagedObject *corner = [NSEntityDescription insertNewObjectForEntityForName:@"Shop" inManagedObjectContext:context];
+	[corner setValue:@1 forKey:@"id"];
+	NSManagedObject *market = [NSEntityDescription insertNewObjectForEntityForName:@"Shop" inManagedObjectContext:context];
+	[market setValue:@2 forKey:@"id"];
+	NSManagedObject *first = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[first setValuesForKeysWithDictionary:@{ @"id": @1, @"shop": corner, @"nr": @7 }];
+	NSManagedObject *elsewhere = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[elsewhere setValuesForKeysWithDictionary:@{ @"id": @2, @"shop": market, @"nr": @7 }];
+	XCTAssertEqualObjects([self broken:elsewhere by:validator], @[], @"another shop's 7");
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSManagedObject *again = [NSEntityDescription insertNewObjectForEntityForName:@"Order" inManagedObjectContext:context];
+	[again setValuesForKeysWithDictionary:@{ @"id": @3, @"shop": corner, @"nr": @7 }];
+	XCTAssertFalse([validator validate:again error:&error], @"the corner shop's 7 again");
+	XCTAssertTrue([[error description] containsString:@"at most one Order"], @"%@", error);
+	[again setValue:@8 forKey:@"nr"];
+	XCTAssertTrue([validator validate:again error:&error], @"%@", error);
+}
+
 @end

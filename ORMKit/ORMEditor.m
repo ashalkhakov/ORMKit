@@ -326,6 +326,12 @@ ORMFirstDifference(NSData *one, NSData *other)
 	[self checkNormalized];
 	ORMCloseJournal(journal);
 	_depth--;
+	/* What changed nothing in the document (text applied that the model
+	 * says already) is no step, and leaves the document as read. */
+	if ([journal isEmpty]) {
+		[self checkAgreement];
+		return done;
+	}
 	/* A manager that does not group by event (a document's that edits
 	 * text in place, a test's) gets the step as a group of its own. */
 	BOOL grouping = _undoManager != nil && [_undoManager groupingLevel] == 0;
@@ -362,7 +368,6 @@ ORMFirstDifference(NSData *one, NSData *other)
 	ORMModel *model = self.model;
 	_wrote = [NSMutableArray array];
 	_deleted = [NSMutableArray array];
-	model.removedNames = [NSMutableSet set];
 	model.removedIds = [NSMutableSet set];
 	model.relinkedTypes = [NSHashTable hashTableWithOptions:NSPointerFunctionsObjectPointerPersonality];
 	change();
@@ -429,7 +434,6 @@ ORMFirstDifference(NSData *one, NSData *other)
 	[writer writeReferenceModes];
 	_wrote = nil;
 	_deleted = nil;
-	model.removedNames = nil;
 	model.removedIds = nil;
 	model.relinkedTypes = nil;
 }
@@ -740,25 +744,7 @@ ORMInListOrder(NSArray *elements, NSArray *list)
 
 - (NSString *)nextName:(NSString *)prefix
 {
-	/* The model's names, and those of what the change being made took out
-	 * of it: the document's until it is written. */
-	NSMutableArray *names = [NSMutableArray arrayWithArray:[_model.removedNames allObjects] ?: @[]];
-	for (ORMElement *element in [[_model valueForKey:@"elementsById"] allValues]) {
-		if (element.name != nil) {
-			[names addObject:element.name];
-		}
-	}
-	NSUInteger highest = 0;
-	for (NSString *name in names) {
-		if ([name hasPrefix:prefix]) {
-			NSString *rest = [name substringFromIndex:[prefix length]];
-			NSInteger number = [rest integerValue];
-			if (number > 0 && [[NSString stringWithFormat:@"%ld", (long)number] isEqualToString:rest]) {
-				highest = MAX(highest, (NSUInteger)number);
-			}
-		}
-	}
-	return [NSString stringWithFormat:@"%@%lu", prefix, (unsigned long)highest + 1];
+	return [_model nextNameWithPrefix:prefix];
 }
 
 - (NSString *)uniqueObjectTypeName:(NSString *)name

@@ -4,6 +4,10 @@
 #import "ORMRuleChecker.h"
 #import "ORMDeriver.h"
 #import "ORMPath.h"
+#import "ORMConstraintQueries.h"
+#import "ORMEditorPriv.h"
+#import "ORMCoreDataMapper.h"
+#import "ORMXML.h"
 #import <CoreData/CoreData.h>
 
 @interface ORMPopulationViolation ()
@@ -33,6 +37,9 @@
 	NSMutableDictionary<NSString *, NSString *> *_values;
 	NSMutableArray<ORMPopulationViolation *> *_violations;
 	NSMutableArray<NSString *> *_unchecked;
+	/* The constraints checked as rules (ORMConstraintQueries): over facts
+	 * of more than one fact type, or comparing values. */
+	NSMutableArray<ORMConstraint *> *_asRules;
 }
 
 - (instancetype)initWithModel:(ORMModel *)model
@@ -83,26 +90,29 @@ ORMRootInstance(ORMInstance *instance)
 	return [_names objectForKey:key] ?: key;
 }
 
+/* A fact of the fact type: its players' keys by role. */
+- (void)addFact:(NSDictionary *)byRole of:(ORMFactType *)fact
+{
+	NSMutableArray *list = [_facts objectForKey:fact.identifier];
+	if (list == nil) {
+		list = [NSMutableArray array];
+		[_facts setObject:list forKey:fact.identifier];
+	}
+	[list addObject:byRole];
+}
+
 - (void)gather
 {
 	_facts = [NSMutableDictionary dictionary];
 	_names = [NSMutableDictionary dictionary];
 	_values = [NSMutableDictionary dictionary];
-	void (^add)(ORMFactType *, NSDictionary *) = ^(ORMFactType *fact, NSDictionary *byRole) {
-		NSMutableArray *list = [self->_facts objectForKey:fact.identifier];
-		if (list == nil) {
-			list = [NSMutableArray array];
-			[self->_facts setObject:list forKey:fact.identifier];
-		}
-		[list addObject:byRole];
-	};
 	for (ORMFactType *fact in _model.factTypes) {
 		for (ORMFactInstance *instance in [fact instances]) {
 			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
 			for (NSString *roleId in instance.instancesByRole) {
 				[byRole setObject:[self keyOf:[instance.instancesByRole objectForKey:roleId]] forKey:roleId];
 			}
-			add(fact, byRole);
+			[self addFact:byRole of:fact];
 			if ([byRole count] < [[fact visibleRoles] count]) {
 				[self violate:nil fact:fact text:[NSString stringWithFormat:@"A fact of \"%@\" lacks a role's player.",
 				                                                           [fact displayText]]];
@@ -138,7 +148,8 @@ ORMRootInstance(ORMInstance *instance)
 				ORMRole *role = [_model elementWithId:roleId];
 				ORMRole *other = [role oppositeRole];
 				if (other != nil) {
-					add(role.factType, @{ roleId: [self keyOf:[identifying objectForKey:roleId]], other.identifier: key });
+					[self addFact:@{ roleId: [self keyOf:[identifying objectForKey:roleId]], other.identifier: key }
+					           of:role.factType];
 				}
 			}
 		}
@@ -289,6 +300,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 {
 	_violations = [NSMutableArray array];
 	_unchecked = [NSMutableArray array];
+	_asRules = [NSMutableArray array];
 	[self gather];
 	[self gatherDerived];
 	for (ORMConstraint *constraint in _model.constraints) {
@@ -320,7 +332,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 			[self checkSetComparison:constraint];
 			break;
 		case ORMValueComparisonConstraint:
-			[_unchecked addObject:[NSString stringWithFormat:@"%@: value comparisons are not checked.", constraint.name]];
+			[_asRules addObject:constraint];
 			break;
 		}
 	}
@@ -329,15 +341,55 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	return _violations;
 }
 
+/* Each constraint checked as rules, its queries made: the constraint of
+ * each query, by its id. */
+- (void)makeRulesWith:(ORMConstraintQueries *)builder in:(ORMEditor *)scratch
+         constraintOf:(NSMutableDictionary<NSString *, ORMConstraint *> *)constraintOf
+{
+	for (ORMConstraint *constraint in _asRules) {
+		NSString *why = nil;
+		NSArray *made = [builder queriesFor:[scratch.model elementWithId:constraint.identifier] reason:&why];
+		if (made == nil) {
+			[_unchecked addObject:[NSString stringWithFormat:@"%@: %@.", constraint.name, why]];
+		}
+		for (NSString *identifier in made) {
+			[constraintOf setObject:constraint forKey:identifier];
+		}
+	}
+}
+
 /* The constraint queries, run against the population in a store. */
 - (void)checkRules
 {
-	ORMCoreDataMapping *mapping = [_model.coreDataMappings firstObject];
-	ORMRuleChecker *rules = [[ORMRuleChecker alloc] initWithModel:_model mapping:mapping];
+	/* The constraints said as rules, beside the model's own: in a copy of
+	 * the document, as they are not the model's. */
+	ORMModel *model = _model;
+	NSMutableDictionary<NSString *, ORMConstraint *> *constraintOf = [NSMutableDictionary dictionary];
+	if ([_asRules count] > 0) {
+		ORMEditor *scratch = [[ORMEditor alloc] initWithDocument:ORMCopyDocument(_model.document) undoManager:nil];
+		ORMConstraintQueries *builder = [[ORMConstraintQueries alloc] initWithEditor:scratch];
+		/* Read from what has an entity of its own in the store. */
+		NSMutableSet *readable = [NSMutableSet set];
+		ORMCDModel *coreData = [[[ORMCoreDataMapper alloc] initWithModel:_model
+		                                                          mapping:[_model.coreDataMappings firstObject]] map];
+		for (ORMCDEntity *entity in coreData.entities) {
+			if (entity.source != nil) {
+				[readable addObject:entity.source];
+			}
+		}
+		builder.readable = readable;
+		/* All of them one change, not one for each edit. */
+		[scratch modelChange:@"Constraint Queries" with:^{
+			[self makeRulesWith:builder in:scratch constraintOf:constraintOf];
+		}];
+		model = scratch.model;
+	}
+	ORMCoreDataMapping *mapping = [model.coreDataMappings firstObject];
+	ORMRuleChecker *rules = [[ORMRuleChecker alloc] initWithModel:model mapping:mapping];
 	if ([rules.rules count] == 0 && [rules.valueCalculations count] == 0) {
 		return;
 	}
-	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:_model coreData:rules.coreData];
+	ORMPopulationStore *store = [[ORMPopulationStore alloc] initWithModel:model coreData:rules.coreData];
 	NSError *error = nil;
 	NSManagedObjectContext *context = [store newContextWithError:&error];
 	NSArray *found = context != nil ? [rules violationsInContext:context limit:100 error:&error] : nil;
@@ -347,7 +399,10 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	}
 	for (ORMRuleViolation *each in found) {
 		ORMPopulationViolation *violation = [[ORMPopulationViolation alloc] init];
-		violation.rule = each.rule;
+		ORMConstraint *constraint = [constraintOf objectForKey:each.rule.identifier];
+		/* A constraint's as the constraint's, the model's own. */
+		violation.constraint = constraint;
+		violation.rule = constraint == nil ? [ORMQuery queryWithId:each.rule.identifier inModel:_model] ?: each.rule : nil;
 		violation.text = each.text;
 		[_violations addObject:violation];
 	}
@@ -482,6 +537,13 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	}
 }
 
+/* A ring constraint broken by the players with the keys. */
+- (void)ring:(ORMConstraint *)constraint of:(ORMFactType *)fact broken:(NSString *)what by:(NSArray *)keys
+{
+	[self violate:constraint fact:fact
+	         text:[NSString stringWithFormat:@"%@ in \"%@\": %@.", what, [fact displayText], [self namesOf:keys]]];
+}
+
 - (void)checkRing:(ORMConstraint *)constraint
 {
 	NSArray<ORMRole *> *roles = [constraint allRoles];
@@ -501,11 +563,6 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 		}
 	}
 	ORMRingType type = constraint.ringType;
-	NSString *reading = [fact displayText];
-	void (^broken)(NSString *, NSArray *) = ^(NSString *what, NSArray *keys) {
-		[self violate:constraint fact:fact
-		         text:[NSString stringWithFormat:@"%@ in \"%@\": %@.", what, reading, [self namesOf:keys]]];
-	};
 	NSMutableDictionary<NSString *, NSMutableArray *> *next = [NSMutableDictionary dictionary];
 	for (NSArray *pair in ordered) {
 		NSString *x = [pair firstObject], *y = [pair lastObject];
@@ -518,22 +575,22 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 		BOOL self_ = [x isEqualToString:y];
 		BOOL back = [pairs containsObject:@[ y, x ]];
 		if ((type & ORMRingIrreflexive) && self_) {
-			broken(@"Related to itself", @[ x ]);
+			[self ring:constraint of:fact broken:@"Related to itself" by:@[ x ]];
 		}
 		if ((type & ORMRingPurelyReflexive) && !self_) {
-			broken(@"Related to another", pair);
+			[self ring:constraint of:fact broken:@"Related to another" by:pair];
 		}
 		if ((type & ORMRingAsymmetric) && back) {
-			broken(@"Related both ways", pair);
+			[self ring:constraint of:fact broken:@"Related both ways" by:pair];
 		}
 		if ((type & ORMRingAntisymmetric) && back && !self_) {
-			broken(@"Related both ways", pair);
+			[self ring:constraint of:fact broken:@"Related both ways" by:pair];
 		}
 		if ((type & ORMRingSymmetric) && !back) {
-			broken(@"Not related back", pair);
+			[self ring:constraint of:fact broken:@"Not related back" by:pair];
 		}
 		if ((type & ORMRingReflexive) && ![pairs containsObject:@[ x, x ]]) {
-			broken(@"Not related to itself", @[ x ]);
+			[self ring:constraint of:fact broken:@"Not related to itself" by:@[ x ]];
 		}
 	}
 	if (type & (ORMRingTransitive | ORMRingIntransitive | ORMRingStronglyIntransitive)) {
@@ -541,10 +598,10 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 			for (NSString *z in [next objectForKey:[pair lastObject]] ?: @[]) {
 				BOOL closes = [pairs containsObject:@[ [pair firstObject], z ]];
 				if ((type & ORMRingTransitive) && !closes) {
-					broken(@"Not transitive", @[ [pair firstObject], [pair lastObject], z ]);
+					[self ring:constraint of:fact broken:@"Not transitive" by:@[ [pair firstObject], [pair lastObject], z ]];
 				}
 				if ((type & ORMRingIntransitive) && closes) {
-					broken(@"Transitive", @[ [pair firstObject], [pair lastObject], z ]);
+					[self ring:constraint of:fact broken:@"Transitive" by:@[ [pair firstObject], [pair lastObject], z ]];
 				}
 			}
 		}
@@ -573,7 +630,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 				}
 			}
 			if ([reached containsObject:y]) {
-				broken(@"Reached by a longer chain too", pair);
+				[self ring:constraint of:fact broken:@"Reached by a longer chain too" by:pair];
 			}
 		}
 	}
@@ -583,7 +640,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 		for (NSArray *pair in ordered) {
 			NSMutableArray *path = [NSMutableArray array];
 			if ([self cycleFrom:[pair firstObject] next:next path:path done:done]) {
-				broken(@"A cycle", path);
+				[self ring:constraint of:fact broken:@"A cycle" by:path];
 				return;
 			}
 		}
@@ -610,14 +667,20 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	return NO;
 }
 
+/* The fact type a set comparison constraint's sequence is over. */
+static NSString *
+ORMSequenceReading(ORMConstraint *constraint, NSUInteger i)
+{
+	return [[[[[constraint.roleSequences objectAtIndex:i] roles] firstObject] factType] displayText];
+}
+
 - (void)checkSetComparison:(ORMConstraint *)constraint
 {
 	NSMutableArray<NSSet *> *projections = [NSMutableArray array];
 	for (ORMRoleSequence *sequence in constraint.roleSequences) {
 		ORMFactType *fact = ORMOneFactType(sequence.roles);
 		if (fact == nil) {
-			[_unchecked addObject:[NSString stringWithFormat:@"%@: a sequence over more than one fact type is not "
-			                                                 @"checked.", constraint.name]];
+			[_asRules addObject:constraint];
 			return;
 		}
 		NSMutableSet *set = [NSMutableSet set];
@@ -632,9 +695,6 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 	if ([projections count] < 2) {
 		return;
 	}
-	NSString *(^reading)(NSUInteger) = ^NSString *(NSUInteger i) {
-		return [[[[[constraint.roleSequences objectAtIndex:i] roles] firstObject] factType] displayText];
-	};
 	if (constraint.kind == ORMExclusionConstraint) {
 		for (NSUInteger i = 0; i < [projections count]; i++) {
 			for (NSUInteger j = i + 1; j < [projections count]; j++) {
@@ -643,7 +703,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 				for (NSArray *keys in both) {
 					[self violate:constraint fact:nil
 					         text:[NSString stringWithFormat:@"%@ is in both \"%@\" and \"%@\".", [self namesOf:keys],
-					                                         reading(i), reading(j)]];
+					                                         ORMSequenceReading(constraint, i), ORMSequenceReading(constraint, j)]];
 				}
 			}
 		}
@@ -661,7 +721,7 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 			for (NSArray *keys in missing) {
 				[self violate:constraint fact:nil
 				         text:[NSString stringWithFormat:@"%@ is in \"%@\" but not in \"%@\".", [self namesOf:keys],
-				                                         reading(i), reading(j)]];
+				                                         ORMSequenceReading(constraint, i), ORMSequenceReading(constraint, j)]];
 			}
 		}
 	}
@@ -671,28 +731,38 @@ ORMOneFactType(NSArray<ORMRole *> *roles)
 
 /* Whether the value is in one of the ranges: numbers compared as numbers,
  * the rest as text. */
+/* A range's bound without its quotes. */
+static NSString *
+ORMUnquoted(NSString *text)
+{
+	if ([text length] >= 2 && [text hasPrefix:@"'"] && [text hasSuffix:@"'"]) {
+		return [text substringWithRange:NSMakeRange(1, [text length] - 2)];
+	}
+	return text;
+}
+
+/* Two values compared as numbers, or else as text. */
+static NSComparisonResult
+ORMCompareValues(NSString *a, NSString *b, BOOL numeric)
+{
+	if (numeric) {
+		double x = [a doubleValue], y = [b doubleValue];
+		return x < y ? NSOrderedAscending : x > y ? NSOrderedDescending : NSOrderedSame;
+	}
+	return [a compare:b];
+}
+
 static BOOL
 ORMValueAllowed(NSString *value, ORMValueConstraint *constraint, BOOL numeric)
 {
-	NSString *(^bare)(NSString *) = ^NSString *(NSString *text) {
-		if ([text length] >= 2 && [text hasPrefix:@"'"] && [text hasSuffix:@"'"]) {
-			return [text substringWithRange:NSMakeRange(1, [text length] - 2)];
-		}
-		return text;
-	};
-	NSComparisonResult (^compare)(NSString *, NSString *) = ^NSComparisonResult(NSString *a, NSString *b) {
-		if (numeric) {
-			double x = [a doubleValue], y = [b doubleValue];
-			return x < y ? NSOrderedAscending : x > y ? NSOrderedDescending : NSOrderedSame;
-		}
-		return [a compare:b];
-	};
 	for (ORMValueRange *range in constraint.ranges) {
-		NSString *min = bare(range.minValue ?: @""), *max = bare(range.maxValue ?: @"");
-		BOOL above = [min length] == 0 || (range.minInclusion == ORMRangeOpen ? compare(value, min) == NSOrderedDescending
-		                                                                      : compare(value, min) != NSOrderedAscending);
-		BOOL below = [max length] == 0 || (range.maxInclusion == ORMRangeOpen ? compare(value, max) == NSOrderedAscending
-		                                                                      : compare(value, max) != NSOrderedDescending);
+		NSString *min = ORMUnquoted(range.minValue ?: @""), *max = ORMUnquoted(range.maxValue ?: @"");
+		NSComparisonResult low = ORMCompareValues(value, min, numeric);
+		NSComparisonResult high = ORMCompareValues(value, max, numeric);
+		BOOL above = [min length] == 0 || (range.minInclusion == ORMRangeOpen ? low == NSOrderedDescending
+		                                                                      : low != NSOrderedAscending);
+		BOOL below = [max length] == 0 || (range.maxInclusion == ORMRangeOpen ? high == NSOrderedAscending
+		                                                                      : high != NSOrderedDescending);
 		if (above && below) {
 			return YES;
 		}
@@ -703,11 +773,26 @@ ORMValueAllowed(NSString *value, ORMValueConstraint *constraint, BOOL numeric)
 - (void)checkValues
 {
 	for (ORMObjectType *type in _model.objectTypes) {
+		if (type.kind != ORMValueType || [type.valuePattern length] == 0) {
+			continue;
+		}
+		NSRegularExpression *pattern = [NSRegularExpression
+			regularExpressionWithPattern:[NSString stringWithFormat:@"^(?:%@)$", type.valuePattern] options:0 error:NULL];
+		for (ORMInstance *instance in [type instances]) {
+			NSString *value = instance.value;
+			if (value != nil && [pattern numberOfMatchesInString:value options:0 range:NSMakeRange(0, [value length])] == 0) {
+				[self violate:nil fact:nil
+				         text:[NSString stringWithFormat:@"%@ does not match %@'s pattern '%@'.", [instance displayText],
+				                                         type.name, type.valuePattern]];
+			}
+		}
+	}
+	for (ORMObjectType *type in _model.objectTypes) {
 		ORMValueConstraint *constraint = type.valueConstraint;
 		if (constraint == nil || [type isEntity]) {
 			continue;
 		}
-		BOOL numeric = type.dataType.family == ORMDataTypeNumeric;
+		BOOL numeric = [type.dataType isNumeric];
 		for (ORMInstance *instance in [type instances]) {
 			if (instance.value != nil && !ORMValueAllowed(instance.value, constraint, numeric)) {
 				[self violate:nil fact:nil
@@ -722,7 +807,7 @@ ORMValueAllowed(NSString *value, ORMValueConstraint *constraint, BOOL numeric)
 			if (constraint == nil) {
 				continue;
 			}
-			BOOL numeric = constraint.valueType.dataType.family == ORMDataTypeNumeric;
+			BOOL numeric = [constraint.valueType.dataType isNumeric];
 			for (NSDictionary *each in [self factsOf:fact]) {
 				NSString *value = [_values objectForKey:[each objectForKey:role.identifier] ?: @""];
 				if (value != nil && !ORMValueAllowed(value, constraint, numeric)) {

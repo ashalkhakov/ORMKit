@@ -68,6 +68,20 @@ ORMComparisonWords(NSString *name)
 	return [words objectForKey:key];
 }
 
+/* How tightly a term binds, said: sums, products, a leading minus, then
+ * anything else. */
+static NSUInteger ORMColumnCountOf(ORMFactType *fact);
+
+static NSInteger
+ORMArithmeticPrecedence(ORMTerm *term)
+{
+	if (term.functionName == nil || term.isAggregate) {
+		return 4;
+	}
+	NSDictionary *precedence = @{ @"add": @1, @"subtract": @1, @"multiply": @2, @"divide": @2, @"negate": @3 };
+	return [[precedence objectForKey:term.functionName] integerValue] ?: 4;
+}
+
 @implementation ORMPhrase
 {
 	NSMapTable *_aliases;
@@ -173,7 +187,7 @@ ORMComparisonWords(NSString *name)
 	/* By type: numbered when two or more and one is named again. */
 	NSMutableArray *types = [NSMutableArray array];
 	for (ORMVariable *variable in variables) {
-		if (variable.objectType != nil && [types indexOfObjectIdenticalTo:variable.objectType] == NSNotFound) {
+		if (variable.objectType != nil && variable.name == nil && [types indexOfObjectIdenticalTo:variable.objectType] == NSNotFound) {
 			[types addObject:variable.objectType];
 		}
 	}
@@ -181,7 +195,7 @@ ORMComparisonWords(NSString *name)
 		NSMutableArray *same = [NSMutableArray array];
 		BOOL again = NO;
 		for (ORMVariable *variable in variables) {
-			if (variable.objectType == type) {
+			if (variable.objectType == type && variable.name == nil) {
 				[same addObject:variable];
 				again = again || [counts countForObject:[NSValue valueWithNonretainedObject:variable]] > 1;
 			}
@@ -199,6 +213,9 @@ ORMComparisonWords(NSString *name)
 - (NSString *)nameOf:(ORMVariable *)variable
 {
 	ORMVariable *canonical = [self canonical:variable];
+	if (canonical.name != nil) {
+		return canonical.name;
+	}
 	NSString *name = canonical.objectType.name ?: @"?";
 	return canonical.ordinal > 0 ? [NSString stringWithFormat:@"%@%lu", name, (unsigned long)canonical.ordinal] : name;
 }
@@ -227,6 +244,11 @@ ORMComparisonWords(NSString *name)
 	ORMVariable *canonical = [self canonical:variable];
 	NSString *name = [self nameOf:canonical];
 	NSString *identifier = canonical.objectType.identifier;
+	/* A computed value by its name alone: "Length is ...". */
+	if (canonical.name != nil) {
+		[self mention:canonical];
+		return ORMMakeTerm(nil, name, identifier);
+	}
 	if ([self isMentioned:canonical]) {
 		return ORMMakeTerm(canonical.ordinal > 0 ? nil : @"that", name, identifier);
 	}
@@ -326,6 +348,8 @@ ORMComparisonWords(NSString *name)
 		[b objectType:spoken.name id:spoken.elementId];
 	} else if (term.constant != nil) {
 		[b value:term.constant];
+	} else if (!term.isAggregate && [self sayArithmetic:term into:b]) {
+		return;
 	} else {
 		/* count(x): how many there are. */
 		NSString *function = [term.functionName isEqualToString:@"count"] ? @"number" : term.functionName;
@@ -338,9 +362,133 @@ ORMComparisonWords(NSString *name)
 		}
 		if (term.group != nil) {
 			[b keyword:@" for "];
-			[self sayTerm:term.group into:b];
+			/* Several: "for that Vehicle and Month". */
+			BOOL several = [term.group.functionName isEqualToString:@"groups"];
+			NSArray *groups = several ? term.group.arguments : @[ term.group ];
+			for (NSUInteger i = 0; i < [groups count]; i++) {
+				if (i > 0) {
+					[b keyword:i + 1 == [groups count] ? @" and " : @", "];
+				}
+				[self sayTerm:[groups objectAtIndex:i] into:b];
+			}
 		}
 	}
+}
+
+/* A query's arithmetic (docs/EXPRESSIONS.md), in words: "Quantity2 minus
+ * Quantity1", "the absolute value of ...". An operand that binds less
+ * tightly than its place is bracketed. NO for another function. */
+- (BOOL)sayArithmetic:(ORMTerm *)term into:(ORMSentenceBuilder *)b
+{
+	NSDictionary *infix = @{ @"add": @" plus ", @"subtract": @" minus ", @"multiply": @" times ", @"divide": @" divided by " };
+	NSDictionary *prefix = @{ @"negate": @"minus ", @"abs": @"the absolute value of ", @"floor": @"the whole part of ",
+		                      @"ceil": @"the least whole number not less than " };
+	NSDictionary *pairs = @{ @"min": @"the lesser of ", @"max": @"the greater of " };
+	NSString *name = term.functionName;
+	NSArray *arguments = term.arguments;
+	if ([infix objectForKey:name] != nil && [arguments count] == 2) {
+		NSInteger place = ORMArithmeticPrecedence(term);
+		BOOL strict = [name isEqualToString:@"subtract"] || [name isEqualToString:@"divide"];
+		[self sayOperand:[arguments firstObject] place:place strict:NO into:b];
+		[b keyword:[infix objectForKey:name]];
+		[self sayOperand:[arguments lastObject] place:place strict:strict into:b];
+		return YES;
+	}
+	if ([prefix objectForKey:name] != nil && [arguments count] == 1) {
+		[b keyword:[prefix objectForKey:name]];
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		return YES;
+	}
+	if ([pairs objectForKey:name] != nil && [arguments count] == 2) {
+		[b keyword:[pairs objectForKey:name]];
+		[self sayTerm:[arguments firstObject] into:b];
+		[b keyword:@" and "];
+		[self sayTerm:[arguments lastObject] into:b];
+		return YES;
+	}
+	if ([name isEqualToString:@"round"] && [arguments count] == 2) {
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		[b keyword:@" rounded to "];
+		[self sayTerm:[arguments lastObject] into:b];
+		[b keyword:@" decimal places"];
+		return YES;
+	}
+	NSDictionary *spans = @{ @"days": @"days", @"months": @"months", @"minutes": @"minutes" };
+	if ([spans objectForKey:name] != nil && [arguments count] == 2) {
+		[b keyword:[NSString stringWithFormat:@"the number of %@ from ", [spans objectForKey:name]]];
+		[self sayTerm:[arguments firstObject] into:b];
+		[b keyword:@" to "];
+		[self sayTerm:[arguments lastObject] into:b];
+		return YES;
+	}
+	NSDictionary *later = @{ @"addDays": @" days", @"addMonths": @" months" };
+	if ([later objectForKey:name] != nil && [arguments count] == 2) {
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		[b keyword:@" plus "];
+		[self sayTerm:[arguments lastObject] into:b];
+		[b keyword:[later objectForKey:name]];
+		return YES;
+	}
+	NSDictionary *ofDay = @{ @"date": @"the date of ", @"month": @"the first day of the month of " };
+	if ([ofDay objectForKey:name] != nil && [arguments count] == 1) {
+		[b keyword:[ofDay objectForKey:name]];
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		return YES;
+	}
+	if ([name isEqualToString:@"today"] && [arguments count] == 0) {
+		[b keyword:@"today"];
+		return YES;
+	}
+	NSDictionary *ofDayIn = @{ @"dateIn": @"the date of ", @"monthIn": @"the first day of the month of " };
+	if ([ofDayIn objectForKey:name] != nil && [arguments count] == 2) {
+		[b keyword:[ofDayIn objectForKey:name]];
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		[b keyword:@" in "];
+		[self sayOperand:[arguments lastObject] place:3 strict:NO into:b];
+		return YES;
+	}
+	if ([name isEqualToString:@"todayIn"] && [arguments count] == 1) {
+		[b keyword:@"today in "];
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		return YES;
+	}
+	if ([name isEqualToString:@"coalesce"] && [arguments count] == 2) {
+		[self sayOperand:[arguments firstObject] place:3 strict:NO into:b];
+		[b keyword:@", or "];
+		[self sayOperand:[arguments lastObject] place:3 strict:NO into:b];
+		[b keyword:@" where there is none"];
+		return YES;
+	}
+	return NO;
+}
+
+- (void)sayOperand:(ORMTerm *)term place:(NSInteger)place strict:(BOOL)strict into:(ORMSentenceBuilder *)b
+{
+	NSInteger own = ORMArithmeticPrecedence(term);
+	BOOL bracketed = own < place || (strict && own == place && place < 3);
+	if (bracketed) {
+		[b plain:@"("];
+	}
+	[self sayTerm:term into:b];
+	if (bracketed) {
+		[b plain:@")"];
+	}
+}
+
+/* Whether an or is one variable equal to each of several constants. */
+- (BOOL)isOneOf:(ORMFormula *)formula
+{
+	ORMVariable *variable = nil;
+	for (ORMFormula *child in formula.children) {
+		ORMTerm *left = [child.operands firstObject];
+		ORMTerm *right = [child.operands lastObject];
+		if (child.kind != ORMFormulaComparison || ![child.comparison isEqualToString:@"="] || [child.operands count] != 2
+		    || left.variable == nil || right.constant == nil || (variable != nil && left.variable != variable)) {
+			return NO;
+		}
+		variable = left.variable;
+	}
+	return [formula.children count] > 1;
 }
 
 /* Anything but a fact: a negation, a choice, a comparison. */
@@ -353,6 +501,20 @@ ORMComparisonWords(NSString *name)
 		break;
 	case ORMFormulaOr:
 	case ORMFormulaXor: {
+		/* One term equal to any of several values ("in"): said once, "that
+		 * CostKind is 'Maintenance' or 'Repair'". */
+		if (formula.kind == ORMFormulaOr && [self isOneOf:formula]) {
+			ORMFormula *first = [formula.children firstObject];
+			[self sayTerm:[first.operands firstObject] into:b];
+			[b keyword:@" is "];
+			for (NSUInteger i = 0; i < [formula.children count]; i++) {
+				if (i > 0) {
+					[b keyword:i + 1 == [formula.children count] ? @" or " : @", "];
+				}
+				[self sayTerm:[[[formula.children objectAtIndex:i] operands] lastObject] into:b];
+			}
+			break;
+		}
 		BOOL xor = formula.kind == ORMFormulaXor;
 		if (xor && [formula.children count] > 2) {
 			[b keyword:@"exactly one of the following holds: "];
@@ -798,7 +960,7 @@ ORMDerivationMark(ORMDerivationRule *rule)
 	if (relation == nil) {
 		return;
 	}
-	NSDictionary *variables = [query variablesOfRelation:relation];
+	NSDictionary *variables = relation.variables;
 	ORMVariable *root = [variables objectForKey:query.root.identifier];
 	ORMPhrase *phrase = [self phrase];
 	[phrase numberFormulas:@[ relation.formula ] columns:relation.columns];
@@ -835,11 +997,33 @@ ORMDerivationMark(ORMDerivationRule *rule)
 		[self emit:b];
 		return;
 	}
+	if (query.kind == ORMQueryDerivation && query.derivedSubtype != nil) {
+		/* "Each Cost is by definition a Record that cost some Money"; "Each
+		 * Record that ... is a Cost" for a partly derived one. */
+		ORMObjectType *subtype = query.derivedSubtype;
+		[phrase mention:root];
+		if ([subtype derivationRule].isPartial) {
+			[b keyword:@"Each "];
+			[b objectType:[phrase nameOf:root] id:root.objectType.identifier];
+			[phrase say:relation.formula from:root relative:YES into:b];
+			[b keyword:[NSString stringWithFormat:@" is %@ ", ORMArticle(subtype.name)]];
+			[b objectType:subtype.name id:subtype.identifier];
+		} else {
+			[b keyword:@"Each "];
+			[b objectType:subtype.name id:subtype.identifier];
+			[b keyword:[NSString stringWithFormat:@" is by definition %@ ", ORMArticle(root.objectType.name)]];
+			[b objectType:[phrase nameOf:root] id:root.objectType.identifier];
+			[phrase say:relation.formula from:root relative:YES into:b];
+		}
+		[self emit:b];
+		return;
+	}
 	if (query.kind == ORMQueryDerivation) {
 		/* The rule: "Employee1 reports to Employee2 if and only if ...",
 		 * without the mark, which the fact type's verbalization gives. */
 		ORMFactType *fact = query.derivedFactType;
-		if (fact == nil || [relation.columns count] != [[fact visibleRoles] count]) {
+		if (fact == nil || ([relation.columns count] != ORMColumnCountOf(fact)
+		                    && [relation.columns count] != [[fact visibleRoles] count])) {
 			[b plain:query.name ?: @"The derivation"];
 			[b keyword:fact == nil ? @" derives no fact type yet" : @" lists other than its fact type's roles"];
 			[self emit:b];
@@ -869,6 +1053,18 @@ ORMDerivationMark(ORMDerivationRule *rule)
 	[self emit:b];
 }
 
+/* How many columns a derivation of the fact type lists: one for each role,
+ * a part each for a player of several identifying values. */
+static NSUInteger
+ORMColumnCountOf(ORMFactType *fact)
+{
+	NSUInteger count = 0;
+	for (ORMRole *role in [fact visibleRoles]) {
+		count += [[ORMQuery partRolesOf:role.player] count] ?: 1;
+	}
+	return count;
+}
+
 /* "* Employee1 reports to Employee2 if and only if Employee1 works for
  * some Branch that is headed by Employee2": the fact type's reading, its
  * roles the relation's columns in order, and the relation's formula. "if"
@@ -896,12 +1092,39 @@ ORMDerivationMark(ORMDerivationRule *rule)
 			[phrase mention:column];
 		}
 	}
+	/* Each role's columns: one, or a part each for a player of several
+	 * identifying values. */
+	NSMutableArray *groups = [NSMutableArray array];
+	NSUInteger at = 0;
+	for (ORMRole *role in roles) {
+		NSUInteger count = [[ORMQuery partRolesOf:role.player] count] ?: 1;
+		/* A variable of the player itself, though it has parts. */
+		ORMVariable *next = at < [relation.columns count] ? [relation.columns objectAtIndex:at] : nil;
+		if (next.name == nil && (next.objectType == role.player || [next.objectType isSubtypeOf:role.player])) {
+			count = 1;
+		}
+		[groups addObject:at + count <= [relation.columns count]
+		                      ? [relation.columns subarrayWithRange:NSMakeRange(at, count)] : @[]];
+		at += count;
+	}
 	[b append:[self clause:[self readingOf:fact from:nil] terms:^ORMSpokenTerm *(ORMRole *role) {
 		NSUInteger index = [roles indexOfObjectIdenticalTo:role];
-		if (index == NSNotFound || index >= [relation.columns count]) {
+		NSArray *group = index != NSNotFound ? [groups objectAtIndex:index] : @[];
+		if ([group count] == 0) {
 			return ORMMakeTerm(nil, role.player.name, role.player.identifier);
 		}
-		return [phrase termFor:[relation.columns objectAtIndex:index]];
+		if ([group count] == 1) {
+			return [phrase termFor:[group firstObject]];
+		}
+		/* "the Money of Amount and Currency1". */
+		NSMutableArray *names = [NSMutableArray array];
+		for (ORMVariable *part in group) {
+			[names addObject:[phrase nameOf:part]];
+			[phrase mention:part];
+		}
+		ORMSpokenTerm *term = ORMMakeTerm(@"the", role.player.name, role.player.identifier);
+		term.value = [@"of " stringByAppendingString:[names componentsJoinedByString:@" and "]];
+		return term;
 	}]];
 	[b keyword:partial ? @" if " : @" if and only if "];
 	[phrase say:relation.formula from:[relation.columns firstObject] relative:NO into:b];
@@ -924,7 +1147,8 @@ ORMDerivationMark(ORMDerivationRule *rule)
 	 * the same, plain. */
 	ORMQuery *query = [ORMQuery derivationOf:fact inModel:fact.model];
 	ORMRelation *queried = query != nil ? [query relation] : nil;
-	if (queried != nil && !queried.isIncomplete && [queried.columns count] == [[fact visibleRoles] count]) {
+	if (queried != nil && !queried.isIncomplete
+	    && ([queried.columns count] == ORMColumnCountOf(fact) || [queried.columns count] == [[fact visibleRoles] count])) {
 		[self emit:[self derivationOf:fact relation:queried mark:mark partial:rule.isPartial]];
 		return;
 	}

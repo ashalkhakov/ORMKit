@@ -39,9 +39,24 @@ extern const NSUInteger ORMTablesFormat;
 @property (nonatomic, readonly, copy) NSString *root;
 @property (nonatomic, readonly, strong) ORMQueryPlan *plan;
 /* The property it is kept in, and what it holds: "value", "object" (one,
- * or none where there are none or several), or "objects". */
+ * or none where there are none or several), or "objects"; or "values",
+ * the properties a player of several identifying values is kept in (an
+ * absorbed Money's amount and currency), in targets, each set to its
+ * column after the first; or "flag", a unary's attribute, true for the
+ * objects the plan lists. */
 @property (nonatomic, readonly, copy) NSString *target;
 @property (nonatomic, readonly, copy) NSString *kind;
+@property (nonatomic, readonly, copy) NSArray<NSString *> *targets;
+/* Partly derived: what is derived is set where the rule derives
+ * something; elsewhere what was asserted stays. */
+@property (nonatomic, readonly) BOOL partial;
++ (instancetype)derivationWithText:(NSString *)text
+                              root:(NSString *)root
+                              plan:(ORMQueryPlan *)plan
+                           targets:(NSArray<NSString *> *)targets
+                              kind:(NSString *)kind
+                           partial:(BOOL)partial
+                             backs:(NSArray<NSArray *> *)backs;
 /* The ways back from a change to the objects it can affect: for each
  * entity the plan reads through, the inverse keys from there to the root,
  * @[ entity, @[ key, ... ] ]. */
@@ -67,6 +82,9 @@ extern const NSUInteger ORMTablesFormat;
  *                                      (subset, equal)
  *   { ring = (acyclic, ...); key = k; }       each ring property of the
  *                                      relationship from the entity to itself
+ *   { unique = (catalog, sku); }      no other object of the entity, saved
+ *                                      or not, has the same values of the
+ *                                      keys (when each is set)
  *   { compare = (a, b); comparison = ">="; }  when both are set
  *   { within = key; ranges = ( { min = 0; max = 17; } ); }   when set; a
  *                                      bound left out is none, minOpen and
@@ -77,7 +95,7 @@ extern const NSUInteger ORMTablesFormat;
 + (instancetype)checkWithPropertyList:(id)list error:(NSError **)error;
 - (id)propertyList;
 /* "present", "true", "all", "any", "not", "count", "sets", "ring",
- * "compare", "within", "plan". */
+ * "unique", "compare", "within", "plan". */
 @property (nonatomic, readonly, copy) NSString *kind;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *keys;
 @property (nonatomic, readonly, copy) NSArray<ORMRuleCheck *> *operands;
@@ -152,6 +170,17 @@ extern const NSUInteger ORMTablesFormat;
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, ORMQueryPlan *> *queries;
 /* In the order they run: each after those whose facts it reads. */
 @property (nonatomic, readonly, copy) NSArray<ORMStoredDerivation *> *derivations;
+/* The model's reference data (docs/EXPRESSIONS.md), the objects every store
+ * starts with, in order: each @{ "entity": its entity's name, "key": the
+ * names of the attributes that find it, "values": @{ attribute: value },
+ * "refs": @{ to-one relationship: @(index of the seed it reaches) } }. A
+ * decimal's value is its text. Set once, as the tables are made. */
+@property (nonatomic, copy) NSArray<NSDictionary *> *seeds;
+/* The seeds in the context: each found by its key, or inserted, and given
+ * its values and relationships, so that what an app's reference data says
+ * is what the store has, the next time it is saved. NO, and why, where an
+ * entity or a property the seeds name is not the context's model's. */
+- (BOOL)seedContext:(NSManagedObjectContext *)context error:(NSError **)error;
 
 /* The query of the name run against the context's store, every page;
  * a cursor over it, a page at a time; or as requests to the service of the
