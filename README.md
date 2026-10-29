@@ -1,16 +1,91 @@
 # ORMKit
 
-Object-Role Modeling (ORM2) on macOS and Linux, in Objective-C: models in
-NORMA's `.orm` format, their diagrams, their verbalization in FORML, and their
-mapping to Core Data, kept in step both ways.
+**Describe your data as facts, in plain sentences, and get a diagram, a
+readable specification and a working Core Data model out of the same
+description, kept in step as either side changes.**
 
-- **ORMKit** — the library. Foundation and NSXML only, ARC, Cocoa and GNUstep.
-- **ORMDesigner** — a document-based diagram editor for `.orm` files.
-- **ormtool** — the library from a shell.
+ORMKit is an Object-Role Modeling (ORM2) toolkit for macOS, Linux and
+Windows, written in Objective-C. Instead of starting from tables or classes,
+you state what is true about your domain: *an Academic has a Rank*, *an
+Academic was awarded a Degree in a Year*, *each Degree has at most one
+Rating*. ORMKit keeps those facts and their rules as one model, and from it:
+
+- **draws it** as an ORM diagram you edit directly in ORMDesigner;
+- **reads it back to you in English**, so a domain expert can check the rules
+  without learning a notation;
+- **writes a Core Data model** (`.xcdatamodeld`) for your app, and brings
+  changes made in Xcode back into the model;
+- **runs queries** against sample data, and serves the model over OData;
+- does all of it **from the command line** too, with `ormtool`, for builds
+  and scripts.
+
+![ORMDesigner on Windows, editing the University sample model](docs/images/ormdesigner-windows.png)
+
+The University sample, as ORMDesigner and `ormtool svg` draw it:
+
+![The University sample model's ORM diagram](docs/images/university-diagram.svg)
+
+and part of what ORMKit says about it (`ormtool verbalize Samples/University.orm`):
+
+> Each Professor is an Academic.
+>
+> For each Academic and Degree, that Academic was awarded that Degree in at most one Year.
+>
+> For each Degreecode and University, at most one Degree has that Degreecode and is from that University.
+>
+> Each Degree has at most one Rating.
+
+## What is in the box
+
+- **ORMKit**: the library. Foundation and NSXML only, no AppKit, ARC; it
+  builds on Cocoa and on GNUstep.
+- **ORMDesigner**: a document-based diagram editor for `.orm` models.
+- **ormtool**: the library from a shell.
+- **ORMRuntime**: what an app built from a model runs: its query plans and a
+  small driver, with no ORM model and no XML.
+
+```mermaid
+flowchart LR
+    subgraph apps["Apps"]
+        designer["ORMDesigner<br/>diagram editor"]
+        tool["ormtool<br/>command line"]
+    end
+    kit["ORMKit<br/>model, editing, verbalization,<br/>Core Data mapping, queries"]
+    runtime["ORMRuntime<br/>query plans and their driver"]
+    odata["ODataKit<br/>the model as an OData service"]
+    coredata["Core Data<br/>Apple's, or FreeCoreData on GNUstep"]
+    orm[(".orm model")]
+    xcdm[(".xcdatamodeld")]
+    designer --> kit
+    tool --> kit
+    kit --> runtime
+    kit --> odata
+    odata --> coredata
+    kit <-->|reads and writes| orm
+    kit <-->|maps and syncs| xcdm
+    yourapp["Your app"] --> runtime
+    yourapp --> coredata
+```
+
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has the details.
+
+## Download
+
+Each [release](https://github.com/ashalkhakov/ORMKit/releases) has:
+
+- **macOS**: ORMDesigner, signed and notarized, updating itself with Sparkle;
+- **Linux**: an AppImage with ORMDesigner and `ormtool`
+  (`./ORMKit-*.AppImage ormtool check model.orm`);
+- **Windows**: an installer, `ORMDesigner-<version>-win64.msi`, with
+  `ormtool` in its runtime, updating itself with WinSparkle.
 
 LGPL 2.1.
 
-## NORMA's files, as NORMA writes them
+## Works with NORMA
+
+ORMKit's models are `.orm` files in the format of
+[NORMA](https://github.com/ormsolutions/NORMA), the ORM2 tool for Visual
+Studio, so models move freely between the two.
 
 ORMDesigner opens what NORMA saves and saves what NORMA opens. The XML
 document is the model: an edit changes what it touches and nothing else, so
@@ -87,11 +162,12 @@ or in docker, in an image that has them: `.tools/gnustep.sh make check`.
 
 One workflow, `.github/workflows/build.yml`, runs the same on every push and
 `v*` tag, by gnustep-release-actions' workflows (the same as every
-repository's), and packages what was installed: ORMDesigner for macOS, and an
-AppImage with ORMDesigner and `ormtool`
-(`./ORMKit-*.AppImage ormtool check model.orm`). A tag releases them:
-ORMDesigner signed and notarized with the Sparkle appcast its Check for
-Updates… reads, the AppImage with its update information.
+repository's), on macOS, Linux and Windows (MSYS2 CLANG64), and packages
+what was installed: ORMDesigner for macOS, an AppImage with ORMDesigner and
+`ormtool` (`./ORMKit-*.AppImage ormtool check model.orm`), and a Windows
+installer with both. A tag releases them: ORMDesigner signed and notarized
+with the Sparkle appcast its Check for Updates… reads, the AppImage with its
+update information, the installer with its WinSparkle appcast.
 
 ## ormtool
 
