@@ -3325,7 +3325,7 @@
 		396EB6AE65C79A03013351E6 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path", "@loader_path");
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path", "@loader_path", "@executable_path/../ORMKit.xcframework/macos-arm64_x86_64", "@executable_path/../ORMRuntime.xcframework/macos-arm64_x86_64", "@executable_path/../ODataKit.xcframework/macos-arm64_x86_64", "@executable_path/../ODataIncrementalStore.xcframework/macos-arm64_x86_64", "@executable_path/../OTelKit.xcframework/macos-arm64_x86_64");
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;
@@ -3419,7 +3419,7 @@
 		BC15A3674A9DC48DCAEDAE79 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path", "@loader_path");
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path", "@loader_path", "@executable_path/../ORMKit.xcframework/macos-arm64_x86_64", "@executable_path/../ORMRuntime.xcframework/macos-arm64_x86_64", "@executable_path/../ODataKit.xcframework/macos-arm64_x86_64", "@executable_path/../ODataIncrementalStore.xcframework/macos-arm64_x86_64", "@executable_path/../OTelKit.xcframework/macos-arm64_x86_64");
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;
