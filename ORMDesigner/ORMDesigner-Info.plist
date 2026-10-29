@@ -93,6 +93,10 @@
   <string>Copyright (C) 2026 the ORMKit contributors</string>
   <key>CopyrightDescription</key>
   <string>GNU LGPL 2.1</string>
+  <key>URL</key>
+  <string>https://github.com/ashalkhakov/ORMKit</string>
+  <key>ApplicationIcon</key>
+  <string>ORMDesigner.png</string>
   <!-- GNUstep's own form of the document type, named as Apple's UTI so
        NSDocument sees one type name on both. -->
   <key>NSTypes</key>

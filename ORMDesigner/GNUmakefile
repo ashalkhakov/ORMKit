@@ -8,7 +8,7 @@ include ../odatakit.make
 ORMDesigner_INCLUDE_DIRS = -I../ORMKit -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
 ORMDesigner_OBJC_FILES = \
   main.m \
-  ORMUpdater.m \
+  ORMUpdater-GNUstep.m \
   ORMAppDelegate.m \
   ORMDocument.m \
   ORMWindowController.m \
@@ -28,7 +28,8 @@ ORMDesigner_OBJC_FILES = \
   ThirdParty/DMTabBar/DMTabBarItem.m
 # ORMKit is built in the tree beside this one and not installed.
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
-ORMDesigner_OBJC_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) -ldispatch
+# GSUpdater, the stack's: the designer's updates (ORMUpdater-GNUstep.m).
+ORMDesigner_OBJC_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) -lGSUpdater -ldispatch
 # The icon GNUstep shows in the About panel, on windows and in the dock
 # tile; the AppImage installs the same file as its desktop icon.
 ORMDesigner_APPLICATION_ICON = ORMDesigner.png
