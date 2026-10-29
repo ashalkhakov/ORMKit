@@ -25,14 +25,18 @@ SUBPROJECTS = ORMRuntime ORMKit Tools/ormtool ORMDesigner
 include $(GNUSTEP_MAKEFILES)/aggregate.make
 
 XVFB = $(if $(DISPLAY),,$(shell command -v xvfb-run >/dev/null 2>&1 && echo xvfb-run -a))
-ORM_RUN = LD_LIBRARY_PATH="$(CURDIR)/ORMKit/$(GNUSTEP_OBJ_DIR_NAME):$(CURDIR)/ORMRuntime/$(GNUSTEP_OBJ_DIR_NAME)$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}"
+ORM_RUN = LD_LIBRARY_PATH="$(CURDIR)/ORMKit/$(GNUSTEP_OBJ_DIR_NAME):$(CURDIR)/ORMRuntime/$(GNUSTEP_OBJ_DIR_NAME)$${LD_LIBRARY_PATH:+:$$LD_LIBRARY_PATH}" \
+  PATH="$(CURDIR)/ORMKit/$(GNUSTEP_OBJ_DIR_NAME):$(CURDIR)/ORMRuntime/$(GNUSTEP_OBJ_DIR_NAME):$$PATH"
 
 # The suites are built here, not with the rest: under AddressSanitizer
-# (SANITIZE=1), which names a bad write where it happens.
+# (SANITIZE=1), which names a bad write where it happens. Not on Windows:
+# MSYS2's cannot link a bundle (its runtime's import library and libc++'s
+# collide), and LD_PRELOAD, which loads it for a run, is not Windows'.
+ORM_SANITIZE = $(if $(filter Windows_NT,$(OS)),,SANITIZE=1)
 check::
 	Scripts/check-imports.sh
-	$(MAKE) -C ORMKitTests run-tests SANITIZE=1
-	$(XVFB) $(MAKE) -C ORMDesignerTests run-tests SANITIZE=1
+	$(MAKE) -C ORMKitTests run-tests $(ORM_SANITIZE)
+	$(XVFB) $(MAKE) -C ORMDesignerTests run-tests $(ORM_SANITIZE)
 	$(ORM_RUN) Scripts/ormtool-smoke.sh Tools/ormtool/$(GNUSTEP_OBJ_DIR_NAME)/ormtool
 
 after-clean::

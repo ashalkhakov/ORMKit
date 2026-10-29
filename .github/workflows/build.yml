@@ -4,10 +4,12 @@ name: Build
 # make install; Makefile.apple on macOS) by gnustep-release-actions'
 # workflows, the same as every repository's: every push is built, tested and
 # uploaded as artifacts (ORMDesigner for macOS; the AppImage, ORMDesigner and
-# ormtool); a v* tag (or a run started by hand with one) is also released:
-# ORMDesigner signed and notarized with its Sparkle appcast, the AppImage
-# with its update information, attached to the tag's release (a pre-release
-# when the tag has a '-'). What it builds on is in .github/pins.env.
+# ormtool; ORMDesigner-<version>-win64.msi, ormtool in its runtime); a v* tag
+# (or a run started by hand with one) is also released: ORMDesigner signed
+# and notarized with its Sparkle appcast, the AppImage with its update
+# information, the installer with its WinSparkle appcast, attached to the
+# tag's release (a pre-release when the tag has a '-'). What it builds on is
+# in .github/pins.env.
 on:
   push:
     branches: ['**']
@@ -35,6 +37,14 @@ jobs:
     with:
       tag: ${{ inputs.tag }}
       extra-packages: libsqlite3-dev
+
+  windows:
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1
+    with:
+      tag: ${{ inputs.tag }}
+      # dlfcn: libdl, which ODataKit's libraries link.
+      extra-packages: sqlite3 zlib dlfcn
+    secrets: inherit
 
   macos:
     uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1

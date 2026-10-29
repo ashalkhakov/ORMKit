@@ -115,7 +115,7 @@ NSString *ORMFormatPoint(NSPoint point);
  * writes it, so an unchanged file comes back byte for byte where NSXML
  * allows. */
 NSData *ORMDataOfDocument(NSXMLDocument *document);
-/* nil with why when the data is not XML. */
+/* nil with why when the data is not XML, or is nil. */
 NSXMLDocument *ORMParseDocument(NSData *data, NSString **reason);
 
 /* Undo by the XML elements a change touched (docs/MODEL.md): each, the
