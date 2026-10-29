@@ -42,10 +42,16 @@ KIT_PRIVATE = [h for h in headers_in("ORMKit") if h not in KIT_PUBLIC]
 KIT_TESTS = make_list("ORMKitTests/GNUmakefile", "ORMKitTests_OBJC_FILES")
 KIT_TEST_HEADERS = headers_in("ORMKitTests")
 TOOL_SOURCES = make_list("Tools/ormtool/GNUmakefile", "ormtool_OBJC_FILES")
-# A source with an -Apple.m beside it (ORMUpdater.m) is that class's GNUstep
-# half: the Mac app compiles the other. The tests keep the GNUstep half.
-APP_SOURCES = [s[:-2] + "-Apple.m" if os.path.exists(os.path.join(ROOT, "ORMDesigner", s[:-2] + "-Apple.m")) else s
-               for s in make_list("ORMDesigner/GNUmakefile", "ORMDesigner_OBJC_FILES")]
+# A source with an -Apple.m beside it is that class's GNUstep half -- X.m or
+# X-GNUstep.m (ORMUpdater-GNUstep.m beside ORMUpdater-Apple.m): the Mac app
+# compiles the -Apple.m. The tests keep the GNUstep half they name.
+def mac_half(source):
+    base = source[:-len("-GNUstep.m")] if source.endswith("-GNUstep.m") else source[:-2]
+    apple = base + "-Apple.m"
+    return apple if os.path.exists(os.path.join(ROOT, "ORMDesigner", apple)) else source
+
+
+APP_SOURCES = [mac_half(s) for s in make_list("ORMDesigner/GNUmakefile", "ORMDesigner_OBJC_FILES")]
 APP_RESOURCES = make_list("ORMDesigner/GNUmakefile", "ORMDesigner_RESOURCE_FILES")
 APP_HEADERS = [h for h in headers_in("ORMDesigner") if h != "ORMDesignerCompat.h"]
 APP_TEST_FILES = make_list("ORMDesignerTests/GNUmakefile", "ORMDesignerTests_OBJC_FILES")
