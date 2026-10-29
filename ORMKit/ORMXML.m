@@ -793,6 +793,14 @@ ORMLayouts(void)
 NSXMLDocument *
 ORMParseDocument(NSData *data, NSString **reason)
 {
+	/* No data at all (a file that could not be read) is said so, rather
+	 * than handed to NSXMLDocument, which raises on nil. */
+	if (data == nil) {
+		if (reason != NULL) {
+			*reason = @"Nothing was read.";
+		}
+		return nil;
+	}
 	NSError *error = nil;
 	NSXMLDocument *document = [[NSXMLDocument alloc] initWithData:data options:0 error:&error];
 	if (document == nil || [document rootElement] == nil) {

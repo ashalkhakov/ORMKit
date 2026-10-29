@@ -41,6 +41,13 @@
 	XCTAssertTrue([reason length] > 0);
 }
 
+- (void)testNoDataSaysWhyRatherThanRaising
+{
+	NSString *reason = nil;
+	XCTAssertNil(ORMParseDocument(nil, &reason));
+	XCTAssertGreaterThan([reason length], (NSUInteger)0, @"a file that could not be read says so");
+}
+
 - (void)testANewModelIsLaidOutAsNormaLaysItOut
 {
 	NSData *data = ORMDataOfDocument([ORMEditor newDocumentNamed:@"Fresh"]);
