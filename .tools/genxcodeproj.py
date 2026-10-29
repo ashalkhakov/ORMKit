@@ -360,8 +360,14 @@ TARGET_SETTINGS = {
         "PRODUCT_BUNDLE_IDENTIFIER": "org.ormkit.ORMKitTests",
         "PRODUCT_NAME": q("$(TARGET_NAME)"),
     },
+    # Beside its frameworks when built; and, installed as a library's
+    # bin/ormtool (Makefile.apple), beside the XCFrameworks a build that pins
+    # ORMKit unpacks into .deps/: their macOS slices.
     "ormtool": {
-        "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path", "@loader_path")',
+        "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path", "@loader_path", '
+                                   + ", ".join('"@executable_path/../%s.xcframework/macos-arm64_x86_64"' % fw
+                                               for fw in ["ORMKit", "ORMRuntime", "ODataKit", "ODataIncrementalStore", "OTelKit"])
+                                   + ')',
         "PRODUCT_NAME": q("$(TARGET_NAME)"),
     },
     "ORMDesigner": {

@@ -164,8 +164,12 @@ One workflow, `.github/workflows/build.yml`, runs the same on every push and
 `v*` tag, by gnustep-release-actions' workflows (the same as every
 repository's), on macOS, Linux and Windows (MSYS2 CLANG64), and packages
 what was installed: ORMDesigner for macOS, an AppImage with ORMDesigner and
-`ormtool` (`./ORMKit-*.AppImage ormtool check model.orm`), and a Windows
-installer with both. A tag releases them: ORMDesigner signed and notarized
+`ormtool` (`./ORMKit-*.AppImage ormtool check model.orm`), a Windows
+installer with both, and, for what builds on ORMKit (an app that generates
+from its model, as Logbook does), the libraries: ORMKit and ORMRuntime with
+their headers and `ormtool`, for Linux and Windows, and as XCFrameworks with
+`bin/ormtool` for macOS (`ORMKIT_VERSION` in its `.github/pins.env`). A tag
+releases them: ORMDesigner signed and notarized
 with the Sparkle appcast its Check for Updates… reads, the AppImage with its
 update information, the installer with its WinSparkle appcast.
 

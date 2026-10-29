@@ -4,12 +4,17 @@ name: Build
 # make install; Makefile.apple on macOS) by gnustep-release-actions'
 # workflows, the same as every repository's: every push is built, tested and
 # uploaded as artifacts (ORMDesigner for macOS; the AppImage, ORMDesigner and
-# ormtool; ORMDesigner-<version>-win64.msi, ormtool in its runtime); a v* tag
-# (or a run started by hand with one) is also released: ORMDesigner signed
-# and notarized with its Sparkle appcast, the AppImage with its update
-# information, the installer with its WinSparkle appcast, attached to the
-# tag's release (a pre-release when the tag has a '-'). What it builds on is
-# in .github/pins.env.
+# ormtool; ORMDesigner-<version>-win64.msi, ormtool in its runtime; and, a
+# library, what an app builds on: ORMKit and ORMRuntime with their headers
+# and ormtool as ormkit-<version>-ubuntu22.04-<arch>.tar.xz and
+# ormkit-<version>-windows-clang64-x86_64.tar.xz, and ORMKit.xcframework,
+# ORMRuntime.xcframework and bin/ormtool as ormkit-<version>-apple.zip); a v*
+# tag (or a run started by hand with one) is also released: ORMDesigner
+# signed and notarized with its Sparkle appcast, the AppImage with its update
+# information, the installer with its WinSparkle appcast, and the library's
+# archives, attached to the tag's release (a pre-release when the tag has a
+# '-'). What it builds on is in .github/pins.env; what builds on ORMKit names
+# it there by ORMKIT_VERSION.
 on:
   push:
     branches: ['**']
@@ -36,12 +41,14 @@ jobs:
     uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@v1
     with:
       tag: ${{ inputs.tag }}
+      library: true
       extra-packages: libsqlite3-dev
 
   windows:
     uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1
     with:
       tag: ${{ inputs.tag }}
+      library: true
       # dlfcn: libdl, which ODataKit's libraries link.
       extra-packages: sqlite3 zlib dlfcn
     secrets: inherit
@@ -51,4 +58,5 @@ jobs:
     with:
       tag: ${{ inputs.tag }}
       apps: ORMDesigner=ORMDesigner
+      library: true
     secrets: inherit

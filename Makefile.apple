@@ -1,15 +1,27 @@
 # ORMKit on macOS, the familiar way (gnustep-release-actions' macos.yml runs
 # the same):
 #
-#   make -f Makefile.apple            ORMKit.framework, ormtool and ORMDesigner.app,
-#                                     universal (Release)
+#   make -f Makefile.apple            ORMKit.framework, ORMRuntime.framework, ormtool
+#                                     and ORMDesigner.app, universal (Release), and the
+#                                     two frameworks as XCFrameworks (build/*.xcframework)
 #   make -f Makefile.apple check      the Xcode project as .tools/genxcodeproj.py
 #                                     writes it; the imports; the Debug builds;
 #                                     both suites; ormtool on the StockMate model;
 #                                     the fixture builders, and ormtool checking
 #                                     what they write
-#   make -f Makefile.apple install DESTDIR=<dir>       ORMDesigner.app
-#   make -f Makefile.apple installcheck DESTDIR=<dir>  its signature holds
+#   make -f Makefile.apple install DESTDIR=<dir>       ORMDesigner.app, ORMKit.xcframework,
+#                                                      ORMRuntime.xcframework and bin/ormtool
+#                                                      (what an app pins: the release's
+#                                                      ormkit-<v>-apple.zip)
+#   make -f Makefile.apple installcheck DESTDIR=<dir>  the app's signature holds; ormtool
+#                                                      runs where a build that pins ORMKit
+#                                                      unpacks it (.deps/bin, beside the
+#                                                      XCFrameworks, ODataKit's with them)
+#
+# bin/ormtool finds its frameworks beside it (its runpath search paths,
+# .tools/genxcodeproj.py): ORMKit's and ORMRuntime's, and ODataKit's, which
+# what pins ORMKit pins too (gnustep-release-actions' scripts/deps.sh apple
+# unpacks both into .deps/).
 #
 # What it builds on (ODataKit's XCFrameworks, Sparkle's) is in .deps/, by the
 # versions .github/pins.env names (gnustep-release-actions' scripts/deps.sh
@@ -23,11 +35,20 @@ DEBUG = $(abspath $(DERIVED)/Build/Products/Debug)
 RESULTS ?= $(or $(RUNNER_TEMP),$(BUILD))
 XCODEBUILD = xcodebuild -workspace ORMKit.xcworkspace -derivedDataPath $(DERIVED)
 
+# The libraries an application builds on, as XCFrameworks: macOS, arm64 and
+# x86_64, made from the Release frameworks.
+FRAMEWORKS = ORMRuntime ORMKit
+
 all:
 	@test -d .deps/ODataKit.xcframework -a -d .deps/Sparkle.xcframework \
 	  || { echo "no ODataKit or Sparkle in .deps: gnustep-release-actions' scripts/deps.sh apple fetches what .github/pins.env names"; exit 1; }
 	@for scheme in ORMKit ormtool ORMDesigner; do \
 	  $(XCODEBUILD) -scheme $$scheme -configuration Release -destination 'generic/platform=macOS' build || exit 1; \
+	done
+	@for fw in $(FRAMEWORKS); do \
+	  rm -rf $(BUILD)/$$fw.xcframework; \
+	  xcodebuild -create-xcframework -framework $(abspath $(RELEASE))/$$fw.framework \
+	    -output $(BUILD)/$$fw.xcframework || exit 1; \
 	done
 
 check:
@@ -59,9 +80,20 @@ install: all
 	mkdir -p $(DESTDIR)
 	rm -rf $(DESTDIR)/ORMDesigner.app
 	ditto $(RELEASE)/ORMDesigner.app $(DESTDIR)/ORMDesigner.app
+	@for fw in $(FRAMEWORKS); do \
+	  rm -rf $(DESTDIR)/$$fw.xcframework && ditto $(BUILD)/$$fw.xcframework $(DESTDIR)/$$fw.xcframework || exit 1; \
+	done
+	mkdir -p $(DESTDIR)/bin
+	cp $(RELEASE)/ormtool $(DESTDIR)/bin/ormtool
 
+# The app's signature; and ormtool run where a build that pins ORMKit unpacks
+# it: .deps/bin beside ORMKit's XCFrameworks and ODataKit's.
 installcheck:
 	codesign --verify --deep --strict $(DESTDIR)/ORMDesigner.app
+	@deps=$$(mktemp -d) && \
+	  cp -R $(DESTDIR)/*.xcframework $(DESTDIR)/bin $$deps/ && \
+	  cp -R .deps/ODataKit.xcframework .deps/ODataIncrementalStore.xcframework .deps/OTelKit.xcframework $$deps/ && \
+	  $$deps/bin/ormtool check Samples/University.orm; status=$$?; rm -rf $$deps; exit $$status
 
 clean:
 	rm -rf $(BUILD)
