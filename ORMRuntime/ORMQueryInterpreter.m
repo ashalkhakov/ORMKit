@@ -397,6 +397,11 @@ ORMProbeKey(id value)
 	NSMapTable<id, NSMutableDictionary *> *_memberIndexes;
 	/* The joins (matches) the checks probe. */
 	NSArray<ORMPlanCondition *> *_probes;
+	/* Every join of the plan, by its definition's name. */
+	NSDictionary<NSString *, NSArray<ORMPlanCondition *> *> *_joinsByName;
+	/* The some (or maybe) binding each variable to a member of a collection
+	 * of the object read, or of another such member, by the variable. */
+	NSDictionary<NSString *, ORMPlanCondition *> *_binders;
 	id<ORMCursor> _cursor;
 }
 
@@ -416,19 +421,151 @@ ORMProbeKey(id value)
 	[self collectProbes:condition.operand into:probes];
 }
 
+/* Every join in the condition, by its definition's name; and the
+ * variables a some or a maybe binds to a collection's members. */
+- (void)collectJoins:(ORMPlanCondition *)condition
+              byName:(NSMutableDictionary<NSString *, NSMutableArray *> *)joins
+             binders:(NSMutableDictionary<NSString *, ORMPlanCondition *> *)binders
+{
+	if (condition == nil) {
+		return;
+	}
+	if (condition.kind == ORMPlanMatches && condition.definition.name != nil) {
+		NSMutableArray *named = [joins objectForKey:condition.definition.name];
+		if (named == nil) {
+			named = [NSMutableArray array];
+			[joins setObject:named forKey:condition.definition.name];
+		}
+		[named addObject:condition];
+	}
+	if ((condition.kind == ORMPlanExists || condition.kind == ORMPlanMaybe) && condition.variable != nil
+	    && condition.path != nil) {
+		[binders setObject:condition forKey:condition.variable];
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		[self collectJoins:operand byName:joins binders:binders];
+	}
+	[self collectJoins:condition.operand byName:joins binders:binders];
+}
+
+/* Whether the variable's values come of the object read alone: unbound
+ * (the object), bound for the run, or a member a some or maybe binds of
+ * a collection reached so. */
+- (BOOL)reaches:(NSString *)variable
+{
+	if (variable == nil || [self.bindings objectForKey:variable] != nil) {
+		return YES;
+	}
+	ORMPlanCondition *binder = [_binders objectForKey:variable];
+	return binder != nil && ![binder.path.variable isEqual:variable] && [self reaches:binder.path.variable];
+}
+
+/* The variable's possible values for the object: the bindings, one for
+ * each member it could be bound to; nil where the object does not say. */
+- (NSArray<NSDictionary *> *)waysTo:(NSString *)variable object:(id)object
+{
+	if (variable == nil || [self.bindings objectForKey:variable] != nil) {
+		return @[ self.bindings ];
+	}
+	ORMPlanCondition *binder = [_binders objectForKey:variable];
+	NSArray *outer = binder != nil ? [self waysTo:binder.path.variable object:object] : nil;
+	if (outer == nil) {
+		return nil;
+	}
+	NSMutableArray *ways = [NSMutableArray array];
+	for (NSDictionary *way in outer) {
+		for (id member in ORMMembers([self valueOf:binder.path object:object bindings:way])) {
+			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:way];
+			[inner setObject:member forKey:variable];
+			[ways addObject:inner];
+		}
+	}
+	return ways;
+}
+
+/* The parts of the joined objects a join's pairs are equal to. */
+static NSArray<ORMPlanPath *> *
+ORMPairsTheirs(ORMPlanCondition *join)
+{
+	NSMutableArray *theirs = [NSMutableArray array];
+	for (NSArray<ORMPlanPath *> *pair in join.pairs) {
+		[theirs addObject:[pair lastObject]];
+	}
+	return theirs;
+}
+
+/* The variable a join's pairs start from (nil: the object read), where
+ * they all start from one. */
+static BOOL
+ORMPairsVariable(ORMPlanCondition *join, NSString **variable)
+{
+	NSString *found = nil;
+	BOOL first = YES;
+	for (NSArray<ORMPlanPath *> *pair in join.pairs) {
+		NSString *each = [pair firstObject].variable;
+		if (!first && !(each == found || [each isEqual:found])) {
+			return NO;
+		}
+		found = each;
+		first = NO;
+	}
+	*variable = found;
+	return YES;
+}
+
 /* Whether a batch's objects say the join's pairs' values: they are the
- * object read's, not a some's member's. */
+ * object read's, or those of the members of its collections a some or a
+ * maybe binds. Read for a batch, a join is read once for every join of
+ * its definition, so each must be one: the same parts of it equal to
+ * values the batch's objects say. */
 - (BOOL)batches:(ORMPlanCondition *)join
 {
 	if ([join.pairs count] == 0) {
 		return NO;
 	}
-	for (NSArray<ORMPlanPath *> *pair in join.pairs) {
-		if ([pair firstObject].variable != nil) {
+	NSString *variable = nil;
+	if (!ORMPairsVariable(join, &variable)) {
+		return NO;
+	}
+	if (variable == nil) {
+		return YES;
+	}
+	NSArray *theirs = ORMPairsTheirs(join);
+	for (ORMPlanCondition *other in [_joinsByName objectForKey:join.definition.name] ?: @[ join ]) {
+		NSString *otherVariable = nil;
+		if (!ORMPairsVariable(other, &otherVariable) || ![self reaches:otherVariable]
+		    || ![ORMPairsTheirs(other) isEqual:theirs]) {
 			return NO;
 		}
 	}
 	return YES;
+}
+
+/* The tuples of the object's values that the joins of the definition are
+ * equal to, for each of their pairs' variables' possible values. */
+- (NSArray *)tuplesOf:(ORMPlanCondition *)join object:(id)object
+{
+	NSMutableArray *tuples = [NSMutableArray array];
+	for (ORMPlanCondition *each in [_joinsByName objectForKey:join.definition.name] ?: @[ join ]) {
+		NSString *variable = nil;
+		ORMPairsVariable(each, &variable);
+		for (NSDictionary *way in [self waysTo:variable object:object] ?: @[]) {
+			NSMutableArray *tuple = [NSMutableArray array];
+			for (NSArray<ORMPlanPath *> *pair in each.pairs) {
+				id value = [self valueOf:[pair firstObject] object:object bindings:way];
+				if (value == nil || value == [NSNull null]) {
+					/* Equal to none. */
+					tuple = nil;
+					break;
+				}
+				[tuple addObject:value];
+			}
+			if (tuple != nil) {
+				[tuples addObject:tuple];
+			}
+		}
+	}
+	return tuples;
 }
 
 /* The join's objects that could match the batch's: its plan's conditions
@@ -572,20 +709,7 @@ ORMBagKey(ORMPlanValue *value)
 			                                            ORMPlanRun *run = weakSelf;
 			                                            NSMutableOrderedSet *tuples = [NSMutableOrderedSet orderedSet];
 			                                            for (id object in batch.objects) {
-				                                            NSMutableArray *tuple = [NSMutableArray array];
-				                                            for (NSArray<ORMPlanPath *> *pair in join.pairs) {
-					                                            id value = [run valueOf:[pair firstObject] object:object
-					                                                           bindings:run.bindings];
-					                                            if (value == nil || value == [NSNull null]) {
-						                                            /* Equal to none. */
-						                                            tuple = nil;
-						                                            break;
-					                                            }
-					                                            [tuple addObject:value];
-				                                            }
-				                                            if (tuple != nil) {
-					                                            [tuples addObject:tuple];
-				                                            }
+				                                            [tuples addObjectsFromArray:[run tuplesOf:join object:object]];
 			                                            }
 			                                            return [tuples array];
 		                                            }
@@ -1836,6 +1960,14 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		}
 	}
 	_bagValues = bags;
+	NSMutableDictionary *joins = [NSMutableDictionary dictionary];
+	NSMutableDictionary *binders = [NSMutableDictionary dictionary];
+	[self collectJoins:self.plan.condition byName:joins binders:binders];
+	for (ORMPlanCondition *check in checked) {
+		[self collectJoins:check byName:joins binders:binders];
+	}
+	_joinsByName = joins;
+	_binders = binders;
 	/* The joins the checks probe, each read for a batch where the batch's
 	 * objects say the values its pairs need. */
 	NSMutableArray *probed = [NSMutableArray array];

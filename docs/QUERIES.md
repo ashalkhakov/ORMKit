@@ -487,9 +487,12 @@ the caller asks. `-executePlan:inContext:error:` reads every page.
 
   Then they are fetched once, and their values put in its place, wherever the
   join is, inside a `not`, an `or` or a subquery too. Otherwise, where the
-  join's parts are the object read's, the joined objects with a batch's
-  parts are read once for the batch, and each object is checked against
-  them. Else each object is probed: the joined plan is run with that
+  join's parts are the object read's, or those of the members a `some` or a
+  `maybe` binds of its collections (a record's currency, for each of a
+  vehicle's records), the joined objects with a batch's parts are read once
+  for the batch, and each object is checked against them. Every join of the
+  same joined plan is then read so at once, so each must be equal to the
+  same parts of it. Else each object is probed: the joined plan is run with that
   object's values, and stops at the first object found. A join over a
   large table never loads the table.
 - **Correlated joins:** a joined plan may name what the plan it is in reached:
