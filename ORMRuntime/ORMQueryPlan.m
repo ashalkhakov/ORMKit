@@ -583,6 +583,117 @@ ORMAddVariable(NSMutableSet *set, ORMPlanPath *path)
 	return free;
 }
 
+/* The same, its operands or its operand others. */
+- (ORMPlanCondition *)conditionWithOperands:(NSArray<ORMPlanCondition *> *)operands operand:(ORMPlanCondition *)operand
+{
+	ORMPlanCondition *made = [ORMPlanCondition ofKind:self.kind];
+	made.operands = operands;
+	made.operand = operand;
+	made.left = self.left;
+	made.right = self.right;
+	made.comparison = self.comparison;
+	made.path = self.path;
+	made.otherPath = self.otherPath;
+	made.variable = self.variable;
+	made.number = self.number;
+	made.function = self.function;
+	made.valuePath = self.valuePath;
+	made.constant = self.constant;
+	made.entityName = self.entityName;
+	made.trail = self.trail;
+	made.plan = _plan;
+	made.definition = self.definition;
+	made.pairs = self.pairs;
+	made.boundVariable = self.boundVariable;
+	made.isOptional = self.isOptional;
+	return made;
+}
+
+/* Whether it is a maybe: it binds a variable, a member or none, and holds
+ * either way. */
+- (NSString *)maybeVariable
+{
+	if (self.kind == ORMPlanMaybe) {
+		return self.variable;
+	}
+	return self.kind == ORMPlanMatches && self.isOptional ? self.boundVariable : nil;
+}
+
+/* The maybes it has where one can go: through ands, and what a some, a
+ * maybe or a join asks of its member. */
+- (void)collectMaybes:(NSMutableArray<ORMPlanCondition *> *)maybes
+{
+	if ([self maybeVariable] != nil) {
+		[maybes addObject:self];
+	}
+	if (self.kind == ORMPlanAnd) {
+		for (ORMPlanCondition *operand in self.operands) {
+			[operand collectMaybes:maybes];
+		}
+	} else if (self.kind == ORMPlanExists || self.kind == ORMPlanMaybe || self.kind == ORMPlanMatches) {
+		[self.operand collectMaybes:maybes];
+	}
+}
+
+/* The same without the one given, where it goes; nil where nothing is
+ * left of it. */
+- (ORMPlanCondition *)conditionWithout:(ORMPlanCondition *)gone
+{
+	if (self == gone) {
+		return nil;
+	}
+	if (self.kind == ORMPlanAnd) {
+		NSMutableArray *left = [NSMutableArray array];
+		BOOL changed = NO;
+		for (ORMPlanCondition *operand in self.operands) {
+			ORMPlanCondition *kept = [operand conditionWithout:gone];
+			changed = changed || kept != operand;
+			if (kept != nil) {
+				[left addObject:kept];
+			}
+		}
+		if (!changed) {
+			return self;
+		}
+		if ([left count] < 2) {
+			return [left firstObject];
+		}
+		return [self conditionWithOperands:left operand:nil];
+	}
+	if ((self.kind == ORMPlanExists || self.kind == ORMPlanMaybe || self.kind == ORMPlanMatches) && self.operand != nil) {
+		ORMPlanCondition *kept = [self.operand conditionWithout:gone];
+		return kept == self.operand ? self : [self conditionWithOperands:self.operands operand:kept];
+	}
+	return self;
+}
+
+- (ORMPlanCondition *)conditionWithoutUnusedMaybes:(NSSet<NSString *> *)used
+{
+	ORMPlanCondition *condition = self;
+	BOOL dropped = YES;
+	/* One gone, another may be named by nothing but it: again. */
+	while (dropped && condition != nil) {
+		dropped = NO;
+		NSMutableArray *maybes = [NSMutableArray array];
+		[condition collectMaybes:maybes];
+		for (ORMPlanCondition *maybe in maybes) {
+			/* It goes with what it asks of its member: nothing it binds may
+			 * be needed. */
+			NSSet *bound = [maybe boundVariables];
+			if ([bound intersectsSet:used]) {
+				continue;
+			}
+			ORMPlanCondition *without = [condition conditionWithout:maybe];
+			if (without == nil || ![[without freeVariables] intersectsSet:bound]) {
+				condition = without;
+				dropped = YES;
+				break;
+			}
+		}
+	}
+	return condition;
+}
+
 - (NSSet<NSString *> *)boundVariables
 {
 	NSMutableSet *bound = [NSMutableSet set];

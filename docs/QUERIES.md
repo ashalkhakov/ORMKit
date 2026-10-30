@@ -495,6 +495,14 @@ the caller asks. `-executePlan:inContext:error:` reads every page.
   same parts of it. Else each object is probed: the joined plan is run with that
   object's values, and stops at the first object found. A join over a
   large table never loads the table.
+- **Maybes no one needs** are left out of a plan: a `maybe` (or an optional
+  join) whose variable, and every one under it, nothing else names, neither
+  the rest of the condition nor what the plan lists or sorts by. A maybe
+  holds with a member or none, so the rows are the same, without its read.
+  A bag is planned from the whole query, so this is what keeps a bag to the
+  joins its value is of (CostsByMonth's exchange rates: two of eight). Only
+  through ands and what a some, a maybe or a join asks of its member; under
+  a `not`, an `or` or a count, it stays.
 - **Correlated joins:** a joined plan may name what the plan it is in reached:
   - its object read, as a parameter (`o1`) the join binds;
   - the variables bound where the join is.
