@@ -25,7 +25,8 @@
 }
 @end
 
-/* A context that keeps the entity of each fetch it is asked. */
+/* A context that keeps each fetch it is asked: its entity, and its
+ * predicate. */
 @interface ORMTestCountingContext : NSManagedObjectContext
 @property (atomic, strong) NSMutableArray<NSString *> *fetches;
 @end
@@ -33,7 +34,8 @@
 @implementation ORMTestCountingContext
 - (NSArray *)executeFetchRequest:(NSFetchRequest *)request error:(NSError **)error
 {
-	[self.fetches addObject:request.entityName ?: @""];
+	[self.fetches addObject:[NSString stringWithFormat:@"%@ where %@", request.entityName ?: @"",
+	                                                   request.predicate.predicateFormat ?: @"all"]];
 	return [super executeFetchRequest:request error:error];
 }
 @end
@@ -2789,9 +2791,11 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	context.persistentStoreCoordinator = company.persistentStoreCoordinator;
 	context.fetches = [NSMutableArray array];
 	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @7, @52 ]));
-	/* The branches read, and the branches joined: one fetch each, for the
-	 * one batch; four employees probed would be four more. */
-	XCTAssertEqual([context.fetches count], 2u, @"%@", context.fetches);
+	/* The branches joined: one fetch, for the one batch, of all its
+	 * employees' cities; probed, one for each of the four employees. (A
+	 * relationship's fault may be a fetch too, as on GNUstep: not counted.) */
+	NSPredicate *joins = [NSPredicate predicateWithFormat:@"SELF CONTAINS 'cityCityname'"];
+	XCTAssertEqual([[context.fetches filteredArrayUsingPredicate:joins] count], 1u, @"%@", context.fetches);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 
