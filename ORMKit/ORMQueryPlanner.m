@@ -343,13 +343,29 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		}
 		[columns addObject:planned];
 	}
+	/* The maybes nothing needs, gone: a bag needs those its value is of,
+	 * not every one the query has. */
+	NSArray *rowSorts = _bagNodes != nil ? nil : [self rowSorts];
+	NSArray *sorts = _bagNodes != nil || rowSorts != nil ? @[] : [self sorts];
+	NSMutableSet *used = [NSMutableSet set];
+	for (ORMPlanColumn *column in columns) {
+		for (ORMPlanPath *path in [@[ column.path ?: (id)[NSNull null] ] arrayByAddingObjectsFromArray:[column.value paths] ?: @[]]) {
+			if (path != (id)[NSNull null] && path.variable != nil) {
+				[used addObject:path.variable];
+			}
+		}
+	}
+	for (ORMPlanSort *sort in sorts) {
+		if (sort.path.variable != nil) {
+			[used addObject:sort.path.variable];
+		}
+	}
+	condition = [condition conditionWithoutUnusedMaybes:used];
 	if (_bagNodes != nil) {
 		/* The sets it uses are the query's, defined before it. */
 		return [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:@[] notes:@[]];
 	}
-	NSArray *rowSorts = [self rowSorts];
-	ORMQueryPlan *plan = [ORMQueryPlan planReading:_read.name where:condition columns:columns
-	                                         sorts:rowSorts != nil ? @[] : [self sorts] notes:_notes
+	ORMQueryPlan *plan = [ORMQueryPlan planReading:_read.name where:condition columns:columns sorts:sorts notes:_notes
 	                                   definitions:_definitions];
 	plan.rowSorts = rowSorts;
 	return plan;

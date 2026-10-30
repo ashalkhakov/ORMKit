@@ -208,6 +208,7 @@ static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
              bindings:(NSDictionary<NSString *, id> *)bindings
                 equal:(NSArray<NSArray *> *)equalities
             inContext:(NSManagedObjectContext *)context
+                reads:(NSMutableDictionary *)reads
                 error:(NSError **)error;
 @end
 
@@ -230,6 +231,12 @@ static BOOL ORMGoesOnPastACast(ORMPlanPath *path);
 @property (nonatomic, strong) ORMPredicatePart *checkPart;
 @property (nonatomic, strong) NSMutableArray<NSString *> *joinLines;
 @property (nonatomic, strong) NSError *error;
+/* What the store answered the fetches of this run and the runs it starts
+ * (its bags, its joins), by all a fetch asks: the same read wherever the
+ * query has it (each bag and the rows reading the same objects) is asked
+ * of the store once. Kept for one page of the query's: nil, and every
+ * fetch goes to the store. */
+@property (nonatomic, strong) NSMutableDictionary *reads;
 /* The answers of the batch being evaluated (ORMCursor.h). */
 @property (nonatomic, copy) NSDictionary<NSString *, id> *answers;
 /* Lowered for one predicate, with no store: what needs one (a join) is
@@ -397,6 +404,11 @@ ORMProbeKey(id value)
 	NSMapTable<id, NSMutableDictionary *> *_memberIndexes;
 	/* The joins (matches) the checks probe. */
 	NSArray<ORMPlanCondition *> *_probes;
+	/* Every join of the plan, by its definition's name. */
+	NSDictionary<NSString *, NSArray<ORMPlanCondition *> *> *_joinsByName;
+	/* The some (or maybe) binding each variable to a member of a collection
+	 * of the object read, or of another such member, by the variable. */
+	NSDictionary<NSString *, ORMPlanCondition *> *_binders;
 	id<ORMCursor> _cursor;
 }
 
@@ -416,19 +428,151 @@ ORMProbeKey(id value)
 	[self collectProbes:condition.operand into:probes];
 }
 
+/* Every join in the condition, by its definition's name; and the
+ * variables a some or a maybe binds to a collection's members. */
+- (void)collectJoins:(ORMPlanCondition *)condition
+              byName:(NSMutableDictionary<NSString *, NSMutableArray *> *)joins
+             binders:(NSMutableDictionary<NSString *, ORMPlanCondition *> *)binders
+{
+	if (condition == nil) {
+		return;
+	}
+	if (condition.kind == ORMPlanMatches && condition.definition.name != nil) {
+		NSMutableArray *named = [joins objectForKey:condition.definition.name];
+		if (named == nil) {
+			named = [NSMutableArray array];
+			[joins setObject:named forKey:condition.definition.name];
+		}
+		[named addObject:condition];
+	}
+	if ((condition.kind == ORMPlanExists || condition.kind == ORMPlanMaybe) && condition.variable != nil
+	    && condition.path != nil) {
+		[binders setObject:condition forKey:condition.variable];
+	}
+	for (ORMPlanCondition *operand in condition.operands) {
+		[self collectJoins:operand byName:joins binders:binders];
+	}
+	[self collectJoins:condition.operand byName:joins binders:binders];
+}
+
+/* Whether the variable's values come of the object read alone: unbound
+ * (the object), bound for the run, or a member a some or maybe binds of
+ * a collection reached so. */
+- (BOOL)reaches:(NSString *)variable
+{
+	if (variable == nil || [self.bindings objectForKey:variable] != nil) {
+		return YES;
+	}
+	ORMPlanCondition *binder = [_binders objectForKey:variable];
+	return binder != nil && ![binder.path.variable isEqual:variable] && [self reaches:binder.path.variable];
+}
+
+/* The variable's possible values for the object: the bindings, one for
+ * each member it could be bound to; nil where the object does not say. */
+- (NSArray<NSDictionary *> *)waysTo:(NSString *)variable object:(id)object
+{
+	if (variable == nil || [self.bindings objectForKey:variable] != nil) {
+		return @[ self.bindings ];
+	}
+	ORMPlanCondition *binder = [_binders objectForKey:variable];
+	NSArray *outer = binder != nil ? [self waysTo:binder.path.variable object:object] : nil;
+	if (outer == nil) {
+		return nil;
+	}
+	NSMutableArray *ways = [NSMutableArray array];
+	for (NSDictionary *way in outer) {
+		for (id member in ORMMembers([self valueOf:binder.path object:object bindings:way])) {
+			NSMutableDictionary *inner = [NSMutableDictionary dictionaryWithDictionary:way];
+			[inner setObject:member forKey:variable];
+			[ways addObject:inner];
+		}
+	}
+	return ways;
+}
+
+/* The parts of the joined objects a join's pairs are equal to. */
+static NSArray<ORMPlanPath *> *
+ORMPairsTheirs(ORMPlanCondition *join)
+{
+	NSMutableArray *theirs = [NSMutableArray array];
+	for (NSArray<ORMPlanPath *> *pair in join.pairs) {
+		[theirs addObject:[pair lastObject]];
+	}
+	return theirs;
+}
+
+/* The variable a join's pairs start from (nil: the object read), where
+ * they all start from one. */
+static BOOL
+ORMPairsVariable(ORMPlanCondition *join, NSString **variable)
+{
+	NSString *found = nil;
+	BOOL first = YES;
+	for (NSArray<ORMPlanPath *> *pair in join.pairs) {
+		NSString *each = [pair firstObject].variable;
+		if (!first && !(each == found || [each isEqual:found])) {
+			return NO;
+		}
+		found = each;
+		first = NO;
+	}
+	*variable = found;
+	return YES;
+}
+
 /* Whether a batch's objects say the join's pairs' values: they are the
- * object read's, not a some's member's. */
+ * object read's, or those of the members of its collections a some or a
+ * maybe binds. Read for a batch, a join is read once for every join of
+ * its definition, so each must be one: the same parts of it equal to
+ * values the batch's objects say. */
 - (BOOL)batches:(ORMPlanCondition *)join
 {
 	if ([join.pairs count] == 0) {
 		return NO;
 	}
-	for (NSArray<ORMPlanPath *> *pair in join.pairs) {
-		if ([pair firstObject].variable != nil) {
+	NSString *variable = nil;
+	if (!ORMPairsVariable(join, &variable)) {
+		return NO;
+	}
+	if (variable == nil) {
+		return YES;
+	}
+	NSArray *theirs = ORMPairsTheirs(join);
+	for (ORMPlanCondition *other in [_joinsByName objectForKey:join.definition.name] ?: @[ join ]) {
+		NSString *otherVariable = nil;
+		if (!ORMPairsVariable(other, &otherVariable) || ![self reaches:otherVariable]
+		    || ![ORMPairsTheirs(other) isEqual:theirs]) {
 			return NO;
 		}
 	}
 	return YES;
+}
+
+/* The tuples of the object's values that the joins of the definition are
+ * equal to, for each of their pairs' variables' possible values. */
+- (NSArray *)tuplesOf:(ORMPlanCondition *)join object:(id)object
+{
+	NSMutableArray *tuples = [NSMutableArray array];
+	for (ORMPlanCondition *each in [_joinsByName objectForKey:join.definition.name] ?: @[ join ]) {
+		NSString *variable = nil;
+		ORMPairsVariable(each, &variable);
+		for (NSDictionary *way in [self waysTo:variable object:object] ?: @[]) {
+			NSMutableArray *tuple = [NSMutableArray array];
+			for (NSArray<ORMPlanPath *> *pair in each.pairs) {
+				id value = [self valueOf:[pair firstObject] object:object bindings:way];
+				if (value == nil || value == [NSNull null]) {
+					/* Equal to none. */
+					tuple = nil;
+					break;
+				}
+				[tuple addObject:value];
+			}
+			if (tuple != nil) {
+				[tuples addObject:tuple];
+			}
+		}
+	}
+	return tuples;
 }
 
 /* The join's objects that could match the batch's: its plan's conditions
@@ -455,7 +599,7 @@ ORMProbeKey(id value)
 	NSError *error = nil;
 	ORMPlanRun *run = [self.interpreter runOf:[ORMQueryPlan planReading:join.plan.entityName where:reduced columns:@[]
 	                                                             sorts:@[] notes:@[]]
-	                                 bindings:@{} equal:@[ @[ theirs, tuples ] ] inContext:self.context error:&error];
+	                                 bindings:@{} equal:@[ @[ theirs, tuples ] ] inContext:self.context reads:self.reads error:&error];
 	NSMutableArray *found = [NSMutableArray array];
 	while (run != nil && !run.atEnd && run.error == nil) {
 		[found addObjectsFromArray:[run next:256]];
@@ -572,20 +716,7 @@ ORMBagKey(ORMPlanValue *value)
 			                                            ORMPlanRun *run = weakSelf;
 			                                            NSMutableOrderedSet *tuples = [NSMutableOrderedSet orderedSet];
 			                                            for (id object in batch.objects) {
-				                                            NSMutableArray *tuple = [NSMutableArray array];
-				                                            for (NSArray<ORMPlanPath *> *pair in join.pairs) {
-					                                            id value = [run valueOf:[pair firstObject] object:object
-					                                                           bindings:run.bindings];
-					                                            if (value == nil || value == [NSNull null]) {
-						                                            /* Equal to none. */
-						                                            tuple = nil;
-						                                            break;
-					                                            }
-					                                            [tuple addObject:value];
-				                                            }
-				                                            if (tuple != nil) {
-					                                            [tuples addObject:tuple];
-				                                            }
+				                                            [tuples addObjectsFromArray:[run tuplesOf:join object:object]];
 			                                            }
 			                                            return [tuples array];
 		                                            }
@@ -1058,11 +1189,11 @@ ORMGoesOnPastACast(ORMPlanPath *path)
 	}
 	ORMPlanRun *joined = nil;
 	if (!correlated) {
-		joined = [self.interpreter runOf:condition.plan bindings:@{} equal:@[] inContext:self.context error:NULL];
+		joined = [self.interpreter runOf:condition.plan bindings:@{} equal:@[] inContext:self.context reads:self.reads error:NULL];
 	}
 	if ([self describing]) {
 		ORMPlanRun *described = joined ?: [self.interpreter runOf:condition.plan
-		                                                 bindings:@{} equal:@[] inContext:nil error:NULL];
+		                                                 bindings:@{} equal:@[] inContext:nil reads:nil error:NULL];
 		NSString *program = [described programText] ?: @"";
 		[self.joinLines addObject:[NSString stringWithFormat:@"%@%@: %@", name,
 		                                                     correlated ? [NSString stringWithFormat:@", for each (%@ is this)",
@@ -1319,7 +1450,7 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	NSError *error = nil;
 	ORMPlanRun *run = [self.interpreter runOf:value.bag.plan bindings:@{}
 	                                    equal:among != nil ? @[ @[ [group valuePath], among ] ] : @[]
-	                                inContext:self.context error:&error];
+	                                inContext:self.context reads:self.reads error:&error];
 	NSMutableSet *given = [NSMutableSet set];
 	while (run != nil && !run.atEnd) {
 		/* Each batch's own, gone with it. */
@@ -1536,7 +1667,7 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 			                         [self valueOf:[pair firstObject] object:object bindings:bindings] ?: [NSNull null] ]];
 		}
 		NSError *error = nil;
-		ORMPlanRun *probe = [self.interpreter runOf:condition.plan bindings:inner equal:equalities inContext:self.context
+		ORMPlanRun *probe = [self.interpreter runOf:condition.plan bindings:inner equal:equalities inContext:self.context reads:self.reads
 		                                      error:&error];
 		NSArray *found = probe != nil ? [probe next:1] : nil;
 		if (probe == nil || probe.error != nil) {
@@ -1587,7 +1718,7 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		[equalities addObject:@[ [[condition.pairs objectAtIndex:i] lastObject], [ours objectAtIndex:i] ]];
 	}
 	NSError *error = nil;
-	ORMPlanRun *probe = [self.interpreter runOf:condition.plan bindings:inner equal:equalities inContext:self.context
+	ORMPlanRun *probe = [self.interpreter runOf:condition.plan bindings:inner equal:equalities inContext:self.context reads:self.reads
 	                                      error:&error];
 	NSMutableArray *found = [NSMutableArray array];
 	while (probe != nil && !probe.atEnd && probe.error == nil) {
@@ -1836,6 +1967,14 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		}
 	}
 	_bagValues = bags;
+	NSMutableDictionary *joins = [NSMutableDictionary dictionary];
+	NSMutableDictionary *binders = [NSMutableDictionary dictionary];
+	[self collectJoins:self.plan.condition byName:joins binders:binders];
+	for (ORMPlanCondition *check in checked) {
+		[self collectJoins:check byName:joins binders:binders];
+	}
+	_joinsByName = joins;
+	_binders = binders;
 	/* The joins the checks probe, each read for a batch where the batch's
 	 * objects say the values its pairs need. */
 	NSMutableArray *probed = [NSMutableArray array];
@@ -1923,6 +2062,20 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 
 @end
 
+/* All a fetch asks, as text: two that say the same are answered the
+ * same, while nothing is saved. */
+static NSString *
+ORMFetchAsked(NSFetchRequest *fetch)
+{
+	NSMutableArray *sorts = [NSMutableArray array];
+	for (NSSortDescriptor *sort in fetch.sortDescriptors) {
+		[sorts addObject:[NSString stringWithFormat:@"%@ %@", sort.key, sort.ascending ? @"up" : @"down"]];
+	}
+	return [NSString stringWithFormat:@"%@ where %@ by %@ from %lu, %lu", fetch.entityName,
+	                                  fetch.predicate.predicateFormat ?: @"", [sorts componentsJoinedByString:@", "],
+	                                  (unsigned long)fetch.fetchOffset, (unsigned long)fetch.fetchLimit];
+}
+
 @implementation ORMStoreScan
 {
 	NSUInteger _offset;
@@ -2001,11 +2154,18 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 		fetch.fetchOffset = _offset;
 	}
 	fetch.fetchLimit = count;
-	NSError *error = nil;
-	NSArray *objects = [run.context executeFetchRequest:fetch error:&error];
+	NSString *asked = run.reads != nil ? ORMFetchAsked(fetch) : nil;
+	NSArray *objects = asked != nil ? [run.reads objectForKey:asked] : nil;
 	if (objects == nil) {
-		completion(nil, error ?: ORMInterpreterError(@"A fetch failed."));
-		return;
+		NSError *error = nil;
+		objects = [run.context executeFetchRequest:fetch error:&error];
+		if (objects == nil) {
+			completion(nil, error ?: ORMInterpreterError(@"A fetch failed."));
+			return;
+		}
+		if (asked != nil) {
+			[run.reads setObject:objects forKey:asked];
+		}
 	}
 	_offset += [objects count];
 	_atEnd = [objects count] < count;
@@ -2038,6 +2198,8 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 
 - (ORMQueryResult *)nextPage:(NSUInteger)size error:(NSError **)error
 {
+	/* What the last page read may have changed since. */
+	[self.run.reads removeAllObjects];
 	if (self.reader == nil) {
 		self.reader = [[ORMPageReader alloc] initWithInput:[self.run cursor] evaluator:self.run
 		                                      columnTitles:[self.run.plan.columns valueForKey:@"title"]];
@@ -2084,10 +2246,12 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
              bindings:(NSDictionary<NSString *, id> *)bindings
                 equal:(NSArray<NSArray *> *)equalities
             inContext:(NSManagedObjectContext *)context
+                reads:(NSMutableDictionary *)reads
                 error:(NSError **)error
 {
 	ORMPlanRun *run = [[ORMPlanRun alloc] init];
 	run.interpreter = self;
+	run.reads = reads;
 	run.plan = plan;
 	run.context = context;
 	run.bindings = bindings ?: @{};
@@ -2103,7 +2267,8 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 
 - (ORMQueryCursor *)cursorForPlan:(ORMQueryPlan *)plan inContext:(NSManagedObjectContext *)context error:(NSError **)error
 {
-	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context error:error];
+	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context reads:[NSMutableDictionary dictionary]
+	                        error:error];
 	if (run == nil) {
 		return nil;
 	}
@@ -2150,7 +2315,8 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
                       inContext:(NSManagedObjectContext *)context
                           error:(NSError **)error
 {
-	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context error:error];
+	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context reads:[NSMutableDictionary dictionary]
+	                        error:error];
 	if (run == nil) {
 		return nil;
 	}
@@ -2235,7 +2401,7 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 
 - (NSString *)programForPlan:(ORMQueryPlan *)plan error:(NSError **)error
 {
-	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:nil error:error];
+	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:nil reads:nil error:error];
 	return run != nil ? [run programText] : nil;
 }
 

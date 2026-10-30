@@ -382,6 +382,13 @@ ORMInsert(NSManagedObjectContext *context, NSString *entity, NSDictionary *value
 	[queries setOperator:ORMQueryMaybe ofStep:[self stepOf:owes in:q]];
 	XCTAssertEqualObjects([self rowsOf:q],
 	                      ([NSSet setWithObjects:@[ @1, @50 ], @[ @2, [NSNull null] ], @[ @3, @500 ], nil]));
+	/* Not listed, the maybe is needed by nothing: not read at all, and
+	 * everyone still a row. */
+	[queries setProjected:NO ofNode:owes];
+	plan = [_planner planForQuery:[ORMQuery queryWithId:q inModel:_editor.model]];
+	XCTAssertFalse([[plan text] containsString:@"in member1"], @"%@", [plan text]);
+	XCTAssertEqualObjects([self rowsOf:q], ([NSSet setWithObjects:@[ @1 ], @[ @2 ], @[ @3 ], nil]));
+	[queries setProjected:YES ofNode:owes];
 	/* Not: those without. */
 	[queries setOperator:ORMQueryNot ofStep:[self stepOf:owes in:q]];
 	XCTAssertEqualObjects([self rowsOf:q], [NSSet setWithObject:@[ @2 ]]);

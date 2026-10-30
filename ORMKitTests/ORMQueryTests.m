@@ -25,6 +25,21 @@
 }
 @end
 
+/* A context that keeps each fetch it is asked: its entity, and its
+ * predicate. */
+@interface ORMTestCountingContext : NSManagedObjectContext
+@property (atomic, strong) NSMutableArray<NSString *> *fetches;
+@end
+
+@implementation ORMTestCountingContext
+- (NSArray *)executeFetchRequest:(NSFetchRequest *)request error:(NSError **)error
+{
+	[self.fetches addObject:[NSString stringWithFormat:@"%@ where %@", request.entityName ?: @"",
+	                                                   request.predicate.predicateFormat ?: @"all"]];
+	return [super executeFetchRequest:request error:error];
+}
+@end
+
 /* A cursor over batches given beforehand. */
 @interface ORMTestBatches : NSObject <ORMCursor>
 @property (nonatomic, strong) NSMutableArray<NSArray *> *batches;
@@ -2746,6 +2761,41 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	NSArray *pages = [self pagesOf:odata transport:counted size:10];
 	XCTAssertEqualObjects(pages, (@[ @[ @1 ] ]));
 	XCTAssertEqual(counted.requests, 2u, @"%@", counted.paths);
+	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
+}
+
+/* Which branches have someone working there who lives where a branch
+ * is? The branches joined are equal to each employee's city, a member of a
+ * some, not the branch read: they are read once for a batch, for all its
+ * branches' employees' cities, not once for each employee. */
+- (void)testAJoinOfASomesMembersIsReadForEachBatch
+{
+	NSString *q = [[self queries] addQueryNamed:@"Staff at home" from:[self typeId:@"Branch"] reason:NULL];
+	NSString *root = [self root:q].identifier;
+	ORMQueryNode *employee = [self from:root through:[self role:@"worksFor" at:1] in:q];
+	ORMQueryNode *city = [self from:employee.identifier through:[self role:@"livesIn" at:0] in:q];
+	ORMQueryNode *other = [self from:city.identifier through:[self role:@"locatedIn" at:1] in:q];
+	[[self queries] setProjected:YES ofNode:other.identifier];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil];
+	ORMQueryPlan *plan = [planner planForQuery:[self query:q]];
+	XCTAssertEqual([plan.notes count], 0u, @"%@", plan.notes);
+	XCTAssertTrue([[plan text] rangeOfString:@"where some employees as x1 has x1.cityCityname = cityCityname"].location
+	                  != NSNotFound, @"%@", [plan text]);
+	NSManagedObjectModel *model = [planner.coreData managedObjectModel];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:model];
+	interpreter.joinPrefetchLimit = 0;
+	NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSUUID UUID] UUIDString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSManagedObjectContext *company = [self absorbedCompanyIn:directory model:model];
+	ORMTestCountingContext *context = [[ORMTestCountingContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+	context.persistentStoreCoordinator = company.persistentStoreCoordinator;
+	context.fetches = [NSMutableArray array];
+	XCTAssertEqualObjects([self numbersOf:plan interpreter:interpreter inContext:context], (@[ @7, @52 ]));
+	/* The branches joined: one fetch, for the one batch, of all its
+	 * employees' cities; probed, one for each of the four employees. (A
+	 * relationship's fault may be a fetch too, as on GNUstep: not counted.) */
+	NSPredicate *joins = [NSPredicate predicateWithFormat:@"SELF CONTAINS 'cityCityname'"];
+	XCTAssertEqual([[context.fetches filteredArrayUsingPredicate:joins] count], 1u, @"%@", context.fetches);
 	[[NSFileManager defaultManager] removeItemAtPath:directory error:NULL];
 }
 

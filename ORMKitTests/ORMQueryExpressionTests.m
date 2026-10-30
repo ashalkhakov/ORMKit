@@ -31,6 +31,22 @@
 }
 @end
 
+/* A context that keeps what each fetch asks: entity, predicate, order,
+ * offset and limit. */
+@interface ORMTestAskingContext : NSManagedObjectContext
+@property (atomic, strong) NSMutableArray<NSString *> *asked;
+@end
+
+@implementation ORMTestAskingContext
+- (NSArray *)executeFetchRequest:(NSFetchRequest *)request error:(NSError **)error
+{
+	[self.asked addObject:[NSString stringWithFormat:@"%@ where %@ by %@ from %lu, %lu", request.entityName,
+	                                                 request.predicate.predicateFormat, [request.sortDescriptors valueForKey:@"key"],
+	                                                 (unsigned long)request.fetchOffset, (unsigned long)request.fetchLimit]];
+	return [super executeFetchRequest:request error:error];
+}
+@end
+
 @implementation ORMQueryExpressionTests
 
 - (ORMEditor *)trips
@@ -558,6 +574,30 @@
 	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"1", @"4" ]), @"%@", [plan text]);
 	odata = [ORMQueryOData requestForPlan:plan coreData:planner.coreData error:&error];
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"1", @"4" ]), @"%@", [odata requestText]);
+}
+
+/* A query asks the store each thing once: its bags and its rows read the
+ * same fill-ups (Since's two bags, Shifted's window and rows), and what one
+ * fetched, the others are given. */
+- (void)testAQueryAsksTheStoreEachThingOnce
+{
+	ORMEditor *editor = [self fillUps];
+	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:editor.model mapping:nil];
+	NSManagedObjectContext *made = [self storeOf:30 fillUpsOf:editor.model planner:planner expected:[NSMutableArray array]];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[planner.coreData managedObjectModel]];
+	for (NSString *name in @[ @"Before", @"Consumption", @"Since", @"Shifted", @"First" ]) {
+		ORMTestAskingContext *context = [[ORMTestAskingContext alloc] initWithConcurrencyType:NSPrivateQueueConcurrencyType];
+		context.persistentStoreCoordinator = made.persistentStoreCoordinator;
+		context.asked = [NSMutableArray array];
+		ORMQueryPlan *plan = [planner planForQuery:[self query:name in:editor.model]];
+		__block ORMQueryResult *result = nil;
+		__block NSError *error = nil;
+		[context performBlockAndWait:^{
+			result = [interpreter executePlan:plan inContext:context error:&error];
+		}];
+		XCTAssertNotNil(result, @"%@: %@", name, error);
+		XCTAssertEqual([[NSSet setWithArray:context.asked] count], [context.asked count], @"%@: %@", name, context.asked);
+	}
 }
 
 /* A store of one vehicle's fill-ups, each 10 km after the one before;

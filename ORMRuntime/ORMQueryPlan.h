@@ -240,6 +240,14 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 - (NSSet<NSString *> *)freeVariables;
 /* The variables it binds, and those under it. */
 - (NSSet<NSString *> *)boundVariables;
+/* The same without the maybes no one needs: a maybe (or an optional join
+ * binding what it matches) whose variable nothing else names, neither the
+ * rest of the condition nor used (what the plan lists and sorts by). A
+ * maybe holds, a member or none, so the rows are the same; but each one
+ * read is a read less (a join a fetch less). Only through ands and what a
+ * some, a maybe or a join asks of its member: under a not, an or or a
+ * count, it stays. nil where nothing is left. */
+- (ORMPlanCondition *)conditionWithoutUnusedMaybes:(NSSet<NSString *> *)used;
 /* An exists', a count's or an aggregate's equality on its member: @[ the
  * member's key, the value it equals, the subtype the key is of (cast to
  * on the way: "x1.(Event).(FillUp).odometer") or null ], where that value
