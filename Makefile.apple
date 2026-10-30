@@ -3,7 +3,9 @@
 #
 #   make -f Makefile.apple            ORMKit.framework, ORMRuntime.framework, ormtool
 #                                     and ORMDesigner.app, universal (Release), and the
-#                                     two frameworks as XCFrameworks (build/*.xcframework)
+#                                     two frameworks as XCFrameworks (build/*.xcframework):
+#                                     ORMRuntime's for iOS and its simulator too, for
+#                                     an iOS app that runs a model's plans (Logbook's)
 #   make -f Makefile.apple check      the Xcode project as .tools/genxcodeproj.py
 #                                     writes it; the imports; the Debug builds;
 #                                     both suites; ormtool on the StockMate model;
@@ -36,8 +38,10 @@ RESULTS ?= $(or $(RUNNER_TEMP),$(BUILD))
 XCODEBUILD = xcodebuild -workspace ORMKit.xcworkspace -derivedDataPath $(DERIVED)
 
 # The libraries an application builds on, as XCFrameworks: macOS, arm64 and
-# x86_64, made from the Release frameworks.
+# x86_64, made from the Release frameworks; ORMRuntime, which has no NSXML,
+# for iOS and the iOS Simulator as well (ODataKit's are).
 FRAMEWORKS = ORMRuntime ORMKit
+IOS_FRAMEWORKS = ORMRuntime
 
 all:
 	@test -d .deps/ODataKit.xcframework -a -d .deps/Sparkle.xcframework \
@@ -45,9 +49,18 @@ all:
 	@for scheme in ORMKit ormtool ORMDesigner; do \
 	  $(XCODEBUILD) -scheme $$scheme -configuration Release -destination 'generic/platform=macOS' build || exit 1; \
 	done
+	@for fw in $(IOS_FRAMEWORKS); do \
+	  for dest in 'generic/platform=iOS' 'generic/platform=iOS Simulator'; do \
+	    $(XCODEBUILD) -scheme $$fw -configuration Release -destination "$$dest" CODE_SIGNING_ALLOWED=NO build || exit 1; \
+	  done; \
+	done
 	@for fw in $(FRAMEWORKS); do \
+	  ios=""; \
+	  case " $(IOS_FRAMEWORKS) " in *" $$fw "*) \
+	    ios="-framework $(abspath $(RELEASE))-iphoneos/$$fw.framework -framework $(abspath $(RELEASE))-iphonesimulator/$$fw.framework";; \
+	  esac; \
 	  rm -rf $(BUILD)/$$fw.xcframework; \
-	  xcodebuild -create-xcframework -framework $(abspath $(RELEASE))/$$fw.framework \
+	  xcodebuild -create-xcframework -framework $(abspath $(RELEASE))/$$fw.framework $$ios \
 	    -output $(BUILD)/$$fw.xcframework || exit 1; \
 	done
 
