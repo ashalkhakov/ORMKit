@@ -503,6 +503,11 @@ the caller asks. `-executePlan:inContext:error:` reads every page.
   joins its value is of (CostsByMonth's exchange rates: two of eight). Only
   through ands and what a some, a maybe or a join asks of its member; under
   a `not`, an `or` or a count, it stays.
+- **The same read once:** a query's bags, its joins and its rows often fetch
+  the same objects (CostsByMonth's vehicles, for the rows and two bags). In
+  one page of a query, a fetch that asks the same as one before (entity,
+  predicate, order, offset, limit) is given what that one fetched, not
+  asked of the store again. A query only reads, so nothing changes between.
 - **Correlated joins:** a joined plan may name what the plan it is in reached:
   - its object read, as a parameter (`o1`) the join binds;
   - the variables bound where the join is.
