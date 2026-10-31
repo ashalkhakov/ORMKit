@@ -276,45 +276,15 @@ ORMPlayerShape(ORMObjectType *type, ORMDiagram *diagram)
 	return linked;
 }
 
-/* Whether the rectangle is clear of the diagram's top-level shapes. */
-static BOOL
-ORMIsFree(ORMDiagram *diagram, NSRect rect, NSArray<NSValue *> *taken)
+/* The diagram's top-level shapes' frames: what a new shape keeps clear of. */
+static NSArray<NSValue *> *
+ORMShapeFrames(ORMDiagram *diagram)
 {
-	NSRect padded = NSInsetRect(rect, -4, -4);
+	NSMutableArray *frames = [NSMutableArray array];
 	for (ORMShape *shape in diagram.shapes) {
-		if (NSIntersectsRect(padded, shape.bounds)) {
-			return NO;
-		}
+		[frames addObject:[NSValue valueWithRect:shape.bounds]];
 	}
-	for (NSValue *value in taken) {
-		if (NSIntersectsRect(padded, [value rectValue])) {
-			return NO;
-		}
-	}
-	return YES;
-}
-
-/* A free spot for a shape of the size near the centre, spiralling out. */
-static NSPoint
-ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValue *> *taken)
-{
-	for (NSUInteger ring = 0; ring < 40; ring++) {
-		NSUInteger steps = ring == 0 ? 1 : ring * 8;
-		for (NSUInteger step = 0; step < steps; step++) {
-			double angle = 2 * M_PI * step / steps;
-			double radius = ring * ORMSpacing * 0.6;
-			NSPoint origin = NSMakePoint(round(center.x + radius * cos(angle) - size.width / 2),
-			                             round(center.y + radius * sin(angle) - size.height / 2));
-			if (origin.x < 0 || origin.y < 0) {
-				continue;
-			}
-			NSRect rect = NSMakeRect(origin.x, origin.y, size.width, size.height);
-			if (ORMIsFree(diagram, rect, taken)) {
-				return origin;
-			}
-		}
-	}
-	return NSMakePoint(center.x, center.y);
+	return frames;
 }
 
 - (NSPoint)placeFor:(NSString *)elementId onDiagram:(NSString *)diagramId
@@ -461,7 +431,8 @@ ORMFreeSpotNear(ORMDiagram *diagram, NSPoint center, NSSize size, NSArray<NSValu
 		/* Another shape: beside the first, clear of it. */
 		NSPoint near = existing != nil ? NSMakePoint(NSMaxX(existing.bounds) + ORMSpacing + size.width / 2, NSMidY(existing.bounds))
 		                               : [self placeFor:elementId onDiagram:diagramId];
-		origin = ORMFreeSpotNear(diagram, near, size, @[]);
+		/* Clear of the others by 4 points, spiralling out. */
+		origin = DKFreeSpotNear(size, near, ORMShapeFrames(diagram), 4).origin;
 	}
 	NSRect bounds = NSMakeRect(origin.x, origin.y, size.width, size.height);
 	__block NSString *created = nil;
@@ -930,105 +901,17 @@ ORMCompareAlong(NSArray *a, NSArray *b, void *context)
 	return changed;
 }
 
-/* A node of the layout: a top-level shape, where it is, and how big. */
-typedef struct {
-	double x, y;   /* centre */
-	double dx, dy; /* this round's displacement */
-	double w, h;
-	BOOL fixed;
-} ORMLayoutNode;
-
-/* The nodes laid out, force-directed, about the origin: each spring
- * ([i, j, rest length]) pulls its two together, everything pushes
- * everything else away, and a last pass moves apart what still overlaps.
- * Deterministic: from a circle, in the nodes' order. */
-static void
-ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *springs)
+/* A shape's node in a layout: a fact type keeps room for its reading below
+ * it. */
+static NSSize
+ORMLayoutSize(ORMShape *shape)
 {
-	/* Start on a circle, entity types first, their facts and values after,
-	 * so what is related starts near. */
-	double radius = MAX(2.0 * 72, sqrt((double)count) * 0.9 * 72);
-	for (NSUInteger i = 0; i < count; i++) {
-		double angle = 2 * M_PI * i / count;
-		nodes[i].x = radius * cos(angle);
-		nodes[i].y = radius * sin(angle);
+	NSSize size = shape.bounds.size;
+	if (shape.kind == ORMShapeFactType) {
+		size.width = MAX(size.width, 0.9 * 72);
+		size.height += 0.25 * 72;
 	}
-	/* The distance shapes settle at: about NORMA's spacing. */
-	double k = 0.75 * 72;
-	double temperature = radius / 3;
-	for (NSUInteger round = 0; round < 400; round++) {
-		for (NSUInteger i = 0; i < count; i++) {
-			nodes[i].dx = 0;
-			nodes[i].dy = 0;
-		}
-		for (NSUInteger i = 0; i < count; i++) {
-			for (NSUInteger j = i + 1; j < count; j++) {
-				double ddx = nodes[i].x - nodes[j].x;
-				double ddy = nodes[i].y - nodes[j].y;
-				double distance = MAX(hypot(ddx, ddy), 1.0);
-				/* Bigger shapes keep further apart. */
-				double reach = k * 0.6 + (nodes[i].w + nodes[j].w) / 4;
-				double force = reach * reach / distance;
-				nodes[i].dx += ddx / distance * force;
-				nodes[i].dy += ddy / distance * force;
-				nodes[j].dx -= ddx / distance * force;
-				nodes[j].dy -= ddy / distance * force;
-			}
-		}
-		for (NSArray *spring in springs) {
-			NSUInteger i = [[spring objectAtIndex:0] unsignedIntegerValue];
-			NSUInteger j = [[spring objectAtIndex:1] unsignedIntegerValue];
-			double rest = [[spring objectAtIndex:2] doubleValue];
-			double ddx = nodes[i].x - nodes[j].x;
-			double ddy = nodes[i].y - nodes[j].y;
-			double distance = MAX(hypot(ddx, ddy), 1.0);
-			double stretch = distance - rest;
-			double force = 2.0 * stretch * fabs(stretch) / k;
-			nodes[i].dx -= ddx / distance * force;
-			nodes[i].dy -= ddy / distance * force;
-			nodes[j].dx += ddx / distance * force;
-			nodes[j].dy += ddy / distance * force;
-		}
-		/* A weak pull to the middle, so what nothing links stays near. */
-		for (NSUInteger i = 0; i < count; i++) {
-			nodes[i].dx -= nodes[i].x * 0.03;
-			nodes[i].dy -= nodes[i].y * 0.03;
-		}
-		for (NSUInteger i = 0; i < count; i++) {
-			double length = MAX(hypot(nodes[i].dx, nodes[i].dy), 0.0001);
-			double step = MIN(length, temperature);
-			nodes[i].x += nodes[i].dx / length * step;
-			nodes[i].y += nodes[i].dy / length * step;
-		}
-		temperature = MAX(temperature * 0.985, 1.0);
-	}
-	/* What still overlaps, pushed apart along the shorter way out. */
-	double gap = 8;
-	for (NSUInteger pass = 0; pass < 200; pass++) {
-		BOOL moved = NO;
-		for (NSUInteger i = 0; i < count; i++) {
-			for (NSUInteger j = i + 1; j < count; j++) {
-				double overlapX = (nodes[i].w + nodes[j].w) / 2 + gap - fabs(nodes[i].x - nodes[j].x);
-				double overlapY = (nodes[i].h + nodes[j].h) / 2 + gap - fabs(nodes[i].y - nodes[j].y);
-				if (overlapX <= 0 || overlapY <= 0) {
-					continue;
-				}
-				moved = YES;
-				if (overlapX < overlapY) {
-					double sign = nodes[i].x < nodes[j].x || (nodes[i].x == nodes[j].x && i < j) ? -1 : 1;
-					nodes[i].x += sign * overlapX / 2;
-					nodes[j].x -= sign * overlapX / 2;
-				} else {
-					double sign = nodes[i].y < nodes[j].y || (nodes[i].y == nodes[j].y && i < j) ? -1 : 1;
-					nodes[i].y += sign * overlapY / 2;
-					nodes[j].y -= sign * overlapY / 2;
-				}
-			}
-		}
-		if (!moved) {
-			break;
-		}
-	}
+	return size;
 }
 
 /* Lays the diagram out from scratch, force-directed: each fact type pulls
@@ -1040,58 +923,37 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 {
 	ORMDiagram *diagram = [self diagramWithId:diagramId];
 	NSArray *shapes = [diagram.shapes copy];
-	NSUInteger count = [shapes count];
-	if (diagram == nil || count == 0) {
+	if (diagram == nil || [shapes count] == 0) {
 		return;
 	}
-	ORMLayoutNode *nodes = calloc(count, sizeof(ORMLayoutNode));
-	NSMutableDictionary *index = [NSMutableDictionary dictionary];
-	for (NSUInteger i = 0; i < count; i++) {
-		ORMShape *shape = [shapes objectAtIndex:i];
-		[index setObject:@(i) forKey:shape.identifier];
-		nodes[i].w = NSWidth(shape.bounds);
-		nodes[i].h = NSHeight(shape.bounds);
-		/* A fact type keeps room for its reading below it. */
-		if (shape.kind == ORMShapeFactType) {
-			nodes[i].w = MAX(nodes[i].w, 0.9 * 72);
-			nodes[i].h += 0.25 * 72;
-		}
+	/* DiagramKit's force layout (ORMKit's own, once), its top left half an
+	 * inch in. */
+	DKForceLayout *layout = [[DKForceLayout alloc] init];
+	layout.margin = 0.5 * 72;
+	for (ORMShape *shape in shapes) {
+		[layout addNode:shape.identifier size:ORMLayoutSize(shape) fixedAt:nil];
 	}
-	/* The springs: index pairs and their rest lengths. */
-	NSMutableArray *springs = [NSMutableArray array];
-	for (NSUInteger i = 0; i < count; i++) {
-		ORMShape *shape = [shapes objectAtIndex:i];
+	for (ORMShape *shape in shapes) {
 		for (ORMShape *linked in [self linkedShapesOf:shape.subject on:diagram]) {
-			NSNumber *j = [index objectForKey:linked.identifier];
-			if (j != nil && [j unsignedIntegerValue] != i) {
-				double rest = shape.kind == ORMShapeFactType ? 0.85 * 72 : 0.6 * 72;
-				[springs addObject:@[ @(i), j, @(rest) ]];
-			}
+			double rest = shape.kind == ORMShapeFactType ? 0.85 * 72 : 0.6 * 72;
+			[layout addSpringFrom:shape.identifier to:linked.identifier length:rest];
 		}
 		/* Subtypes sit near their supertypes. */
 		for (ORMObjectType *supertype in shape.objectType.supertypes) {
-			NSNumber *j = [index objectForKey:[[diagram shapeForSubject:supertype.identifier] identifier] ?: @""];
-			if (j != nil) {
-				[springs addObject:@[ @(i), j, @(1.1 * 72) ]];
+			ORMShape *sup = [diagram shapeForSubject:supertype.identifier];
+			if (sup != nil) {
+				[layout addSpringFrom:shape.identifier to:sup.identifier length:1.1 * 72];
 			}
 		}
 	}
-	ORMSpringLayout(nodes, count, springs);
-	/* Moved to the diagram's top left, half an inch in. */
-	double minX = DBL_MAX;
-	double minY = DBL_MAX;
-	for (NSUInteger i = 0; i < count; i++) {
-		minX = MIN(minX, nodes[i].x - nodes[i].w / 2);
-		minY = MIN(minY, nodes[i].y - nodes[i].h / 2);
-	}
+	NSDictionary *frames = [layout layout];
+	/* Each shape centred across its node, at its top. */
 	NSMutableDictionary *placed = [NSMutableDictionary dictionary];
-	for (NSUInteger i = 0; i < count; i++) {
-		ORMShape *shape = [shapes objectAtIndex:i];
-		double x = round(nodes[i].x - minX + 0.5 * 72 - NSWidth(shape.bounds) / 2);
-		double y = round(nodes[i].y - minY + 0.5 * 72 - nodes[i].h / 2);
-		[placed setObject:[NSValue valueWithPoint:NSMakePoint(x, y)] forKey:shape.identifier];
+	for (ORMShape *shape in shapes) {
+		NSRect frame = [[frames objectForKey:shape.identifier] rectValue];
+		NSPoint at = NSMakePoint(round(NSMidX(frame) - NSWidth(shape.bounds) / 2), NSMinY(frame));
+		[placed setObject:[NSValue valueWithPoint:at] forKey:shape.identifier];
 	}
-	free(nodes);
 	[_editor modelChange:@"Arrange Diagram" with:^{
 		for (ORMShape *shape in shapes) {
 			NSPoint at = [[placed objectForKey:shape.identifier] pointValue];
@@ -1353,25 +1215,19 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 {
 	NSArray *shapes = group.shapes;
 	NSUInteger count = [shapes count];
-	ORMLayoutNode *nodes = calloc(count, sizeof(ORMLayoutNode));
+	/* Each shape's id by its own and by its subject's, the group's one of
+	 * each. */
 	NSMutableDictionary *index = [NSMutableDictionary dictionary];
-	for (NSUInteger i = 0; i < count; i++) {
-		ORMShape *shape = [shapes objectAtIndex:i];
-		[index setObject:@(i) forKey:shape.identifier];
-		/* By subject too, the group's one of each. */
-		if ([index objectForKey:shape.subjectId] == nil) {
-			[index setObject:@(i) forKey:shape.subjectId];
-		}
-		nodes[i].w = NSWidth(shape.bounds);
-		nodes[i].h = NSHeight(shape.bounds);
-		if (shape.kind == ORMShapeFactType) {
-			nodes[i].w = MAX(nodes[i].w, 0.9 * 72);
-			nodes[i].h += 0.25 * 72;
+	for (ORMShape *shape in shapes) {
+		[index setObject:shape.identifier forKey:shape.identifier];
+		if (shape.subjectId != nil && [index objectForKey:shape.subjectId] == nil) {
+			[index setObject:shape.identifier forKey:shape.subjectId];
 		}
 	}
+	/* The springs, [from, to, rest length], and the shapes they link. */
 	NSMutableArray *springs = [NSMutableArray array];
-	for (NSUInteger i = 0; i < count; i++) {
-		ORMShape *shape = [shapes objectAtIndex:i];
+	NSMutableSet *sprung = [NSMutableSet set];
+	for (ORMShape *shape in shapes) {
 		NSMutableArray *ends = [NSMutableArray array];
 		double rest = 0.6 * 72;
 		if (shape.kind == ORMShapeFactType) {
@@ -1401,84 +1257,79 @@ ORMSpringLayout(ORMLayoutNode *nodes, NSUInteger count, NSArray<NSArray *> *spri
 		}
 		for (NSString *end in ends) {
 			ORMShape *hub = [group.hubShapes objectForKey:end];
-			NSNumber *j = [index objectForKey:hub != nil ? hub.identifier : end];
-			if (j != nil && [j unsignedIntegerValue] != i) {
-				[springs addObject:@[ @(i), j, @(rest) ]];
+			NSString *other = [index objectForKey:hub != nil ? hub.identifier : end];
+			if (other != nil && ![other isEqualToString:shape.identifier]) {
+				[springs addObject:@[ shape.identifier, other, @(rest) ]];
+				[sprung addObject:shape.identifier];
+				[sprung addObject:other];
 			}
 		}
 	}
 	/* What the springs link, laid out by them; what nothing links, in rows
-	 * under it, as square as they come, not pushed off on its own. */
-	BOOL *linked = calloc(MAX(count, 1), sizeof(BOOL));
-	for (NSArray *spring in springs) {
-		linked[[[spring objectAtIndex:0] unsignedIntegerValue]] = YES;
-		linked[[[spring objectAtIndex:1] unsignedIntegerValue]] = YES;
-	}
-	NSMutableArray *linkedIndexes = [NSMutableArray array];
-	NSMutableArray *alone = [NSMutableArray array];
-	for (NSUInteger i = 0; i < count; i++) {
-		[(linked[i] ? linkedIndexes : alone) addObject:@(i)];
-	}
-	free(linked);
+	 * under it, as square as they come, not pushed off on its own. Each
+	 * node's frame, by shape id. */
+	NSMutableDictionary *frames = [NSMutableDictionary dictionary];
 	double bottom = 0;
 	double left = 0;
-	if ([linkedIndexes count] > 0) {
-		NSUInteger linkedCount = [linkedIndexes count];
-		ORMLayoutNode *sub = calloc(linkedCount, sizeof(ORMLayoutNode));
-		NSMutableDictionary *at = [NSMutableDictionary dictionary];
-		for (NSUInteger k = 0; k < linkedCount; k++) {
-			sub[k] = nodes[[[linkedIndexes objectAtIndex:k] unsignedIntegerValue]];
-			[at setObject:@(k) forKey:[linkedIndexes objectAtIndex:k]];
+	if ([sprung count] > 0) {
+		DKForceLayout *layout = [[DKForceLayout alloc] init];
+		for (ORMShape *shape in shapes) {
+			if ([sprung containsObject:shape.identifier]) {
+				[layout addNode:shape.identifier size:ORMLayoutSize(shape) fixedAt:nil];
+			}
 		}
-		NSMutableArray *subSprings = [NSMutableArray array];
 		for (NSArray *spring in springs) {
-			[subSprings addObject:@[ [at objectForKey:[spring objectAtIndex:0]], [at objectForKey:[spring objectAtIndex:1]],
-			                         [spring objectAtIndex:2] ]];
+			[layout addSpringFrom:[spring objectAtIndex:0] to:[spring objectAtIndex:1]
+			               length:[[spring objectAtIndex:2] doubleValue]];
 		}
-		ORMSpringLayout(sub, linkedCount, subSprings);
+		[frames addEntriesFromDictionary:[layout layout]];
 		bottom = -DBL_MAX;
 		left = DBL_MAX;
-		for (NSUInteger k = 0; k < linkedCount; k++) {
-			nodes[[[linkedIndexes objectAtIndex:k] unsignedIntegerValue]] = sub[k];
-			bottom = MAX(bottom, sub[k].y + sub[k].h / 2);
-			left = MIN(left, sub[k].x - sub[k].w / 2);
+		for (NSValue *frame in [frames allValues]) {
+			bottom = MAX(bottom, NSMaxY([frame rectValue]));
+			left = MIN(left, NSMinX([frame rectValue]));
 		}
 		bottom += ORMGroupGap / 2;
-		free(sub);
+	}
+	NSMutableArray *alone = [NSMutableArray array];
+	for (ORMShape *shape in shapes) {
+		if (![sprung containsObject:shape.identifier]) {
+			[alone addObject:shape];
+		}
 	}
 	NSUInteger across = (NSUInteger)MAX(1, ceil(sqrt((double)[alone count])));
 	double x = left;
 	double y = bottom;
 	double rowHeight = 0;
 	for (NSUInteger k = 0; k < [alone count]; k++) {
-		NSUInteger i = [[alone objectAtIndex:k] unsignedIntegerValue];
+		ORMShape *shape = [alone objectAtIndex:k];
+		NSSize size = ORMLayoutSize(shape);
 		if (k > 0 && k % across == 0) {
 			x = left;
 			y += rowHeight + ORMGroupGap / 2;
 			rowHeight = 0;
 		}
-		nodes[i].x = x + nodes[i].w / 2;
-		nodes[i].y = y + nodes[i].h / 2;
-		x += nodes[i].w + ORMGroupGap / 2;
-		rowHeight = MAX(rowHeight, nodes[i].h);
+		[frames setObject:[NSValue valueWithRect:NSMakeRect(x, y, size.width, size.height)] forKey:shape.identifier];
+		x += size.width + ORMGroupGap / 2;
+		rowHeight = MAX(rowHeight, size.height);
 	}
 	double minX = DBL_MAX;
 	double minY = DBL_MAX;
 	double maxX = -DBL_MAX;
 	double maxY = -DBL_MAX;
-	for (NSUInteger i = 0; i < count; i++) {
-		minX = MIN(minX, nodes[i].x - nodes[i].w / 2);
-		minY = MIN(minY, nodes[i].y - nodes[i].h / 2);
-		maxX = MAX(maxX, nodes[i].x + nodes[i].w / 2);
-		maxY = MAX(maxY, nodes[i].y + nodes[i].h / 2);
+	for (NSValue *value in [frames allValues]) {
+		NSRect frame = [value rectValue];
+		minX = MIN(minX, NSMinX(frame));
+		minY = MIN(minY, NSMinY(frame));
+		maxX = MAX(maxX, NSMaxX(frame));
+		maxY = MAX(maxY, NSMaxY(frame));
 	}
-	for (NSUInteger i = 0; i < count; i++) {
-		ORMShape *shape = [shapes objectAtIndex:i];
-		NSPoint at = NSMakePoint(round(nodes[i].x - minX - NSWidth(shape.bounds) / 2), round(nodes[i].y - minY - nodes[i].h / 2));
+	for (ORMShape *shape in shapes) {
+		NSRect frame = [[frames objectForKey:shape.identifier] rectValue];
+		NSPoint at = NSMakePoint(round(NSMidX(frame) - minX - NSWidth(shape.bounds) / 2), round(NSMinY(frame) - minY));
 		[group.placed setObject:[NSValue valueWithPoint:at] forKey:shape.identifier];
 	}
 	group.size = count > 0 ? NSMakeSize(maxX - minX, maxY - minY) : NSZeroSize;
-	free(nodes);
 }
 
 - (void)arrangeDiagramInGroups:(NSString *)diagramId

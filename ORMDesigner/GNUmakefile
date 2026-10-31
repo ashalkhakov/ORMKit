@@ -29,7 +29,7 @@ ORMDesigner_OBJC_FILES = \
 # ORMKit is built in the tree beside this one and not installed.
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 # GSUpdater, the stack's: the designer's updates (ORMUpdater-GNUstep.m).
-ORMDesigner_OBJC_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) -lGSUpdater -ldispatch
+ORMDesigner_OBJC_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -lGSUpdater -ldispatch
 # The icon GNUstep shows in the About panel, on windows and in the dock
 # tile; the AppImage installs the same file as its desktop icon.
 ORMDesigner_APPLICATION_ICON = ORMDesigner.png

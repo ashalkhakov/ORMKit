@@ -158,7 +158,8 @@ for framework in ("Foundation", "AppKit", "XCTest"):
 
 # What ORMKit builds on, in .deps/ as XCFrameworks (gnustep-release-actions'
 # scripts/deps.sh apple puts them there, by the versions .github/pins.env
-# names): ODataKit's frameworks, and Sparkle, the designer's updates.
+# names): ODataKit's frameworks, DiagramKit's, and Sparkle, the designer's
+# updates.
 def xcframework(name):
     return add(oid("xcframework", name), name + ".xcframework", [
         ("isa", "PBXFileReference"),
@@ -179,6 +180,10 @@ otelkit = xcframework("OTelKit")
 odataservice = xcframework("ODataService")
 httpserverkit = xcframework("HTTPServerKit")
 sparkle = xcframework("Sparkle")
+# The diagrams' drawing, layout and geometry (ORMKit), and the canvas
+# (ORMDesigner).
+diagramkit = xcframework("DiagramKit")
+diagramkitui = xcframework("DiagramKitUI")
 coredata = add(oid("sdk", "CoreData"), "CoreData.framework", [
     ("isa", "PBXFileReference"),
     ("lastKnownFileType", "wrapper.framework"),
@@ -209,7 +214,8 @@ kit_headers = phase("PBXHeadersBuildPhase", "ORMKit", "Headers",
 kit_sources = phase("PBXSourcesBuildPhase", "ORMKit", "Sources", [buildfile("ORMKit", kit_refs[s]) for s in KIT_SOURCES])
 kit_frameworks = phase("PBXFrameworksBuildPhase", "ORMKit", "Frameworks",
                        [buildfile("ORMKit", sdk["Foundation"]), buildfile("ORMKit", coredata),
-                        buildfile("ORMKit", p_runtime), buildfile("ORMKit", odatakit), buildfile("ORMKit", odatastore)])
+                        buildfile("ORMKit", p_runtime), buildfile("ORMKit", odatakit), buildfile("ORMKit", odatastore),
+                        buildfile("ORMKit", diagramkit)])
 
 kit_tests_sources = phase("PBXSourcesBuildPhase", "ORMKitTests", "Sources",
                           [buildfile("ORMKitTests", kit_test_refs[s]) for s in KIT_TESTS])
@@ -217,12 +223,13 @@ kit_tests_frameworks = phase("PBXFrameworksBuildPhase", "ORMKitTests", "Framewor
                              [buildfile("ORMKitTests", p_kit), buildfile("ORMKitTests", p_runtime),
                               buildfile("ORMKitTests", odatakit), buildfile("ORMKitTests", odatastore),
                               buildfile("ORMKitTests", odataservice), buildfile("ORMKitTests", httpserverkit),
+                              buildfile("ORMKitTests", diagramkit),
                               buildfile("ORMKitTests", coredata),
                               buildfile("ORMKitTests", sdk["XCTest"])])
 
 tool_sources = phase("PBXSourcesBuildPhase", "ormtool", "Sources", [buildfile("ormtool", tool_refs[s]) for s in TOOL_SOURCES])
 tool_frameworks = phase("PBXFrameworksBuildPhase", "ormtool", "Frameworks",
-                        [buildfile("ormtool", p_kit), buildfile("ormtool", p_runtime)])
+                        [buildfile("ormtool", p_kit), buildfile("ormtool", p_runtime), buildfile("ormtool", diagramkit)])
 
 app_sources = phase("PBXSourcesBuildPhase", "ORMDesigner", "Sources",
                     [buildfile("ORMDesigner", app_refs[s]) for s in APP_SOURCES])
@@ -230,13 +237,16 @@ app_resources = phase("PBXResourcesBuildPhase", "ORMDesigner", "Resources",
                       [buildfile("ORMDesigner", app_refs[r]) for r in APP_RESOURCES])
 app_frameworks = phase("PBXFrameworksBuildPhase", "ORMDesigner", "Frameworks",
                        [buildfile("ORMDesigner", p_kit), buildfile("ORMDesigner", p_runtime),
-                        buildfile("ORMDesigner", sdk["AppKit"]), buildfile("ORMDesigner", sparkle)])
+                        buildfile("ORMDesigner", sdk["AppKit"]), buildfile("ORMDesigner", sparkle),
+                        buildfile("ORMDesigner", diagramkit), buildfile("ORMDesigner", diagramkitui)])
 app_embed = phase("PBXCopyFilesBuildPhase", "ORMDesigner", "Embed Frameworks",
                   [buildfile("ORMDesigner.embed", p_kit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
                    buildfile("ORMDesigner.embed", p_runtime, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
                    buildfile("ORMDesigner.embed", odatakit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
                    buildfile("ORMDesigner.embed", odatastore, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
                    buildfile("ORMDesigner.embed", otelkit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
+                   buildfile("ORMDesigner.embed", diagramkit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
+                   buildfile("ORMDesigner.embed", diagramkitui, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
                    buildfile("ORMDesigner.embed", sparkle, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }")],
                   [("dstPath", '""'), ("dstSubfolderSpec", "10"), ("name", q("Embed Frameworks"))])
 
@@ -248,6 +258,7 @@ app_tests_resources = phase("PBXResourcesBuildPhase", "ORMDesignerTests", "Resou
 app_tests_frameworks = phase("PBXFrameworksBuildPhase", "ORMDesignerTests", "Frameworks",
                              [buildfile("ORMDesignerTests", p_kit), buildfile("ORMDesignerTests", p_runtime),
                               buildfile("ORMDesignerTests", sdk["AppKit"]),
+                              buildfile("ORMDesignerTests", diagramkit), buildfile("ORMDesignerTests", diagramkitui),
                               buildfile("ORMDesignerTests", sdk["XCTest"])])
 
 
@@ -276,7 +287,7 @@ g_app = group("ORMDesigner", "ORMDesigner",
 g_app_tests = group("ORMDesignerTests", "ORMDesignerTests", [app_test_refs[f] for f in APP_TESTS], "ORMDesignerTests")
 g_docs = group("Docs", "Docs", [doc_refs[d] for d in DOCS])
 g_frameworks = group("Frameworks", "Frameworks", [sdk[f] for f in ("Foundation", "AppKit", "XCTest")]
-                     + [coredata, odatakit, odatastore, otelkit, odataservice, httpserverkit, sparkle])
+                     + [coredata, odatakit, odatastore, otelkit, odataservice, httpserverkit, sparkle, diagramkit, diagramkitui])
 g_products = group("Products", "Products", [p_runtime, p_kit, p_kit_tests, p_tool, p_app, p_app_tests])
 g_main = group("main", PROJECT, [g_docs, g_runtime, g_kit, g_kit_tests, g_tool, g_app, g_app_tests, g_frameworks, g_products])
 objects[g_main] = ("", [(k, v) for k, v in objects[g_main][1] if k != "name"])
@@ -366,7 +377,8 @@ TARGET_SETTINGS = {
     "ormtool": {
         "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path", "@loader_path", '
                                    + ", ".join('"@executable_path/../%s.xcframework/macos-arm64_x86_64"' % fw
-                                               for fw in ["ORMKit", "ORMRuntime", "ODataKit", "ODataIncrementalStore", "OTelKit"])
+                                               for fw in ["ORMKit", "ORMRuntime", "ODataKit", "ODataIncrementalStore", "OTelKit",
+                                                         "DiagramKit"])
                                    + ')',
         "PRODUCT_NAME": q("$(TARGET_NAME)"),
     },

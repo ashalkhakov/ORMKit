@@ -13,186 +13,71 @@ static const double ORMObjectifiedPadding = 5.0;
 
 #pragma mark Colours and fonts
 
-ORMColor
-ORMColorMake(double red, double green, double blue, double alpha)
-{
-	ORMColor color = { red, green, blue, alpha };
-	return color;
-}
-
-ORMColor
-ORMColorWithAlpha(ORMColor color, double alpha)
-{
-	color.alpha = alpha;
-	return color;
-}
-
-NSString *
-ORMColorHex(ORMColor color)
-{
-	int r = (int)lround(MIN(MAX(color.red, 0.0), 1.0) * 255);
-	int g = (int)lround(MIN(MAX(color.green, 0.0), 1.0) * 255);
-	int b = (int)lround(MIN(MAX(color.blue, 0.0), 1.0) * 255);
-	return [NSString stringWithFormat:@"#%02x%02x%02x", r, g, b];
-}
-
-ORMColor
+DKColor
 ORMDiagramInk(BOOL dark)
 {
-	return dark ? ORMColorMake(0.88, 0.88, 0.88, 1) : ORMColorMake(0, 0, 0, 1);
+	return dark ? DKColorMake(0.88, 0.88, 0.88, 1) : DKColorMake(0, 0, 0, 1);
 }
 
-ORMColor
+DKColor
 ORMDiagramPaper(BOOL dark)
 {
-	return dark ? ORMColorMake(0.12, 0.12, 0.13, 1) : ORMColorMake(1, 1, 1, 1);
+	return dark ? DKColorMake(0.12, 0.12, 0.13, 1) : DKColorMake(1, 1, 1, 1);
 }
 
-ORMColor
+DKColor
 ORMDiagramObjectType(BOOL dark)
 {
-	return dark ? ORMColorMake(0.55, 0.70, 1.0, 1) : ORMColorMake(0.0, 0.0, 0.55, 1);
+	return dark ? DKColorMake(0.55, 0.70, 1.0, 1) : DKColorMake(0.0, 0.0, 0.55, 1);
 }
 
-ORMColor
+DKColor
 ORMDiagramConstraint(ORMModality modality, BOOL dark)
 {
 	if (modality == ORMDeontic) {
-		return dark ? ORMColorMake(0.40, 0.65, 1.0, 1) : ORMColorMake(0.0, 0.35, 0.85, 1);
+		return dark ? DKColorMake(0.40, 0.65, 1.0, 1) : DKColorMake(0.0, 0.35, 0.85, 1);
 	}
-	return dark ? ORMColorMake(0.85, 0.55, 0.95, 1) : ORMColorMake(0.50, 0.0, 0.50, 1);
+	return dark ? DKColorMake(0.85, 0.55, 0.95, 1) : DKColorMake(0.50, 0.0, 0.50, 1);
 }
 
-ORMColor
-ORMDiagramSelection(void)
-{
-	return ORMColorMake(0.10, 0.45, 0.95, 1);
-}
-
-ORMColor
+DKColor
 ORMDiagramPick(void)
 {
-	return ORMColorMake(0.95, 0.55, 0.10, 1);
+	return DKColorMake(0.95, 0.55, 0.10, 1);
 }
 
-ORMColor
+DKColor
 ORMDiagramError(void)
 {
-	return ORMColorMake(0.85, 0.10, 0.10, 1);
+	return DKColorMake(0.85, 0.10, 0.10, 1);
 }
 
-ORMColor
+DKColor
 ORMDiagramShadow(BOOL dark)
 {
-	return dark ? ORMColorMake(0.40, 0.40, 0.40, 1) : ORMColorMake(0.70, 0.70, 0.70, 1);
+	return dark ? DKColorMake(0.40, 0.40, 0.40, 1) : DKColorMake(0.70, 0.70, 0.70, 1);
 }
 
-@implementation ORMDrawingFont
-
-+ (instancetype)fontNamed:(NSString *)name size:(double)size bold:(BOOL)bold
-{
-	ORMDrawingFont *font = [[self alloc] init];
-	font.name = name;
-	font.size = size;
-	font.bold = bold;
-	return font;
-}
-
-+ (instancetype)fontOfDiagram:(ORMDiagram *)diagram bold:(BOOL)bold
+DKFont *
+ORMDiagramFont(ORMDiagram *diagram, BOOL bold)
 {
 	double size = diagram.baseFontSize > 1 ? diagram.baseFontSize : 7.0;
 	NSString *name = [diagram.baseFontName length] > 0 ? diagram.baseFontName : nil;
-	return [self fontNamed:name size:size bold:bold];
+	return [DKFont fontWithName:name size:size bold:bold];
 }
 
-@end
-
-@implementation ORMDrawPath
+/* NORMA's rounding: a third of the shorter side, at most 9 points. */
+static DKPath *
+ORMRoundedPath(NSRect rect)
 {
-	NSMutableArray *_elements;
+	return [DKPath pathWithRoundedRect:rect radius:MIN(MIN(NSHeight(rect), NSWidth(rect)) / 2.6, 9.0)];
 }
-
-- (instancetype)init
-{
-	if ((self = [super init])) {
-		_elements = [NSMutableArray array];
-		_rect = NSZeroRect;
-	}
-	return self;
-}
-
-+ (instancetype)path
-{
-	return [[self alloc] init];
-}
-
-+ (instancetype)lineFrom:(NSPoint)from to:(NSPoint)to
-{
-	ORMDrawPath *path = [self path];
-	[path moveTo:from];
-	[path lineTo:to];
-	return path;
-}
-
-- (void)outline:(NSRect)rect
-{
-	[self moveTo:NSMakePoint(NSMinX(rect), NSMinY(rect))];
-	[self lineTo:NSMakePoint(NSMaxX(rect), NSMinY(rect))];
-	[self lineTo:NSMakePoint(NSMaxX(rect), NSMaxY(rect))];
-	[self lineTo:NSMakePoint(NSMinX(rect), NSMaxY(rect))];
-	[self close];
-}
-
-+ (instancetype)rect:(NSRect)rect
-{
-	ORMDrawPath *path = [self path];
-	path->_rect = rect;
-	[path outline:rect];
-	return path;
-}
-
-+ (instancetype)roundedRect:(NSRect)rect
-{
-	ORMDrawPath *path = [self rect:rect];
-	path->_radius = MIN(MIN(NSHeight(rect), NSWidth(rect)) / 2.6, 9.0);
-	return path;
-}
-
-+ (instancetype)oval:(NSRect)rect
-{
-	ORMDrawPath *path = [self rect:rect];
-	path->_isOval = YES;
-	return path;
-}
-
-- (void)moveTo:(NSPoint)point
-{
-	[_elements addObject:@[ @(ORMPathMove), [NSValue valueWithPoint:point] ]];
-}
-
-- (void)lineTo:(NSPoint)point
-{
-	[_elements addObject:@[ @(ORMPathLine), [NSValue valueWithPoint:point] ]];
-}
-
-- (void)close
-{
-	[_elements addObject:@[ @(ORMPathClose), [NSValue valueWithPoint:NSZeroPoint] ]];
-}
-
-- (NSArray<NSArray *> *)elements
-{
-	return [_elements copy];
-}
-
-@end
 
 @implementation ORMDrawingState
 
 - (instancetype)init
 {
 	if ((self = [super init])) {
-		_selectedShapes = [NSSet set];
 		_selectedRoles = [NSSet set];
 		_pickedSequences = @[];
 	}
@@ -263,21 +148,6 @@ ORMRoleBox(ORMShape *shape, ORMRole *role)
 	return [[ORMRoleBoxes(shape) objectAtIndex:index] rectValue];
 }
 
-NSPoint
-ORMEdgePoint(NSRect rect, NSPoint toward)
-{
-	NSPoint center = NSMakePoint(NSMidX(rect), NSMidY(rect));
-	double dx = toward.x - center.x;
-	double dy = toward.y - center.y;
-	if (fabs(dx) < 0.0001 && fabs(dy) < 0.0001) {
-		return center;
-	}
-	double halfWidth = NSWidth(rect) / 2;
-	double halfHeight = NSHeight(rect) / 2;
-	double scale = 1.0 / MAX(fabs(dx) / MAX(halfWidth, 0.0001), fabs(dy) / MAX(halfHeight, 0.0001));
-	return NSMakePoint(center.x + dx * scale, center.y + dy * scale);
-}
-
 /* The outline an objectified fact type is drawn in. */
 static NSRect
 ORMObjectifiedOutline(ORMShape *factTypeShape)
@@ -340,7 +210,7 @@ ORMRoleLine(ORMDiagram *diagram, ORMShape *factTypeShape, ORMRole *role, NSPoint
 	 * them, when the player lies that way. */
 	NSRect strip = ORMRoleStrip(factTypeShape);
 	NSArray *roles = ORMShownRoles(factTypeShape);
-	NSPoint from = ORMEdgePoint(box, targetCenter);
+	NSPoint from = DKEdgePoint(box, targetCenter);
 	if (factTypeShape.orientation == ORMFactTypeHorizontal && [roles count] > 1) {
 		if ([roles firstObject] == role && targetCenter.x < NSMinX(strip)) {
 			from = NSMakePoint(NSMinX(box), NSMidY(box));
@@ -351,7 +221,7 @@ ORMRoleLine(ORMDiagram *diagram, ORMShape *factTypeShape, ORMRole *role, NSPoint
 		}
 	}
 	*atRole = from;
-	*atPlayer = ORMEdgePoint(target, from);
+	*atPlayer = DKEdgePoint(target, from);
 	return YES;
 }
 
@@ -447,9 +317,9 @@ ORMNameLine(ORMObjectType *type)
 }
 
 NSSize
-ORMObjectTypeSizeOn(id<ORMDrawingSurface> surface, ORMObjectType *type, ORMDiagram *diagram)
+ORMObjectTypeSizeOn(id<DKSurface> surface, ORMObjectType *type, ORMDiagram *diagram)
 {
-	ORMDrawingFont *font = [ORMDrawingFont fontOfDiagram:diagram bold:NO];
+	DKFont *font = ORMDiagramFont(diagram, NO);
 	NSSize name = [surface sizeOfText:ORMNameLine(type) font:font];
 	NSString *mode = ORMReferenceModeLine(type);
 	NSSize modeSize = mode != nil ? [surface sizeOfText:mode font:font] : NSZeroSize;
@@ -459,9 +329,9 @@ ORMObjectTypeSizeOn(id<ORMDrawingSurface> surface, ORMObjectType *type, ORMDiagr
 }
 
 NSSize
-ORMReadingSizeOn(id<ORMDrawingSurface> surface, NSString *text, ORMDiagram *diagram)
+ORMReadingSizeOn(id<DKSurface> surface, NSString *text, ORMDiagram *diagram)
 {
-	NSSize size = [surface sizeOfText:text font:[ORMDrawingFont fontOfDiagram:diagram bold:NO]];
+	NSSize size = [surface sizeOfText:text font:ORMDiagramFont(diagram, NO)];
 	return NSMakeSize(ceil(size.width + 2), ceil(size.height));
 }
 
@@ -469,7 +339,7 @@ ORMReadingSizeOn(id<ORMDrawingSurface> surface, NSString *text, ORMDiagram *diag
 
 /* What every drawing function needs. */
 typedef struct {
-	__unsafe_unretained id<ORMDrawingSurface> surface;
+	__unsafe_unretained id<DKSurface> surface;
 	__unsafe_unretained ORMDrawingState *state;
 	BOOL dark;
 	/* The elements with more than one shape in the model: shaded. */
@@ -480,7 +350,7 @@ typedef struct {
 static const double ORMShadowOffset = 3.0;
 
 static void
-ORMDrawShadow(ORMPainting *p, ORMDrawPath *path)
+ORMDrawShadow(ORMPainting *p, DKPath *path)
 {
 	[p->surface fillPath:path color:ORMDiagramShadow(p->dark)];
 }
@@ -509,13 +379,13 @@ ORMShadedElements(ORMDiagram *diagram)
 }
 
 static void
-ORMStroke(ORMPainting *p, ORMDrawPath *path, ORMColor color, double width, BOOL dashed)
+ORMStroke(ORMPainting *p, DKPath *path, DKColor color, double width, BOOL dashed)
 {
 	[p->surface strokePath:path color:color width:width dashed:dashed];
 }
 
 static void
-ORMDrawCentered(ORMPainting *p, NSString *text, NSRect rect, ORMDrawingFont *font, ORMColor color)
+ORMDrawCentered(ORMPainting *p, NSString *text, NSRect rect, DKFont *font, DKColor color)
 {
 	NSSize size = [p->surface sizeOfText:text font:font];
 	[p->surface drawText:text at:NSMakePoint(NSMidX(rect), NSMidY(rect) - size.height / 2) font:font color:color
@@ -526,7 +396,7 @@ static void
 ORMDrawSelection(ORMPainting *p, NSRect rect, BOOL rounded)
 {
 	NSRect outset = NSInsetRect(rect, -2.5, -2.5);
-	ORMStroke(p, rounded ? [ORMDrawPath roundedRect:outset] : [ORMDrawPath rect:outset], ORMDiagramSelection(), 1.5, NO);
+	ORMStroke(p, rounded ? ORMRoundedPath(outset) : [DKPath pathWithRect:outset], DKColorSelection(), 1.5, NO);
 }
 
 static void
@@ -538,14 +408,14 @@ ORMDrawObjectType(ORMPainting *p, ORMShape *shape)
 	}
 	ORMDrawingState *state = p->state;
 	NSRect rect = NSInsetRect(shape.bounds, 0.5, 0.5);
-	ORMDrawPath *outline = [ORMDrawPath roundedRect:rect];
+	DKPath *outline = ORMRoundedPath(rect);
 	if ([p->shaded containsObject:type.identifier]) {
-		ORMDrawShadow(p, [ORMDrawPath roundedRect:NSOffsetRect(rect, ORMShadowOffset, ORMShadowOffset)]);
+		ORMDrawShadow(p, ORMRoundedPath(NSOffsetRect(rect, ORMShadowOffset, ORMShadowOffset)));
 	}
 	[p->surface fillPath:outline color:ORMDiagramPaper(p->dark)];
 	ORMStroke(p, outline, ORMDiagramObjectType(p->dark), 1.0, type.kind == ORMValueType);
-	ORMDrawingFont *font = [ORMDrawingFont fontOfDiagram:shape.diagram bold:NO];
-	ORMColor ink = ORMDiagramInk(p->dark);
+	DKFont *font = ORMDiagramFont(shape.diagram, NO);
+	DKColor ink = ORMDiagramInk(p->dark);
 	NSString *name = ORMNameLine(type);
 	NSString *mode = ORMReferenceModeLine(type);
 	if (mode == nil) {
@@ -557,12 +427,12 @@ ORMDrawObjectType(ORMPainting *p, ORMShape *shape)
 		[p->surface drawText:name at:NSMakePoint(NSMidX(rect), top) font:font color:ink centered:YES];
 		[p->surface drawText:mode at:NSMakePoint(NSMidX(rect), top + nameSize.height) font:font color:ink centered:YES];
 	}
-	if (!state.forPrinting && [state.selectedShapes containsObject:shape.identifier]) {
+	if ([state showsSelected:shape.identifier]) {
 		ORMDrawSelection(p, shape.bounds, YES);
 	}
 	if (!state.forPrinting && [state.hoverElement isEqualToString:type.identifier]) {
-		ORMStroke(p, [ORMDrawPath roundedRect:NSInsetRect(shape.bounds, -1.5, -1.5)],
-		          ORMColorWithAlpha(ORMDiagramSelection(), 0.4), 1.0, NO);
+		ORMStroke(p, ORMRoundedPath(NSInsetRect(shape.bounds, -1.5, -1.5)),
+		          DKColorWithAlpha(DKColorSelection(), 0.4), 1.0, NO);
 	}
 }
 
@@ -586,7 +456,7 @@ ORMDrawUniquenessBar(ORMPainting *p, ORMShape *shape, ORMConstraint *constraint,
 	if (first < 0) {
 		return;
 	}
-	ORMColor color = selected ? ORMDiagramSelection() : ORMDiagramConstraint(constraint.modality, p->dark);
+	DKColor color = selected ? DKColorSelection() : ORMDiagramConstraint(constraint.modality, p->dark);
 	BOOL preferred = constraint.preferredIdentifierFor != nil;
 	BOOL horizontal = shape.orientation == ORMFactTypeHorizontal;
 	double offset = 2.5 + level * 3.5;
@@ -604,22 +474,22 @@ ORMDrawUniquenessBar(ORMPainting *p, ORMShape *shape, ORMConstraint *constraint,
 			a = NSMakePoint(x, NSMinY(box) + 1.2);
 			b = NSMakePoint(x, NSMaxY(box) - 1.2);
 		}
-		ORMStroke(p, [ORMDrawPath lineFrom:a to:b], color, 1.0, !isCovered);
+		ORMStroke(p, [DKPath pathWithLineFrom:a to:b], color, 1.0, !isCovered);
 		if (preferred && isCovered) {
 			double shift = 1.6;
 			NSPoint c = horizontal ? NSMakePoint(a.x, a.y + (shape.constraintsBelow ? shift : -shift))
 			                       : NSMakePoint(a.x - shift, a.y);
 			NSPoint d = horizontal ? NSMakePoint(b.x, b.y + (shape.constraintsBelow ? shift : -shift))
 			                       : NSMakePoint(b.x - shift, b.y);
-			ORMStroke(p, [ORMDrawPath lineFrom:c to:d], color, 1.0, NO);
+			ORMStroke(p, [DKPath pathWithLineFrom:c to:d], color, 1.0, NO);
 		}
 	}
 }
 
 static void
-ORMDrawDot(ORMPainting *p, NSPoint at, double radius, ORMColor color, BOOL filled)
+ORMDrawDot(ORMPainting *p, NSPoint at, double radius, DKColor color, BOOL filled)
 {
-	ORMDrawPath *dot = [ORMDrawPath oval:NSMakeRect(at.x - radius, at.y - radius, radius * 2, radius * 2)];
+	DKPath *dot = [DKPath pathWithOvalInRect:NSMakeRect(at.x - radius, at.y - radius, radius * 2, radius * 2)];
 	if (filled) {
 		[p->surface fillPath:dot color:color];
 	} else {
@@ -639,8 +509,8 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 	ORMDiagram *diagram = shape.diagram;
 	NSArray *roles = ORMShownRoles(shape);
 	NSArray *boxes = ORMRoleBoxes(shape);
-	ORMColor ink = ORMDiagramInk(p->dark);
-	ORMColor paper = ORMDiagramPaper(p->dark);
+	DKColor ink = ORMDiagramInk(p->dark);
+	DKColor paper = ORMDiagramPaper(p->dark);
 
 	/* The lines to the players first, under everything. */
 	for (ORMRole *role in roles) {
@@ -649,7 +519,7 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 		if (!ORMRoleLine(diagram, shape, role, &atRole, &atPlayer)) {
 			continue;
 		}
-		ORMStroke(p, [ORMDrawPath lineFrom:atRole to:atPlayer], ink, 0.75, NO);
+		ORMStroke(p, [DKPath pathWithLineFrom:atRole to:atPlayer], ink, 0.75, NO);
 		if (role.isMandatory) {
 			ORMModality modality = ORMAlethic;
 			for (ORMConstraint *constraint in role.constraints) {
@@ -666,10 +536,10 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 
 	if (fact.objectifyingType != nil) {
 		NSRect outline = ORMObjectifiedOutline(shape);
-		ORMDrawPath *path = [ORMDrawPath roundedRect:outline];
+		DKPath *path = ORMRoundedPath(outline);
 		[p->surface fillPath:path color:paper];
 		ORMStroke(p, path, ORMDiagramObjectType(p->dark), 1.0, NO);
-		ORMDrawingFont *font = [ORMDrawingFont fontOfDiagram:diagram bold:NO];
+		DKFont *font = ORMDiagramFont(diagram, NO);
 		NSString *name = [NSString stringWithFormat:@"\"%@\"", fact.objectifyingType.name];
 		NSSize size = [p->surface sizeOfText:name font:font];
 		BOOL hasLabelShape = NO;
@@ -691,21 +561,21 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 		for (NSValue *box in boxes) {
 			row = NSIsEmptyRect(row) ? [box rectValue] : NSUnionRect(row, [box rectValue]);
 		}
-		ORMDrawShadow(p, [ORMDrawPath rect:NSOffsetRect(row, ORMShadowOffset, ORMShadowOffset)]);
+		ORMDrawShadow(p, [DKPath pathWithRect:NSOffsetRect(row, ORMShadowOffset, ORMShadowOffset)]);
 	}
 	for (NSUInteger i = 0; i < [boxes count]; i++) {
 		NSRect box = [[boxes objectAtIndex:i] rectValue];
 		ORMRole *role = [roles objectAtIndex:i];
-		ORMColor fill = paper;
+		DKColor fill = paper;
 		if (!state.forPrinting && [state.selectedRoles containsObject:role.identifier]) {
-			fill = ORMColorWithAlpha(ORMDiagramSelection(), 0.30);
+			fill = DKColorWithAlpha(DKColorSelection(), 0.30);
 		}
 		for (NSUInteger s = 0; s < [state.pickedSequences count]; s++) {
 			if ([[state.pickedSequences objectAtIndex:s] containsObject:role.identifier]) {
-				fill = ORMColorWithAlpha(ORMDiagramPick(), 0.45);
+				fill = DKColorWithAlpha(ORMDiagramPick(), 0.45);
 			}
 		}
-		ORMDrawPath *boxPath = [ORMDrawPath rect:box];
+		DKPath *boxPath = [DKPath pathWithRect:box];
 		[p->surface fillPath:boxPath color:fill];
 		ORMStroke(p, boxPath, ink, 0.75, NO);
 		/* The picked role's place in its sequence, for the constraint
@@ -716,7 +586,7 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 				NSString *label = [state.pickedSequences count] > 1
 					? [NSString stringWithFormat:@"%lu.%lu", (unsigned long)s + 1, (unsigned long)place + 1]
 					: [NSString stringWithFormat:@"%lu", (unsigned long)place + 1];
-				ORMDrawCentered(p, label, box, [ORMDrawingFont fontNamed:nil size:5.5 bold:NO], ink);
+				ORMDrawCentered(p, label, box, [DKFont fontWithName:nil size:5.5 bold:NO], ink);
 			}
 		}
 	}
@@ -739,7 +609,7 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 		ORMDrawUniquenessBar(p, shape, constraint, level++, selected);
 	}
 
-	if (!state.forPrinting && [state.selectedShapes containsObject:shape.identifier]) {
+	if ([state showsSelected:shape.identifier]) {
 		ORMDrawSelection(p, fact.objectifyingType != nil ? ORMObjectifiedOutline(shape)
 		                                                  : NSInsetRect(ORMRoleStrip(shape), -3, -3),
 		                 fact.objectifyingType != nil);
@@ -755,9 +625,9 @@ ORMDrawReading(ORMPainting *p, ORMShape *shape)
 		return;
 	}
 	NSString *text = ORMReadingDisplayText(factTypeShape, order);
-	ORMDrawingFont *font = [ORMDrawingFont fontOfDiagram:shape.diagram bold:NO];
+	DKFont *font = ORMDiagramFont(shape.diagram, NO);
 	[p->surface drawText:text at:shape.bounds.origin font:font color:ORMDiagramInk(p->dark) centered:NO];
-	if (!p->state.forPrinting && [p->state.selectedShapes containsObject:shape.identifier]) {
+	if ([p->state showsSelected:shape.identifier]) {
 		NSSize size = [p->surface sizeOfText:text font:font];
 		ORMDrawSelection(p, NSMakeRect(NSMinX(shape.bounds), NSMinY(shape.bounds), size.width, size.height), NO);
 	}
@@ -798,7 +668,7 @@ ORMSequenceAttachments(ORMDiagram *diagram, NSArray<ORMRole *> *roles, NSPoint f
 		if (NSIsEmptyRect(span)) {
 			continue;
 		}
-		[points addObject:[NSValue valueWithPoint:ORMEdgePoint(span, from)]];
+		[points addObject:[NSValue valueWithPoint:DKEdgePoint(span, from)]];
 	}
 	return points;
 }
@@ -836,11 +706,13 @@ ORMFrequencyText(ORMConstraint *constraint)
 	        (unsigned long)constraint.maxFrequency];
 }
 
+/* NORMA's arrowhead, its size given: smaller than DiagramKit's
+ * DKEdgeEndArrow, which grows with the line. */
 static void
-ORMDrawArrowhead(ORMPainting *p, NSPoint tip, NSPoint from, ORMColor color, double size)
+ORMDrawArrowhead(ORMPainting *p, NSPoint tip, NSPoint from, DKColor color, double size)
 {
 	double angle = atan2(tip.y - from.y, tip.x - from.x);
-	ORMDrawPath *head = [ORMDrawPath path];
+	DKPath *head = [DKPath path];
 	[head moveTo:tip];
 	[head lineTo:NSMakePoint(tip.x - size * cos(angle - 0.45), tip.y - size * sin(angle - 0.45))];
 	[head lineTo:NSMakePoint(tip.x - size * cos(angle + 0.45), tip.y - size * sin(angle + 0.45))];
@@ -861,8 +733,8 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 	    && [diagram shapeForSubject:constraint.exclusiveOrPartner.identifier] != nil) {
 		return;
 	}
-	BOOL selected = !p->state.forPrinting && [p->state.selectedShapes containsObject:shape.identifier];
-	ORMColor color = selected ? ORMDiagramSelection() : ORMDiagramConstraint(constraint.modality, p->dark);
+	BOOL selected = [p->state showsSelected:shape.identifier];
+	DKColor color = selected ? DKColorSelection() : ORMDiagramConstraint(constraint.modality, p->dark);
 	NSRect rect = shape.bounds;
 	NSPoint center = NSMakePoint(NSMidX(rect), NSMidY(rect));
 
@@ -872,31 +744,31 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 		ORMRoleSequence *sequence = [constraint.roleSequences objectAtIndex:s];
 		for (NSValue *value in ORMSequenceAttachments(diagram, sequence.roles, center)) {
 			NSPoint end = [value pointValue];
-			NSPoint start = ORMEdgePoint(rect, end);
-			ORMStroke(p, [ORMDrawPath lineFrom:start to:end], color, 0.75, YES);
+			NSPoint start = DKEdgePoint(rect, end);
+			ORMStroke(p, [DKPath pathWithLineFrom:start to:end], color, 0.75, YES);
 			if (constraint.kind == ORMSubsetConstraint && s == 1) {
 				ORMDrawArrowhead(p, end, start, color, 4.5);
 			}
 		}
 	}
 
-	ORMDrawPath *circle = [ORMDrawPath oval:NSInsetRect(rect, 0.5, 0.5)];
+	DKPath *circle = [DKPath pathWithOvalInRect:NSInsetRect(rect, 0.5, 0.5)];
 	if (constraint.kind != ORMFrequencyConstraint) {
 		[p->surface fillPath:circle color:ORMDiagramPaper(p->dark)];
 		ORMStroke(p, circle, color, 1.0, NO);
 	}
 	double inset = NSWidth(rect) * 0.28;
 	NSRect inner = NSInsetRect(rect, inset, inset);
-	ORMDrawingFont *symbol = [ORMDrawingFont fontNamed:nil size:MAX(NSHeight(rect) * 0.55, 5) bold:NO];
+	DKFont *symbol = [DKFont fontWithName:nil size:MAX(NSHeight(rect) * 0.55, 5) bold:NO];
 	switch (constraint.kind) {
 	case ORMUniquenessConstraint: {
 		BOOL preferred = constraint.preferredIdentifierFor != nil;
 		double y = NSMidY(rect);
-		ORMStroke(p, [ORMDrawPath lineFrom:NSMakePoint(NSMinX(inner) - 1, preferred ? y - 1.2 : y)
+		ORMStroke(p, [DKPath pathWithLineFrom:NSMakePoint(NSMinX(inner) - 1, preferred ? y - 1.2 : y)
 		                                to:NSMakePoint(NSMaxX(inner) + 1, preferred ? y - 1.2 : y)],
 		          color, 1.0, NO);
 		if (preferred) {
-			ORMStroke(p, [ORMDrawPath lineFrom:NSMakePoint(NSMinX(inner) - 1, y + 1.2)
+			ORMStroke(p, [DKPath pathWithLineFrom:NSMakePoint(NSMinX(inner) - 1, y + 1.2)
 			                                to:NSMakePoint(NSMaxX(inner) + 1, y + 1.2)],
 			          color, 1.0, NO);
 		}
@@ -906,10 +778,10 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 		ORMDrawDot(p, center, NSWidth(rect) * 0.16, color, constraint.modality == ORMAlethic);
 		break;
 	case ORMExclusionConstraint:
-		ORMStroke(p, [ORMDrawPath lineFrom:NSMakePoint(NSMinX(inner), NSMinY(inner))
+		ORMStroke(p, [DKPath pathWithLineFrom:NSMakePoint(NSMinX(inner), NSMinY(inner))
 		                                to:NSMakePoint(NSMaxX(inner), NSMaxY(inner))],
 		          color, 1.0, NO);
-		ORMStroke(p, [ORMDrawPath lineFrom:NSMakePoint(NSMinX(inner), NSMaxY(inner))
+		ORMStroke(p, [DKPath pathWithLineFrom:NSMakePoint(NSMinX(inner), NSMaxY(inner))
 		                                to:NSMakePoint(NSMaxX(inner), NSMinY(inner))],
 		          color, 1.0, NO);
 		if (constraint.exclusiveOrPartner != nil) {
@@ -924,10 +796,10 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 		break;
 	case ORMRingConstraint:
 		ORMDrawCentered(p, ORMRingAbbreviation(constraint.ringType), rect,
-		                [ORMDrawingFont fontNamed:nil size:MAX(NSHeight(rect) * 0.32, 4) bold:NO], color);
+		                [DKFont fontWithName:nil size:MAX(NSHeight(rect) * 0.32, 4) bold:NO], color);
 		break;
 	case ORMFrequencyConstraint:
-		ORMDrawCentered(p, ORMFrequencyText(constraint), rect, [ORMDrawingFont fontOfDiagram:diagram bold:NO], color);
+		ORMDrawCentered(p, ORMFrequencyText(constraint), rect, ORMDiagramFont(diagram, NO), color);
 		break;
 	case ORMValueComparisonConstraint: {
 		NSDictionary *operators = @{ @"Equal": @"=", @"NotEqual": @"≠", @"LessThan": @"<",
@@ -982,10 +854,10 @@ ORMDrawSubtypeLinks(ORMPainting *p, ORMDiagram *diagram)
 				continue;
 			}
 			NSRect to = ORMObjectTypeRect(target);
-			NSPoint end = ORMEdgePoint(to, [from center]);
-			NSPoint start = ORMEdgePoint(from.bounds, NSMakePoint(NSMidX(to), NSMidY(to)));
-			ORMColor color = ORMDiagramConstraint(ORMAlethic, p->dark);
-			ORMStroke(p, [ORMDrawPath lineFrom:start to:end], color, 1.6, !fact.providesPreferredIdentifier);
+			NSPoint end = DKEdgePoint(to, [from center]);
+			NSPoint start = DKEdgePoint(from.bounds, NSMakePoint(NSMidX(to), NSMidY(to)));
+			DKColor color = ORMDiagramConstraint(ORMAlethic, p->dark);
+			ORMStroke(p, [DKPath pathWithLineFrom:start to:end], color, 1.6, !fact.providesPreferredIdentifier);
 			ORMDrawArrowhead(p, end, start, color, 6.0);
 		}
 	}
@@ -999,17 +871,17 @@ ORMDrawNote(ORMPainting *p, ORMShape *shape)
 		return;
 	}
 	ORMDiagram *diagram = shape.diagram;
-	ORMColor ink = ORMDiagramInk(p->dark);
+	DKColor ink = ORMDiagramInk(p->dark);
 	NSRect rect = shape.bounds;
 	for (ORMElement *element in note.referencedElements) {
 		ORMShape *target = [diagram shapeForSubject:element.identifier];
 		if (target != nil) {
-			NSPoint end = ORMEdgePoint(target.bounds, [shape center]);
-			ORMStroke(p, [ORMDrawPath lineFrom:ORMEdgePoint(rect, end) to:end], ink, 0.6, YES);
+			NSPoint end = DKEdgePoint(target.bounds, [shape center]);
+			ORMStroke(p, [DKPath pathWithLineFrom:DKEdgePoint(rect, end) to:end], ink, 0.6, YES);
 		}
 	}
 	double fold = MIN(5.0, NSHeight(rect) / 2);
-	ORMDrawPath *path = [ORMDrawPath path];
+	DKPath *path = [DKPath path];
 	[path moveTo:NSMakePoint(NSMinX(rect), NSMinY(rect))];
 	[path lineTo:NSMakePoint(NSMaxX(rect) - fold, NSMinY(rect))];
 	[path lineTo:NSMakePoint(NSMaxX(rect), NSMinY(rect) + fold)];
@@ -1017,13 +889,13 @@ ORMDrawNote(ORMPainting *p, ORMShape *shape)
 	[path lineTo:NSMakePoint(NSMinX(rect), NSMaxY(rect))];
 	[path close];
 	/* The paper with a touch of yellow. */
-	ORMColor paper = ORMDiagramPaper(p->dark);
-	ORMColor fill = ORMColorMake(paper.red * 0.94 + 0.06, paper.green * 0.94 + 0.06 * 0.85, paper.blue * 0.94, 1);
+	DKColor paper = ORMDiagramPaper(p->dark);
+	DKColor fill = DKColorMake(paper.r * 0.94 + 0.06, paper.g * 0.94 + 0.06 * 0.85, paper.b * 0.94, 1);
 	[p->surface fillPath:path color:fill];
 	ORMStroke(p, path, ink, 0.6, NO);
-	[p->surface drawText:note.text inRect:NSInsetRect(rect, 2, 1) font:[ORMDrawingFont fontOfDiagram:diagram bold:NO]
+	[p->surface drawText:note.text inRect:NSInsetRect(rect, 2, 1) font:ORMDiagramFont(diagram, NO)
 	               color:ink];
-	if (!p->state.forPrinting && [p->state.selectedShapes containsObject:shape.identifier]) {
+	if ([p->state showsSelected:shape.identifier]) {
 		ORMDrawSelection(p, rect, NO);
 	}
 }
@@ -1031,10 +903,10 @@ ORMDrawNote(ORMPainting *p, ORMShape *shape)
 static void
 ORMDrawTextShape(ORMPainting *p, ORMShape *shape, NSString *text)
 {
-	ORMDrawingFont *font = [ORMDrawingFont fontOfDiagram:shape.diagram bold:NO];
+	DKFont *font = ORMDiagramFont(shape.diagram, NO);
 	[p->surface drawText:text at:shape.bounds.origin font:font color:ORMDiagramConstraint(ORMAlethic, p->dark)
 	            centered:NO];
-	if (!p->state.forPrinting && [p->state.selectedShapes containsObject:shape.identifier]) {
+	if ([p->state showsSelected:shape.identifier]) {
 		NSSize size = [p->surface sizeOfText:text font:font];
 		ORMDrawSelection(p, NSMakeRect(NSMinX(shape.bounds), NSMinY(shape.bounds), size.width, size.height), NO);
 	}
@@ -1075,7 +947,7 @@ ORMDrawRelative(ORMPainting *p, ORMShape *shape)
 #pragma mark The diagram
 
 void
-ORMPaintDiagram(ORMDiagram *diagram, id<ORMDrawingSurface> surface, ORMDrawingState *state)
+ORMPaintDiagram(ORMDiagram *diagram, id<DKSurface> surface, ORMDrawingState *state)
 {
 	ORMDrawingState *drawing = state ?: [[ORMDrawingState alloc] init];
 	NSSet *shaded = ORMShadedElements(diagram);
@@ -1126,7 +998,7 @@ ORMPaintDiagram(ORMDiagram *diagram, id<ORMDrawingSurface> surface, ORMDrawingSt
 			shown = shown || child.kind == ORMShapeValueConstraint;
 		}
 		if (!shown) {
-			ORMDrawingFont *font = [ORMDrawingFont fontOfDiagram:diagram bold:NO];
+			DKFont *font = ORMDiagramFont(diagram, NO);
 			NSString *text = [type.valueConstraint displayText];
 			NSSize size = [surface sizeOfText:text font:font];
 			[surface drawText:text at:NSMakePoint(NSMaxX(shape.bounds), NSMinY(shape.bounds) - size.height) font:font
@@ -1137,7 +1009,7 @@ ORMPaintDiagram(ORMDiagram *diagram, id<ORMDrawingSurface> surface, ORMDrawingSt
 }
 
 NSRect
-ORMPaintedBounds(ORMDiagram *diagram, id<ORMDrawingSurface> surface)
+ORMPaintedBounds(ORMDiagram *diagram, id<DKSurface> surface)
 {
 	NSRect bounds = [diagram extent];
 	for (ORMShape *shape in diagram.shapes) {
@@ -1153,4 +1025,19 @@ ORMPaintedBounds(ORMDiagram *diagram, id<ORMDrawingSurface> surface)
 		}
 	}
 	return NSInsetRect(bounds, -12, -12);
+}
+
+NSString *
+ORMSVGOfDiagram(ORMDiagram *diagram, BOOL dark)
+{
+	/* The bounds measured as the SVG sets text, then the drawing. */
+	NSRect bounds = ORMPaintedBounds(diagram, [[DKSVGSurface alloc] init]);
+	DKSVGSurface *surface = [[DKSVGSurface alloc] initWithBounds:bounds];
+	surface.title = diagram.name;
+	surface.background = ORMDiagramPaper(dark);
+	ORMDrawingState *state = [[ORMDrawingState alloc] init];
+	state.forPrinting = YES;
+	state.dark = dark;
+	ORMPaintDiagram(diagram, surface, state);
+	return [surface SVGString];
 }

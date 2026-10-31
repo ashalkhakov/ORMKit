@@ -32,7 +32,7 @@ ORMDesignerTests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../ORMDesigner/
 include ../odatakit.make
 ORMDesignerTests_INCLUDE_DIRS = -I../ORMKit -I../ORMRuntime -I../ORMDesigner $(ODATAKIT_INCLUDE_DIRS)
 ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
-ORMDesignerTests_BUNDLE_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) -lXCTest -ldispatch
+ORMDesignerTests_BUNDLE_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -lXCTest -ldispatch
 ORMDesignerTests_NEEDS_GUI = yes
 # The designer's XIBs: its classes load them from the bundle they are in,
 # which here is this one.

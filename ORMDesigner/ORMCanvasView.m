@@ -358,12 +358,13 @@ static const double ORMCanvasMargin = 240.0;
 		return;
 	}
 	ORMDrawingState *state = [[ORMDrawingState alloc] init];
-	state.selectedShapes = [NSSet setWithArray:_selectedShapes];
+	state.selection = [NSSet setWithArray:_selectedShapes];
 	state.selectedRoles = [NSSet setWithArray:_selectedRoles];
 	state.pickedSequences = _picked;
 	state.hoverElement = _hover;
 	state.forPrinting = _printing;
-	ORMDrawDiagram(diagram, dirty, state);
+	state.dark = !_printing && [[[self effectiveAppearance] bestMatchFromAppearancesWithNames:@[ NSAppearanceNameAqua, NSAppearanceNameDarkAqua ]] isEqualToString:NSAppearanceNameDarkAqua];
+	ORMPaintDiagram(diagram, [DKAppKitSurface surface], state);
 	if (_printing) {
 		return;
 	}
@@ -379,7 +380,7 @@ static const double ORMCanvasMargin = 240.0;
 			continue;
 		}
 		NSRect badge = NSMakeRect(NSMaxX(shape.bounds) - 4, NSMinY(shape.bounds) - 6, 10, 10);
-		[ORMPickColor() setFill];
+		[DKNSColor(ORMDiagramPick()) setFill];
 		[[NSBezierPath bezierPathWithOvalInRect:badge] fill];
 		NSDictionary *attributes = @{ NSFontAttributeName: [NSFont boldSystemFontOfSize:7],
 		                              NSForegroundColorAttributeName: [NSColor whiteColor] };
@@ -393,7 +394,7 @@ static const double ORMCanvasMargin = 240.0;
 
 - (void)drawGesture
 {
-	NSColor *color = ORMSelectionColor();
+	NSColor *color = DKNSColor(DKColorSelection());
 	switch (_gesture) {
 	case ORMGestureMove: {
 		NSSize delta = NSMakeSize(_at.x - _down.x, _at.y - _down.y);
@@ -999,7 +1000,7 @@ static const double ORMCanvasMargin = 240.0;
 	frame.size.height = MAX(NSHeight(frame), 14);
 	_renamer = [[NSTextField alloc] initWithFrame:frame];
 	[_renamer setStringValue:text];
-	[_renamer setFont:ORMDiagramFont([self diagram], NO)];
+	[_renamer setFont:DKNSFont(ORMDiagramFont([self diagram], NO))];
 	[_renamer setAlignment:NSTextAlignmentCenter];
 	[_renamer setTarget:self];
 	[_renamer setAction:@selector(renamerDone:)];

@@ -1272,7 +1272,7 @@
 	NSString *selected = [[_controller.canvas selectedShapes] firstObject];
 	XCTAssertEqual([[_controller.canvas selectedShapes] count], 1u);
 	XCTAssertNotEqualObjects(selected, first, @"the new shape selected");
-	NSString *shadow = [NSString stringWithFormat:@"fill=\"%@\"", ORMColorHex(ORMDiagramShadow(NO))];
+	NSString *shadow = [NSString stringWithFormat:@"fill=\"%@\"", DKColorHex(ORMDiagramShadow(NO))];
 	XCTAssertEqual([[ORMSVGOfDiagram([editor.model.diagrams firstObject], NO) componentsSeparatedByString:shadow] count] - 1, 2u);
 	/* Undone under its name (ORMEditorTests undoes it: here, with no
 	   event loop, the undo manager's one group has the person too). */

@@ -24,7 +24,6 @@
 #import "ORMModel.h"
 #import "ORMDiagram.h"
 #import "ORMDiagramPainter.h"
-#import "ORMSVGSurface.h"
 #import "ORMPath.h"
 #import "ORMLogic.h"
 #import "ORMReadingText.h"
