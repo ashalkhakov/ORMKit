@@ -379,9 +379,9 @@ ORMShadedElements(ORMDiagram *diagram)
 }
 
 static void
-ORMStroke(ORMPainting *p, DKPath *path, DKColor color, double width, BOOL dashed)
+ORMStroke(ORMPainting *p, DKPath *path, DKColor color, double width, DKStrokeStyle style)
 {
-	[p->surface strokePath:path color:color width:width dashed:dashed];
+	[p->surface strokePath:path color:color width:width style:style];
 }
 
 static void
@@ -396,7 +396,7 @@ static void
 ORMDrawSelection(ORMPainting *p, NSRect rect, BOOL rounded)
 {
 	NSRect outset = NSInsetRect(rect, -2.5, -2.5);
-	ORMStroke(p, rounded ? ORMRoundedPath(outset) : [DKPath pathWithRect:outset], DKColorSelection(), 1.5, NO);
+	ORMStroke(p, rounded ? ORMRoundedPath(outset) : [DKPath pathWithRect:outset], DKColorSelection(), 1.5, DKStrokeSolid);
 }
 
 static void
@@ -413,7 +413,7 @@ ORMDrawObjectType(ORMPainting *p, ORMShape *shape)
 		ORMDrawShadow(p, ORMRoundedPath(NSOffsetRect(rect, ORMShadowOffset, ORMShadowOffset)));
 	}
 	[p->surface fillPath:outline color:ORMDiagramPaper(p->dark)];
-	ORMStroke(p, outline, ORMDiagramObjectType(p->dark), 1.0, type.kind == ORMValueType);
+	ORMStroke(p, outline, ORMDiagramObjectType(p->dark), 1.0, type.kind == ORMValueType ? DKStrokeDashed : DKStrokeSolid);
 	DKFont *font = ORMDiagramFont(shape.diagram, NO);
 	DKColor ink = ORMDiagramInk(p->dark);
 	NSString *name = ORMNameLine(type);
@@ -432,7 +432,7 @@ ORMDrawObjectType(ORMPainting *p, ORMShape *shape)
 	}
 	if (!state.forPrinting && [state.hoverElement isEqualToString:type.identifier]) {
 		ORMStroke(p, ORMRoundedPath(NSInsetRect(shape.bounds, -1.5, -1.5)),
-		          DKColorWithAlpha(DKColorSelection(), 0.4), 1.0, NO);
+		          DKColorWithAlpha(DKColorSelection(), 0.4), 1.0, DKStrokeSolid);
 	}
 }
 
@@ -474,14 +474,14 @@ ORMDrawUniquenessBar(ORMPainting *p, ORMShape *shape, ORMConstraint *constraint,
 			a = NSMakePoint(x, NSMinY(box) + 1.2);
 			b = NSMakePoint(x, NSMaxY(box) - 1.2);
 		}
-		ORMStroke(p, [DKPath pathWithLineFrom:a to:b], color, 1.0, !isCovered);
+		ORMStroke(p, [DKPath pathWithLineFrom:a to:b], color, 1.0, isCovered ? DKStrokeSolid : DKStrokeDashed);
 		if (preferred && isCovered) {
 			double shift = 1.6;
 			NSPoint c = horizontal ? NSMakePoint(a.x, a.y + (shape.constraintsBelow ? shift : -shift))
 			                       : NSMakePoint(a.x - shift, a.y);
 			NSPoint d = horizontal ? NSMakePoint(b.x, b.y + (shape.constraintsBelow ? shift : -shift))
 			                       : NSMakePoint(b.x - shift, b.y);
-			ORMStroke(p, [DKPath pathWithLineFrom:c to:d], color, 1.0, NO);
+			ORMStroke(p, [DKPath pathWithLineFrom:c to:d], color, 1.0, DKStrokeSolid);
 		}
 	}
 }
@@ -494,7 +494,7 @@ ORMDrawDot(ORMPainting *p, NSPoint at, double radius, DKColor color, BOOL filled
 		[p->surface fillPath:dot color:color];
 	} else {
 		[p->surface fillPath:dot color:ORMDiagramPaper(p->dark)];
-		ORMStroke(p, dot, color, 1.0, NO);
+		ORMStroke(p, dot, color, 1.0, DKStrokeSolid);
 	}
 }
 
@@ -519,7 +519,7 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 		if (!ORMRoleLine(diagram, shape, role, &atRole, &atPlayer)) {
 			continue;
 		}
-		ORMStroke(p, [DKPath pathWithLineFrom:atRole to:atPlayer], ink, 0.75, NO);
+		ORMStroke(p, [DKPath pathWithLineFrom:atRole to:atPlayer], ink, 0.75, DKStrokeSolid);
 		if (role.isMandatory) {
 			ORMModality modality = ORMAlethic;
 			for (ORMConstraint *constraint in role.constraints) {
@@ -538,7 +538,7 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 		NSRect outline = ORMObjectifiedOutline(shape);
 		DKPath *path = ORMRoundedPath(outline);
 		[p->surface fillPath:path color:paper];
-		ORMStroke(p, path, ORMDiagramObjectType(p->dark), 1.0, NO);
+		ORMStroke(p, path, ORMDiagramObjectType(p->dark), 1.0, DKStrokeSolid);
 		DKFont *font = ORMDiagramFont(diagram, NO);
 		NSString *name = [NSString stringWithFormat:@"\"%@\"", fact.objectifyingType.name];
 		NSSize size = [p->surface sizeOfText:name font:font];
@@ -577,7 +577,7 @@ ORMDrawFactType(ORMPainting *p, ORMShape *shape)
 		}
 		DKPath *boxPath = [DKPath pathWithRect:box];
 		[p->surface fillPath:boxPath color:fill];
-		ORMStroke(p, boxPath, ink, 0.75, NO);
+		ORMStroke(p, boxPath, ink, 0.75, DKStrokeSolid);
 		/* The picked role's place in its sequence, for the constraint
 		 * being made. */
 		for (NSUInteger s = 0; s < [state.pickedSequences count]; s++) {
@@ -745,7 +745,7 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 		for (NSValue *value in ORMSequenceAttachments(diagram, sequence.roles, center)) {
 			NSPoint end = [value pointValue];
 			NSPoint start = DKEdgePoint(rect, end);
-			ORMStroke(p, [DKPath pathWithLineFrom:start to:end], color, 0.75, YES);
+			ORMStroke(p, [DKPath pathWithLineFrom:start to:end], color, 0.75, DKStrokeDashed);
 			if (constraint.kind == ORMSubsetConstraint && s == 1) {
 				ORMDrawArrowhead(p, end, start, color, 4.5);
 			}
@@ -755,7 +755,7 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 	DKPath *circle = [DKPath pathWithOvalInRect:NSInsetRect(rect, 0.5, 0.5)];
 	if (constraint.kind != ORMFrequencyConstraint) {
 		[p->surface fillPath:circle color:ORMDiagramPaper(p->dark)];
-		ORMStroke(p, circle, color, 1.0, NO);
+		ORMStroke(p, circle, color, 1.0, DKStrokeSolid);
 	}
 	double inset = NSWidth(rect) * 0.28;
 	NSRect inner = NSInsetRect(rect, inset, inset);
@@ -766,11 +766,11 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 		double y = NSMidY(rect);
 		ORMStroke(p, [DKPath pathWithLineFrom:NSMakePoint(NSMinX(inner) - 1, preferred ? y - 1.2 : y)
 		                                to:NSMakePoint(NSMaxX(inner) + 1, preferred ? y - 1.2 : y)],
-		          color, 1.0, NO);
+		          color, 1.0, DKStrokeSolid);
 		if (preferred) {
 			ORMStroke(p, [DKPath pathWithLineFrom:NSMakePoint(NSMinX(inner) - 1, y + 1.2)
 			                                to:NSMakePoint(NSMaxX(inner) + 1, y + 1.2)],
-			          color, 1.0, NO);
+			          color, 1.0, DKStrokeSolid);
 		}
 		break;
 	}
@@ -780,10 +780,10 @@ ORMDrawConstraintShape(ORMPainting *p, ORMShape *shape)
 	case ORMExclusionConstraint:
 		ORMStroke(p, [DKPath pathWithLineFrom:NSMakePoint(NSMinX(inner), NSMinY(inner))
 		                                to:NSMakePoint(NSMaxX(inner), NSMaxY(inner))],
-		          color, 1.0, NO);
+		          color, 1.0, DKStrokeSolid);
 		ORMStroke(p, [DKPath pathWithLineFrom:NSMakePoint(NSMinX(inner), NSMaxY(inner))
 		                                to:NSMakePoint(NSMaxX(inner), NSMinY(inner))],
-		          color, 1.0, NO);
+		          color, 1.0, DKStrokeSolid);
 		if (constraint.exclusiveOrPartner != nil) {
 			ORMDrawDot(p, center, NSWidth(rect) * 0.12, color, YES);
 		}
@@ -857,7 +857,8 @@ ORMDrawSubtypeLinks(ORMPainting *p, ORMDiagram *diagram)
 			NSPoint end = DKEdgePoint(to, [from center]);
 			NSPoint start = DKEdgePoint(from.bounds, NSMakePoint(NSMidX(to), NSMidY(to)));
 			DKColor color = ORMDiagramConstraint(ORMAlethic, p->dark);
-			ORMStroke(p, [DKPath pathWithLineFrom:start to:end], color, 1.6, !fact.providesPreferredIdentifier);
+			ORMStroke(p, [DKPath pathWithLineFrom:start to:end], color, 1.6,
+			          fact.providesPreferredIdentifier ? DKStrokeSolid : DKStrokeDashed);
 			ORMDrawArrowhead(p, end, start, color, 6.0);
 		}
 	}
@@ -877,7 +878,7 @@ ORMDrawNote(ORMPainting *p, ORMShape *shape)
 		ORMShape *target = [diagram shapeForSubject:element.identifier];
 		if (target != nil) {
 			NSPoint end = DKEdgePoint(target.bounds, [shape center]);
-			ORMStroke(p, [DKPath pathWithLineFrom:DKEdgePoint(rect, end) to:end], ink, 0.6, YES);
+			ORMStroke(p, [DKPath pathWithLineFrom:DKEdgePoint(rect, end) to:end], ink, 0.6, DKStrokeDashed);
 		}
 	}
 	double fold = MIN(5.0, NSHeight(rect) / 2);
@@ -892,7 +893,7 @@ ORMDrawNote(ORMPainting *p, ORMShape *shape)
 	DKColor paper = ORMDiagramPaper(p->dark);
 	DKColor fill = DKColorMake(paper.r * 0.94 + 0.06, paper.g * 0.94 + 0.06 * 0.85, paper.b * 0.94, 1);
 	[p->surface fillPath:path color:fill];
-	ORMStroke(p, path, ink, 0.6, NO);
+	ORMStroke(p, path, ink, 0.6, DKStrokeSolid);
 	[p->surface drawText:note.text inRect:NSInsetRect(rect, 2, 1) font:ORMDiagramFont(diagram, NO)
 	               color:ink];
 	if ([p->state showsSelected:shape.identifier]) {

@@ -74,6 +74,14 @@
 {
 	[self open:@"StockMate.orm"];
 	XCTAssertEqualObjects([[_controller.canvas diagram] name], @"Products");
+	/* The canvas is DiagramKit's, drawn and edited by itself, and tells the
+	 * window (the XIB's outlet). */
+	ORMCanvasView *canvas = _controller.canvas;
+	XCTAssertTrue([canvas isKindOfClass:[DKCanvasView class]]);
+	XCTAssertEqual((id)canvas.dataSource, (id)canvas);
+	XCTAssertEqual((id)canvas.delegate, (id)canvas);
+	XCTAssertEqual((id)canvas.canvasDelegate, (id)_controller);
+	XCTAssertEqual(canvas.zoom, 1.5);
 	XCTAssertEqual([_controller.diagramPopup numberOfItems], (NSInteger)4);
 	XCTAssertTrue([_controller.browser.outlineView numberOfRows] > 40);
 	/* Nothing changed by opening it. */

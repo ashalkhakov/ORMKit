@@ -368,6 +368,9 @@
                                                                 <customView id="canvas" customClass="ORMCanvasView">
                                                                     <rect key="frame" x="0" y="0" width="800" height="600"/>
                                                                     <autoresizingMask key="autoresizingMask"/>
+                                                                    <connections>
+                                                                        <outlet property="canvasDelegate" destination="-2" id="canvasOwnerOutlet"/>
+                                                                    </connections>
                                                                 </customView>
                                                             </subviews>
                                                         </clipView>
