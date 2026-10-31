@@ -74,7 +74,7 @@
 	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
 	                                                     onDiagram:diagramId at:ORMAutomaticPlacement reason:&reason];
 	XCTAssertNotNil(person, @"%@", reason);
-	NSString *shadow = [NSString stringWithFormat:@"fill=\"%@\"", ORMColorHex(ORMDiagramShadow(NO))];
+	NSString *shadow = [NSString stringWithFormat:@"fill=\"%@\"", DKColorHex(ORMDiagramShadow(NO))];
 	NSString *svg = ORMSVGOfDiagram([editor.model.diagrams firstObject], NO);
 	XCTAssertEqual([[svg componentsSeparatedByString:shadow] count], (NSUInteger)1, @"one shape: no shadow");
 	XCTAssertNotNil([editor.diagramEditor addShapeOfElement:person onDiagram:diagramId at:ORMAutomaticPlacement]);

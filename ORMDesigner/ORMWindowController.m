@@ -228,7 +228,6 @@ static const double ORMFactBarHeight = 30;
 	_browser = [[ORMModelBrowser alloc] initWithOutlineView:self.browserOutline];
 	_browser.delegate = self;
 	[self.addPopUp setBordered:NO];
-	self.canvas.delegate = self;
 	self.inspector.delegate = self;
 #if defined(__APPLE__)
 	/* gnustep-gui recurses without end tiling a scroll view that autohides
@@ -383,7 +382,7 @@ static const double ORMFactBarHeight = 30;
 		_canvas.diagramId = [[editor.model.diagrams firstObject] identifier];
 	}
 	[self modelChanged];
-	[_canvas resize];
+	[_canvas reloadData];
 }
 
 - (void)modelChanged
@@ -1025,8 +1024,7 @@ ORMOneToOneValues(ORMObjectType *type)
 - (void)printDocument:(id)sender
 {
 	(void)sender;
-	NSPrintOperation *operation = [NSPrintOperation printOperationWithView:_canvas];
-	[operation runOperation];
+	[[_canvas printOperation] runOperation];
 }
 
 #pragma mark Core Data

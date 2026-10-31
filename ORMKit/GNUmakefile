@@ -5,15 +5,16 @@ include $(GNUSTEP_MAKEFILES)/common.make
 # builds the same sources as ORMKit.framework (.tools/genxcodeproj.py reads
 # the lists below).
 LIBRARY_NAME = ORMKit
-# No AppKit: NSXML for the files, NSGeometry for the diagrams, Core Data for
-# queries and populations in a store. What draws lives in ORMDesigner.
-# ODataKit for the OData requests.
+# No AppKit: NSXML for the files, DiagramKit (Foundation only) for drawing
+# and laying out the diagrams, Core Data for queries and populations in a
+# store. What draws on screen lives in ORMDesigner. ODataKit for the OData
+# requests.
 ORMKit_NEEDS_GUI = no
 include ../odatakit.make
 # ORMRuntime, built in the tree beside this one: the plans and their driver.
 ORMKit_INCLUDE_DIRS += -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
 ORMKit_LIB_DIRS += -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
-ORMKit_LIBRARIES_DEPEND_UPON += -lORMRuntime $(ODATAKIT_LIBS)
+ORMKit_LIBRARIES_DEPEND_UPON += -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKIT_LIBS)
 ORMKit_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses
 ORMKit_HEADER_FILES = \
   ORMKit.h \
@@ -21,7 +22,6 @@ ORMKit_HEADER_FILES = \
   ORMModel.h \
   ORMDiagram.h \
   ORMDiagramPainter.h \
-  ORMSVGSurface.h \
   ORMReadingText.h \
   ORMValueConstraintParser.h \
   ORMEditor.h \
@@ -68,7 +68,6 @@ ORMKit_OBJC_FILES = \
   ORMModel.m \
   ORMDiagram.m \
   ORMDiagramPainter.m \
-  ORMSVGSurface.m \
   ORMReadingText.m \
   ORMValueConstraintParser.m \
   ORMEditor.m \

@@ -48,11 +48,16 @@ The Xcode project is generated from the GNUmakefiles' source lists; CI
 fails when the committed one is stale. Never edit `project.pbxproj` by hand.
 
 ORMKit depends on ODataKit ([docs/ODATA.md](docs/ODATA.md)) and, on GNUstep,
-FreeCoreData under it. `.github/pins.env` names the exact releases it builds
-on (with the GNUstep stack, GCDWebServer and Sparkle): on the Mac their
-XCFrameworks are in `.deps/` (gnustep-release-actions' `scripts/deps.sh
-apple`), and GNUstep links the installed libraries (`odatakit.make`). Move a
-pin there; CI and the docker image both read it.
+FreeCoreData under it. Its diagrams are drawn, laid out and edited with
+[DiagramKit](https://github.com/ashalkhakov/DiagramKit): the ORM2 notation
+is ORMKit's; the surfaces, SVG, layouts and canvas are DiagramKit's (ORMKit
+links DiagramKit, Foundation only; ORMDesigner DiagramKitUI too). A gap in
+DiagramKit is fixed there and released, not worked around here.
+`.github/pins.env` names the exact releases it builds on (with the GNUstep
+stack, GCDWebServer, DiagramKit and Sparkle): on the Mac their XCFrameworks
+are in `.deps/` (gnustep-release-actions' `scripts/deps.sh apple`), and
+GNUstep links the installed libraries (`odatakit.make`). Move a pin there;
+CI and the docker image both read it.
 
 ORMDesigner's windows and menu bar are XIBs (`ORMDesigner/*.xib`), listed in
 `ORMDesigner_RESOURCE_FILES` and the test bundle's: Xcode compiles them,

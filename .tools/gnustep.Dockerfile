@@ -5,7 +5,7 @@
 #   .tools/gnustep.sh make check
 #
 # What it builds on is what CI builds on: the releases .github/pins.env names
-# (the GNUstep stack, FreeCoreData, GCDWebServer, ODataKit), each an archive
+# (the GNUstep stack, FreeCoreData, GCDWebServer, ODataKit, DiagramKit), each an archive
 # unpacked at /, on the Ubuntu they are built for, with the packages the
 # stack lists beside it. To try a fix of one of them before it is released,
 # install a build of it over this image's.
@@ -18,7 +18,7 @@ RUN printf 'Acquire::http::No-Cache "true";\nAcquire::BrokenProxy "true";\nAcqui
 COPY .github/pins.env /tmp/pins.env
 RUN set -e; \
     apt-get update; apt-get install -y --no-install-recommends ca-certificates curl xz-utils; \
-    for name in GNUSTEP_PATCHES FREECOREDATA GCDWEBSERVER ODATAKIT; do \
+    for name in GNUSTEP_PATCHES FREECOREDATA GCDWEBSERVER ODATAKIT DIAGRAMKIT; do \
       version=$(sed -n "s/^${name}_VERSION=//p" /tmp/pins.env); \
       repo=$(echo "$name" | tr 'A-Z_' 'a-z-'); \
       curl -fsSL --retry 5 --retry-all-errors -o /tmp/release.tar.xz \

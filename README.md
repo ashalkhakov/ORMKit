@@ -53,6 +53,7 @@ flowchart LR
     kit["ORMKit<br/>model, editing, verbalization,<br/>Core Data mapping, queries"]
     runtime["ORMRuntime<br/>query plans and their driver"]
     odata["ODataKit<br/>the model as an OData service"]
+    diagramkit["DiagramKit<br/>surfaces, SVG, layout,<br/>the canvas"]
     coredata["Core Data<br/>Apple's, or FreeCoreData on GNUstep"]
     orm[(".orm model")]
     xcdm[(".xcdatamodeld")]
@@ -60,6 +61,8 @@ flowchart LR
     tool --> kit
     kit --> runtime
     kit --> odata
+    kit --> diagramkit
+    designer --> diagramkit
     odata --> coredata
     kit <-->|reads and writes| orm
     kit <-->|maps and syncs| xcdm
@@ -135,11 +138,13 @@ would have made it. See [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPING.md).
 ## Building
 
 ORMKit links [ODataKit](https://github.com/ashalkhakov/ODataKit) ([docs/ODATA.md](docs/ODATA.md)),
-and on GNUstep [FreeCoreData](https://github.com/ashalkhakov/FreeCoreData) under it;
+and on GNUstep [FreeCoreData](https://github.com/ashalkhakov/FreeCoreData) under it, and
+[DiagramKit](https://github.com/ashalkhakov/DiagramKit) for its diagrams
+(ORMDesigner's canvas is DiagramKitUI's);
 `.github/pins.env` names the exact releases it builds on, with the GNUstep
 stack and Sparkle (ORMDesigner's updates on macOS).
 
-macOS, with ODataKit's XCFrameworks and Sparkle's in `.deps/`
+macOS, with ODataKit's XCFrameworks, DiagramKit's and Sparkle's in `.deps/`
 (gnustep-release-actions' `scripts/deps.sh apple` fetches them by those
 versions):
 

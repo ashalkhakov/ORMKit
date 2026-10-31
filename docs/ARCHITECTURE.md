@@ -8,7 +8,7 @@ and RDLKit (library, designer, tests, CI, AppImage).
 
 ```
 ORMRuntime/        what apps run: plans and their driver; no ORM model, no NSXML (RUNTIME.md)
-ORMKit/            the library: Foundation, NSXML, Core Data and ODataKit; no AppKit; links ORMRuntime
+ORMKit/            the library: Foundation, NSXML, Core Data, ODataKit and DiagramKit; no AppKit; links ORMRuntime
 ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
 Tools/ormtool/     check, verbalize, list and apply as text, normalize, draw as SVG, and map to and from Core Data from a shell
 ORMDesigner/       the editor (AppKit): its windows and menu bar XIBs, springs and struts
@@ -86,7 +86,7 @@ describe a model that is gone; NORMA rebuilds them when it opens the file.
 | `ORMXML` | namespaces, element helpers, ids (`_` + GUID), inches to points, NORMA's serialization |
 | `ORMModel`, `ORMDiagram` | the model: every element, read once from the XML |
 | `ORMNormaWriter` | the model written into the document as NORMA writes it |
-| `ORMDiagramPainter` | ORM2 notation and its geometry, drawn onto any `ORMDrawingSurface`: the editor's AppKit view, `ORMSVGSurface` |
+| `ORMDiagramPainter` | ORM2 notation and its geometry, drawn onto any of DiagramKit's surfaces (`DKSurface`): the editor's canvas, `DKSVGSurface` (`ORMSVGOfDiagram`) |
 | `ORMEditor` | the editing session: every change as an undoable step, saving |
 | `ORMObjectTypeEditor`, `ORMFactTypeEditor`, `ORMConstraintEditor`, `ORMDiagramEditor`, `ORMElementEditor` | the session's parts: each kind of element edited |
 | `ORMNormalizer` | in tests, NORMA's denormalized data worked out from the XML: the writer's check |
@@ -139,9 +139,13 @@ disagree, the specification is right.
 `ORMInsertPalette`, `ORMSearchNavigator`, `ORMIssuesView`, each an
 `ORMPane` with its own XIB), alignment across the top, the diagram, tabs
 under it (the verbalization, NORMA's Fact Editor, `ORMPopulationView`), and
-the inspector. `ORMQueryController` is the Queries window. `ORMCanvasView` draws through
-`ORMRenderer` (plain functions of the model, in diagram points) and
-turns gestures into editor operations, one per gesture. `ORMInspectorView`
+the inspector. `ORMQueryController` is the Queries window. `ORMCanvasView` is
+DiagramKit's canvas (`DKCanvasView`: zoom, selection by click and band,
+dragging and nudging, panning, names typed in place, export and print), its
+own data source and delegate: it draws with ORMKit's painter, adds what
+ORM2 has (a role box selected after its fact type, the Insert palette's
+tools, which take the presses they want), and turns gestures into editor
+operations, one per gesture. `ORMInspectorView`
 is built from rows that know where their value lives and which operation
 sets it. `ORMCoreDataController` is the mappings window.
 
@@ -196,8 +200,8 @@ Not done yet:
 
 - **Diagram editing**: copy and paste; dragging constraint connectors;
   role name, value constraint and frequency shapes placed for new elements;
-  a layered layout (WorkflowKit's `WKDLayout` is the one to port) instead
-  of the grid-and-spiral `arrangeDiagram:`; printing across pages.
+  a layered layout (DiagramKit's `DKLayeredLayout`) beside the
+  force-directed `arrangeDiagram:` (`DKForceLayout`).
 - **NORMA features kept but not edited**: NORMA's derivation role paths
   (read and run as queries; a derivation query is written as one, but a
   path NORMA made is not edited), constraint join

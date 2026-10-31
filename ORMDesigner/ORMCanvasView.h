@@ -37,19 +37,22 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
 - (void)canvasToolDidChange:(ORMCanvasView *)canvas;
 @end
 
-/* A diagram, drawn and edited. The canvas makes its changes through the
- * editor; it never changes the model itself. */
-@interface ORMCanvasView : NSView
-@property (nonatomic, weak) id<ORMCanvasDelegate> delegate;
+/* A diagram, drawn and edited: DiagramKit's canvas (zoom, the selection
+ * by click and band, dragging and nudging it, panning, a name typed in
+ * place, export and print), its own data source and delegate, with ORM2's
+ * on it: role boxes selected after their fact
+ * type, and the tools, which take the presses they want. The canvas makes
+ * its changes through the editor; it never changes the model itself. */
+@interface ORMCanvasView : DKCanvasView <DKCanvasDataSource, DKCanvasDelegate>
+/* Told of the selection, the tool and what to say. */
+@property (nonatomic, weak) IBOutlet id<ORMCanvasDelegate> canvasDelegate;
 @property (nonatomic, strong) ORMEditor *editor;
 /* The diagram shown, by id: it outlives each projection. */
 @property (nonatomic, copy) NSString *diagramId;
 - (ORMDiagram *)diagram;
 @property (nonatomic) ORMCanvasTool tool;
-/* 1 is the diagram's points; NORMA's role boxes read best at about 1.5. */
-@property (nonatomic) double zoom;
 
-/* The selected shapes and roles, by id. */
+/* The selected shapes, in the order selected, and roles, by id. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *selectedShapes;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *selectedRoles;
 /* The model elements the selection stands for: shapes' subjects, roles. */
@@ -67,12 +70,6 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
 
 /* After the editor changed the model: the projection is new. */
 - (void)modelDidChange;
-/* The frame for the drawing at the zoom. */
-- (void)resize;
-
-/* The diagram as PDF or PNG, without selection. */
-- (NSData *)PDFData;
-- (NSData *)PNGDataAtScale:(double)scale;
 
 /* A new entity or value type, named EntityType, EntityType1, ... and
  * placed at the point (or wherever there is room), its name in edit. */
@@ -91,8 +88,6 @@ typedef NS_ENUM(NSInteger, ORMCanvasTool) {
 - (IBAction)commitPending:(id)sender;
 - (IBAction)rotateFactType:(id)sender;
 - (IBAction)reverseRoleOrder:(id)sender;
-- (IBAction)zoomIn:(id)sender;
-- (IBAction)zoomOut:(id)sender;
+/* Zoom 1.5: NORMA's role boxes read best at about that. */
 - (IBAction)zoomToActualSize:(id)sender;
-- (IBAction)zoomToFit:(id)sender;
 @end

@@ -7,10 +7,18 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0144A46BC2CE0C1A28F59B37 /* DiagramKit.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = D05619CA663F255145FD1F45 /* DiagramKit.xcframework */;
+		};
 		01E8A44DFB2989979D7F4ECE /* ORMPopulationGenerator.h */ = {
 			isa = PBXBuildFile;
 			fileRef = B04169088ADDD0A26DFAB8E0 /* ORMPopulationGenerator.h */;
 			settings = {ATTRIBUTES = (Public, ); };
+		};
+		01F9542904F49B395400198D /* DiagramKitUI.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = 192758C383915D30DA938A9A /* DiagramKitUI.xcframework */;
 		};
 		02FE1BCDAF5F636F41028408 /* ORMCanvasView.m */ = {
 			isa = PBXBuildFile;
@@ -109,6 +117,10 @@
 			isa = PBXBuildFile;
 			fileRef = 45A4B51916CBA25AEACFD1ED /* ORMConstraintEditor.m */;
 		};
+		211528C827C5EA8477E7A09F /* DiagramKitUI.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = 192758C383915D30DA938A9A /* DiagramKitUI.xcframework */;
+		};
 		22650405A38BFF36C9884760 /* ORMCoreDataMapping.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 742DA03AC25ADAA7EE78DCE5 /* ORMCoreDataMapping.m */;
@@ -134,6 +146,10 @@
 			isa = PBXBuildFile;
 			fileRef = C9744B6FDDE92001B783F8F2 /* ORMKit.framework */;
 			settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); };
+		};
+		2618A6A806C01B664E3136DF /* DiagramKit.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = D05619CA663F255145FD1F45 /* DiagramKit.xcframework */;
 		};
 		28077A6F9289FA5B82972149 /* ORMPopulationStore.m */ = {
 			isa = PBXBuildFile;
@@ -205,6 +221,10 @@
 		36B694926859A3042D70E33A /* ORMObjectTypeEditor.m */ = {
 			isa = PBXBuildFile;
 			fileRef = A73089C27DD3CE27E9CD92B0 /* ORMObjectTypeEditor.m */;
+		};
+		36E336D20207B85ADC41FF00 /* DiagramKit.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = D05619CA663F255145FD1F45 /* DiagramKit.xcframework */;
 		};
 		37051412F484C4BD0F09323D /* ORMQueryPlaces.h */ = {
 			isa = PBXBuildFile;
@@ -324,6 +344,11 @@
 		498449F4304367F21C1AB221 /* ORMConstraintQueriesTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 6AB7C9A82B41EE667C9B733F /* ORMConstraintQueriesTests.m */;
+		};
+		4A8B93D41AE855BE1AD4CBDC /* DiagramKit.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = D05619CA663F255145FD1F45 /* DiagramKit.xcframework */;
+			settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); };
 		};
 		4BF2D4509997DDD73583B298 /* ODataService.xcframework */ = {
 			isa = PBXBuildFile;
@@ -541,6 +566,10 @@
 			isa = PBXBuildFile;
 			fileRef = 9B4DBA577B59C4FD6946E407 /* MainMenu.xib */;
 		};
+		7D627FDE4D9A3AFB2D1FC29F /* DiagramKit.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = D05619CA663F255145FD1F45 /* DiagramKit.xcframework */;
+		};
 		7ED8FBA68F60EED33019F7E8 /* ORMFactSentence.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 7CE661627B0427541B01AA76 /* ORMFactSentence.h */;
@@ -670,10 +699,6 @@
 			isa = PBXBuildFile;
 			fileRef = E66B7E7AF30042E49C2F1817 /* ORMEntityMerger.m */;
 		};
-		A4A620F52C5434F6FAB6C7FE /* ORMSVGSurface.m */ = {
-			isa = PBXBuildFile;
-			fileRef = 5D55BAF9088DA59E042DE3C3 /* ORMSVGSurface.m */;
-		};
 		A4F3F4E78587C7D25E4D55D3 /* ODataIncrementalStore.xcframework */ = {
 			isa = PBXBuildFile;
 			fileRef = 563C3FC39964597407DB858B /* ODataIncrementalStore.xcframework */;
@@ -686,6 +711,10 @@
 		A66C1793D6B05C121A382413 /* ORMCoreDataImport.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 2502EB09D4D595AF61142667 /* ORMCoreDataImport.m */;
+		};
+		A80FCC9AF0EA7F32D7B16817 /* DiagramKit.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = D05619CA663F255145FD1F45 /* DiagramKit.xcframework */;
 		};
 		A8D5268545B117D218F74473 /* ORMDeriver.h */ = {
 			isa = PBXBuildFile;
@@ -923,11 +952,6 @@
 			isa = PBXBuildFile;
 			fileRef = DB6AE83D771FB9DEB8F2AE98 /* ORMQueryPlaces.m */;
 		};
-		DE35BC18DB160ECF169B0DDB /* ORMSVGSurface.h */ = {
-			isa = PBXBuildFile;
-			fileRef = 7E9BAE9D033FFE9ADBCAAE5E /* ORMSVGSurface.h */;
-			settings = {ATTRIBUTES = (Public, ); };
-		};
 		DE89A1C9C88AC818C616A8E0 /* ORMPopulationTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = CCA441C55A616D18C18A3D3A /* ORMPopulationTests.m */;
@@ -988,6 +1012,11 @@
 		F15FE67197E1ED375B7D951F /* ORMCursor.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 3991801820FA2F22C806039D /* ORMCursor.m */;
+		};
+		F1B045F2FCA4A3CA5D0D32F1 /* DiagramKitUI.xcframework */ = {
+			isa = PBXBuildFile;
+			fileRef = 192758C383915D30DA938A9A /* DiagramKitUI.xcframework */;
+			settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); };
 		};
 		F4EE50B51BE7FD21B550261E /* ORMWindowTests.m */ = {
 			isa = PBXBuildFile;
@@ -1081,6 +1110,8 @@
 				429F9DBE3E20A9DBCBFED6BD /* ODataKit.xcframework */,
 				0F5664386185C41F59E9FDC5 /* ODataIncrementalStore.xcframework */,
 				2FC8B7B560187DFB80932BF5 /* OTelKit.xcframework */,
+				4A8B93D41AE855BE1AD4CBDC /* DiagramKit.xcframework */,
+				F1B045F2FCA4A3CA5D0D32F1 /* DiagramKitUI.xcframework */,
 				EB1319DCF7F72A7ED1F3103A /* Sparkle.xcframework */,
 			);
 			dstPath = "";
@@ -1212,6 +1243,13 @@
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMModelBrowser.m;
 			sourceTree = "<group>";
+		};
+		192758C383915D30DA938A9A /* DiagramKitUI.xcframework */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = wrapper.xcframework;
+			name = DiagramKitUI.xcframework;
+			path = .deps/DiagramKitUI.xcframework;
+			sourceTree = SOURCE_ROOT;
 		};
 		1A297D870D0B23FEC505E3C0 /* ORMQueryPlanner.h */ = {
 			isa = PBXFileReference;
@@ -1591,12 +1629,6 @@
 			path = ORMSaveHook.h;
 			sourceTree = "<group>";
 		};
-		5D55BAF9088DA59E042DE3C3 /* ORMSVGSurface.m */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.objc;
-			path = ORMSVGSurface.m;
-			sourceTree = "<group>";
-		};
 		5FB382E95CD0DEC728DF4FAC /* ORMDesigner.png */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = image.png;
@@ -1772,12 +1804,6 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMSearchNavigator.h;
-			sourceTree = "<group>";
-		};
-		7E9BAE9D033FFE9ADBCAAE5E /* ORMSVGSurface.h */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.h;
-			path = ORMSVGSurface.h;
 			sourceTree = "<group>";
 		};
 		7EC0C9BBC2B8DCB15A4D6D44 /* XCTest.framework */ = {
@@ -2183,6 +2209,13 @@
 			path = ORMNormaWriter.m;
 			sourceTree = "<group>";
 		};
+		D05619CA663F255145FD1F45 /* DiagramKit.xcframework */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = wrapper.xcframework;
+			name = DiagramKit.xcframework;
+			path = .deps/DiagramKit.xcframework;
+			sourceTree = SOURCE_ROOT;
+		};
 		D08D47B857710F37BF3A72FD /* ORMCDModel.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -2450,6 +2483,8 @@
 				32D96129271DE3089F74BC70 /* ORMRuntime.framework */,
 				EAA877178A4F9110D57C70C3 /* AppKit.framework */,
 				FC0A1052E404BBDB3A560E84 /* Sparkle.xcframework */,
+				0144A46BC2CE0C1A28F59B37 /* DiagramKit.xcframework */,
+				01F9542904F49B395400198D /* DiagramKitUI.xcframework */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2459,6 +2494,7 @@
 			files = (
 				D50B47AF323B79538EF93105 /* ORMKit.framework */,
 				8AFFBF6479013F0E42765344 /* ORMRuntime.framework */,
+				2618A6A806C01B664E3136DF /* DiagramKit.xcframework */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2472,6 +2508,7 @@
 				D06967A974EFEC324923D804 /* ODataIncrementalStore.xcframework */,
 				4BF2D4509997DDD73583B298 /* ODataService.xcframework */,
 				FD2DA2DD8738523FD47E7DE6 /* HTTPServerKit.xcframework */,
+				7D627FDE4D9A3AFB2D1FC29F /* DiagramKit.xcframework */,
 				C29E25A6373F6415EBB76427 /* CoreData.framework */,
 				BAD5E9999D6F28D080A81E28 /* XCTest.framework */,
 			);
@@ -2486,6 +2523,7 @@
 				446D8F094AAA602E6CB8C902 /* ORMRuntime.framework */,
 				7FDE9B853D3A75179A02F6DC /* ODataKit.xcframework */,
 				A4F3F4E78587C7D25E4D55D3 /* ODataIncrementalStore.xcframework */,
+				36E336D20207B85ADC41FF00 /* DiagramKit.xcframework */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2496,6 +2534,8 @@
 				75901061DB4F938CE77E8BC9 /* ORMKit.framework */,
 				4DF186B4465EBEB5B9044C47 /* ORMRuntime.framework */,
 				9B7051A4BE2AC97FD813EAED /* AppKit.framework */,
+				A80FCC9AF0EA7F32D7B16817 /* DiagramKit.xcframework */,
+				211528C827C5EA8477E7A09F /* DiagramKitUI.xcframework */,
 				244393CE495E3383E3E2992F /* XCTest.framework */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -2552,6 +2592,8 @@
 				CAD875D95E6BAE91C5CF6970 /* ODataService.xcframework */,
 				7702BA6BAA271DD442048BC6 /* HTTPServerKit.xcframework */,
 				DCD36BEFF925FD84E6C7A1B9 /* Sparkle.xcframework */,
+				D05619CA663F255145FD1F45 /* DiagramKit.xcframework */,
+				192758C383915D30DA938A9A /* DiagramKitUI.xcframework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -2706,8 +2748,6 @@
 				2FEE1243254FC55B16E53D18 /* ORMReadingText.m */,
 				F78ABCDC6C55F4685C4F566E /* ORMRuleChecker.h */,
 				F4054CBEDBC724A47BC71475 /* ORMRuleChecker.m */,
-				7E9BAE9D033FFE9ADBCAAE5E /* ORMSVGSurface.h */,
-				5D55BAF9088DA59E042DE3C3 /* ORMSVGSurface.m */,
 				CD9AC6F4D2AFAE35652A97AB /* ORMSchemaText.h */,
 				7366D036CC8E5452594B32B3 /* ORMSchemaText.m */,
 				A2912B87D083B2C60E070A76 /* ORMSentenceEditor.h */,
@@ -2830,7 +2870,6 @@
 				4749D40FC742B11A48462937 /* ORMModel.h */,
 				7F73381DF71C354A7A1DBCEB /* ORMDiagram.h */,
 				230C0228E94D78CD7CB82E16 /* ORMDiagramPainter.h */,
-				DE35BC18DB160ECF169B0DDB /* ORMSVGSurface.h */,
 				BADD8C02E8DB13CA35AA591B /* ORMReadingText.h */,
 				6B13A7E7CC85EC24662A7717 /* ORMValueConstraintParser.h */,
 				83E2055D2C552670DE04A862 /* ORMEditor.h */,
@@ -3067,7 +3106,6 @@
 				614C9E4D806B9970DA87094F /* ORMModel.m */,
 				59951ED4BE7528B2193F88A2 /* ORMDiagram.m */,
 				8441A5066876CF20AC5D7F08 /* ORMDiagramPainter.m */,
-				A4A620F52C5434F6FAB6C7FE /* ORMSVGSurface.m */,
 				E52B26FB64C401B90CCE14B1 /* ORMReadingText.m */,
 				B07F3FBC7F2887E725D42BB7 /* ORMValueConstraintParser.m */,
 				670C1F9AB256C9ADD43DCE04 /* ORMEditor.m */,
@@ -3325,7 +3363,7 @@
 		396EB6AE65C79A03013351E6 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path", "@loader_path", "@executable_path/../ORMKit.xcframework/macos-arm64_x86_64", "@executable_path/../ORMRuntime.xcframework/macos-arm64_x86_64", "@executable_path/../ODataKit.xcframework/macos-arm64_x86_64", "@executable_path/../ODataIncrementalStore.xcframework/macos-arm64_x86_64", "@executable_path/../OTelKit.xcframework/macos-arm64_x86_64");
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path", "@loader_path", "@executable_path/../ORMKit.xcframework/macos-arm64_x86_64", "@executable_path/../ORMRuntime.xcframework/macos-arm64_x86_64", "@executable_path/../ODataKit.xcframework/macos-arm64_x86_64", "@executable_path/../ODataIncrementalStore.xcframework/macos-arm64_x86_64", "@executable_path/../OTelKit.xcframework/macos-arm64_x86_64", "@executable_path/../DiagramKit.xcframework/macos-arm64_x86_64");
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Release;
@@ -3419,7 +3457,7 @@
 		BC15A3674A9DC48DCAEDAE79 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path", "@loader_path", "@executable_path/../ORMKit.xcframework/macos-arm64_x86_64", "@executable_path/../ORMRuntime.xcframework/macos-arm64_x86_64", "@executable_path/../ODataKit.xcframework/macos-arm64_x86_64", "@executable_path/../ODataIncrementalStore.xcframework/macos-arm64_x86_64", "@executable_path/../OTelKit.xcframework/macos-arm64_x86_64");
+				LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path", "@loader_path", "@executable_path/../ORMKit.xcframework/macos-arm64_x86_64", "@executable_path/../ORMRuntime.xcframework/macos-arm64_x86_64", "@executable_path/../ODataKit.xcframework/macos-arm64_x86_64", "@executable_path/../ODataIncrementalStore.xcframework/macos-arm64_x86_64", "@executable_path/../OTelKit.xcframework/macos-arm64_x86_64", "@executable_path/../DiagramKit.xcframework/macos-arm64_x86_64");
 				PRODUCT_NAME = "$(TARGET_NAME)";
 			};
 			name = Debug;

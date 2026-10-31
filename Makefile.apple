@@ -18,16 +18,17 @@
 #   make -f Makefile.apple installcheck DESTDIR=<dir>  the app's signature holds; ormtool
 #                                                      runs where a build that pins ORMKit
 #                                                      unpacks it (.deps/bin, beside the
-#                                                      XCFrameworks, ODataKit's with them)
+#                                                      XCFrameworks, ODataKit's and DiagramKit's
+#                                                      with them)
 #
 # bin/ormtool finds its frameworks beside it (its runpath search paths,
-# .tools/genxcodeproj.py): ORMKit's and ORMRuntime's, and ODataKit's, which
-# what pins ORMKit pins too (gnustep-release-actions' scripts/deps.sh apple
-# unpacks both into .deps/).
+# .tools/genxcodeproj.py): ORMKit's and ORMRuntime's, and ODataKit's and
+# DiagramKit's, which what pins ORMKit pins too (gnustep-release-actions'
+# scripts/deps.sh apple unpacks them all into .deps/).
 #
-# What it builds on (ODataKit's XCFrameworks, Sparkle's) is in .deps/, by the
-# versions .github/pins.env names (gnustep-release-actions' scripts/deps.sh
-# apple). GNUstep: GNUmakefile.
+# What it builds on (ODataKit's XCFrameworks, DiagramKit's, Sparkle's) is in
+# .deps/, by the versions .github/pins.env names (gnustep-release-actions'
+# scripts/deps.sh apple). GNUstep: GNUmakefile.
 
 BUILD = build
 DERIVED = $(BUILD)/DerivedData
@@ -44,8 +45,8 @@ FRAMEWORKS = ORMRuntime ORMKit
 IOS_FRAMEWORKS = ORMRuntime
 
 all:
-	@test -d .deps/ODataKit.xcframework -a -d .deps/Sparkle.xcframework \
-	  || { echo "no ODataKit or Sparkle in .deps: gnustep-release-actions' scripts/deps.sh apple fetches what .github/pins.env names"; exit 1; }
+	@test -d .deps/ODataKit.xcframework -a -d .deps/Sparkle.xcframework -a -d .deps/DiagramKitUI.xcframework \
+	  || { echo "no ODataKit, Sparkle or DiagramKit in .deps: gnustep-release-actions' scripts/deps.sh apple fetches what .github/pins.env names"; exit 1; }
 	@for scheme in ORMKit ormtool ORMDesigner; do \
 	  $(XCODEBUILD) -scheme $$scheme -configuration Release -destination 'generic/platform=macOS' build || exit 1; \
 	done
@@ -100,12 +101,13 @@ install: all
 	cp $(RELEASE)/ormtool $(DESTDIR)/bin/ormtool
 
 # The app's signature; and ormtool run where a build that pins ORMKit unpacks
-# it: .deps/bin beside ORMKit's XCFrameworks and ODataKit's.
+# it: .deps/bin beside ORMKit's XCFrameworks, ODataKit's and DiagramKit's.
 installcheck:
 	codesign --verify --deep --strict $(DESTDIR)/ORMDesigner.app
 	@deps=$$(mktemp -d) && \
 	  cp -R $(DESTDIR)/*.xcframework $(DESTDIR)/bin $$deps/ && \
-	  cp -R .deps/ODataKit.xcframework .deps/ODataIncrementalStore.xcframework .deps/OTelKit.xcframework $$deps/ && \
+	  cp -R .deps/ODataKit.xcframework .deps/ODataIncrementalStore.xcframework .deps/OTelKit.xcframework \
+	    .deps/DiagramKit.xcframework $$deps/ && \
 	  $$deps/bin/ormtool check Samples/University.orm; status=$$?; rm -rf $$deps; exit $$status
 
 clean:

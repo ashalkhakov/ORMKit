@@ -16,3 +16,9 @@ endif
 ODATAKIT_LIBS = -lODataIncrementalStore -lODataKit -lCoreData
 # The service, which the tests send the queries' requests to.
 ODATAKIT_SERVICE_LIBS = -lODataService -lHTTPServerKit -lOTelKit
+
+# DiagramKit, installed as its release has it (.github/pins.env's
+# DIAGRAMKIT_VERSION): ORMKit draws and lays out diagrams with it, and
+# ORMDesigner's canvas is its DiagramKitUI's.
+DIAGRAMKIT_LIBS = -lDiagramKit
+DIAGRAMKITUI_LIBS = -lDiagramKitUI -lDiagramKit
