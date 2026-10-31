@@ -607,12 +607,18 @@
 	[window close];
 }
 
-/* A mouse event at a point of the canvas, in diagram points. */
-- (NSEvent *)event:(NSEventType)type at:(NSPoint)point
+/* A mouse event at a point of the canvas, in diagram points; with the
+ * modifier keys held. */
+- (NSEvent *)event:(NSEventType)type at:(NSPoint)point flags:(NSEventModifierFlags)flags
 {
 	ORMCanvasView *canvas = _controller.canvas;
-	return [NSEvent mouseEventWithType:type location:[canvas convertPoint:point toView:nil] modifierFlags:0 timestamp:0
+	return [NSEvent mouseEventWithType:type location:[canvas convertPoint:point toView:nil] modifierFlags:flags timestamp:0
 	                      windowNumber:[[canvas window] windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+}
+
+- (NSEvent *)event:(NSEventType)type at:(NSPoint)point
+{
+	return [self event:type at:point flags:0];
 }
 
 /* As NORMA: the first click on a fact type's role box selects the fact type
@@ -665,6 +671,52 @@
 	XCTAssertEqualWithAccuracy(NSMinX(factAfter) - NSMinX(factBefore), 30.0, 0.5);
 	[[_document undoManager] undo];
 	XCTAssertEqual(NSMinX([[[canvas diagram] shapeForSubject:product] bounds]), NSMinX(productBefore));
+}
+
+/* A press on a role box with Shift, or Command, adds the role or takes it
+ * away, its fact type kept selected, and a drag from it moves what is
+ * selected, as a plain press's does. */
+- (void)testAnExtendingPressOnARoleTogglesItAndDrags
+{
+	[self open:@"StockMate.orm"];
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMModel *model = _document.editor.model;
+	ORMFactType *barcode = nil;
+	for (ORMFactType *fact in [model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:@"Product has Barcode"]) {
+			barcode = fact;
+		}
+	}
+	ORMCanvasView *canvas = _controller.canvas;
+	NSString *product = [[model objectTypeNamed:@"Product"] identifier];
+	[canvas selectElements:@[ product, barcode.identifier ]];
+	NSArray *shapes = [canvas selectedShapes];
+	XCTAssertEqual([shapes count], 2u);
+	NSEventModifierFlags flags[2] = { NSEventModifierFlagShift, NSEventModifierFlagCommand };
+	for (NSUInteger i = 0; i < 2; i++) {
+		ORMShape *factShape = [[canvas diagram] shapeForSubject:barcode.identifier];
+		NSRect box = factShape.bounds;
+		NSPoint role = NSMakePoint(NSMinX(box) + NSWidth(box) / 4, NSMidY(box));
+		NSRect productBefore = [[[canvas diagram] shapeForSubject:product] bounds];
+		NSRect factBefore = factShape.bounds;
+		[canvas mouseDown:[self event:NSEventTypeLeftMouseDown at:role flags:flags[i]]];
+		NSString *roleId = canvas.clickedRole;
+		XCTAssertNotNil(roleId);
+		/* Toggled: added by Shift, taken away again by Command. */
+		XCTAssertEqual([[canvas selectedRoles] containsObject:roleId], i == 0, @"%@", [canvas selectedRoles]);
+		XCTAssertEqualObjects([canvas selectedShapes], shapes, @"the fact type kept");
+		NSPoint to = NSMakePoint(role.x + 30, role.y + 20);
+		[canvas mouseDragged:[self event:NSEventTypeLeftMouseDragged at:to flags:flags[i]]];
+		[canvas mouseUp:[self event:NSEventTypeLeftMouseUp at:to flags:flags[i]]];
+		NSRect productAfter = [[[canvas diagram] shapeForSubject:product] bounds];
+		NSRect factAfter = [[[canvas diagram] shapeForSubject:barcode.identifier] bounds];
+		XCTAssertEqualWithAccuracy(NSMinX(productAfter) - NSMinX(productBefore), 30.0, 0.5);
+		XCTAssertEqualWithAccuracy(NSMinY(productAfter) - NSMinY(productBefore), 20.0, 0.5);
+		XCTAssertEqualWithAccuracy(NSMinX(factAfter) - NSMinX(factBefore), 30.0, 0.5);
+		XCTAssertEqualWithAccuracy(NSMinY(factAfter) - NSMinY(factBefore), 20.0, 0.5);
+		XCTAssertEqualObjects([canvas selectedShapes], shapes);
+		XCTAssertEqualObjects([[_document undoManager] undoActionName], @"Move");
+	}
 }
 
 /* As drawing programs: a drag with Space held pans the drawing, what was

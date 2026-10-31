@@ -365,9 +365,10 @@ static const double ORMActualSize = 1.5;
 	[self.canvasDelegate canvasSelectionDidChange:self];
 }
 
-/* The canvas selected by a gesture (a click, the band, Select All): what
- * it dropped dropped here, what it added added after, in the diagram's
- * order. A role is selected only by a click on its box (-pointerDown:). */
+/* The canvas selected by a gesture of its own (a click on nothing, the
+ * band, Select All, a right-click): what it dropped dropped here, what it
+ * added added after, in the diagram's order, the roles let go. A press on
+ * a shape is this view's to say (-canvas:selectionForPressOnItem:). */
 - (void)canvasSelectionDidChange:(DKCanvasView *)canvas
 {
 	(void)canvas;
@@ -427,9 +428,9 @@ static const double ORMActualSize = 1.5;
 
 #pragma mark The tools
 
-/* A press, before the canvas makes anything of it: a tool's, or a role
- * box's. The pointer leaves the rest to the canvas (selecting, the band,
- * dragging the selection); a double-click on a shape too. */
+/* A press, before the canvas makes anything of it: a tool's. The pointer
+ * leaves it to the canvas (selecting, as -canvas:selectionForPressOnItem:
+ * says, the band, dragging the selection); a double-click on a shape too. */
 - (BOOL)canvas:(DKCanvasView *)canvas mouseDown:(NSEvent *)event atPoint:(NSPoint)point
 {
 	(void)canvas;
@@ -441,11 +442,10 @@ static const double ORMActualSize = 1.5;
 	if ([event clickCount] == 2 && hit != nil) {
 		return NO;
 	}
-	BOOL extend = ([event modifierFlags] & (NSEventModifierFlagShift | NSEventModifierFlagCommand)) != 0;
 	BOOL taken = YES;
 	switch (self.tool) {
 	case ORMToolPointer:
-		taken = [self pointerDown:hit extend:extend];
+		taken = NO;
 		break;
 	case ORMToolEntityType:
 	case ORMToolValueType:
@@ -507,41 +507,57 @@ static const double ORMActualSize = 1.5;
 	[self setNeedsDisplay:YES];
 }
 
-/* A click with the pointer on a role box, as NORMA: the first selects the
- * fact type (the canvas does), the next the role; with Shift or Command,
- * the role is added or taken away, its fact type kept. A click elsewhere
- * on a shape selected leaves its roles. YES: the press is taken. */
-- (BOOL)pointerDown:(ORMHit *)hit extend:(BOOL)extend
+/* What a press with the pointer on a shape selects, as NORMA: on a role
+ * box, the first press the fact type, the next the role; with Shift or
+ * Command, the role added or taken away, its fact type kept selected. On
+ * another shape, it alone, or with Shift or Command added or taken away;
+ * the roles let go. Either way a drag from the press then moves what is
+ * selected. The window is told, as it is of every press. */
+- (NSSet *)canvas:(DKCanvasView *)canvas selectionForPressOnItem:(id)item extending:(BOOL)extend
 {
-	NSString *shapeId = hit.shape.identifier;
-	BOOL selected = shapeId != nil && [_selectedShapes containsObject:shapeId];
-	if (hit.role == nil) {
-		if (selected && !extend && [_selectedRoles count] > 0) {
-			[_selectedRoles removeAllObjects];
-			[self selectionChanged];
-		}
-		return NO;
+	(void)canvas;
+	ORMHit *hit = _downHit;
+	if (![hit.shape.identifier isEqual:item]) {
+		return nil;
 	}
-	NSString *roleId = hit.role.identifier;
-	if (extend) {
-		if ([_selectedRoles containsObject:roleId]) {
-			[_selectedRoles removeObject:roleId];
-		} else {
+	NSString *shapeId = hit.shape.identifier;
+	BOOL selected = [_selectedShapes containsObject:shapeId];
+	if (hit.role != nil) {
+		NSString *roleId = hit.role.identifier;
+		if (extend) {
+			if ([_selectedRoles containsObject:roleId]) {
+				[_selectedRoles removeObject:roleId];
+			} else {
+				[_selectedRoles addObject:roleId];
+			}
+			if (!selected) {
+				[_selectedShapes addObject:shapeId];
+			}
+		} else if (selected && [_selectedShapes count] > 1) {
+			/* Part of what is selected: the drag moves it all. */
+		} else if (!selected) {
+			[_selectedShapes removeAllObjects];
+			[_selectedRoles removeAllObjects];
+			[_selectedShapes addObject:shapeId];
+		} else if (![_selectedRoles containsObject:roleId]) {
+			[_selectedRoles removeAllObjects];
 			[_selectedRoles addObject:roleId];
 		}
-		if (!selected) {
+	} else {
+		if (extend) {
+			if (selected) {
+				[_selectedShapes removeObject:shapeId];
+			} else {
+				[_selectedShapes addObject:shapeId];
+			}
+		} else if (!selected) {
+			[_selectedShapes removeAllObjects];
 			[_selectedShapes addObject:shapeId];
 		}
-		[self selectionChanged];
-		return YES;
-	}
-	/* Part of a larger selection: the drag moves it all. */
-	if (selected && [_selectedShapes count] == 1 && ![_selectedRoles containsObject:roleId]) {
 		[_selectedRoles removeAllObjects];
-		[_selectedRoles addObject:roleId];
-		[self selectionChanged];
 	}
-	return NO;
+	[self selectionChanged];
+	return self.selection;
 }
 
 - (BOOL)placeTool:(ORMCanvasTool)tool at:(NSPoint)point
