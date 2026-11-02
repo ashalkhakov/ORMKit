@@ -12,7 +12,8 @@ queries; [docs/CURSORS.md](docs/CURSORS.md) how a plan is read, as a tree of cur
 driver library, with generated code kept to declarations;
 [docs/POPULATIONS.md](docs/POPULATIONS.md) the sample populations they run on;
 [docs/FORMS.md](docs/FORMS.md) forms: fact selections generated as XForms (a design);
-[docs/MODEL.md](docs/MODEL.md) the model as objects, and the XML as NORMA's.
+[docs/MODEL.md](docs/MODEL.md) the model as objects, and the XML as NORMA's;
+[docs/UDCODE.md](docs/UDCODE.md) the ORM2 extension: ORMDesignerKit's editor in UDCode.
 
 ## The objects are the model; the XML is for NORMA
 

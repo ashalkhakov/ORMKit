@@ -38,14 +38,15 @@ permissions:
 
 jobs:
   linux:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@v1
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@udcode-extensions
     with:
       tag: ${{ inputs.tag }}
       library: true
-      extra-packages: libsqlite3-dev
+      # patchelf and zip: the ORM2 extension's package (Scripts/udcx.sh)
+      extra-packages: libsqlite3-dev patchelf zip
 
   windows:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@udcode-extensions
     with:
       tag: ${{ inputs.tag }}
       library: true
@@ -54,7 +55,7 @@ jobs:
     secrets: inherit
 
   macos:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@udcode-extensions
     with:
       tag: ${{ inputs.tag }}
       apps: ORMDesigner=ORMDesigner

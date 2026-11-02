@@ -41,6 +41,8 @@ and part of what ORMKit says about it (`ormtool verbalize Samples/University.orm
   builds on Cocoa and on GNUstep.
 - **ORMDesigner**: a document-based diagram editor for `.orm` models; its
   editor is **ORMDesignerKit**, a framework other apps edit models with.
+- **ORM2 for UDCode**: the same editor in a UDCode tab, a model part of a
+  project, installed from each release's `.udcx` ([docs/UDCODE.md](docs/UDCODE.md)).
 - **ormtool**: the library from a shell.
 - **ORMRuntime**: what an app built from a model runs: its query plans and a
   small driver, with no ORM model and no XML.

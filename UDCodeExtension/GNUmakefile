@@ -22,7 +22,7 @@ ORM2_RESOURCE_FILES = \
 ORM2_OBJCFLAGS += -fobjc-arc -fblocks -Wall -Werror=logical-not-parentheses -include ../ORMDesignerKit/ORMDesignerCompat.h
 include ../odatakit.make
 ORM2_INCLUDE_DIRS = -I../ORMDesignerKit -I../ORMKit -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
-ORM2_LIB_DIRS += -L../ORMDesignerKit/ORMDesignerKit.framework/Versions/Current -L../ORMKit/$(GNUSTEP_OBJ_DIR) \
+ORM2_LIB_DIRS += -L$(call ORM_DESIGNERKIT,..) -L../ORMKit/$(GNUSTEP_OBJ_DIR) \
   -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 # Its own libraries, which the package puts beside its binary (ORMKit's,
 # ODataKit's) and, ORMDesignerKit, as the framework it is (its XIBs): found
@@ -30,7 +30,7 @@ ORM2_LIB_DIRS += -L../ORMDesignerKit/ORMDesignerKit.framework/Versions/Current -
 # are the running UDCode's: on Linux left for it, as UDCode's own plug-ins
 # leave them; a Windows DLL is linked against all it uses.
 ORM2_BUNDLE_LIBS += -lORMDesignerKit -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -ldispatch
-ifeq ($(findstring mingw,$(GNUSTEP_TARGET_OS))$(findstring windows,$(GNUSTEP_TARGET_OS)),)
+ifneq ($(OS),Windows_NT)
 ORM2_LDFLAGS += -Wl,-rpath,'$$ORIGIN' -Wl,-rpath,'$$ORIGIN/ORMDesignerKit.framework/Versions/Current'
 else
 ORM2_BUNDLE_LIBS += -lUDCodeKit -lUDPieceTable -lLSPKit -lgnustep-gui -lgnustep-base -lobjc

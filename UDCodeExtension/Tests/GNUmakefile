@@ -16,7 +16,7 @@ ORM2Tests_OBJC_FILES = \
 ORM2Tests_RESOURCE_FILES = ../ORM2Editor.xib
 ORM2Tests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../../ORMDesignerKit/ORMDesignerCompat.h
 include ../../odatakit.make
-DESIGNERKIT = ../../ORMDesignerKit/ORMDesignerKit.framework/Versions/Current
+DESIGNERKIT = $(call ORM_DESIGNERKIT,../..)
 ORM2Tests_INCLUDE_DIRS = -I.. -I../../ORMDesignerKit -I../../ORMKit -I../../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
 ADDITIONAL_LIB_DIRS += -L$(DESIGNERKIT) -L../../ORMKit/$(GNUSTEP_OBJ_DIR) -L../../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 ORM2Tests_BUNDLE_LIBS += -lORMDesignerKit -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) \

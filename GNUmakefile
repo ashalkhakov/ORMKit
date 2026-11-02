@@ -42,8 +42,10 @@ check::
 	Scripts/check-imports.sh
 	$(MAKE) -C ORMKitTests run-tests $(ORM_SANITIZE)
 	$(XVFB) $(MAKE) -C ORMDesignerTests run-tests $(ORM_SANITIZE)
+	$(if $(filter UDCodeExtension,$(SUBPROJECTS)),$(XVFB) $(MAKE) -C UDCodeExtension/Tests run-tests)
 	$(ORM_RUN) Scripts/ormtool-smoke.sh Tools/ormtool/$(GNUSTEP_OBJ_DIR_NAME)/ormtool
 
 after-clean::
 	$(MAKE) -C ORMKitTests clean
 	$(MAKE) -C ORMDesignerTests clean
+	-$(MAKE) -C UDCodeExtension/Tests clean
