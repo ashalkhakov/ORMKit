@@ -58,14 +58,7 @@ NSString *ORMDesignerKitNibPath(NSString *name)
 	return [bundle pathForResource:name ofType:@"nib"] ?: [bundle pathForResource:name ofType:@"xib"];
 }
 
-static NSBundle *ORMHostBundle;
-
 NSBundle *ORMDesignerKitBundle(void)
 {
-	return ORMHostBundle ?: [NSBundle bundleForClass:NSClassFromString(@"ORMModelViewController")];
-}
-
-void ORMDesignerKitSetBundle(NSBundle *bundle)
-{
-	ORMHostBundle = bundle;
+	return [NSBundle bundleForClass:NSClassFromString(@"ORMModelViewController")];
 }

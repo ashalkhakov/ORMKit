@@ -23,10 +23,6 @@
  * text changed otherwise (undone, edited as text, reverted) is read again,
  * the diagram, selection and inspected element kept where they still are.
  * A text that is no model shows why, and offers it as text. */
-/* The bundle the extension was loaded from (ORM2Extension's -extensionDidLoad:);
- * until it is set, the one +bundleForClass: says. */
-void ORM2SetBundle(NSBundle *bundle);
-
 @interface ORM2EditorViewController : NSViewController <UDEditorPanes>
 
 - (instancetype)initWithDocument:(UDCodeDocument *)document workbench:(id<UDWorkbench>)workbench;
