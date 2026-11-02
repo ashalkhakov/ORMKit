@@ -38,7 +38,7 @@ permissions:
 
 jobs:
   linux:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@udcode-extensions
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/linux.yml@v1
     with:
       tag: ${{ inputs.tag }}
       library: true
@@ -46,7 +46,7 @@ jobs:
       extra-packages: libsqlite3-dev patchelf zip
 
   windows:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@udcode-extensions
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1
     with:
       tag: ${{ inputs.tag }}
       library: true
@@ -55,7 +55,7 @@ jobs:
     secrets: inherit
 
   macos:
-    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@udcode-extensions
+    uses: ashalkhakov/gnustep-release-actions/.github/workflows/macos.yml@v1
     with:
       tag: ${{ inputs.tag }}
       apps: ORMDesigner=ORMDesigner

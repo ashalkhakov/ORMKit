@@ -57,7 +57,7 @@ static const double ORMFactBarHeight = 30;
 
 + (NSArray<NSMenuItem *> *)modelMenuItems
 {
-	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"ORMModelMenus" bundle:[NSBundle bundleForClass:[ORMModelViewController class]]];
+	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"ORMModelMenus" bundle:ORMDesignerKitBundle()];
 	NSArray *objects = nil;
 	/* An owner the XIB has no use for: gnustep-gui's NSNib takes no nil one. */
 	if (![nib instantiateWithOwner:[[NSObject alloc] init] topLevelObjects:&objects]) {
@@ -75,7 +75,7 @@ static const double ORMFactBarHeight = 30;
 
 - (instancetype)initWithEditor:(ORMEditor *)editor
 {
-	if ((self = [super initWithNibName:@"ORMModelView" bundle:[NSBundle bundleForClass:[ORMModelViewController class]]])) {
+	if ((self = [super initWithNibName:@"ORMModelView" bundle:ORMDesignerKitBundle()])) {
 		_editor = editor;
 		[self view];
 	}

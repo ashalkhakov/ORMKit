@@ -30,6 +30,13 @@
 
 @end
 
+static NSBundle *ORM2Bundle;
+
+void ORM2SetBundle(NSBundle *bundle)
+{
+	ORM2Bundle = bundle;
+}
+
 @interface ORM2EditorViewController ()
 @property (nonatomic, weak) IBOutlet NSView *problemView;
 @property (nonatomic, weak) IBOutlet NSTextField *problemLabel;
@@ -49,7 +56,7 @@
 
 - (instancetype)initWithDocument:(UDCodeDocument *)document workbench:(id<UDWorkbench>)workbench
 {
-	if ((self = [super initWithNibName:@"ORM2Editor" bundle:[NSBundle bundleForClass:[ORM2EditorViewController class]]])) {
+	if ((self = [super initWithNibName:@"ORM2Editor" bundle:ORM2Bundle ?: [NSBundle bundleForClass:[ORM2EditorViewController class]]])) {
 		_document = document;
 		_workbench = workbench;
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(textDidChange:)

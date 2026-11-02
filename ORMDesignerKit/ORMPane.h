@@ -10,6 +10,12 @@ void ORMFillHost(NSView *host, NSView *view);
 /* The pane's XIB, ORMDesignerKit's resource of the name, with the pane as
  * its owner: NO when there is none. */
 BOOL ORMLoadPaneNib(NSView *pane, NSString *name);
+/* Where ORMDesignerKit's XIBs are: the framework's bundle, or, where it is
+ * compiled into a host's bundle (UDCode's ORM2), the bundle the host says.
+ * +bundleForClass: would say it too, but not where the bundle's code was
+ * loaded before NSBundle loaded it (UDCode 0.16 on Windows). */
+NSBundle *ORMDesignerKitBundle(void);
+void ORMDesignerKitSetBundle(NSBundle *bundle);
 /* A window's XIB in ORMDesignerKit: compiled (.nib) on a Mac, the XIB as it
  * is on GNUstep. For -initWithWindowNibPath:owner:, which, unlike
  * -initWithWindowNibName:, does not look in the app's bundle. */

@@ -4,12 +4,20 @@
 #import <UDCodeKit/UDLanguageMode.h>
 #import "ORM2EditorViewController.h"
 #import "ORMModelViewController.h"
+#import "ORMPane.h"
 
 @implementation ORM2Extension
 
+/* The bundle UDCode loaded, where the editor's XIBs and ORMDesignerKit's
+ * are (it is compiled in on GNUstep). Not +bundleForClass:'s: UDCode 0.16
+ * on Windows loads an extension's DLL before NSBundle does, which then has
+ * no classes of it to answer for. */
 - (void)extensionDidLoad:(NSBundle *)bundle
 {
-	(void)bundle;
+	ORM2SetBundle(bundle);
+#if !defined(__APPLE__)
+	ORMDesignerKitSetBundle(bundle);
+#endif
 }
 
 - (void)extensionWillUnload:(NSBundle *)bundle
