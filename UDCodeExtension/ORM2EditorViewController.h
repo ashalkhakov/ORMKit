@@ -1,13 +1,20 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <AppKit/AppKit.h>
 #import <UDCodeKit/UDWorkbench.h>
+#import <UDCodeKit/UDEditorPanes.h>
 
 @class UDCodeDocument;
 @class ORMModelViewController;
 
 /* An .orm document's tab in UDCode (ORM2Editor.xib): ORMDesignerKit's
- * whole editor over the model its text holds, as VS Code's custom text
- * editors are.
+ * editor over the model its text holds, as VS Code's custom text editors
+ * are, its parts spread over the window as Xcode's editors' are
+ * (UDEditorPanes): the tab has the diagram and the Document Outline
+ * (Outline, Search); the inspector is the inspector pane's Element tab;
+ * Verbalization, Fact Entry and Population are bottom-area panes; the
+ * Insert palette is the Library (⇧⌘L); the model's issues are the
+ * document's diagnostics, in the Issues navigator, each one's element
+ * selected when it is chosen.
  *
  * The text is the model. It is read into an ORMEditor with no undo of its
  * own; each change the editor makes is written back as one edit of the
@@ -20,7 +27,7 @@
  * until it is set, the one +bundleForClass: says. */
 void ORM2SetBundle(NSBundle *bundle);
 
-@interface ORM2EditorViewController : NSViewController
+@interface ORM2EditorViewController : NSViewController <UDEditorPanes>
 
 - (instancetype)initWithDocument:(UDCodeDocument *)document workbench:(id<UDWorkbench>)workbench;
 

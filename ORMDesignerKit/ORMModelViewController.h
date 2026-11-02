@@ -24,6 +24,26 @@
                                                       NSTextFieldDelegate, NSTextViewDelegate, NSSplitViewDelegate>
 /* From ORMModelView.xib, in this framework. */
 - (instancetype)initWithEditor:(ORMEditor *)editor;
+/* As -initWithEditor:, its parts the host's to place, as Xcode's editors
+ * spread theirs over the window (UDCode's ORM2 tab): its view is the tool
+ * bar, the Document Outline (Outline and Search) and the diagram; the
+ * inspector, the panes under the diagram and the Insert palette are view
+ * controllers of their own; the issues are the host's to show
+ * (ORMIssueFinder), an issue chosen shown with -showElementOrQuery:. */
+- (instancetype)initHostedWithEditor:(ORMEditor *)editor;
+@property (nonatomic, readonly, getter=isHosted) BOOL hosted;
+/* Hosted, its parts: the inspector ("Element"); Verbalization, Fact Entry
+ * and Population; the Insert palette (a Library). */
+@property (nonatomic, readonly, strong) NSViewController *inspectorController;
+@property (nonatomic, readonly, copy) NSArray<NSViewController *> *lowerControllers;
+@property (nonatomic, readonly, strong) NSViewController *insertController;
+/* Hosted: a pane under the diagram asked for (New Fact Type… the Fact
+ * Entry), and a tool chosen in the Insert palette (its Library closed). */
+@property (nonatomic, copy) void (^showLowerHandler)(NSViewController *pane);
+@property (nonatomic, copy) void (^insertChosenHandler)(void);
+/* An element shown, on a page that shows it, or a query's in the Queries
+ * window: what choosing it in a navigator does. */
+- (void)showElementOrQuery:(NSString *)identifier;
 
 /* The Model, Diagram, Core Data and Query menus, from ORMModelMenus.xib,
  * new each time: a menu bar's (ORMDesigner's, after Edit) or a host's. Their

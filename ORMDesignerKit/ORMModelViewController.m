@@ -73,6 +73,12 @@ static const double ORMFactBarHeight = 30;
 	return @[];
 }
 
+- (instancetype)initHostedWithEditor:(ORMEditor *)editor
+{
+	_hosted = YES;
+	return [self initWithEditor:editor];
+}
+
 - (instancetype)initWithEditor:(ORMEditor *)editor
 {
 	if ((self = [super initWithNibName:@"ORMModelView" bundle:ORMDesignerKitBundle()])) {
@@ -144,6 +150,11 @@ static const double ORMFactBarHeight = 30;
 
 /* An element chosen in a navigator: shown, on a page that shows it; a
  * query's id, the Queries window on it. */
+- (void)showElementOrQuery:(NSString *)identifier
+{
+	[self navigatorDidChooseElement:identifier];
+}
+
 - (void)navigatorDidChooseElement:(NSString *)elementId
 {
 	ORMModel *model = [self editor].model;
@@ -194,6 +205,9 @@ static const double ORMFactBarHeight = 30;
 {
 	(void)palette;
 	[self.canvas useTool:tool];
+	if (_hosted && _insertChosenHandler != nil) {
+		_insertChosenHandler();
+	}
 }
 
 - (void)filterBrowser:(id)sender
@@ -267,7 +281,63 @@ static const double ORMFactBarHeight = 30;
 	[self.factEditor setFont:[NSFont systemFontOfSize:12]];
 	[self layoutColumns:self.columnsSplit];
 	[self layoutMiddle:self.middleSplit];
+	if (_hosted) {
+		[self detachParts];
+	}
 	[self editorDidChange];
+}
+
+#pragma mark Hosted
+
+/* A part of the editor's as a view controller of its own: a host puts its
+ * view where it wants it. */
+static NSViewController *
+ORMPartController(NSString *title, NSView *view)
+{
+	NSViewController *part = [[NSViewController alloc] init];
+	[view removeFromSuperview];
+	[view setAutoresizingMask:NSViewWidthSizable | NSViewHeightSizable];
+	[part setView:view];
+	[part setTitle:title];
+	return part;
+}
+
+/* Hosted: the inspector, the panes under the diagram and the Insert
+ * palette taken out to be the host's; Insert and Issues out of the
+ * navigator, which keeps Outline and Search. */
+- (void)detachParts
+{
+	_inspectorController = ORMPartController(@"Element", self.inspectorScroll);
+	NSMutableArray *lower = [NSMutableArray array];
+	NSArray *titles = @[ @"Verbalization", @"Fact Entry", @"Population" ];
+	for (NSInteger i = 0; i < [self.lowerTabView numberOfTabViewItems] && i < (NSInteger)[titles count]; i++) {
+		NSTabViewItem *item = [self.lowerTabView tabViewItemAtIndex:i];
+		NSView *view = [item view];
+		[item setView:[[NSView alloc] initWithFrame:[view frame]]];
+		[lower addObject:ORMPartController([titles objectAtIndex:(NSUInteger)i], view)];
+	}
+	_lowerControllers = lower;
+	[[self.lowerTabView superview] removeFromSuperview];
+	[self.lowerTabBar setHidden:YES];
+	NSView *insert = self.insertHost;
+	_insertController = ORMPartController(@"Library", insert);
+	[insert setFrame:NSMakeRect(0, 0, 260, 440)];
+	for (NSString *identifier in @[ @"insert", @"issues" ]) {
+		NSInteger index = [self.leftTabView indexOfTabViewItemWithIdentifier:identifier];
+		if (index != NSNotFound) {
+			[self.leftTabView removeTabViewItem:[self.leftTabView tabViewItemAtIndex:index]];
+		}
+	}
+	DMTabBar *bar = (DMTabBar *)self.leftTabBar;
+	if ([bar isKindOfClass:[DMTabBar class]]) {
+		NSArray *items = bar.tabBarItems;
+		if ([items count] == 4) {
+			bar.tabBarItems = @[ [items objectAtIndex:0], [items objectAtIndex:2] ];
+			bar.selectedIndex = 0;
+		}
+	}
+	[self layoutColumns:self.columnsSplit];
+	[self layoutMiddle:self.middleSplit];
 }
 
 #pragma mark The tabs under the canvas
@@ -309,6 +379,17 @@ static const double ORMFactBarHeight = 30;
 /* The tab under the canvas, and its badge selected. */
 - (void)showLowerTab:(NSInteger)index
 {
+	if (_hosted) {
+		if (index >= 0 && index < (NSInteger)[_lowerControllers count]) {
+			if (index == 2) {
+				[self.populationView reload];
+			}
+			if (_showLowerHandler != nil) {
+				_showLowerHandler([_lowerControllers objectAtIndex:(NSUInteger)index]);
+			}
+		}
+		return;
+	}
 	if (index < 0 || index >= [self.lowerTabView numberOfTabViewItems]) {
 		return;
 	}
@@ -338,11 +419,20 @@ static const double ORMFactBarHeight = 30;
 - (void)layoutColumns:(NSSplitView *)split
 {
 	NSArray *panes = [split subviews];
+	NSRect bounds = [split bounds];
+	double divider = [split dividerThickness];
+	if ([panes count] == 2) {
+		/* Hosted: the inspector is the host's; the Document Outline keeps
+		 * its width, the diagram takes the rest. */
+		double outline = MIN(MAX(NSWidth([[panes objectAtIndex:0] frame]), 160), 300);
+		[[panes objectAtIndex:0] setFrame:NSMakeRect(0, 0, outline, NSHeight(bounds))];
+		[[panes objectAtIndex:1] setFrame:NSMakeRect(outline + divider, 0, MAX(NSWidth(bounds) - outline - divider, 200),
+		                                             NSHeight(bounds))];
+		return;
+	}
 	if ([panes count] != 3) {
 		return;
 	}
-	NSRect bounds = [split bounds];
-	double divider = [split dividerThickness];
 	double left = MIN(MAX(NSWidth([[panes objectAtIndex:0] frame]), 160), 340);
 	double right = MIN(MAX(NSWidth([[panes objectAtIndex:2] frame]), 220), 420);
 	double middle = MAX(NSWidth(bounds) - left - right - 2 * divider, 200);
@@ -354,6 +444,11 @@ static const double ORMFactBarHeight = 30;
 - (void)layoutMiddle:(NSSplitView *)split
 {
 	NSArray *panes = [split subviews];
+	if ([panes count] == 1) {
+		/* Hosted: the panes under the diagram are the host's. */
+		[[panes objectAtIndex:0] setFrame:[split bounds]];
+		return;
+	}
 	if ([panes count] != 2) {
 		return;
 	}

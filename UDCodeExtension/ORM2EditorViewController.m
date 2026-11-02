@@ -5,6 +5,10 @@
 #import <UDPieceTable/UDTextModel.h>
 #import "ORMModelViewController.h"
 #import "ORM2TextDiff.h"
+#import "ORMPane.h"
+
+/* The model's issues, among the document's diagnostics. */
+static UDDiagnosticSource const ORM2IssueSource = @"orm2";
 
 /* The tab's view (ORM2Editor.xib): its controller after it in the chain,
  * wherever UDCode puts it, so the Editor menu's items and Undo reach the
@@ -52,6 +56,8 @@ void ORM2SetBundle(NSBundle *bundle)
 	 * editor's own). */
 	BOOL _reading;
 	BOOL _writing;
+	/* Each issue's element, by its diagnostic's line and message. */
+	NSMutableDictionary<NSString *, NSString *> *_issueElements;
 }
 
 - (instancetype)initWithDocument:(UDCodeDocument *)document workbench:(id<UDWorkbench>)workbench
@@ -117,11 +123,20 @@ void ORM2SetBundle(NSBundle *bundle)
 		self.problem = problem;
 	} else if (_modelController == nil) {
 		self.problem = nil;
-		self.modelController = [[ORMModelViewController alloc] initWithEditor:editor];
+		self.modelController = [[ORMModelViewController alloc] initHostedWithEditor:editor];
 		_modelController.documentURL = _document.fileURL;
 		__weak ORM2EditorViewController *weakSelf = self;
 		_modelController.modelChangeHandler = ^{
 			[weakSelf write];
+			[weakSelf scheduleIssues];
+		};
+		_modelController.showLowerHandler = ^(NSViewController *pane) {
+			ORM2EditorViewController *strongSelf = weakSelf;
+			[strongSelf->_workbench showEditorBottomPane:pane];
+		};
+		_modelController.insertChosenHandler = ^{
+			ORM2EditorViewController *strongSelf = weakSelf;
+			[strongSelf->_workbench closeLibrary];
 		};
 	} else {
 		self.problem = nil;
@@ -130,6 +145,7 @@ void ORM2SetBundle(NSBundle *bundle)
 	}
 	_reading = NO;
 	[self show];
+	[self scheduleIssues];
 }
 
 /* The text changed, not by the editor: read again, at once while the tab
@@ -236,6 +252,90 @@ void ORM2SetBundle(NSBundle *bundle)
 		[view setHidden:YES];
 		[self.problemLabel setStringValue:self.problem ?: @""];
 		[self.problemView setHidden:NO];
+	}
+}
+
+#pragma mark Issues
+
+/* The model's issues found again a moment after it changes (a burst of
+ * changes finds them once), as the designer's Issues pane does. */
+- (void)scheduleIssues
+{
+	[NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(findIssues) object:nil];
+	[self performSelector:@selector(findIssues) withObject:nil afterDelay:0.5];
+}
+
+/* The issues as the document's diagnostics: each at the line its element
+ * is written on (its id's), the model's first line when it has none; none
+ * while the text is no model. */
+- (void)findIssues
+{
+	ORMEditor *editor = _modelController.editor;
+	NSMutableArray *items = [NSMutableArray array];
+	_issueElements = [NSMutableDictionary dictionary];
+	if (editor != nil && self.problem == nil) {
+		NSString *text = [_document.textModel getValue];
+		ORMCoreDataMapping *mapping = [editor.model.coreDataMappings firstObject];
+		for (ORMIssue *issue in [[[ORMIssueFinder alloc] initWithModel:editor.model mapping:mapping] issues]) {
+			NSInteger line = 1;
+			if (issue.elementId != nil) {
+				NSRange at = [text rangeOfString:[NSString stringWithFormat:@"id=\"%@\"", issue.elementId]];
+				if (at.location != NSNotFound) {
+					line = [_document.textModel getPositionAt:(NSInteger)at.location].line;
+				}
+			}
+			UDDiagnosticSeverity severity = issue.severity == ORMIssueError ? UDDiagnosticSeverityError
+			                              : issue.severity == ORMIssueWarning ? UDDiagnosticSeverityWarning
+			                                                                  : UDDiagnosticSeverityInfo;
+			NSString *message = [issue.area length] > 0 ? [NSString stringWithFormat:@"%@: %@", issue.area, issue.text] : issue.text;
+			[items addObject:[[UDDiagnosticItem alloc] initWithLine:line column:0 message:message severity:severity
+			                                                 source:ORM2IssueSource]];
+			if (issue.elementId != nil) {
+				[_issueElements setObject:issue.elementId forKey:[NSString stringWithFormat:@"%ld %@", (long)line, message]];
+			}
+		}
+	}
+	[_document.diagnosticStore setDiagnostics:items forSource:ORM2IssueSource];
+}
+
+#pragma mark The window's panes (UDEditorPanes)
+
+- (NSArray<NSViewController *> *)inspectorViewControllers
+{
+	NSViewController *inspector = _modelController.inspectorController;
+	return inspector != nil ? @[ inspector ] : @[];
+}
+
+- (NSArray<NSViewController *> *)bottomAreaViewControllers
+{
+	return _modelController.lowerControllers ?: @[];
+}
+
+/* Their badges, as the designer's tab bar has them. */
+- (NSImage *)imageForBottomAreaViewController:(NSViewController *)viewController
+{
+	NSUInteger index = [_modelController.lowerControllers indexOfObject:viewController];
+	NSArray *badges = @[ @[ @"V", @0.47, @0.53, @0.64 ], @[ @"F", @0.32, @0.60, @0.53 ], @[ @"P", @0.70, @0.48, @0.32 ] ];
+	if (index == NSNotFound || index >= [badges count]) {
+		return nil;
+	}
+	NSArray *badge = [badges objectAtIndex:index];
+	NSImage *image = ORMTabBadge([badge objectAtIndex:0], [[badge objectAtIndex:1] doubleValue], [[badge objectAtIndex:2] doubleValue],
+	                             [[badge objectAtIndex:3] doubleValue]);
+	[image setSize:NSMakeSize(16, 16)];
+	return image;
+}
+
+- (NSViewController *)libraryViewController
+{
+	return _modelController.insertController;
+}
+
+- (void)revealDiagnostic:(UDDiagnosticItem *)diagnostic
+{
+	NSString *element = [_issueElements objectForKey:[NSString stringWithFormat:@"%ld %@", (long)diagnostic.line, diagnostic.message]];
+	if (element != nil) {
+		[_modelController showElementOrQuery:element];
 	}
 }
 

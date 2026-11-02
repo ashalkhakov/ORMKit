@@ -27,9 +27,23 @@ another version or another platform.
 
 ## Using it
 
-Opening a `.orm` file from the project navigator shows the editor in a tab of
-its own. The Model, Diagram, Core Data and Query menus are in the **Editor**
-menu, and they work on the tab that is in front.
+Opening a `.orm` file from the project navigator shows the model in a tab
+of its own, and the editor's parts spread over UDCode's window the way an
+Xcode editor's do:
+
+| Part | Where it goes in UDCode |
+|---|---|
+| The diagram, its page and the alignment bar | The tab |
+| The model browser and Search | The tab's Document Outline, on the diagram's left (O, S) |
+| The inspector | The inspector pane's **Element** tab, after **File** |
+| Verbalization, Fact Entry, Population | The bottom area, beside the debugger and the terminal (V, F, P) |
+| The Insert palette | The **Library**: View > Show Library (⇧⌘L) |
+| The model's issues | The Issues navigator, under the document; choosing one selects its element |
+| The Model, Diagram, Core Data and Query menus | The **Editor** menu |
+
+These parts are shown while the ORM tab is in front and go away when
+another tab comes forward. ORMDesigner arranges the same parts in its own
+window.
 
 The model is stored as the document's text, NORMA's XML. Each change you
 make in the editor is written back to that text, so the things UDCode does
@@ -60,8 +74,15 @@ explaining why, and offers to show it as text.
   the editor for documents of that mode and adds ORMDesignerKit's menus
   (`+[ORMModelViewController modelMenuItems]`) to UDCode's Editor menu.
 - **`ORM2EditorViewController`**, the tab, loaded from `ORM2Editor.xib`. It
-  holds an `ORMModelViewController` over an `ORMEditor` that has no undo
-  manager of its own, because the text's undo manager is the undo.
+  holds an `ORMModelViewController` in its hosted mode
+  (`-initHostedWithEditor:`), over an `ORMEditor` that has no undo manager
+  of its own, because the text's undo manager is the undo. Hosted, the
+  editor's view is the tool bar, the Document Outline and the diagram. The
+  inspector, the panes under the diagram and the Insert palette become view
+  controllers of their own, which the tab hands to UDCode through
+  `UDEditorPanes`. The model's issues (`ORMIssueFinder`) become the
+  document's diagnostics, placed at the line where their element's id
+  appears.
   `modelChangeHandler` writes each change as one `applyEdits:` call, which
   undoes as a single step. When the text changes from outside the editor,
   the tab reads it again: immediately if the tab is showing, otherwise

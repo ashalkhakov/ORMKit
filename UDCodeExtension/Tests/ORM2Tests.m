@@ -185,6 +185,62 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	XCTAssertNotNil(_tab.modelController);
 }
 
+/* The editor's parts are UDCode's panes': the tab has the diagram and the
+ * Document Outline; the inspector, the panes under the diagram and the
+ * Insert palette are the window's to place (UDEditorPanes). */
+- (void)testItsPartsAreTheWindowsPanes
+{
+	[self openText:[self fixture:@"StockMate.orm"]];
+	ORMModelViewController *editor = _tab.modelController;
+	XCTAssertTrue(editor.hosted);
+	NSArray *inspectors = [_tab inspectorViewControllers];
+	XCTAssertEqual([inspectors count], (NSUInteger)1);
+	XCTAssertEqualObjects([[inspectors firstObject] title], @"Element");
+	XCTAssertFalse([[[inspectors firstObject] view] isDescendantOf:[_tab view]], @"not in the tab");
+	XCTAssertTrue([editor.inspector isDescendantOf:[[inspectors firstObject] view]]);
+	NSArray *titles = [[_tab bottomAreaViewControllers] valueForKey:@"title"];
+	NSArray *expected = @[ @"Verbalization", @"Fact Entry", @"Population" ];
+	XCTAssertEqualObjects(titles, expected);
+	XCTAssertTrue([editor.verbalization isDescendantOf:[[[_tab bottomAreaViewControllers] firstObject] view]]);
+	XCTAssertNotNil([_tab imageForBottomAreaViewController:[[_tab bottomAreaViewControllers] firstObject]]);
+	XCTAssertNotNil([_tab libraryViewController]);
+	XCTAssertTrue([editor.canvas isDescendantOf:[_tab view]], @"the diagram is the tab's");
+
+	/* New Fact Type… asks for the Fact Entry pane. */
+	__block NSViewController *asked = nil;
+	editor.showLowerHandler = ^(NSViewController *pane) {
+		asked = pane;
+	};
+	[editor focusFactEditor:nil];
+	XCTAssertEqual(asked, [[_tab bottomAreaViewControllers] objectAtIndex:1]);
+}
+
+/* The model's issues are the document's diagnostics, each at its
+ * element's line; one chosen selects its element. */
+- (void)testItsIssuesAreTheDocumentsDiagnostics
+{
+	/* A model with an entity type that has no reference scheme: an error. */
+	[self openText:[self fixture:@"StockMate.orm"]];
+	ORMEditor *editor = _tab.modelController.editor;
+	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
+	NSString *added = [editor.objectTypeEditor addEntityTypeNamed:@"Orphan" referenceMode:nil kind:ORMReferenceModeNone
+	                                                    onDiagram:diagram at:NSMakePoint(40, 40) reason:NULL];
+	XCTAssertNotNil(added);
+	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.8]];
+	UDDiagnosticItem *orphan = nil;
+	for (UDDiagnosticItem *item in _document.diagnosticStore.allDiagnostics) {
+		if ([item.message rangeOfString:@"Orphan"].location != NSNotFound) {
+			orphan = item;
+		}
+	}
+	XCTAssertNotNil(orphan, @"%@", [_document.diagnosticStore.allDiagnostics valueForKey:@"message"]);
+	NSString *line = [_document.textModel getLineContent:orphan.line];
+	XCTAssertTrue([line rangeOfString:added].location != NSNotFound, @"at its element's line: %@", line);
+	[_tab.modelController.canvas clearSelection];
+	[_tab revealDiagnostic:orphan];
+	XCTAssertEqualObjects(_tab.modelController.inspector.elementId, added);
+}
+
 /* The Editor menu's items and Undo reach the tab, and its editor, from
  * the canvas. */
 - (void)testTheTabIsInTheChain
