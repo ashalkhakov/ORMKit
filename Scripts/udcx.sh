@@ -68,7 +68,9 @@ else
   if [ "$platform" = win32-x64 ]; then
     binary=$(ls "$bundle"/*.dll | head -1)
     linked=$(PATH="$dirs:$PATH" ldd "$binary")
-    carried=$(echo "$linked" | awk '{print $3}' | grep -iE '/(GNUstep/Local|ucrt64|clang64)/|/ORMKit/|/ORMRuntime/' || true)
+    # GNUstep's Local libraries (ODataKit's, FreeCoreData's) and the tree's;
+    # MSYS2's own (libc++, ICU, curl, sqlite…) UDCode has, beside gnustep-base
+    carried=$(echo "$linked" | awk '{print $3}' | grep -iE '/GNUstep/Local/|/ORMKit/|/ORMRuntime/' || true)
   else
     binary=$bundle/ORM2
     linked=$(LD_LIBRARY_PATH="$dirs${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" ldd "$binary")
