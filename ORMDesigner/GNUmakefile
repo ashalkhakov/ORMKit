@@ -15,7 +15,7 @@ ORMDesigner_OBJC_FILES = \
   ORMAppDelegate.m \
   ORMSampleMenu.m
 # ORMDesignerKit and ORMKit are built in the tree beside this one and not installed.
-ADDITIONAL_LIB_DIRS += -L../ORMDesignerKit/ORMDesignerKit.framework/Versions/Current -L../ORMKit/$(GNUSTEP_OBJ_DIR) \
+ADDITIONAL_LIB_DIRS += -L$(call ORM_DESIGNERKIT,..) -L../ORMKit/$(GNUSTEP_OBJ_DIR) \
   -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 # GSUpdater, the stack's: the designer's updates (ORMUpdater-GNUstep.m).
 ORMDesigner_OBJC_LIBS += -lORMDesignerKit -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -lGSUpdater -ldispatch

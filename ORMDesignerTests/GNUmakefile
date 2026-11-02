@@ -16,7 +16,7 @@ ORMDesignerTests_OBJC_FILES = \
   ../ORMDesigner/ORMSampleMenu.m
 ORMDesignerTests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../ORMDesignerKit/ORMDesignerCompat.h
 include ../odatakit.make
-DESIGNERKIT = ../ORMDesignerKit/ORMDesignerKit.framework/Versions/Current
+DESIGNERKIT = $(call ORM_DESIGNERKIT,..)
 ORMDesignerTests_INCLUDE_DIRS = -I../ORMDesignerKit -I../ORMKit -I../ORMRuntime -I../ORMDesigner $(ODATAKIT_INCLUDE_DIRS)
 ADDITIONAL_LIB_DIRS += -L$(DESIGNERKIT) -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 ORMDesignerTests_BUNDLE_LIBS += -lORMDesignerKit -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -lXCTest -ldispatch
