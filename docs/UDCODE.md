@@ -82,12 +82,15 @@ only where `.deps` contains `UDCodeKit.xcframework`.
 `Scripts/udcx.sh <version> <directory>` packages it for the platform it runs
 on:
 
-- **The bundle carries what UDCode lacks.** ORMDesignerKit is copied as a
-  framework, because its XIBs are its resources. Next to the binary go
-  ORMKit's and ORMRuntime's libraries, ODataKit's (with OTelKit), and on
-  GNUstep FreeCoreData's Core Data. On Linux each library gets an `$ORIGIN`
-  runpath so the libraries find one another. On a Mac they are the
-  bundle's `Contents/Frameworks`.
+- **The bundle carries what UDCode lacks.** On GNUstep, ORMDesignerKit is
+  compiled into the bundle and its XIBs are among the bundle's resources.
+  It can't be a framework inside the bundle there: gnustep-base finds a
+  framework's resources from its DLL's folder, and Windows looks for the
+  bundle's libraries only beside the bundle's DLL. Next to the binary go
+  ORMKit's and ORMRuntime's libraries, ODataKit's (with OTelKit), and
+  FreeCoreData's Core Data. On Linux each library gets an `$ORIGIN` runpath
+  so the libraries find one another. On a Mac, all of these, ORMDesignerKit
+  included, are frameworks in the bundle's `Contents/Frameworks`.
 - **What UDCode has is left out:** GNUstep, DiagramKit, UDCodeKit and the
   system's libraries. The running UDCode's copies are used.
 - **Licences:** ORMKit's own (LGPL 2.1, with its source at the release tag

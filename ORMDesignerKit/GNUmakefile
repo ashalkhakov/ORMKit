@@ -16,6 +16,9 @@ include ../odatakit.make
 ORMDesignerKit_INCLUDE_DIRS = -I../ORMKit -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
 ORMDesignerKit_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 ORMDesignerKit_LIBRARIES_DEPEND_UPON += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -ldispatch
+include files.make
+ORMDesignerKit_OBJC_FILES = $(ORM_DESIGNERKIT_OBJC_FILES)
+ORMDesignerKit_RESOURCE_FILES = $(ORM_DESIGNERKIT_RESOURCE_FILES)
 ORMDesignerKit_HEADER_FILES = \
   ORMDesignerKit.h \
   ORMDesignerCompat.h \
@@ -33,36 +36,6 @@ ORMDesignerKit_HEADER_FILES = \
   ORMIssuesView.h \
   ORMSearchNavigator.h \
   ORMPopulationView.h
-ORMDesignerKit_OBJC_FILES = \
-  ORMDocument.m \
-  ORMWindowController.m \
-  ORMModelViewController.m \
-  ORMCanvasView.m \
-  ORMRenderer.m \
-  ORMInspectorView.m \
-  ORMModelBrowser.m \
-  ORMCoreDataController.m \
-  ORMQueryController.m \
-  ORMPane.m \
-  ORMInsertPalette.m \
-  ORMIssuesView.m \
-  ORMSearchNavigator.m \
-  ORMPopulationView.m \
-  ThirdParty/DMTabBar/DMTabBar.m \
-  ThirdParty/DMTabBar/DMTabBarItem.m
-# The windows and panes are XIBs. Xcode compiles them to .nib; here they
-# are copied in as they are, and gnustep-gui reads the XIB directly (GSXib5).
-ORMDesignerKit_RESOURCE_FILES = \
-  ORMModelView.xib \
-  ORMModelMenus.xib \
-  ORMDocumentWindow.xib \
-  ORMQueryWindow.xib \
-  ORMCoreDataWindow.xib \
-  ORMInsertPalette.xib \
-  ORMIssuesView.xib \
-  ORMSearchNavigator.xib \
-  ORMPopulationView.xib \
-  ThirdParty/DMTabBar/LICENSE-DMTabBar.txt
 
 ifeq ($(SANITIZE),1)
 ADDITIONAL_OBJCFLAGS += -fsanitize=address -fno-omit-frame-pointer -g

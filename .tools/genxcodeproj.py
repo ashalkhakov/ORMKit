@@ -44,10 +44,10 @@ KIT_TEST_HEADERS = headers_in("ORMKitTests")
 TOOL_SOURCES = make_list("Tools/ormtool/GNUmakefile", "ormtool_OBJC_FILES")
 # The designer's editor, as a framework: its sources, headers and XIBs.
 # ORMDesignerCompat.h is GNUstep's (-include'd there), not in the Mac's.
-DESIGNERKIT_SOURCES = make_list("ORMDesignerKit/GNUmakefile", "ORMDesignerKit_OBJC_FILES")
+DESIGNERKIT_SOURCES = make_list("ORMDesignerKit/files.make", "ORM_DESIGNERKIT_OBJC_FILES")
 DESIGNERKIT_PUBLIC = [h for h in make_list("ORMDesignerKit/GNUmakefile", "ORMDesignerKit_HEADER_FILES")
                       if h != "ORMDesignerCompat.h"]
-DESIGNERKIT_RESOURCES = make_list("ORMDesignerKit/GNUmakefile", "ORMDesignerKit_RESOURCE_FILES")
+DESIGNERKIT_RESOURCES = make_list("ORMDesignerKit/files.make", "ORM_DESIGNERKIT_RESOURCE_FILES")
 # A source with an -Apple.m beside it is that class's GNUstep half -- X.m or
 # X-GNUstep.m (ORMUpdater-GNUstep.m beside ORMUpdater-Apple.m): the Mac app
 # compiles the -Apple.m. The tests keep the GNUstep half they name.
