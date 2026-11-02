@@ -1,0 +1,11 @@
+{
+  "name": "orm2",
+  "publisher": "ashalkhakov",
+  "displayName": "ORM2",
+  "description": "Object-Role Modeling: NORMA's .orm models edited with ORMDesigner's editor (diagram, verbalization, populations, queries, Core Data)",
+  "version": "0.0.0",
+  "license": "LGPL-2.1-only",
+  "repository": "https://github.com/ashalkhakov/ORMKit",
+  "engines": { "udcode": "^0.16.1" },
+  "main": "./ORM2.bundle"
+}

@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- NORMA's .orm models: XML (the grammar the XML mode's), opened in
+	     ORMDesignerKit's editor (ORM2Extension's -workbench:editorForDocument:). -->
+	<key>languageModes</key>
+	<array>
+		<dict>
+			<key>identifier</key>
+			<string>orm</string>
+			<key>displayName</key>
+			<string>ORM2 Model</string>
+			<key>fileExtensions</key>
+			<array>
+				<string>orm</string>
+			</array>
+			<key>grammarOf</key>
+			<string>xml</string>
+		</dict>
+	</array>
+</dict>
+</plist>

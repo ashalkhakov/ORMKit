@@ -21,6 +21,11 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 PACKAGE_NAME = ORMKit
 SUBPROJECTS = ORMRuntime ORMKit Tools/ormtool ORMDesignerKit ORMDesigner
+# UDCode's ORM2 extension, where UDCode's SDK is installed (.github/pins.env's
+# UDCODEKIT_VERSION; UDCodeExtension/GNUmakefile).
+ifneq ($(wildcard $(GNUSTEP_LOCAL_HEADERS)/UDCodeKit/UDExtension.h $(GNUSTEP_SYSTEM_HEADERS)/UDCodeKit/UDExtension.h),)
+SUBPROJECTS += UDCodeExtension
+endif
 
 include $(GNUSTEP_MAKEFILES)/aggregate.make
 
