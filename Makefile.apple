@@ -1,9 +1,10 @@
 # ORMKit on macOS, the familiar way (gnustep-release-actions' macos.yml runs
 # the same):
 #
-#   make -f Makefile.apple            ORMKit.framework, ORMRuntime.framework, ormtool
-#                                     and ORMDesigner.app, universal (Release), and the
-#                                     two frameworks as XCFrameworks (build/*.xcframework):
+#   make -f Makefile.apple            ORMKit.framework, ORMRuntime.framework,
+#                                     ORMDesignerKit.framework, ormtool and ORMDesigner.app,
+#                                     universal (Release), and the three frameworks as
+#                                     XCFrameworks (build/*.xcframework):
 #                                     ORMRuntime's for iOS and its simulator too, for
 #                                     an iOS app that runs a model's plans (Logbook's)
 #   make -f Makefile.apple check      the Xcode project as .tools/genxcodeproj.py
@@ -12,7 +13,8 @@
 #                                     the fixture builders, and ormtool checking
 #                                     what they write
 #   make -f Makefile.apple install DESTDIR=<dir>       ORMDesigner.app, ORMKit.xcframework,
-#                                                      ORMRuntime.xcframework and bin/ormtool
+#                                                      ORMRuntime.xcframework,
+#                                                      ORMDesignerKit.xcframework and bin/ormtool
 #                                                      (what an app pins: the release's
 #                                                      ormkit-<v>-apple.zip)
 #   make -f Makefile.apple installcheck DESTDIR=<dir>  the app's signature holds; ormtool
@@ -40,14 +42,16 @@ XCODEBUILD = xcodebuild -workspace ORMKit.xcworkspace -derivedDataPath $(DERIVED
 
 # The libraries an application builds on, as XCFrameworks: macOS, arm64 and
 # x86_64, made from the Release frameworks; ORMRuntime, which has no NSXML,
-# for iOS and the iOS Simulator as well (ODataKit's are).
-FRAMEWORKS = ORMRuntime ORMKit
+# for iOS and the iOS Simulator as well (ODataKit's are). ORMDesignerKit,
+# the designer's editor, for an app that edits models (UDCode's ORM2
+# extension).
+FRAMEWORKS = ORMRuntime ORMKit ORMDesignerKit
 IOS_FRAMEWORKS = ORMRuntime
 
 all:
 	@test -d .deps/ODataKit.xcframework -a -d .deps/Sparkle.xcframework -a -d .deps/DiagramKitUI.xcframework \
 	  || { echo "no ODataKit, Sparkle or DiagramKit in .deps: gnustep-release-actions' scripts/deps.sh apple fetches what .github/pins.env names"; exit 1; }
-	@for scheme in ORMKit ormtool ORMDesigner; do \
+	@for scheme in ORMKit ormtool ORMDesignerKit ORMDesigner; do \
 	  $(XCODEBUILD) -scheme $$scheme -configuration Release -destination 'generic/platform=macOS' build || exit 1; \
 	done
 	@for fw in $(IOS_FRAMEWORKS); do \

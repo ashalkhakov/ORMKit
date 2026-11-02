@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
-#import "ORMWindowController.h"
+#import "ORMModelViewController.h"
+#import <objc/runtime.h>
 #import "ORMCoreDataController.h"
-#import "ORMDocument.h"
 #import "ORMQueryController.h"
 #import "ORMInsertPalette.h"
 #import "ORMIssuesView.h"
@@ -12,7 +12,7 @@
 
 static const double ORMFactBarHeight = 30;
 
-@interface ORMWindowController () <ORMInsertPaletteDelegate, ORMNavigatorDelegate>
+@interface ORMModelViewController () <ORMInsertPaletteDelegate, ORMNavigatorDelegate>
 @property (nonatomic, readwrite, strong) IBOutlet ORMCanvasView *canvas;
 @property (nonatomic, readwrite, strong) IBOutlet ORMInspectorView *inspector;
 @property (nonatomic, readwrite, strong) IBOutlet NSTextView *verbalization;
@@ -46,9 +46,8 @@ static const double ORMFactBarHeight = 30;
 @property (nonatomic, strong) ORMPopulationView *populationView;
 @end
 
-@implementation ORMWindowController
+@implementation ORMModelViewController
 {
-	__weak ORMDocument *_document;
 	ORMCoreDataController *_coreData;
 	ORMQueryController *_queries;
 	/* What the verbalization shows when nothing is selected: the model, or
@@ -56,11 +55,29 @@ static const double ORMFactBarHeight = 30;
 	BOOL _verbalizesModel;
 }
 
-- (instancetype)initWithDocument:(ORMDocument *)document
++ (NSArray<NSMenuItem *> *)modelMenuItems
 {
-	if ((self = [super initWithWindowNibName:@"ORMDocumentWindow"])) {
-		_document = document;
-		[self window];
+	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"ORMModelMenus" bundle:[NSBundle bundleForClass:[ORMModelViewController class]]];
+	NSArray *objects = nil;
+	/* An owner the XIB has no use for: gnustep-gui's NSNib takes no nil one. */
+	if (![nib instantiateWithOwner:[[NSObject alloc] init] topLevelObjects:&objects]) {
+		return @[];
+	}
+	for (id object in objects) {
+		if ([object isKindOfClass:[NSMenu class]]) {
+			NSArray *items = [[(NSMenu *)object itemArray] copy];
+			[(NSMenu *)object removeAllItems];
+			return items;
+		}
+	}
+	return @[];
+}
+
+- (instancetype)initWithEditor:(ORMEditor *)editor
+{
+	if ((self = [super initWithNibName:@"ORMModelView" bundle:[NSBundle bundleForClass:[ORMModelViewController class]]])) {
+		_editor = editor;
+		[self view];
 	}
 	return self;
 }
@@ -196,7 +213,7 @@ static const double ORMFactBarHeight = 30;
 - (IBAction)focusBrowserFilter:(id)sender
 {
 	(void)sender;
-	[[self window] makeFirstResponder:_filterField];
+	[[[self view] window] makeFirstResponder:_filterField];
 }
 
 - (void)filterBrowserWith:(NSString *)text
@@ -218,10 +235,12 @@ static const double ORMFactBarHeight = 30;
 }
 
 /* What the XIB does not say: the tools, the browser around its outline,
- * the delegates of the custom views, the colours, and the panes' sizes. */
-- (void)windowDidLoad
+ * the delegates of the custom views, the colours, and the panes' sizes.
+ * Done once the view is loaded, here: gnustep-gui's NSViewController has
+ * no -viewDidLoad. */
+- (void)loadView
 {
-	[super windowDidLoad];
+	[super loadView];
 	[self makeNavigator];
 	[self makeLowerTabs];
 	[self.browserOutline setFont:[NSFont systemFontOfSize:[NSFont smallSystemFontSize]]];
@@ -358,15 +377,18 @@ static const double ORMFactBarHeight = 30;
 
 #pragma mark The model
 
-- (ORMEditor *)editor
+- (void)setEditor:(ORMEditor *)editor
 {
-	return _document.editor;
+	_editor = editor;
+	if ([self isViewLoaded]) {
+		[self editorDidChange];
+	}
 }
 
 - (void)editorDidChange
 {
 	ORMEditor *editor = [self editor];
-	__weak ORMWindowController *weakSelf = self;
+	__weak ORMModelViewController *weakSelf = self;
 	editor.changed = ^{
 		[weakSelf modelChanged];
 	};
@@ -404,6 +426,9 @@ static const double ORMFactBarHeight = 30;
 	[self showVerbalization];
 	[_coreData modelDidChange];
 	[_queries modelDidChange];
+	if (_modelChangeHandler != nil) {
+		_modelChangeHandler();
+	}
 }
 
 - (void)reloadDiagramPopup
@@ -618,7 +643,7 @@ static const double ORMFactBarHeight = 30;
 {
 	(void)sender;
 	[self showLowerTab:1];
-	[[self window] makeFirstResponder:_factEditor];
+	[[[self view] window] makeFirstResponder:_factEditor];
 }
 
 - (IBAction)chooseDiagram:(id)sender
@@ -949,11 +974,11 @@ ORMOneToOneValues(ORMObjectType *type)
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
 	SEL action = [item action];
-	if (action == @selector(objectifyFactType:) || action == @selector(unobjectifyFactType:)) {
+	if (sel_isEqual(action, @selector(objectifyFactType:)) || sel_isEqual(action, @selector(unobjectifyFactType:))) {
 		ORMFactType *fact = [[self editor].model elementWithId:[self selectedFactType]];
-		return fact != nil && (action == @selector(objectifyFactType:)) == (fact.objectifyingType == nil);
+		return fact != nil && sel_isEqual(action, @selector(objectifyFactType:)) == (fact.objectifyingType == nil);
 	}
-	if (action == @selector(mergeEntityTypes:)) {
+	if (sel_isEqual(action, @selector(mergeEntityTypes:))) {
 		NSUInteger entities = 0;
 		for (NSString *element in [self pickedElements]) {
 			ORMObjectType *type = [[self editor].model elementWithId:element];
@@ -961,16 +986,16 @@ ORMOneToOneValues(ORMObjectType *type)
 		}
 		return entities == 2;
 	}
-	if (action == @selector(showOnDiagram:) || action == @selector(showRelated:)) {
+	if (sel_isEqual(action, @selector(showOnDiagram:)) || sel_isEqual(action, @selector(showRelated:))) {
 		return [[self pickedElements] count] > 0;
 	}
-	if (action == @selector(addAnotherShape:)) {
+	if (sel_isEqual(action, @selector(addAnotherShape:))) {
 		return [self picksShapeable];
 	}
-	if (action == @selector(deleteExtraShape:)) {
+	if (sel_isEqual(action, @selector(deleteExtraShape:))) {
 		return [self selectsExtraShape];
 	}
-	if (action == @selector(verbalizeModel:)) {
+	if (sel_isEqual(action, @selector(verbalizeModel:))) {
 		[item setState:_verbalizesModel ? NSControlStateValueOn : NSControlStateValueOff];
 	}
 	return YES;
@@ -1032,9 +1057,9 @@ ORMOneToOneValues(ORMObjectType *type)
 - (ORMCoreDataController *)coreDataController
 {
 	if (_coreData == nil) {
-		_coreData = [[ORMCoreDataController alloc] initWithEditor:[self editor] documentURL:[_document fileURL]];
+		_coreData = [[ORMCoreDataController alloc] initWithEditor:[self editor] documentURL:_documentURL];
 	}
-	_coreData.documentURL = [_document fileURL];
+	_coreData.documentURL = _documentURL;
 	return _coreData;
 }
 

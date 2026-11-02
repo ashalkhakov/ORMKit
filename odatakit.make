@@ -22,3 +22,8 @@ ODATAKIT_SERVICE_LIBS = -lODataService -lHTTPServerKit -lOTelKit
 # ORMDesigner's canvas is its DiagramKitUI's.
 DIAGRAMKIT_LIBS = -lDiagramKit
 DIAGRAMKITUI_LIBS = -lDiagramKitUI -lDiagramKit
+
+# Where ORMDesignerKit, built in the tree, keeps its library: $(call
+# ORM_DESIGNERKIT,<the tree's root, relative>). Windows lays a framework
+# out flat, its DLL and import library at its top.
+ORM_DESIGNERKIT = $(1)/ORMDesignerKit/ORMDesignerKit.framework$(if $(filter Windows_NT,$(OS)),,/Versions/Current)

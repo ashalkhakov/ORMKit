@@ -62,7 +62,7 @@ on 2026-10-05, and the steps to get there. It follows RDLDesigner's window
 
 1. **Done: the navigator.**
    - `DMTabBar` is copied from RDLDesigner (MIT, see
-     `ORMDesigner/ThirdParty/README.md`).
+     `ORMDesignerKit/ThirdParty/README.md`).
    - The window has the navigator's tab view, with the Outline tab holding
      the browser.
    - The Insert palette is `ORMInsertPalette`, with its own XIB.

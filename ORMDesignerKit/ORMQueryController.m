@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryController.h"
+#import "ORMPane.h"
 
 static NSArray<NSString *> *
 ORMComparisonTitles(void)
@@ -77,7 +78,7 @@ static const NSUInteger ORMResultsPage = 200;
 
 - (instancetype)initWithEditor:(ORMEditor *)editor
 {
-	if ((self = [super initWithWindowNibName:@"ORMQueryWindow"])) {
+	if ((self = [super initWithWindowNibPath:ORMDesignerKitNibPath(@"ORMQueryWindow") owner:self])) {
 		_editor = editor;
 		_items = [NSMutableDictionary dictionary];
 		_children = [NSMutableDictionary dictionary];

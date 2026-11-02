@@ -3,18 +3,42 @@
 #import "ORMCanvasView.h"
 #import "ORMInspectorView.h"
 #import "ORMModelBrowser.h"
+#if __has_include(<ORMKit/ORMKit.h>)
+#import <ORMKit/ORMKit.h>
+#else
+#import "ORMKit.h"
+#endif
 
-@class ORMDocument;
+/* A model's editor: the model browser and the other navigators on the
+ * left, the diagram (its page chosen under it) with the verbalization, the
+ * fact entry and the population under it in the middle, the inspector on
+ * the right, the tools across the top and a status line at the bottom.
+ * ORMModelView.xib, without Auto Layout (gnustep-gui has none): panes keep
+ * their place with springs and struts.
+ *
+ * ORMDocument's window shows one (ORMWindowController), and an app that
+ * edits a model in a view of its own (UDCode's ORM2 extension, a tab) puts
+ * its view where it wants it: the editor is the model, whoever keeps it.
+ * Its actions are the Diagram, Model and Query menus' items'. */
+@interface ORMModelViewController : NSViewController <ORMCanvasDelegate, ORMInspectorDelegate, ORMModelBrowserDelegate,
+                                                      NSTextFieldDelegate, NSTextViewDelegate, NSSplitViewDelegate>
+/* From ORMModelView.xib, in this framework. */
+- (instancetype)initWithEditor:(ORMEditor *)editor;
 
-/* A document's window: the model browser on the left, the diagram (its
- * pages as tabs under it) with the fact editor and the verbalization of the
- * selection in the middle, the
- * inspector on the right, the tools across the top and a status line at the
- * bottom. ORMDocumentWindow.xib, without Auto Layout (gnustep-gui has none):
- * panes keep their place with springs and struts. */
-@interface ORMWindowController : NSWindowController <ORMCanvasDelegate, ORMInspectorDelegate, ORMModelBrowserDelegate,
-                                                     NSTextFieldDelegate, NSTextViewDelegate, NSSplitViewDelegate>
-- (instancetype)initWithDocument:(ORMDocument *)document;
+/* The Model, Diagram, Core Data and Query menus, from ORMModelMenus.xib,
+ * new each time: a menu bar's (ORMDesigner's, after Edit) or a host's. Their
+ * items go to the first responder, so to an editor in the chain. */
++ (NSArray<NSMenuItem *> *)modelMenuItems;
+
+/* What is edited; set anew (a revert, a model read again), everything is
+ * shown from the new one. */
+@property (nonatomic, strong) ORMEditor *editor;
+/* The model's file, which a Core Data mapping's paths are relative to; nil
+ * while it has none. */
+@property (nonatomic, copy) NSURL *documentURL;
+/* Called after each change to the model, once the view has shown it: what
+ * a host that keeps the model itself (as text, say) writes it out on. */
+@property (nonatomic, copy) void (^modelChangeHandler)(void);
 
 @property (nonatomic, readonly, strong) ORMCanvasView *canvas;
 @property (nonatomic, readonly, strong) ORMInspectorView *inspector;
@@ -24,7 +48,7 @@
 @property (nonatomic, readonly, strong) NSPopUpButton *diagramPopup;
 @property (nonatomic, readonly, strong) NSTextField *status;
 
-/* The document's editor changed, or was replaced (a revert). */
+/* The editor's model changed outside it (it shows it again). */
 - (void)editorDidChange;
 /* Shows the message in the status line. */
 - (void)say:(NSString *)message;

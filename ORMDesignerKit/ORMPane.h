@@ -7,9 +7,13 @@
 
 /* The view filling the host, and resizing with it. */
 void ORMFillHost(NSView *host, NSView *view);
-/* The pane's XIB, ORMDesigner's resource of the name, with the pane as its
- * owner: NO when there is none. */
+/* The pane's XIB, ORMDesignerKit's resource of the name, with the pane as
+ * its owner: NO when there is none. */
 BOOL ORMLoadPaneNib(NSView *pane, NSString *name);
+/* A window's XIB in ORMDesignerKit: compiled (.nib) on a Mac, the XIB as it
+ * is on GNUstep. For -initWithWindowNibPath:owner:, which, unlike
+ * -initWithWindowNibName:, does not look in the app's bundle. */
+NSString *ORMDesignerKitNibPath(NSString *name);
 
 /* A tab bar's badge: the letters on a disc of the colour, as RDLDesigner's
  * and the XForms Designer's are (RDLTabBadge, XFDBadge). */

@@ -1,13 +1,13 @@
 #
-# ORMKit on GNUstep: ORMRuntime, ORMKit, ormtool and ORMDesigner, and their
-# tests.
+# ORMKit on GNUstep: ORMRuntime, ORMKit, ormtool, ORMDesignerKit and
+# ORMDesigner, and their tests.
 #
 #   make            the libraries, the tool and the designer
 #   make check      the imports (Scripts/check-imports.sh); both suites,
 #                   built and run under AddressSanitizer (the designer's
 #                   under Xvfb when there is no display); ormtool on the
 #                   StockMate model (Scripts/ormtool-smoke.sh)
-#   make install    the libraries, ormtool and ORMDesigner
+#   make install    the libraries, ormtool, ORMDesignerKit and ORMDesigner
 #
 # Each part builds on the libraries in the tree, not installed ones; on
 # FreeCoreData and ODataKit installed (.github/pins.env's releases).
@@ -20,7 +20,7 @@ endif
 include $(GNUSTEP_MAKEFILES)/common.make
 
 PACKAGE_NAME = ORMKit
-SUBPROJECTS = ORMRuntime ORMKit Tools/ormtool ORMDesigner
+SUBPROJECTS = ORMRuntime ORMKit Tools/ormtool ORMDesignerKit ORMDesigner
 
 include $(GNUSTEP_MAKEFILES)/aggregate.make
 

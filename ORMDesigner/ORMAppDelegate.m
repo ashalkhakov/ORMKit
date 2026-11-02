@@ -1,7 +1,9 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMAppDelegate.h"
+#import <objc/runtime.h>
 #import "ORMCanvasView.h"
 #import "ORMDocument.h"
+#import "ORMModelViewController.h"
 #import "ORMSampleMenu.h"
 #import "ORMUpdater.h"
 
@@ -12,6 +14,7 @@ static const NSInteger ORMCheckForUpdatesTag = 1001;
 @interface ORMAppDelegate ()
 @property (nonatomic, strong) IBOutlet NSMenu *mainMenu;
 @property (nonatomic, strong) IBOutlet NSMenu *sampleMenu;
+@property (nonatomic, strong) IBOutlet NSMenu *editMenu;
 @property (nonatomic, strong) ORMUpdater *updater;
 @end
 
@@ -34,6 +37,11 @@ static const NSInteger ORMCheckForUpdatesTag = 1001;
 			[appMenu removeItem:check];
 		}
 	}
+	/* The model's menus, ORMDesignerKit's, after Edit. */
+	NSInteger after = [self.mainMenu indexOfItemWithSubmenu:self.editMenu];
+	for (NSMenuItem *item in [ORMModelViewController modelMenuItems]) {
+		[self.mainMenu insertItem:item atIndex:++after];
+	}
 	[ORMSampleMenu fillMenu:self.sampleMenu
 	             withModels:[ORMSampleMenu modelsInBundle:bundle]
 	                folders:[ORMSampleMenu foldersInBundle:bundle]];
@@ -44,7 +52,7 @@ static const NSInteger ORMCheckForUpdatesTag = 1001;
 		for (NSMenuItem *item in [menu itemArray]) {
 			if ([item submenu] != nil) {
 				[pending addObject:[item submenu]];
-			} else if ([item action] == @selector(arrangeInFront:)) {
+			} else if (sel_isEqual([item action], @selector(arrangeInFront:))) {
 				[NSApp setWindowsMenu:[item menu]];
 			}
 		}
@@ -75,7 +83,7 @@ static const NSInteger ORMCheckForUpdatesTag = 1001;
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-	if ([item action] == @selector(checkForUpdates:)) {
+	if (sel_isEqual([item action], @selector(checkForUpdates:))) {
 		return self.updater.canCheckForUpdates;
 	}
 	return YES;

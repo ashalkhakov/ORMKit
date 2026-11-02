@@ -1,6 +1,7 @@
-# An XCTest bundle that requires tools-xctest. The designer's sources are
-# compiled into it (all but main.m): -bundleForClass: then resolves to this
-# bundle, and the app need not be loaded.
+# An XCTest bundle that requires tools-xctest. ORMDesignerKit is linked, its
+# XIBs found in it; the app's own sources are compiled into the bundle (all
+# but main.m): -bundleForClass: then resolves the menu bar to this bundle,
+# and the app need not be loaded.
 #
 #   make            build the bundle
 #   make run-tests  build and run it (under xvfb-run where there is no display)
@@ -12,39 +13,18 @@ ORMDesignerTests_OBJC_FILES = \
   ORMDesignerTests.m \
   ../ORMDesigner/ORMUpdater.m \
   ../ORMDesigner/ORMAppDelegate.m \
-  ../ORMDesigner/ORMDocument.m \
-  ../ORMDesigner/ORMWindowController.m \
-  ../ORMDesigner/ORMCanvasView.m \
-  ../ORMDesigner/ORMRenderer.m \
-  ../ORMDesigner/ORMInspectorView.m \
-  ../ORMDesigner/ORMModelBrowser.m \
-  ../ORMDesigner/ORMCoreDataController.m \
-  ../ORMDesigner/ORMQueryController.m \
-  ../ORMDesigner/ORMSampleMenu.m \
-  ../ORMDesigner/ORMPane.m \
-  ../ORMDesigner/ORMInsertPalette.m \
-  ../ORMDesigner/ORMIssuesView.m \
-  ../ORMDesigner/ORMSearchNavigator.m \
-  ../ORMDesigner/ORMPopulationView.m \
-  ../ORMDesigner/ThirdParty/DMTabBar/DMTabBar.m \
-  ../ORMDesigner/ThirdParty/DMTabBar/DMTabBarItem.m
-ORMDesignerTests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../ORMDesigner/ORMDesignerCompat.h
+  ../ORMDesigner/ORMSampleMenu.m
+ORMDesignerTests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../ORMDesignerKit/ORMDesignerCompat.h
 include ../odatakit.make
-ORMDesignerTests_INCLUDE_DIRS = -I../ORMKit -I../ORMRuntime -I../ORMDesigner $(ODATAKIT_INCLUDE_DIRS)
-ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
-ORMDesignerTests_BUNDLE_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -lXCTest -ldispatch
+DESIGNERKIT = $(call ORM_DESIGNERKIT,..)
+ORMDesignerTests_INCLUDE_DIRS = -I../ORMDesignerKit -I../ORMKit -I../ORMRuntime -I../ORMDesigner $(ODATAKIT_INCLUDE_DIRS)
+ADDITIONAL_LIB_DIRS += -L$(DESIGNERKIT) -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+ORMDesignerTests_BUNDLE_LIBS += -lORMDesignerKit -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -lXCTest -ldispatch
 ORMDesignerTests_NEEDS_GUI = yes
-# The designer's XIBs: its classes load them from the bundle they are in,
-# which here is this one.
+# The menu bar: the app delegate loads it from the bundle it is in, which
+# here is this one.
 ORMDesignerTests_RESOURCE_FILES = \
-  ../ORMDesigner/MainMenu.xib \
-  ../ORMDesigner/ORMQueryWindow.xib \
-  ../ORMDesigner/ORMCoreDataWindow.xib \
-  ../ORMDesigner/ORMDocumentWindow.xib \
-  ../ORMDesigner/ORMInsertPalette.xib \
-  ../ORMDesigner/ORMIssuesView.xib \
-  ../ORMDesigner/ORMSearchNavigator.xib \
-  ../ORMDesigner/ORMPopulationView.xib
+  ../ORMDesigner/MainMenu.xib
 
 ifeq ($(SANITIZE),1)
 ADDITIONAL_OBJCFLAGS += -fsanitize=address -fno-omit-frame-pointer -g
@@ -62,6 +42,6 @@ TEST_TIMEOUT ?= 600
 .PHONY: run-tests
 run-tests: all
 	$(SANITIZE_ENV) \
-	LD_LIBRARY_PATH="$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$(CURDIR)/../ORMRuntime/$(GNUSTEP_OBJ_DIR):$(if $(ODATAKIT),$(ODATAKIT)/obj:)$$LD_LIBRARY_PATH" \
-	PATH="$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$(CURDIR)/../ORMRuntime/$(GNUSTEP_OBJ_DIR):$(if $(ODATAKIT),$(ODATAKIT)/obj:)$$PATH" \
+	LD_LIBRARY_PATH="$(CURDIR)/$(DESIGNERKIT):$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$(CURDIR)/../ORMRuntime/$(GNUSTEP_OBJ_DIR):$(if $(ODATAKIT),$(ODATAKIT)/obj:)$$LD_LIBRARY_PATH" \
+	PATH="$(CURDIR)/$(DESIGNERKIT):$(CURDIR)/../ORMKit/$(GNUSTEP_OBJ_DIR):$(CURDIR)/../ORMRuntime/$(GNUSTEP_OBJ_DIR):$(if $(ODATAKIT),$(ODATAKIT)/obj:)$$PATH" \
 	  timeout -s ABRT $(TEST_TIMEOUT) $(XCTEST) $(BUNDLE_NAME).bundle

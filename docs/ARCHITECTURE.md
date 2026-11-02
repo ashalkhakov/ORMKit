@@ -11,7 +11,8 @@ ORMRuntime/        what apps run: plans and their driver; no ORM model, no NSXML
 ORMKit/            the library: Foundation, NSXML, Core Data, ODataKit and DiagramKit; no AppKit; links ORMRuntime
 ORMKitTests/       its XCTest suite, with real NORMA files in Fixtures/
 Tools/ormtool/     check, verbalize, list and apply as text, normalize, draw as SVG, and map to and from Core Data from a shell
-ORMDesigner/       the editor (AppKit): its windows and menu bar XIBs, springs and struts
+ORMDesignerKit/    the editor (AppKit), as a framework: its document, window, panes and their XIBs, springs and struts
+ORMDesigner/       the app over it: its delegate, menu bar XIB, samples and updates
 ORMDesignerTests/  the editor driven through its window, headless
 docs/              this, and the documents below
 .github/ .tools/ Scripts/   CI, the GNUstep docker image, AppImage packaging
@@ -133,9 +134,15 @@ disagree, the specification is right.
 
 ## The editor
 
-`ORMDocument` (NSDocument) holds an editor on its undo manager.
-`ORMWindowController` runs the document window (`ORMDocumentWindow.xib`,
-[WINDOW.md](WINDOW.md)): a navigator on the left (the model browser,
+The editor is ORMDesignerKit, a framework, so that other apps edit models
+with it, as XFormsDesignKit is the XForms Designer's (WorkflowKit's designer
+edits its forms with that). ORMDesigner is its app delegate and menu bar
+over it. `ORMDocument` (NSDocument) holds an editor on its undo manager.
+`ORMWindowController` runs the document window (`ORMDocumentWindow.xib`),
+which `ORMModelViewController` fills: the whole editor for an `ORMEditor`,
+from `ORMModelView.xib` ([WINDOW.md](WINDOW.md)), which an app that keeps
+the model itself puts in a view of its own (UDCode's ORM2 extension, a tab)
+and is told of each change (`modelChangeHandler`). It has a navigator on the left (the model browser,
 `ORMInsertPalette`, `ORMSearchNavigator`, `ORMIssuesView`, each an
 `ORMPane` with its own XIB), alignment across the top, the diagram, tabs
 under it (the verbalization, NORMA's Fact Editor, `ORMPopulationView`), and
