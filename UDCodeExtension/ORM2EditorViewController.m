@@ -125,10 +125,10 @@
 	[self show];
 }
 
-/* The text changed, not by the editor: read again, a moment later when
- * the tab is not showing (typed in a tab of its text, each key would be a
- * read of the whole model), and the diagram, selection and inspected
- * element kept where they still are. */
+/* The text changed, not by the editor: read again, at once while the tab
+ * shows (an undo), a moment later while it does not (typed in a tab of its
+ * text, each key would be a read of the whole model); the diagram,
+ * selection and inspected element kept where they still are. */
 - (void)textDidChange:(NSNotification *)notification
 {
 	(void)notification;
@@ -136,7 +136,11 @@
 		return;
 	}
 	[NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(readAgain) object:nil];
-	[self performSelector:@selector(readAgain) withObject:nil afterDelay:[[self view] window] != nil ? 0 : 0.3];
+	if ([self isViewLoaded] && [[self view] window] != nil) {
+		[self readAgain];
+	} else {
+		[self performSelector:@selector(readAgain) withObject:nil afterDelay:0.3];
+	}
 }
 
 - (void)readAgain

@@ -57,6 +57,12 @@ def mac_half(source):
     return apple if os.path.exists(os.path.join(ROOT, "ORMDesigner", apple)) else source
 
 
+# UDCode's ORM2 extension: its sources and resources, its Info.plist, and
+# its tests against UDCode's document and text model.
+ORM2_SOURCES = make_list("UDCodeExtension/GNUmakefile", "ORM2_OBJC_FILES")
+ORM2_RESOURCES = make_list("UDCodeExtension/GNUmakefile", "ORM2_RESOURCE_FILES")
+ORM2_HEADERS = headers_in("UDCodeExtension")
+ORM2_TESTS = [t for t in make_list("UDCodeExtension/Tests/GNUmakefile", "ORM2Tests_OBJC_FILES") if not t.startswith("../")]
 APP_SOURCES = [mac_half(s) for s in make_list("ORMDesigner/GNUmakefile", "ORMDesigner_OBJC_FILES")]
 APP_RESOURCES = make_list("ORMDesigner/GNUmakefile", "ORMDesigner_RESOURCE_FILES")
 APP_HEADERS = [h for h in headers_in("ORMDesigner") if h != "ORMDesignerCompat.h"]
@@ -154,6 +160,9 @@ app_refs = {f: outsideref(os.path.normpath("ORMDesigner/" + f), f) if f.startswi
             else fileref("ORMDesigner/" + f)
             for f in sorted(set(APP_SOURCES + APP_TESTED + APP_HEADERS + APP_RESOURCES + ["ORMDesigner-Info.plist"]))}
 app_test_refs = {f: fileref("ORMDesignerTests/" + f) for f in APP_TESTS}
+orm2_refs = {f: outsideref("UDCodeExtension/" + f, f) if "/" in f else fileref("UDCodeExtension/" + f)
+             for f in ORM2_SOURCES + ORM2_HEADERS + ORM2_RESOURCES + ["Resources/Info.plist", "package.json"]}
+orm2_test_refs = {f: fileref("UDCodeExtension/Tests/" + f) for f in ORM2_TESTS}
 doc_refs = {d: fileref(d) for d in DOCS}
 sdk = {}
 for framework in ("Foundation", "AppKit", "XCTest"):
@@ -193,6 +202,11 @@ sparkle = xcframework("Sparkle")
 # (ORMDesigner).
 diagramkit = xcframework("DiagramKit")
 diagramkitui = xcframework("DiagramKitUI")
+# UDCode's SDK (its udcodekit archive): what the ORM2 extension builds on,
+# the running UDCode's at run time.
+udcodekit = xcframework("UDCodeKit")
+udpiecetable = xcframework("UDPieceTable")
+lspkit = xcframework("LSPKit")
 coredata = add(oid("sdk", "CoreData"), "CoreData.framework", [
     ("isa", "PBXFileReference"),
     ("lastKnownFileType", "wrapper.framework"),
@@ -207,6 +221,8 @@ p_kit_tests = product("ORMKitTests", "wrapper.cfbundle", "ORMKitTests.xctest")
 p_tool = product("ormtool", "compiled.mach-o.executable", "ormtool")
 p_designerkit = product("ORMDesignerKit", "wrapper.framework", "ORMDesignerKit.framework")
 p_app = product("ORMDesigner", "wrapper.application", "ORMDesigner.app")
+p_orm2 = product("ORM2", "wrapper.cfbundle", "ORM2.bundle")
+p_orm2_tests = product("ORM2Tests", "wrapper.cfbundle", "ORM2Tests.xctest")
 p_app_tests = product("ORMDesignerTests", "wrapper.cfbundle", "ORMDesignerTests.xctest")
 
 # Build phases.
@@ -252,6 +268,25 @@ designerkit_frameworks = phase("PBXFrameworksBuildPhase", "ORMDesignerKit", "Fra
                                [buildfile("ORMDesignerKit", p_kit), buildfile("ORMDesignerKit", p_runtime),
                                 buildfile("ORMDesignerKit", sdk["AppKit"]), buildfile("ORMDesignerKit", diagramkit),
                                 buildfile("ORMDesignerKit", diagramkitui)])
+
+EMBED = "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"
+orm2_sources = phase("PBXSourcesBuildPhase", "ORM2", "Sources", [buildfile("ORM2", orm2_refs[s]) for s in ORM2_SOURCES])
+orm2_resources = phase("PBXResourcesBuildPhase", "ORM2", "Resources", [buildfile("ORM2", orm2_refs[r]) for r in ORM2_RESOURCES])
+orm2_frameworks = phase("PBXFrameworksBuildPhase", "ORM2", "Frameworks",
+                        [buildfile("ORM2", f) for f in (p_designerkit, p_kit, p_runtime, sdk["AppKit"], diagramkit, diagramkitui,
+                                                         udcodekit, udpiecetable, lspkit)])
+# What it carries (UDCode has the rest: DiagramKit, UDCodeKit and theirs).
+orm2_embed = phase("PBXCopyFilesBuildPhase", "ORM2", "Embed Frameworks",
+                   [buildfile("ORM2.embed", f, EMBED) for f in (p_designerkit, p_kit, p_runtime, odatakit, odatastore, otelkit)],
+                   [("dstPath", '""'), ("dstSubfolderSpec", "10"), ("name", q("Embed Frameworks"))])
+orm2_tests_sources = phase("PBXSourcesBuildPhase", "ORM2Tests", "Sources",
+                           [buildfile("ORM2Tests", orm2_test_refs[s]) for s in ORM2_TESTS]
+                           + [buildfile("ORM2Tests.ext", orm2_refs[s]) for s in ORM2_SOURCES])
+orm2_tests_resources = phase("PBXResourcesBuildPhase", "ORM2Tests", "Resources",
+                             [buildfile("ORM2Tests.ext", orm2_refs[r]) for r in ORM2_RESOURCES if r.endswith(".xib")])
+orm2_tests_frameworks = phase("PBXFrameworksBuildPhase", "ORM2Tests", "Frameworks",
+                              [buildfile("ORM2Tests", f) for f in (p_designerkit, p_kit, p_runtime, sdk["AppKit"], diagramkit,
+                                                                   diagramkitui, udcodekit, udpiecetable, lspkit, sdk["XCTest"])])
 
 app_sources = phase("PBXSourcesBuildPhase", "ORMDesigner", "Sources",
                     [buildfile("ORMDesigner", app_refs[s]) for s in APP_SOURCES])
@@ -314,12 +349,19 @@ g_app = group("ORMDesigner", "ORMDesigner",
                                                        + [t for t in APP_TESTED if "/" not in t])))]
               + [app_refs[f] for f in APP_RESOURCES + ["ORMDesigner-Info.plist"]], "ORMDesigner")
 g_app_tests = group("ORMDesignerTests", "ORMDesignerTests", [app_test_refs[f] for f in APP_TESTS], "ORMDesignerTests")
+g_orm2_tests = group("ORM2Tests", "Tests", [orm2_test_refs[f] for f in ORM2_TESTS], "Tests")
+g_orm2 = group("UDCodeExtension", "UDCodeExtension",
+               [orm2_refs[f] for f in by_stem(ORM2_SOURCES + ORM2_HEADERS)]
+               + [orm2_refs[f] for f in ORM2_RESOURCES + ["Resources/Info.plist", "package.json"]] + [g_orm2_tests],
+               "UDCodeExtension")
 g_docs = group("Docs", "Docs", [doc_refs[d] for d in DOCS])
 g_frameworks = group("Frameworks", "Frameworks", [sdk[f] for f in ("Foundation", "AppKit", "XCTest")]
-                     + [coredata, odatakit, odatastore, otelkit, odataservice, httpserverkit, sparkle, diagramkit, diagramkitui])
-g_products = group("Products", "Products", [p_runtime, p_kit, p_kit_tests, p_tool, p_designerkit, p_app, p_app_tests])
+                     + [coredata, odatakit, odatastore, otelkit, odataservice, httpserverkit, sparkle, diagramkit, diagramkitui,
+                        udcodekit, udpiecetable, lspkit])
+g_products = group("Products", "Products", [p_runtime, p_kit, p_kit_tests, p_tool, p_designerkit, p_app, p_app_tests,
+                                            p_orm2, p_orm2_tests])
 g_main = group("main", PROJECT, [g_docs, g_runtime, g_kit, g_kit_tests, g_tool, g_designerkit, g_app, g_app_tests,
-                                 g_frameworks, g_products])
+                                 g_orm2, g_frameworks, g_products])
 objects[g_main] = ("", [(k, v) for k, v in objects[g_main][1] if k != "name"])
 
 
@@ -425,6 +467,25 @@ TARGET_SETTINGS = {
         "PRODUCT_NAME": q("$(TARGET_NAME)"),
         "SKIP_INSTALL": "YES",
     },
+    # Loaded by UDCode: its frameworks in its Contents/Frameworks, UDCode's
+    # own (DiagramKit, UDCodeKit) found through UDCode's runpath.
+    "ORM2": {
+        "GENERATE_INFOPLIST_FILE": "NO",
+        "HEADER_SEARCH_PATHS": q("$(SRCROOT)/ORMDesignerKit"),
+        "INFOPLIST_FILE": q("UDCodeExtension/Resources/Info.plist"),
+        "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@loader_path/../Frameworks")',
+        "PRODUCT_BUNDLE_IDENTIFIER": "org.ormkit.udcode.orm2",
+        "PRODUCT_NAME": q("$(TARGET_NAME)"),
+        "SKIP_INSTALL": "YES",
+        "WRAPPER_EXTENSION": "bundle",
+    },
+    "ORM2Tests": {
+        "GENERATE_INFOPLIST_FILE": "YES",
+        "HEADER_SEARCH_PATHS": '("$(SRCROOT)/UDCodeExtension", "$(SRCROOT)/ORMDesignerKit")',
+        "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks")',
+        "PRODUCT_BUNDLE_IDENTIFIER": "org.ormkit.ORM2Tests",
+        "PRODUCT_NAME": q("$(TARGET_NAME)"),
+    },
     "ORMDesigner": {
         "ASSETCATALOG_COMPILER_APPICON_NAME": '""',
         "HEADER_SEARCH_PATHS": q("$(SRCROOT)/ORMDesignerKit"),
@@ -502,6 +563,11 @@ t_tool = target("ormtool", [tool_sources, tool_frameworks], [dependency("ormtool
 t_designerkit = target("ORMDesignerKit", [designerkit_headers, designerkit_sources, designerkit_resources,
                                          designerkit_frameworks],
                        [dependency("ORMDesignerKit", t_kit, "ORMKit")], p_designerkit, "com.apple.product-type.framework")
+t_orm2 = target("ORM2", [orm2_sources, orm2_resources, orm2_frameworks, orm2_embed],
+                [dependency("ORM2", t_designerkit, "ORMDesignerKit")], p_orm2, "com.apple.product-type.bundle")
+t_orm2_tests = target("ORM2Tests", [orm2_tests_sources, orm2_tests_resources, orm2_tests_frameworks],
+                      [dependency("ORM2Tests", t_designerkit, "ORMDesignerKit")], p_orm2_tests,
+                      "com.apple.product-type.bundle.unit-test")
 t_app = target("ORMDesigner", [app_sources, app_resources, app_frameworks, app_embed],
                [dependency("ORMDesigner", t_designerkit, "ORMDesignerKit")], p_app, "com.apple.product-type.application")
 t_app_tests = target("ORMDesignerTests", [app_tests_sources, app_tests_resources, app_tests_frameworks],
@@ -521,7 +587,7 @@ add(project_id, "Project object", [
     ("productRefGroup", "%s /* Products */" % g_products),
     ("projectDirPath", '""'),
     ("projectRoot", '""'),
-    ("targets", names([t_runtime, t_kit, t_kit_tests, t_tool, t_designerkit, t_app, t_app_tests])),
+    ("targets", names([t_runtime, t_kit, t_kit_tests, t_tool, t_designerkit, t_app, t_app_tests, t_orm2, t_orm2_tests])),
 ])
 
 
@@ -603,6 +669,8 @@ kit_ref = reference(t_kit, "ORMKit", "ORMKit.framework")
 kit_tests_ref = reference(t_kit_tests, "ORMKitTests", "ORMKitTests.xctest")
 tool_ref = reference(t_tool, "ormtool", "ormtool")
 designerkit_ref = reference(t_designerkit, "ORMDesignerKit", "ORMDesignerKit.framework")
+orm2_ref = reference(t_orm2, "ORM2", "ORM2.bundle")
+orm2_tests_ref = reference(t_orm2_tests, "ORM2Tests", "ORM2Tests.xctest")
 app_ref = reference(t_app, "ORMDesigner", "ORMDesigner.app")
 app_tests_ref = reference(t_app_tests, "ORMDesignerTests", "ORMDesignerTests.xctest")
 scheme("ORMRuntime", [runtime_ref])
@@ -610,6 +678,7 @@ scheme("ORMKit", [kit_ref], test=kit_tests_ref)
 scheme("ORMKitTests", [kit_tests_ref], test=kit_tests_ref)
 scheme("ormtool", [tool_ref], run=tool_ref)
 scheme("ORMDesignerKit", [designerkit_ref])
+scheme("ORM2", [orm2_ref], test=orm2_tests_ref)
 scheme("ORMDesigner", [kit_ref, designerkit_ref, app_ref], test=app_tests_ref, run=app_ref)
 scheme("ORMDesignerTests", [app_tests_ref], test=app_tests_ref)
 print("wrote", proj)

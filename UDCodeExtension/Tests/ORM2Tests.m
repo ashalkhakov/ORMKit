@@ -100,7 +100,7 @@
 
 	[_tab undo:nil];
 	XCTAssertEqualObjects([_document.textModel getValue], text);
-	/* Read again (now: the tab is in a window), the model has no Courier. */
+	/* Read again at once (the tab is in a window), the model has no Courier. */
 	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
 	XCTAssertNil([_tab.modelController.editor.model objectTypeNamed:@"Courier"]);
 	XCTAssertNotNil([_tab.modelController.editor.model objectTypeNamed:@"Product"]);
@@ -158,10 +158,11 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	NSString *new = @"a\r\nB\r\nc\r\nd\r\ne\r\nx\r\nf\r\ng\r\n";
 	NSArray *changes = ORM2LineChanges(old, new);
 	XCTAssertEqual([changes count], (NSUInteger)2);
-	XCTAssertEqual([[changes firstObject] offset], (NSUInteger)3);
-	XCTAssertEqualObjects([[changes firstObject] text], @"B\r\n");
-	XCTAssertEqual([[changes lastObject] length], (NSUInteger)0);
-	XCTAssertEqualObjects([[changes lastObject] text], @"x\r\n");
+	ORM2TextChange *first = [changes firstObject], *last = [changes lastObject];
+	XCTAssertEqual(first.offset, (NSUInteger)3);
+	XCTAssertEqualObjects(first.text, @"B\r\n");
+	XCTAssertEqual(last.length, (NSUInteger)0);
+	XCTAssertEqualObjects(last.text, @"x\r\n");
 	XCTAssertEqualObjects(ORM2Applied(old, changes), new);
 	/* Lines dropped, at the start and the end, and no final line ending. */
 	for (NSString *other in @[ @"c\r\nd\r\ne\r\nf\r\ng\r\n", @"a\r\nb\r\nc", @"", @"z", @"a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng\r\nh" ]) {
