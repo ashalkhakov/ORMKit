@@ -51,3 +51,9 @@ ORMTabBadge(NSString *letters, double red, double green, double blue)
 	[cache setObject:image forKey:key];
 	return image;
 }
+
+NSString *ORMDesignerKitNibPath(NSString *name)
+{
+	NSBundle *bundle = [NSBundle bundleForClass:NSClassFromString(@"ORMModelViewController")];
+	return [bundle pathForResource:name ofType:@"nib"] ?: [bundle pathForResource:name ofType:@"xib"];
+}

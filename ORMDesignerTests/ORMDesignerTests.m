@@ -22,7 +22,8 @@
 @implementation ORMDesignerTests
 {
 	ORMDocument *_document;
-	ORMWindowController *_controller;
+	/* The document window's editor (its ORMWindowController's). */
+	ORMModelViewController *_controller;
 }
 
 /* The document and its window let go of: XCTest keeps every test case to
@@ -61,7 +62,7 @@
 	XCTAssertTrue([_document readFromData:[NSData dataWithContentsOfFile:[self fixturePath:fixture]]
 	                               ofType:ORMDocumentType error:&error], @"%@", error);
 	[_document makeWindowControllers];
-	_controller = [[_document windowControllers] firstObject];
+	_controller = [(ORMWindowController *)[[_document windowControllers] firstObject] modelController];
 	XCTAssertNotNil(_controller);
 }
 
@@ -95,7 +96,7 @@
 - (void)testEachDiagramPageIsShown
 {
 	[self open:@"StockMate.orm"];
-	[[_controller window] setContentSize:NSMakeSize(900, 600)];
+	[[[_controller view] window] setContentSize:NSMakeSize(900, 600)];
 	NSPopUpButton *pages = _controller.diagramPopup;
 	XCTAssertEqual([pages numberOfItems], (NSInteger)4);
 	XCTAssertEqual([pages indexOfSelectedItem], (NSInteger)0);
@@ -144,7 +145,7 @@
 	XCTAssertEqualObjects([document displayName], @"Company");
 	XCTAssertFalse([document isDocumentEdited]);
 	XCTAssertEqual([[ORMQuery queriesInModel:document.editor.model] count], (NSUInteger)12);
-	ORMWindowController *controller = [[document windowControllers] firstObject];
+	ORMModelViewController *controller = [(ORMWindowController *)[[document windowControllers] firstObject] modelController];
 	XCTAssertEqualObjects([[controller.canvas diagram] name], @"Company");
 	[document close];
 }
@@ -322,7 +323,7 @@
 	XCTAssertEqualObjects(population.elementId, person.identifier);
 	NSTableView *table = population.table;
 	[[_controller valueForKey:@"lowerTabView"] selectTabViewItemWithIdentifier:@"population"];
-	XCTAssertEqualObjects([table window], [_controller window]);
+	XCTAssertEqualObjects([table window], [[_controller view] window]);
 	XCTAssertFalse([table isHiddenOrHasHiddenAncestor]);
 	/* A click on a cell opens it only when its cell is editable. */
 	for (NSTableColumn *column in [table tableColumns]) {
@@ -484,7 +485,7 @@
 	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
 	                                           error:NULL];
 	[_document makeWindowControllers];
-	_controller = [[_document windowControllers] firstObject];
+	_controller = [(ORMWindowController *)[[_document windowControllers] firstObject] modelController];
 	ORMEditor *editor = _document.editor;
 	ORMModel *model = editor.model;
 	ORMFactType *worksFor = nil, *heads = nil;
@@ -541,7 +542,7 @@
 	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
 	                                           error:NULL];
 	[_document makeWindowControllers];
-	_controller = [[_document windowControllers] firstObject];
+	_controller = [(ORMWindowController *)[[_document windowControllers] firstObject] modelController];
 	ORMEditor *editor = _document.editor;
 	ORMFactType *worksFor = nil, *heads = nil;
 	for (ORMFactType *fact in [editor.model ordinaryFactTypes]) {
@@ -1235,8 +1236,8 @@
 	_document = [ORMDocument sampleWithContentsOfURL:[NSURL fileURLWithPath:[root stringByAppendingPathComponent:@"Samples/Company.orm"]]
 	                                           error:NULL];
 	[_document makeWindowControllers];
-	_controller = [[_document windowControllers] firstObject];
-	[_controller window];
+	_controller = [(ORMWindowController *)[[_document windowControllers] firstObject] modelController];
+	[[_controller view] window];
 	[[_document undoManager] setGroupsByEvent:NO];
 	ORMModel *model = _document.editor.model;
 	ORMRole *(^roleOf)(NSString *, NSString *) = ^ORMRole *(NSString *reading, NSString *player) {
@@ -1275,12 +1276,26 @@
 	              @"%@", [[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText]);
 }
 
+/* The editor is a view controller in ORMDesignerKit: the window's chain
+ * reaches it from the canvas, so the menus' items do. */
+- (void)testTheEditorIsInTheChainAfterItsView
+{
+	[self open:@"StockMate.orm"];
+	XCTAssertEqual([[_controller view] nextResponder], _controller);
+	BOOL reached = NO;
+	for (NSResponder *responder = _controller.canvas; responder != nil; responder = [responder nextResponder]) {
+		reached = reached || responder == _controller;
+	}
+	XCTAssertTrue(reached);
+	XCTAssertTrue([[[_controller view] window] isEqual:[[[_document windowControllers] firstObject] window]]);
+}
+
 - (void)testEveryMenuItemHasSomewhereToGo
 {
 	[self open:@"StockMate.orm"];
 	NSMenu *menu = [ORMAppDelegate newMainMenu];
 	NSArray *responders = @[ _controller, _controller.canvas, _document, [NSDocumentController sharedDocumentController],
-	                         NSApp, [_controller window], [[ORMAppDelegate alloc] init] ];
+	                         NSApp, [[_controller view] window], [[ORMAppDelegate alloc] init] ];
 	NSMutableArray *pending = [NSMutableArray arrayWithObject:menu];
 	NSArray *standard = @[ @"undo:", @"redo:", @"cut:", @"copy:", @"paste:", @"performMiniaturize:", @"arrangeInFront:",
 	                       @"orderFrontStandardAboutPanel:", @"hide:", @"terminate:" ];
@@ -1315,7 +1330,7 @@
 {
 	_document = [[ORMDocument alloc] init];
 	[_document makeWindowControllers];
-	_controller = [[_document windowControllers] firstObject];
+	_controller = [(ORMWindowController *)[[_document windowControllers] firstObject] modelController];
 	ORMEditor *editor = _document.editor;
 	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
 	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
@@ -1345,7 +1360,7 @@
 {
 	_document = [[ORMDocument alloc] init];
 	[_document makeWindowControllers];
-	_controller = [[_document windowControllers] firstObject];
+	_controller = [(ORMWindowController *)[[_document windowControllers] firstObject] modelController];
 	ORMEditor *editor = _document.editor;
 	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
 	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
@@ -1375,7 +1390,7 @@
 {
 	_document = [[ORMDocument alloc] init];
 	[_document makeWindowControllers];
-	_controller = [[_document windowControllers] firstObject];
+	_controller = [(ORMWindowController *)[[_document windowControllers] firstObject] modelController];
 	ORMEditor *editor = _document.editor;
 	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
 	NSString *person = [editor.objectTypeEditor addEntityTypeNamed:@"Person" referenceMode:@"id" kind:ORMReferenceModePopular
@@ -1424,7 +1439,7 @@
 {
 	_document = [[ORMDocument alloc] init];
 	[_document makeWindowControllers];
-	_controller = [[_document windowControllers] firstObject];
+	_controller = [(ORMWindowController *)[[_document windowControllers] firstObject] modelController];
 	ORMEditor *editor = _document.editor;
 	NSString *diagram = [[editor.model.diagrams firstObject] identifier];
 	ORMObjectTypeEditor *types = editor.objectTypeEditor;

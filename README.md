@@ -39,7 +39,8 @@ and part of what ORMKit says about it (`ormtool verbalize Samples/University.orm
 
 - **ORMKit**: the library. Foundation and NSXML only, no AppKit, ARC; it
   builds on Cocoa and on GNUstep.
-- **ORMDesigner**: a document-based diagram editor for `.orm` models.
+- **ORMDesigner**: a document-based diagram editor for `.orm` models; its
+  editor is **ORMDesignerKit**, a framework other apps edit models with.
 - **ormtool**: the library from a shell.
 - **ORMRuntime**: what an app built from a model runs: its query plans and a
   small driver, with no ORM model and no XML.
@@ -238,4 +239,4 @@ is part of the library. The models in `Samples/` are ORMKit's own, of
 schemas Halpin's papers publish; StockMate, which ORMDesigner also bundles,
 is its author's, used with their leave. ORMDesigner's tab bars are Daniele
 Margutti's DMTabBar, under the MIT license
-(`ORMDesigner/ThirdParty/DMTabBar/LICENSE-DMTabBar.txt`, also in the app).
+(`ORMDesignerKit/ThirdParty/DMTabBar/LICENSE-DMTabBar.txt`, also in the framework).

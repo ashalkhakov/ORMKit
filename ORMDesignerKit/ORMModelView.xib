@@ -5,7 +5,7 @@
         <plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
     </dependencies>
     <objects>
-        <customObject id="-2" userLabel="File's Owner" customClass="ORMWindowController">
+        <customObject id="-2" userLabel="File's Owner" customClass="ORMModelViewController">
             <connections>
                 <outlet property="diagramPopup" destination="diagramPopup" id="diagramPopupOutlet0"/>
                 <outlet property="diagramTabsBar" destination="diagramTabsBar" id="diagramTabsBarOutlet16"/>
@@ -31,17 +31,12 @@
                 <outlet property="lowerTabView" destination="lowerTabView" id="lowerTabViewOutlet"/>
                 <outlet property="populationHost" destination="populationHost" id="populationHostOutlet"/>
                 <outlet property="issuesHost" destination="issuesHost" id="issuesHostOutlet"/>
-                <outlet property="window" destination="documentWindow" id="documentWindowOutlet15"/>
+                <outlet property="view" destination="documentWindowContent" id="documentWindowOutlet15"/>
             </connections>
         </customObject>
         <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
         <customObject id="-3" userLabel="Application" customClass="NSObject"/>
-        <window title="Untitled" allowsToolTipsWhenApplicationIsInactive="NO" releasedWhenClosed="NO" visibleAtLaunch="NO" animationBehavior="default" id="documentWindow">
-            <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
-            <rect key="contentRect" x="80" y="80" width="1280" height="820"/>
-            <rect key="screenRect" x="0.0" y="0.0" width="1920" height="1055"/>
-            <value key="minSize" type="size" width="760" height="480"/>
-            <view key="contentView" id="documentWindowContent">
+            <customView id="documentWindowContent" userLabel="Model">
                 <rect key="frame" x="0" y="0" width="1280" height="820"/>
                 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                 <subviews>
@@ -579,10 +574,6 @@
                         </connections>
                     </splitView>
                 </subviews>
-            </view>
-            <connections>
-                <outlet property="delegate" destination="-2" id="documentWindowDelegate"/>
-            </connections>
-        </window>
+            </customView>
     </objects>
 </document>

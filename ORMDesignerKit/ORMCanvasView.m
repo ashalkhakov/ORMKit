@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCanvasView.h"
+#import <objc/runtime.h>
 #import "ORMInsertPalette.h"
 
 /* What a tool's drag is doing, between mouse down and up. Moving, the
@@ -950,20 +951,20 @@ static const double ORMActualSize = 1.5;
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
 	SEL action = [item action];
-	if (action == @selector(chooseTool:)) {
+	if (sel_isEqual(action, @selector(chooseTool:))) {
 		[item setState:[item tag] == self.tool ? NSControlStateValueOn : NSControlStateValueOff];
 		return YES;
 	}
-	if (action == @selector(delete:) || action == @selector(removeFromDiagram:)) {
+	if (sel_isEqual(action, @selector(delete:)) || sel_isEqual(action, @selector(removeFromDiagram:))) {
 		return [_selectedShapes count] > 0;
 	}
-	if (action == @selector(toggleUniqueness:) || action == @selector(toggleMandatory:)) {
+	if (sel_isEqual(action, @selector(toggleUniqueness:)) || sel_isEqual(action, @selector(toggleMandatory:))) {
 		return [_selectedRoles count] > 0;
 	}
-	if (action == @selector(commitPending:) || action == @selector(nextRoleSequence:)) {
+	if (sel_isEqual(action, @selector(commitPending:)) || sel_isEqual(action, @selector(nextRoleSequence:))) {
 		return [_picked count] > 0;
 	}
-	if (action == @selector(rotateFactType:) || action == @selector(reverseRoleOrder:)) {
+	if (sel_isEqual(action, @selector(rotateFactType:)) || sel_isEqual(action, @selector(reverseRoleOrder:))) {
 		return [self selectedFactTypeShape] != nil;
 	}
 	return YES;

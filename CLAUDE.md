@@ -2,7 +2,7 @@
 
 Object-Role Modeling (ORM2) for GNUstep and Cocoa: a library (`ORMKit`) that
 reads, edits, verbalizes and maps NORMA's `.orm` files to Core Data, a tool
-(`Tools/ormtool`) and an editor (`ORMDesigner`). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has
+(`Tools/ormtool`) and an editor (`ORMDesigner`, over the framework `ORMDesignerKit`). [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) has
 the design and what is not done; [docs/COREDATA-MAPPING.md](docs/COREDATA-MAPPING.md) the mapping;
 [docs/VERBALIZATION.md](docs/VERBALIZATION.md) the FORML templates; [docs/QUERIES.md](docs/QUERIES.md) the conceptual
 queries; [docs/CURSORS.md](docs/CURSORS.md) how a plan is read, as a tree of cursors;
@@ -59,8 +59,12 @@ are in `.deps/` (gnustep-release-actions' `scripts/deps.sh apple`), and
 GNUstep links the installed libraries (`odatakit.make`). Move a pin there;
 CI and the docker image both read it.
 
-ORMDesigner's windows and menu bar are XIBs (`ORMDesigner/*.xib`), listed in
-`ORMDesigner_RESOURCE_FILES` and the test bundle's: Xcode compiles them,
+The editor is ORMDesignerKit, a framework (as XFormsDesignKit is the XForms
+Designer's): ORMDesigner is its app delegate and menu bar over it, and other
+apps (UDCode's ORM2 extension) host its `ORMModelViewController`. Its
+windows and panes are XIBs (`ORMDesignerKit/*.xib`, in
+`ORMDesignerKit_RESOURCE_FILES`, found with `-bundleForClass:`), the menu
+bar the app's (`ORMDesigner/MainMenu.xib`): Xcode compiles them,
 GNUstep reads them as they are. Springs and struts only (gnustep-gui has no
 Auto Layout); check a hand edit with `xcrun ibtool --errors --compile`.
 A key equivalent XML cannot carry (Backspace, Escape) is written as

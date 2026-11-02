@@ -48,6 +48,8 @@ build/
 
 # GNUstep
 obj/
+# ORMDesignerKit, built in the tree
+*.framework/
 *.so
 *.dylib
 *.a

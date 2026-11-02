@@ -42,6 +42,12 @@ KIT_PRIVATE = [h for h in headers_in("ORMKit") if h not in KIT_PUBLIC]
 KIT_TESTS = make_list("ORMKitTests/GNUmakefile", "ORMKitTests_OBJC_FILES")
 KIT_TEST_HEADERS = headers_in("ORMKitTests")
 TOOL_SOURCES = make_list("Tools/ormtool/GNUmakefile", "ormtool_OBJC_FILES")
+# The designer's editor, as a framework: its sources, headers and XIBs.
+# ORMDesignerCompat.h is GNUstep's (-include'd there), not in the Mac's.
+DESIGNERKIT_SOURCES = make_list("ORMDesignerKit/GNUmakefile", "ORMDesignerKit_OBJC_FILES")
+DESIGNERKIT_PUBLIC = [h for h in make_list("ORMDesignerKit/GNUmakefile", "ORMDesignerKit_HEADER_FILES")
+                      if h != "ORMDesignerCompat.h"]
+DESIGNERKIT_RESOURCES = make_list("ORMDesignerKit/GNUmakefile", "ORMDesignerKit_RESOURCE_FILES")
 # A source with an -Apple.m beside it is that class's GNUstep half -- X.m or
 # X-GNUstep.m (ORMUpdater-GNUstep.m beside ORMUpdater-Apple.m): the Mac app
 # compiles the -Apple.m. The tests keep the GNUstep half they name.
@@ -56,9 +62,9 @@ APP_RESOURCES = make_list("ORMDesigner/GNUmakefile", "ORMDesigner_RESOURCE_FILES
 APP_HEADERS = [h for h in headers_in("ORMDesigner") if h != "ORMDesignerCompat.h"]
 APP_TEST_FILES = make_list("ORMDesignerTests/GNUmakefile", "ORMDesignerTests_OBJC_FILES")
 APP_TESTS = [t for t in APP_TEST_FILES if not t.startswith("../")]
-# Their paths below ORMDesigner/ (ThirdParty/DMTabBar/DMTabBar.m), as the app's list has them.
+# The app's sources the tests compile, by their paths below ORMDesigner/.
 APP_TESTED = [t[len("../ORMDesigner/"):] for t in APP_TEST_FILES if t.startswith("../ORMDesigner/")]
-# The designer's XIBs, which its classes load from the bundle they are in.
+# The menu bar, which the app delegate loads from the bundle it is in.
 APP_TEST_RESOURCES = [os.path.basename(t) for t in make_list("ORMDesignerTests/GNUmakefile",
                                                             "ORMDesignerTests_RESOURCE_FILES")
                       if t.startswith("../ORMDesigner/")]
@@ -139,6 +145,9 @@ runtime_refs = {f: fileref("ORMRuntime/" + f) for f in RUNTIME_SOURCES + RUNTIME
 kit_refs = {f: fileref("ORMKit/" + f) for f in KIT_SOURCES + KIT_PUBLIC + KIT_PRIVATE}
 kit_test_refs = {f: fileref("ORMKitTests/" + f) for f in KIT_TESTS + KIT_TEST_HEADERS}
 tool_refs = {f: fileref("Tools/ormtool/" + f) for f in TOOL_SOURCES}
+# A file in a folder of it (ThirdParty/) is named by its path from there.
+designerkit_refs = {f: outsideref("ORMDesignerKit/" + f, f) if "/" in f else fileref("ORMDesignerKit/" + f)
+                    for f in DESIGNERKIT_SOURCES + DESIGNERKIT_PUBLIC + DESIGNERKIT_RESOURCES}
 # A resource outside ORMDesigner/ is a sample, or a folder of them; a file in
 # a folder of it (ThirdParty/) is named by its path from there.
 app_refs = {f: outsideref(os.path.normpath("ORMDesigner/" + f), f) if f.startswith("../") or "/" in f
@@ -196,6 +205,7 @@ p_runtime = product("ORMRuntime", "wrapper.framework", "ORMRuntime.framework")
 p_kit = product("ORMKit", "wrapper.framework", "ORMKit.framework")
 p_kit_tests = product("ORMKitTests", "wrapper.cfbundle", "ORMKitTests.xctest")
 p_tool = product("ormtool", "compiled.mach-o.executable", "ormtool")
+p_designerkit = product("ORMDesignerKit", "wrapper.framework", "ORMDesignerKit.framework")
 p_app = product("ORMDesigner", "wrapper.application", "ORMDesigner.app")
 p_app_tests = product("ORMDesignerTests", "wrapper.cfbundle", "ORMDesignerTests.xctest")
 
@@ -231,16 +241,30 @@ tool_sources = phase("PBXSourcesBuildPhase", "ormtool", "Sources", [buildfile("o
 tool_frameworks = phase("PBXFrameworksBuildPhase", "ormtool", "Frameworks",
                         [buildfile("ormtool", p_kit), buildfile("ormtool", p_runtime), buildfile("ormtool", diagramkit)])
 
+designerkit_headers = phase("PBXHeadersBuildPhase", "ORMDesignerKit", "Headers",
+                            [buildfile("ORMDesignerKit", designerkit_refs[h], "{ATTRIBUTES = (Public, ); }")
+                             for h in DESIGNERKIT_PUBLIC])
+designerkit_sources = phase("PBXSourcesBuildPhase", "ORMDesignerKit", "Sources",
+                            [buildfile("ORMDesignerKit", designerkit_refs[s]) for s in DESIGNERKIT_SOURCES])
+designerkit_resources = phase("PBXResourcesBuildPhase", "ORMDesignerKit", "Resources",
+                              [buildfile("ORMDesignerKit", designerkit_refs[r]) for r in DESIGNERKIT_RESOURCES])
+designerkit_frameworks = phase("PBXFrameworksBuildPhase", "ORMDesignerKit", "Frameworks",
+                               [buildfile("ORMDesignerKit", p_kit), buildfile("ORMDesignerKit", p_runtime),
+                                buildfile("ORMDesignerKit", sdk["AppKit"]), buildfile("ORMDesignerKit", diagramkit),
+                                buildfile("ORMDesignerKit", diagramkitui)])
+
 app_sources = phase("PBXSourcesBuildPhase", "ORMDesigner", "Sources",
                     [buildfile("ORMDesigner", app_refs[s]) for s in APP_SOURCES])
 app_resources = phase("PBXResourcesBuildPhase", "ORMDesigner", "Resources",
                       [buildfile("ORMDesigner", app_refs[r]) for r in APP_RESOURCES])
 app_frameworks = phase("PBXFrameworksBuildPhase", "ORMDesigner", "Frameworks",
-                       [buildfile("ORMDesigner", p_kit), buildfile("ORMDesigner", p_runtime),
+                       [buildfile("ORMDesigner", p_designerkit), buildfile("ORMDesigner", p_kit),
+                        buildfile("ORMDesigner", p_runtime),
                         buildfile("ORMDesigner", sdk["AppKit"]), buildfile("ORMDesigner", sparkle),
                         buildfile("ORMDesigner", diagramkit), buildfile("ORMDesigner", diagramkitui)])
 app_embed = phase("PBXCopyFilesBuildPhase", "ORMDesigner", "Embed Frameworks",
-                  [buildfile("ORMDesigner.embed", p_kit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
+                  [buildfile("ORMDesigner.embed", p_designerkit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
+                   buildfile("ORMDesigner.embed", p_kit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
                    buildfile("ORMDesigner.embed", p_runtime, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
                    buildfile("ORMDesigner.embed", odatakit, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
                    buildfile("ORMDesigner.embed", odatastore, "{ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }"),
@@ -256,7 +280,8 @@ app_tests_sources = phase("PBXSourcesBuildPhase", "ORMDesignerTests", "Sources",
 app_tests_resources = phase("PBXResourcesBuildPhase", "ORMDesignerTests", "Resources",
                             [buildfile("ORMDesignerTests.app", app_refs[r]) for r in APP_TEST_RESOURCES])
 app_tests_frameworks = phase("PBXFrameworksBuildPhase", "ORMDesignerTests", "Frameworks",
-                             [buildfile("ORMDesignerTests", p_kit), buildfile("ORMDesignerTests", p_runtime),
+                             [buildfile("ORMDesignerTests", p_designerkit), buildfile("ORMDesignerTests", p_kit),
+                              buildfile("ORMDesignerTests", p_runtime),
                               buildfile("ORMDesignerTests", sdk["AppKit"]),
                               buildfile("ORMDesignerTests", diagramkit), buildfile("ORMDesignerTests", diagramkitui),
                               buildfile("ORMDesignerTests", sdk["XCTest"])])
@@ -280,6 +305,10 @@ g_kit = group("ORMKit", "ORMKit", [kit_refs[f] for f in by_stem(KIT_SOURCES + KI
 g_kit_tests = group("ORMKitTests", "ORMKitTests", [kit_test_refs[f] for f in by_stem(KIT_TESTS + KIT_TEST_HEADERS)],
                     "ORMKitTests")
 g_tool = group("ormtool", "ormtool", [tool_refs[f] for f in TOOL_SOURCES], "Tools/ormtool")
+g_designerkit = group("ORMDesignerKit", "ORMDesignerKit",
+                      [designerkit_refs[f] for f in by_stem([f for f in DESIGNERKIT_SOURCES + DESIGNERKIT_PUBLIC if "/" not in f])]
+                      + [designerkit_refs[f] for f in DESIGNERKIT_RESOURCES + [f for f in DESIGNERKIT_SOURCES if "/" in f]],
+                      "ORMDesignerKit")
 g_app = group("ORMDesigner", "ORMDesigner",
               [app_refs[f] for f in by_stem(sorted(set(APP_SOURCES + APP_HEADERS
                                                        + [t for t in APP_TESTED if "/" not in t])))]
@@ -288,8 +317,9 @@ g_app_tests = group("ORMDesignerTests", "ORMDesignerTests", [app_test_refs[f] fo
 g_docs = group("Docs", "Docs", [doc_refs[d] for d in DOCS])
 g_frameworks = group("Frameworks", "Frameworks", [sdk[f] for f in ("Foundation", "AppKit", "XCTest")]
                      + [coredata, odatakit, odatastore, otelkit, odataservice, httpserverkit, sparkle, diagramkit, diagramkitui])
-g_products = group("Products", "Products", [p_runtime, p_kit, p_kit_tests, p_tool, p_app, p_app_tests])
-g_main = group("main", PROJECT, [g_docs, g_runtime, g_kit, g_kit_tests, g_tool, g_app, g_app_tests, g_frameworks, g_products])
+g_products = group("Products", "Products", [p_runtime, p_kit, p_kit_tests, p_tool, p_designerkit, p_app, p_app_tests])
+g_main = group("main", PROJECT, [g_docs, g_runtime, g_kit, g_kit_tests, g_tool, g_designerkit, g_app, g_app_tests,
+                                 g_frameworks, g_products])
 objects[g_main] = ("", [(k, v) for k, v in objects[g_main][1] if k != "name"])
 
 
@@ -382,8 +412,22 @@ TARGET_SETTINGS = {
                                    + ')',
         "PRODUCT_NAME": q("$(TARGET_NAME)"),
     },
+    "ORMDesignerKit": {
+        "DEFINES_MODULE": "YES",
+        "DYLIB_COMPATIBILITY_VERSION": "1",
+        "DYLIB_CURRENT_VERSION": "1",
+        "DYLIB_INSTALL_NAME_BASE": q("@rpath"),
+        "GENERATE_INFOPLIST_FILE": "YES",
+        "INFOPLIST_KEY_NSHumanReadableCopyright": q("Copyright (C) 2026 the ORMKit contributors. LGPL 2.1."),
+        "INSTALL_PATH": q("$(LOCAL_LIBRARY_DIR)/Frameworks"),
+        "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/../Frameworks", "@loader_path/Frameworks")',
+        "PRODUCT_BUNDLE_IDENTIFIER": "org.ormkit.ORMDesignerKit",
+        "PRODUCT_NAME": q("$(TARGET_NAME)"),
+        "SKIP_INSTALL": "YES",
+    },
     "ORMDesigner": {
         "ASSETCATALOG_COMPILER_APPICON_NAME": '""',
+        "HEADER_SEARCH_PATHS": q("$(SRCROOT)/ORMDesignerKit"),
         "GENERATE_INFOPLIST_FILE": "NO",
         "INFOPLIST_FILE": q("ORMDesigner/ORMDesigner-Info.plist"),
         "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/../Frameworks")',
@@ -392,7 +436,7 @@ TARGET_SETTINGS = {
     },
     "ORMDesignerTests": {
         "GENERATE_INFOPLIST_FILE": "YES",
-        "HEADER_SEARCH_PATHS": q("$(SRCROOT)/ORMDesigner"),
+        "HEADER_SEARCH_PATHS": '("$(SRCROOT)/ORMDesigner", "$(SRCROOT)/ORMDesignerKit")',
         "LD_RUNPATH_SEARCH_PATHS": '("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks")',
         "PRODUCT_BUNDLE_IDENTIFIER": "org.ormkit.ORMDesignerTests",
         "PRODUCT_NAME": q("$(TARGET_NAME)"),
@@ -455,10 +499,13 @@ t_kit_tests = target("ORMKitTests", [kit_tests_sources, kit_tests_frameworks],
                      "com.apple.product-type.bundle.unit-test")
 t_tool = target("ormtool", [tool_sources, tool_frameworks], [dependency("ormtool", t_kit, "ORMKit")], p_tool,
                 "com.apple.product-type.tool")
+t_designerkit = target("ORMDesignerKit", [designerkit_headers, designerkit_sources, designerkit_resources,
+                                         designerkit_frameworks],
+                       [dependency("ORMDesignerKit", t_kit, "ORMKit")], p_designerkit, "com.apple.product-type.framework")
 t_app = target("ORMDesigner", [app_sources, app_resources, app_frameworks, app_embed],
-               [dependency("ORMDesigner", t_kit, "ORMKit")], p_app, "com.apple.product-type.application")
+               [dependency("ORMDesigner", t_designerkit, "ORMDesignerKit")], p_app, "com.apple.product-type.application")
 t_app_tests = target("ORMDesignerTests", [app_tests_sources, app_tests_resources, app_tests_frameworks],
-                     [dependency("ORMDesignerTests", t_kit, "ORMKit")], p_app_tests,
+                     [dependency("ORMDesignerTests", t_designerkit, "ORMDesignerKit")], p_app_tests,
                      "com.apple.product-type.bundle.unit-test")
 
 cl_project = configs("project", DEBUG, RELEASE)
@@ -474,7 +521,7 @@ add(project_id, "Project object", [
     ("productRefGroup", "%s /* Products */" % g_products),
     ("projectDirPath", '""'),
     ("projectRoot", '""'),
-    ("targets", names([t_runtime, t_kit, t_kit_tests, t_tool, t_app, t_app_tests])),
+    ("targets", names([t_runtime, t_kit, t_kit_tests, t_tool, t_designerkit, t_app, t_app_tests])),
 ])
 
 
@@ -555,12 +602,14 @@ runtime_ref = reference(t_runtime, "ORMRuntime", "ORMRuntime.framework")
 kit_ref = reference(t_kit, "ORMKit", "ORMKit.framework")
 kit_tests_ref = reference(t_kit_tests, "ORMKitTests", "ORMKitTests.xctest")
 tool_ref = reference(t_tool, "ormtool", "ormtool")
+designerkit_ref = reference(t_designerkit, "ORMDesignerKit", "ORMDesignerKit.framework")
 app_ref = reference(t_app, "ORMDesigner", "ORMDesigner.app")
 app_tests_ref = reference(t_app_tests, "ORMDesignerTests", "ORMDesignerTests.xctest")
 scheme("ORMRuntime", [runtime_ref])
 scheme("ORMKit", [kit_ref], test=kit_tests_ref)
 scheme("ORMKitTests", [kit_tests_ref], test=kit_tests_ref)
 scheme("ormtool", [tool_ref], run=tool_ref)
-scheme("ORMDesigner", [kit_ref, app_ref], test=app_tests_ref, run=app_ref)
+scheme("ORMDesignerKit", [designerkit_ref])
+scheme("ORMDesigner", [kit_ref, designerkit_ref, app_ref], test=app_tests_ref, run=app_ref)
 scheme("ORMDesignerTests", [app_tests_ref], test=app_tests_ref)
 print("wrote", proj)

@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMCoreDataController.h"
+#import "ORMPane.h"
 
 /* A preview row: an entity, or one of its properties. */
 @interface ORMPreviewItem : NSObject
@@ -52,7 +53,7 @@ ORMActionTitles(void)
 
 - (instancetype)initWithEditor:(ORMEditor *)editor documentURL:(NSURL *)documentURL
 {
-	if ((self = [super initWithWindowNibName:@"ORMCoreDataWindow"])) {
+	if ((self = [super initWithWindowNibPath:ORMDesignerKitNibPath(@"ORMCoreDataWindow") owner:self])) {
 		_editor = editor;
 		_documentURL = [documentURL copy];
 		[self window];

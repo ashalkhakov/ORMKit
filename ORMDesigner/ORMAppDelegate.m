@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMAppDelegate.h"
+#import <objc/runtime.h>
 #import "ORMCanvasView.h"
 #import "ORMDocument.h"
 #import "ORMSampleMenu.h"
@@ -44,7 +45,7 @@ static const NSInteger ORMCheckForUpdatesTag = 1001;
 		for (NSMenuItem *item in [menu itemArray]) {
 			if ([item submenu] != nil) {
 				[pending addObject:[item submenu]];
-			} else if ([item action] == @selector(arrangeInFront:)) {
+			} else if (sel_isEqual([item action], @selector(arrangeInFront:))) {
 				[NSApp setWindowsMenu:[item menu]];
 			}
 		}
@@ -75,7 +76,7 @@ static const NSInteger ORMCheckForUpdatesTag = 1001;
 
 - (BOOL)validateMenuItem:(NSMenuItem *)item
 {
-	if ([item action] == @selector(checkForUpdates:)) {
+	if (sel_isEqual([item action], @selector(checkForUpdates:))) {
 		return self.updater.canCheckForUpdates;
 	}
 	return YES;

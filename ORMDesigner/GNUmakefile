@@ -2,52 +2,32 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 APP_NAME = ORMDesigner
 ORMDesigner_NEEDS_GUI = yes
-# ORMDesignerCompat.h: current AppKit names gnustep-gui spells the old way.
-ORMDesigner_OBJCFLAGS += -fobjc-arc -fblocks -Wall -Werror=logical-not-parentheses -include ORMDesignerCompat.h
+# ORMDesignerCompat.h (ORMDesignerKit's): current AppKit names gnustep-gui
+# spells the old way.
+ORMDesigner_OBJCFLAGS += -fobjc-arc -fblocks -Wall -Werror=logical-not-parentheses -include ../ORMDesignerKit/ORMDesignerCompat.h
 include ../odatakit.make
-ORMDesigner_INCLUDE_DIRS = -I../ORMKit -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
+ORMDesigner_INCLUDE_DIRS = -I../ORMDesignerKit -I../ORMKit -I../ORMRuntime $(ODATAKIT_INCLUDE_DIRS)
+# The app: its delegate, menu bar, samples and updates. The editor is
+# ORMDesignerKit's.
 ORMDesigner_OBJC_FILES = \
   main.m \
   ORMUpdater-GNUstep.m \
   ORMAppDelegate.m \
-  ORMDocument.m \
-  ORMWindowController.m \
-  ORMCanvasView.m \
-  ORMRenderer.m \
-  ORMInspectorView.m \
-  ORMModelBrowser.m \
-  ORMCoreDataController.m \
-  ORMQueryController.m \
-  ORMSampleMenu.m \
-  ORMPane.m \
-  ORMInsertPalette.m \
-  ORMIssuesView.m \
-  ORMSearchNavigator.m \
-  ORMPopulationView.m \
-  ThirdParty/DMTabBar/DMTabBar.m \
-  ThirdParty/DMTabBar/DMTabBarItem.m
-# ORMKit is built in the tree beside this one and not installed.
-ADDITIONAL_LIB_DIRS += -L../ORMKit/$(GNUSTEP_OBJ_DIR) -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
+  ORMSampleMenu.m
+# ORMDesignerKit and ORMKit are built in the tree beside this one and not installed.
+ADDITIONAL_LIB_DIRS += -L../ORMDesignerKit/ORMDesignerKit.framework/Versions/Current -L../ORMKit/$(GNUSTEP_OBJ_DIR) \
+  -L../ORMRuntime/$(GNUSTEP_OBJ_DIR) $(ODATAKIT_LIB_DIRS)
 # GSUpdater, the stack's: the designer's updates (ORMUpdater-GNUstep.m).
-ORMDesigner_OBJC_LIBS += -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -lGSUpdater -ldispatch
+ORMDesigner_OBJC_LIBS += -lORMDesignerKit -lORMKit -lORMRuntime $(ODATAKIT_LIBS) $(DIAGRAMKITUI_LIBS) -lGSUpdater -ldispatch
 # The icon GNUstep shows in the About panel, on windows and in the dock
 # tile; the AppImage installs the same file as its desktop icon.
 ORMDesigner_APPLICATION_ICON = ORMDesigner.png
-# The windows and the menu bar are XIBs. Xcode compiles them to .nib; here
-# they are copied in as they are, and gnustep-gui reads the XIB directly
-# (GSXib5). Both are found by the same -initWithNibNamed:, so no path or
-# extension appears in the source.
+# The menu bar is a XIB (the windows are ORMDesignerKit's). Xcode compiles
+# it to .nib; here it is copied in as it is, and gnustep-gui reads the XIB
+# directly (GSXib5).
 ORMDesigner_RESOURCE_FILES = \
   ORMDesigner.png \
   MainMenu.xib \
-  ORMQueryWindow.xib \
-  ORMCoreDataWindow.xib \
-  ORMDocumentWindow.xib \
-  ORMInsertPalette.xib \
-  ORMIssuesView.xib \
-  ORMSearchNavigator.xib \
-  ORMPopulationView.xib \
-  ThirdParty/DMTabBar/LICENSE-DMTabBar.txt \
   ../Samples \
   ../ORMKitTests/Fixtures/ActiveFacts \
   ../ORMKitTests/Fixtures/StockMate.orm
