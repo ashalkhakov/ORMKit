@@ -59,8 +59,10 @@ def mac_half(source):
 
 # UDCode's ORM2 extension: its sources and resources, its Info.plist, and
 # its tests against UDCode's document and text model.
-ORM2_SOURCES = make_list("UDCodeExtension/GNUmakefile", "ORM2_OBJC_FILES")
-ORM2_RESOURCES = make_list("UDCodeExtension/GNUmakefile", "ORM2_RESOURCE_FILES")
+# (Its GNUstep build compiles ORMDesignerKit's in, a make expression in its
+# lists; on the Mac ORMDesignerKit is the framework it carries.)
+ORM2_SOURCES = [f for f in make_list("UDCodeExtension/GNUmakefile", "ORM2_OBJC_FILES") if "$" not in f and "," not in f]
+ORM2_RESOURCES = [f for f in make_list("UDCodeExtension/GNUmakefile", "ORM2_RESOURCE_FILES") if "$" not in f and "," not in f]
 ORM2_HEADERS = headers_in("UDCodeExtension")
 ORM2_TESTS = [t for t in make_list("UDCodeExtension/Tests/GNUmakefile", "ORM2Tests_OBJC_FILES") if not t.startswith("../")]
 APP_SOURCES = [mac_half(s) for s in make_list("ORMDesigner/GNUmakefile", "ORMDesigner_OBJC_FILES")]
