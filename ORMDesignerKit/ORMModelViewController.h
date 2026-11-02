@@ -25,6 +25,11 @@
 /* From ORMModelView.xib, in this framework. */
 - (instancetype)initWithEditor:(ORMEditor *)editor;
 
+/* The Model, Diagram, Core Data and Query menus, from ORMModelMenus.xib,
+ * new each time: a menu bar's (ORMDesigner's, after Edit) or a host's. Their
+ * items go to the first responder, so to an editor in the chain. */
++ (NSArray<NSMenuItem *> *)modelMenuItems;
+
 /* What is edited; set anew (a revert, a model read again), everything is
  * shown from the new one. */
 @property (nonatomic, strong) ORMEditor *editor;

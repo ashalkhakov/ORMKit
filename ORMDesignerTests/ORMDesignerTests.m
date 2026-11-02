@@ -1290,6 +1290,21 @@
 	XCTAssertTrue([[[_controller view] window] isEqual:[[[_document windowControllers] firstObject] window]]);
 }
 
+/* The model's menus are ORMDesignerKit's, for a host's menus too; the
+ * menu bar has them after Edit. */
+- (void)testTheModelMenusAreTheKits
+{
+	NSArray *titles = [[ORMModelViewController modelMenuItems] valueForKey:@"title"];
+	NSArray *expected = @[ @"Model", @"Diagram", @"Core Data", @"Query" ];
+	XCTAssertEqualObjects(titles, expected);
+	XCTAssertNotEqual([[ORMModelViewController modelMenuItems] firstObject], [[ORMModelViewController modelMenuItems] firstObject]);
+	NSMenu *menu = [ORMAppDelegate newMainMenu];
+	NSArray *bar = [[menu itemArray] valueForKey:@"title"];
+	NSUInteger edit = [bar indexOfObject:@"Edit"];
+	XCTAssertNotEqual(edit, (NSUInteger)NSNotFound);
+	XCTAssertEqualObjects([bar subarrayWithRange:NSMakeRange(edit + 1, 4)], expected);
+}
+
 - (void)testEveryMenuItemHasSomewhereToGo
 {
 	[self open:@"StockMate.orm"];

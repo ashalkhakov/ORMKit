@@ -517,6 +517,10 @@
 			fileRef = A9D9814A2C114AAD16CD818C /* ORMJoinedObject.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
+		71EB74E007D4D2103D48DB07 /* ORMModelMenus.xib */ = {
+			isa = PBXBuildFile;
+			fileRef = 33259032F6265EC521DE7B8A /* ORMModelMenus.xib */;
+		};
 		74314B8807EA9243DB528509 /* ORMEditorTests.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 419C737D2F0800F7C9C779E7 /* ORMEditorTests.m */;
@@ -1478,6 +1482,12 @@
 			includeInIndex = 0;
 			path = ORMDesignerTests.xctest;
 			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		33259032F6265EC521DE7B8A /* ORMModelMenus.xib */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = file.xib;
+			path = ORMModelMenus.xib;
+			sourceTree = "<group>";
 		};
 		35B947FF1308232DEB74D77C /* ORMSaveHook.m */ = {
 			isa = PBXFileReference;
@@ -2671,6 +2681,7 @@
 				420055A0803065C0537AA004 /* ORMWindowController.h */,
 				A6A86626353C2DDB3854A54B /* ORMWindowController.m */,
 				A723EAAAFCAB087278A51924 /* ORMModelView.xib */,
+				33259032F6265EC521DE7B8A /* ORMModelMenus.xib */,
 				75F119AC21369F9D1D276093 /* ORMDocumentWindow.xib */,
 				874FCA9E3F275A6569365695 /* ORMQueryWindow.xib */,
 				2266019FAA1FC3D078706893 /* ORMCoreDataWindow.xib */,
@@ -3209,6 +3220,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				46384B6AEF8A1D7B774D1CFA /* ORMModelView.xib */,
+				71EB74E007D4D2103D48DB07 /* ORMModelMenus.xib */,
 				55F4C57FE24CDEE8A76DDD03 /* ORMDocumentWindow.xib */,
 				A6B69F0B01CDA948A9C675A3 /* ORMQueryWindow.xib */,
 				1B6CED7F224998DB745AED02 /* ORMCoreDataWindow.xib */,

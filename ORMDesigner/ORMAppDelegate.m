@@ -3,6 +3,7 @@
 #import <objc/runtime.h>
 #import "ORMCanvasView.h"
 #import "ORMDocument.h"
+#import "ORMModelViewController.h"
 #import "ORMSampleMenu.h"
 #import "ORMUpdater.h"
 
@@ -13,6 +14,7 @@ static const NSInteger ORMCheckForUpdatesTag = 1001;
 @interface ORMAppDelegate ()
 @property (nonatomic, strong) IBOutlet NSMenu *mainMenu;
 @property (nonatomic, strong) IBOutlet NSMenu *sampleMenu;
+@property (nonatomic, strong) IBOutlet NSMenu *editMenu;
 @property (nonatomic, strong) ORMUpdater *updater;
 @end
 
@@ -34,6 +36,11 @@ static const NSInteger ORMCheckForUpdatesTag = 1001;
 		if (check != nil) {
 			[appMenu removeItem:check];
 		}
+	}
+	/* The model's menus, ORMDesignerKit's, after Edit. */
+	NSInteger after = [self.mainMenu indexOfItemWithSubmenu:self.editMenu];
+	for (NSMenuItem *item in [ORMModelViewController modelMenuItems]) {
+		[self.mainMenu insertItem:item atIndex:++after];
 	}
 	[ORMSampleMenu fillMenu:self.sampleMenu
 	             withModels:[ORMSampleMenu modelsInBundle:bundle]

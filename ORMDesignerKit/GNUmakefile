@@ -54,6 +54,7 @@ ORMDesignerKit_OBJC_FILES = \
 # are copied in as they are, and gnustep-gui reads the XIB directly (GSXib5).
 ORMDesignerKit_RESOURCE_FILES = \
   ORMModelView.xib \
+  ORMModelMenus.xib \
   ORMDocumentWindow.xib \
   ORMQueryWindow.xib \
   ORMCoreDataWindow.xib \

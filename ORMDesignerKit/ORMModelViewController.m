@@ -55,6 +55,24 @@ static const double ORMFactBarHeight = 30;
 	BOOL _verbalizesModel;
 }
 
++ (NSArray<NSMenuItem *> *)modelMenuItems
+{
+	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"ORMModelMenus" bundle:[NSBundle bundleForClass:[ORMModelViewController class]]];
+	NSArray *objects = nil;
+	/* An owner the XIB has no use for: gnustep-gui's NSNib takes no nil one. */
+	if (![nib instantiateWithOwner:[[NSObject alloc] init] topLevelObjects:&objects]) {
+		return @[];
+	}
+	for (id object in objects) {
+		if ([object isKindOfClass:[NSMenu class]]) {
+			NSArray *items = [[(NSMenu *)object itemArray] copy];
+			[(NSMenu *)object removeAllItems];
+			return items;
+		}
+	}
+	return @[];
+}
+
 - (instancetype)initWithEditor:(ORMEditor *)editor
 {
 	if ((self = [super initWithNibName:@"ORMModelView" bundle:[NSBundle bundleForClass:[ORMModelViewController class]]])) {
