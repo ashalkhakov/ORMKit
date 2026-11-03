@@ -22,7 +22,7 @@ Each ORMKit release attaches a package for each platform:
 Install it with **UDCode > Extensions… > Install from Package…**, or from a
 shell with `UDCode --install-extension orm2-<version>-<platform>.udcx`, then
 start UDCode again. A package states which UDCode versions it is for
-(`engines.udcode` in its `package.json`), and UDCode refuses one built for
+(`engines.udcode` in its `package.json`: 0.18 and later), and UDCode refuses one built for
 another version or another platform.
 
 ## Using it
@@ -58,9 +58,10 @@ for text files work here too:
   saved: ORMKit drops what NORMA generates from the model (its relational
   bridge and its list of model errors), and NORMA regenerates both when it
   opens the file.
-- **Open as text** shows the XML in a normal editor tab, using the XML
-  mode's highlighting. Edits made there appear in the model tab the next
-  time it is shown.
+- **View > Open as Text** (UDCode 0.18.1 and later) shows the XML in a
+  normal editor tab, with the XML mode's highlighting, beside the model's.
+  The two tabs are the same document: edits made in the text appear in the
+  model tab the next time it is shown, and the model's in the text.
 
 A file that is not a model (broken XML, say) opens with a message
 explaining why, and offers to show it as text.
