@@ -42,7 +42,8 @@ jobs:
     with:
       tag: ${{ inputs.tag }}
       library: true
-      extra-packages: libsqlite3-dev
+      # patchelf and zip: the ORM2 extension's package (Scripts/udcx.sh)
+      extra-packages: libsqlite3-dev patchelf zip
 
   windows:
     uses: ashalkhakov/gnustep-release-actions/.github/workflows/windows.yml@v1

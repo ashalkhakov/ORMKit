@@ -1,6 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMWindowController.h"
 #import "ORMDocument.h"
+#import "ORMPane.h"
 
 @implementation ORMWindowController
 {
@@ -11,7 +12,7 @@
  * app's bundle. */
 - (instancetype)initWithDocument:(ORMDocument *)document
 {
-	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"ORMDocumentWindow" bundle:[NSBundle bundleForClass:[ORMWindowController class]]];
+	NSNib *nib = [[NSNib alloc] initWithNibNamed:@"ORMDocumentWindow" bundle:ORMDesignerKitBundle()];
 	NSArray *objects = nil;
 	if ((self = [super initWithWindow:nil])) {
 		_document = document;

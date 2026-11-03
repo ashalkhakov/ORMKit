@@ -17,7 +17,7 @@ ORMFillHost(NSView *host, NSView *view)
 BOOL
 ORMLoadPaneNib(NSView *pane, NSString *name)
 {
-	NSNib *nib = [[NSNib alloc] initWithNibNamed:name bundle:[NSBundle bundleForClass:[pane class]]];
+	NSNib *nib = [[NSNib alloc] initWithNibNamed:name bundle:ORMDesignerKitBundle()];
 	return nib != nil && [nib instantiateWithOwner:pane topLevelObjects:NULL];
 }
 
@@ -54,6 +54,11 @@ ORMTabBadge(NSString *letters, double red, double green, double blue)
 
 NSString *ORMDesignerKitNibPath(NSString *name)
 {
-	NSBundle *bundle = [NSBundle bundleForClass:NSClassFromString(@"ORMModelViewController")];
+	NSBundle *bundle = ORMDesignerKitBundle();
 	return [bundle pathForResource:name ofType:@"nib"] ?: [bundle pathForResource:name ofType:@"xib"];
+}
+
+NSBundle *ORMDesignerKitBundle(void)
+{
+	return [NSBundle bundleForClass:NSClassFromString(@"ORMModelViewController")];
 }

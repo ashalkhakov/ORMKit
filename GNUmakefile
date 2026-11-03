@@ -21,6 +21,11 @@ include $(GNUSTEP_MAKEFILES)/common.make
 
 PACKAGE_NAME = ORMKit
 SUBPROJECTS = ORMRuntime ORMKit Tools/ormtool ORMDesignerKit ORMDesigner
+# UDCode's ORM2 extension, where UDCode's SDK is installed (.github/pins.env's
+# UDCODEKIT_VERSION; UDCodeExtension/GNUmakefile).
+ifneq ($(wildcard $(GNUSTEP_LOCAL_HEADERS)/UDCodeKit/UDExtension.h $(GNUSTEP_SYSTEM_HEADERS)/UDCodeKit/UDExtension.h),)
+SUBPROJECTS += UDCodeExtension
+endif
 
 include $(GNUSTEP_MAKEFILES)/aggregate.make
 
@@ -37,8 +42,10 @@ check::
 	Scripts/check-imports.sh
 	$(MAKE) -C ORMKitTests run-tests $(ORM_SANITIZE)
 	$(XVFB) $(MAKE) -C ORMDesignerTests run-tests $(ORM_SANITIZE)
+	$(if $(filter UDCodeExtension,$(SUBPROJECTS)),$(XVFB) $(MAKE) -C UDCodeExtension/Tests run-tests)
 	$(ORM_RUN) Scripts/ormtool-smoke.sh Tools/ormtool/$(GNUSTEP_OBJ_DIR_NAME)/ormtool
 
 after-clean::
 	$(MAKE) -C ORMKitTests clean
 	$(MAKE) -C ORMDesignerTests clean
+	-$(MAKE) -C UDCodeExtension/Tests clean

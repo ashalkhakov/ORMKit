@@ -46,12 +46,15 @@ XCODEBUILD = xcodebuild -workspace ORMKit.xcworkspace -derivedDataPath $(DERIVED
 # the designer's editor, for an app that edits models (UDCode's ORM2
 # extension).
 FRAMEWORKS = ORMRuntime ORMKit ORMDesignerKit
+# UDCode's ORM2 extension, where UDCode's SDK is in .deps (.github/pins.env's
+# UDCODEKIT_VERSION): its bundle, which Scripts/udcx.sh packages, and its tests.
+ORM2 = $(if $(wildcard .deps/UDCodeKit.xcframework),ORM2)
 IOS_FRAMEWORKS = ORMRuntime
 
 all:
 	@test -d .deps/ODataKit.xcframework -a -d .deps/Sparkle.xcframework -a -d .deps/DiagramKitUI.xcframework \
 	  || { echo "no ODataKit, Sparkle or DiagramKit in .deps: gnustep-release-actions' scripts/deps.sh apple fetches what .github/pins.env names"; exit 1; }
-	@for scheme in ORMKit ormtool ORMDesignerKit ORMDesigner; do \
+	@for scheme in ORMKit ormtool ORMDesignerKit ORMDesigner $(ORM2); do \
 	  $(XCODEBUILD) -scheme $$scheme -configuration Release -destination 'generic/platform=macOS' build || exit 1; \
 	done
 	@for fw in $(IOS_FRAMEWORKS); do \
@@ -77,7 +80,7 @@ check:
 	@for scheme in ORMKit ORMDesigner ormtool; do \
 	  $(XCODEBUILD) -scheme $$scheme -configuration Debug -destination 'platform=macOS' build || exit 1; \
 	done
-	@for suite in ORMKitTests ORMDesignerTests; do \
+	@for suite in ORMKitTests ORMDesignerTests $(ORM2:%=%Tests); do \
 	  rm -rf $(RESULTS)/$$suite.xcresult; \
 	  $(XCODEBUILD) -scheme $$suite -destination 'platform=macOS' -resultBundlePath $(RESULTS)/$$suite.xcresult test || exit 1; \
 	done
