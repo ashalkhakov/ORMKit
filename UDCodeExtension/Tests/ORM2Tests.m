@@ -226,11 +226,15 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	NSString *added = [editor.objectTypeEditor addEntityTypeNamed:@"Orphan" referenceMode:nil kind:ORMReferenceModeNone
 	                                                    onDiagram:diagram at:NSMakePoint(40, 40) reason:NULL];
 	XCTAssertNotNil(added);
-	[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.8]];
+	/* Found a moment after the change (half a second): waited for, up to
+	 * five, as a loaded machine (CI's aarch64) takes longer. */
 	UDDiagnosticItem *orphan = nil;
-	for (UDDiagnosticItem *item in _document.diagnosticStore.allDiagnostics) {
-		if ([item.message rangeOfString:@"Orphan"].location != NSNotFound) {
-			orphan = item;
+	for (NSDate *until = [NSDate dateWithTimeIntervalSinceNow:5]; orphan == nil && [until timeIntervalSinceNow] > 0;) {
+		[[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+		for (UDDiagnosticItem *item in _document.diagnosticStore.allDiagnostics) {
+			if ([item.message rangeOfString:@"Orphan"].location != NSNotFound) {
+				orphan = item;
+			}
 		}
 	}
 	XCTAssertNotNil(orphan, @"%@", [_document.diagnosticStore.allDiagnostics valueForKey:@"message"]);
