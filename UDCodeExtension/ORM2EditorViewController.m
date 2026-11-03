@@ -299,6 +299,36 @@ static UDDiagnosticSource const ORM2IssueSource = @"orm2";
 	return inspector != nil ? @[ inspector ] : @[];
 }
 
+/* Element's tab: Xcode's Attributes inspector's sliders, drawn on GNUstep,
+   which has no SF Symbols. */
+- (NSImage *)imageForInspectorViewController:(NSViewController *)viewController
+{
+	if (viewController != _modelController.inspectorController) {
+		return nil;
+	}
+#ifndef GNUSTEP
+	if ([NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)]) {
+		return [NSImage imageWithSystemSymbolName:@"slider.horizontal.3" accessibilityDescription:viewController.title];
+	}
+#endif
+	NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(16, 16)];
+	[image lockFocus];
+	[[NSColor colorWithCalibratedWhite:0.25 alpha:1] set];
+	CGFloat knobs[] = { 10.5, 5.5, 8.5 };
+	for (NSInteger row = 0; row < 3; row++) {
+		CGFloat y = 3.5 + 4.5 * row;
+		NSBezierPath *track = [NSBezierPath bezierPath];
+		[track moveToPoint:NSMakePoint(1.5, y)];
+		[track lineToPoint:NSMakePoint(14.5, y)];
+		[track setLineWidth:1.2];
+		[track setLineCapStyle:NSRoundLineCapStyle];
+		[track stroke];
+		[[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(knobs[row] - 1.8, y - 1.8, 3.6, 3.6)] fill];
+	}
+	[image unlockFocus];
+	return image;
+}
+
 - (NSArray<NSViewController *> *)bottomAreaViewControllers
 {
 	return _modelController.lowerControllers ?: @[];
