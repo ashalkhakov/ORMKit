@@ -170,6 +170,11 @@ ORMQueryAggregateNames(void)
 /* What the stored query says, its object types, fact types and roles
  * looked up in the model. */
 + (ORMQuery *)queryOf:(ORMStoredQuery *)stored model:(ORMModel *)model;
+/* The stored query with each step through a derived fact type that is not
+ * stored put as its derivation's path (-expandedInModel:notes:): a copy, the
+ * query itself where there is none, nil (and why in notes) where a step
+ * cannot be. */
++ (ORMStoredQuery *)expansionOf:(ORMStoredQuery *)stored model:(ORMModel *)model notes:(NSMutableArray<NSString *> *)notes;
 - (ORMQueryNode *)nodeOf:(ORMQueryPart *)part type:(ORMObjectType *)type role:(ORMRole *)role model:(ORMModel *)model;
 - (ORMQueryStep *)stepOf:(ORMQueryPart *)part parent:(ORMQueryNode *)parent model:(ORMModel *)model;
 - (void)collect:(ORMQueryNode *)node into:(NSMutableArray *)nodes;
@@ -1415,6 +1420,15 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 	if (stored == nil) {
 		return self;
 	}
+	ORMStoredQuery *expanded = [ORMQuery expansionOf:stored model:model notes:notes];
+	if (expanded == nil) {
+		return nil;
+	}
+	return expanded == stored ? self : [ORMQuery queryOf:expanded model:model];
+}
+
++ (ORMStoredQuery *)expansionOf:(ORMStoredQuery *)stored model:(ORMModel *)model notes:(NSMutableArray<NSString *> *)notes
+{
 	ORMStoredQuery *copy = nil;
 	/* The steps through a partly derived fact type kept for its facts
 	 * entered: gone through as they are. */
@@ -1507,7 +1521,7 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 			return nil;
 		}
 	}
-	return copy != nil ? [ORMQuery queryOf:copy model:model] : self;
+	return copy ?: stored;
 }
 
 + (ORMQuery *)queryOf:(ORMStoredQuery *)stored model:(ORMModel *)model
