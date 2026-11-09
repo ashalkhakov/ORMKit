@@ -182,7 +182,9 @@ identified (a name, a state, a country).
 
 | In the outline | Meaning |
 | --- | --- |
-| `✓X` | X is listed |
+| `✓X` | X is listed; in a form, X is shown ([FORMS.md](FORMS.md)) |
+| `✎X` | in a form, X is entered: the user gives its value |
+| `X = ?` | in a form, X is given: its value comes in as the form is opened |
 | `X = v`, `<>`, `<`, `<=`, `>`, `>=` | a condition on X's value, or on its identifier |
 | `X in ('Maintenance', 'Repair')`, `X in (4, 5)` | X is one of a list: any of its values (planned as equalities, any of them; in NORMA's path, a value range for each) |
 | `+ not ...` | there is no such step |
@@ -224,8 +226,9 @@ says (ORMOutlineReader), as one change:
   value node of that node (`Name: Type = ...` gives its value type), made
   once every step is; a comparison after the expression, outside its
   parentheses, is its condition.
-- A constraint's first line (`It is impossible that:`) or a calculation's
-  (`Total of each Branch is total(Salary) of:`) says what the query is for.
+- A constraint's first line (`It is impossible that:`), a calculation's
+  (`Total of each Branch is total(Salary) of:`) or a form's (`Form
+  RecordFillUp:`) says what the query is for.
 
 A line it cannot read is refused with its number and why, and nothing is
 made: `Line 2, "+ flies to Mars": no fact type of Employee reads so`. The

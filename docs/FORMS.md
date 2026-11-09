@@ -10,9 +10,9 @@ laid out, is not the model's business; any XForms processor can run it, a
 native UI can be laid out over it, and its developers can customize it without
 losing what they did when it is generated again.
 
-This is a design. Nothing in it is built yet; [Steps](#steps) says in what
-order it would be, and [Open questions](#open-questions) what is not
-settled.
+This is a design, built a step at a time: [Steps](#steps) says in what
+order, and which are done, and [Open questions](#open-questions) what is
+not settled.
 
 ## Why
 
@@ -453,7 +453,15 @@ validation code is. Customizations are documents of their own beside it
 
 1. **Forms in the file and the model.** `Kind="Form"`, `Part`, `Given`;
    the outline reads and writes `✎`, `✓` and `= ?`; the editor's changes
-   undo.
+   undo. *Done.* A form's outline starts `Form RecordFillUp:`. In a form
+   `✓` shows a node (`Part="Shown"`, not `Projected`), and its read lists
+   what is entered and shown, so the planner plans a form as it plans a
+   list. A list made a form shows what it listed; a form made a list lists
+   what it entered and showed and gives nothing. A given node may be
+   entered or shown too (`✎City = ?`). `-[ORMQuery subschemaInModel:]` is
+   the form read as its subschema. The Queries window has Form among the
+   kinds, and a node's part and Given where a list's node has List. A
+   form with several anchors waits: one anchor for now.
 2. **Fmap: the instance.** The form's tree to an XML instance, named as the
    mapping names properties; subtypes, compound values, references, owned
    groups.
