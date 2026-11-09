@@ -1,0 +1,96 @@
+/* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
+#import "ORMQueryPlanner.h"
+
+/* A form (docs/FORMS.md) as an XForms 1.1 document: what ormtool xforms
+ * writes, generated and never edited.
+ *
+ *   Form RecordFillUp:                 <FillUp>             the instance (Fmap)
+ *   FillUp                               <id/>
+ *     + is of Vehicle1 = ?               <vehicle/>         a reference: its key
+ *     + was at ✎Moment                   <timestamp/>       typed by its bind
+ *     + cost ✎Money                      <totalAmount/>     a compound, as the
+ *                                        <totalCurrency/>   mapping absorbs it
+ *     + had driver ✎User                 <driver/>          a select1, its choices
+ *       + drives Vehicle1                                   read for that vehicle
+ *     ✓PricePerUnit = Amount / Quantity  <pricePerUnit/>    calculated
+ *
+ * Each node is placed by the column the planner gives it in the form's read
+ * (the form listed, each step a maybe, the steps under a reference left
+ * out), so its elements are named as the mapping names the properties: the
+ * entity's own representation, the same whether a store or the service
+ * holds it. The binds come from the constraints over the form's roles, each
+ * control's alert their verbalization; what the form cannot check alone is
+ * listed as checked where it is submitted. Every id is the form's node's or
+ * the constraint's, so a renamed role or a reordered outline keeps it.
+ *
+ * The document does not say where its data is: its instances and
+ * submissions name what they are ("form:read", "form:choices/driver",
+ * "form:save"), and the app that runs it resolves them, with the plans
+ * below. */
+
+extern NSString * const ORMFormNamespace;
+
+/* A place in the instance: an element of the anchor's, what it holds, and
+ * the form's node it is of. */
+typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
+	/* An attribute's value. */
+	ORMFormFieldValue,
+	/* An entity's key: one of its choices. */
+	ORMFormFieldReference,
+	/* A value node's, calculated. */
+	ORMFormFieldCalculated,
+};
+
+@interface ORMFormField : NSObject
+@property (nonatomic, readonly, copy) NSString *nodeId;
+/* Its element under the anchor's: the property's name. */
+@property (nonatomic, readonly, copy) NSString *elementName;
+@property (nonatomic, readonly) ORMFormFieldKind kind;
+/* "xsd:decimal", "xsd:dateTime", ... */
+@property (nonatomic, readonly, copy) NSString *schemaType;
+/* A reference's: the entity referred to and its key's property. */
+@property (nonatomic, readonly, copy) NSString *entityName;
+@property (nonatomic, readonly, copy) NSString *keyName;
+/* Of a compound's parts, its place among them (0 for others), and the
+ * role it is the value of: the part's, or the node's. */
+@property (nonatomic, readonly) NSUInteger partIndex;
+@property (nonatomic, readonly, weak) ORMRole *role;
+/* Its id in the document: the node's, a part's index after it. */
+- (NSString *)fieldId;
+@end
+
+@interface ORMFormDocument : NSObject
+/* The form through the mapping (the defaults for nil). nil, and why, for a
+ * query that is no form, or one the mapping cannot place. */
++ (instancetype)documentForForm:(ORMQuery *)form
+                          model:(ORMModel *)model
+                        mapping:(ORMCoreDataMapping *)mapping
+                         reason:(NSString **)reason;
+@property (nonatomic, readonly, strong) ORMQuery *form;
+@property (nonatomic, readonly, copy) NSString *entityName;
+/* The instance's elements, in outline order; the anchor's key first. */
+@property (nonatomic, readonly, copy) NSArray<ORMFormField *> *fields;
+- (ORMFormField *)fieldNamed:(NSString *)elementName;
+/* The instance as the form opens on a new object: each element empty but
+ * the given ones' (by element name). */
+- (NSXMLElement *)instanceGiven:(NSDictionary<NSString *, NSString *> *)values;
+/* The XForms document. */
+- (NSXMLDocument *)document;
+/* What the form's read is ("form:read"): the anchor, each element; of the
+ * object with the key, nil for every one. */
+- (ORMQueryPlan *)readPlanForKey:(NSString *)key;
+/* A reference's choices ("form:choices/<name>"), by its element's name:
+ * the objects of its type its conditions hold of (the users who drive that
+ * vehicle), each node they share with the form compared with that
+ * element's value where values has one. nil for no reference. */
+- (ORMQueryPlan *)choicesPlanNamed:(NSString *)elementName given:(NSDictionary<NSString *, NSString *> *)values;
+/* The references with choices, by element name, in order. */
+- (NSArray<NSString *> *)choiceNames;
+/* The elements whose values a reference's choices depend on. */
+- (NSArray<NSString *> *)elementsChoicesDependOn:(NSString *)elementName;
+/* The constraints, and the rules, the form cannot check alone, as their
+ * verbalizations: checked where it is submitted. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
+/* What the form says that the document leaves out, and why. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
+@end

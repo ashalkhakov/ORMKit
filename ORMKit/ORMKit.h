@@ -59,6 +59,7 @@
 #import "ORMRuntime.h"
 #endif
 #import "ORMQueryPlanner.h"
+#import "ORMFormDocument.h"
 #import "ORMRuleChecker.h"
 #import "ORMIssueFinder.h"
 #import "ORMDeriver.h"
