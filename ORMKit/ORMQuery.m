@@ -137,6 +137,7 @@ ORMQueryAggregateNames(void)
 
 @interface ORMQueryStep ()
 @property (nonatomic, readwrite, copy) NSString *identifier;
+@property (nonatomic, readwrite) ORMQueryFormPart formPart;
 @property (nonatomic, readwrite, strong) ORMFactType *factType;
 @property (nonatomic, readwrite, strong) ORMRole *entryRole;
 @property (nonatomic, readwrite, weak) ORMQueryNode *parent;
@@ -1677,6 +1678,8 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 	step.parent = parent;
 	step.operatorKind = [part.operatorName isEqualToString:@"Not"] ? ORMQueryNot
 		: [part.operatorName isEqualToString:@"Maybe"] ? ORMQueryMaybe : ORMQueryAnd;
+	step.formPart = [part.part isEqualToString:@"Entered"] ? ORMFormPartEntered
+		: [part.part isEqualToString:@"Shown"] ? ORMFormPartShown : ORMFormPartNone;
 	step.countComparison = part.countComparison;
 	step.aggregateValue = part.countValueText;
 	step.countValue = (NSUInteger)[step.aggregateValue integerValue];
@@ -2012,7 +2015,9 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		NSString *reading = ORMRewritePlaceholders([ORMQuery readingOfStep:step], places);
 		NSString *operator = step.operatorKind == ORMQueryNot ? @"not " : step.operatorKind == ORMQueryMaybe ? @"maybe "
 		                                                                                                       : @"";
-		[out appendFormat:@"%@+ %@%@%@\n", pad, node.combinesWithOr && !first ? @"or " : @"", operator, reading];
+		/* A form's unary step: ✎ entered, ✓ shown, after its reading. */
+		NSString *mark = step.formPart == ORMFormPartEntered ? @" ✎" : step.formPart == ORMFormPartShown ? @" ✓" : @"";
+		[out appendFormat:@"%@+ %@%@%@%@\n", pad, node.combinesWithOr && !first ? @"or " : @"", operator, reading, mark];
 		first = NO;
 		if (step.countComparison != nil && step.aggregateNode != nil) {
 			NSString *compared = step.comparesAggregates
@@ -2352,6 +2357,8 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		 * listed once it is not one, and nothing is given. */
 		for (ORMQueryPart *part in kind == ORMQueryForm || wasForm ? [query.root tree] : @[]) {
 			if (part.isStep) {
+				/* A unary step is entered or shown only in a form. */
+				part.part = kind == ORMQueryForm ? part.part : nil;
 				continue;
 			}
 			if (kind == ORMQueryForm) {
@@ -2649,6 +2656,30 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 			: formPart == ORMFormPartShown ? @"Show in Form" : @"Neither Enter nor Show in Form";
 		[self change:title part:node with:^{
 			node.part = name;
+		}];
+	}
+	return YES;
+}
+
+- (BOOL)setFormPart:(ORMQueryFormPart)formPart ofStep:(NSString *)stepId reason:(NSString **)reason
+{
+	ORMQueryPart *step = [self part:stepId step:YES];
+	ORMFactType *fact = [_editor.model elementWithId:step.ref ?: @""];
+	if (step == nil || ![[self queryOfPart:step].kind isEqualToString:@"Form"] || ![fact isKindOfClass:[ORMFactType class]]
+	    || ![fact isUnary]) {
+		if (reason != NULL) {
+			*reason = step == nil ? @"There is no such step."
+				: ![[self queryOfPart:step].kind isEqualToString:@"Form"] ? @"Only a form's steps are entered or shown."
+				: @"Only a unary step is entered or shown itself: mark its nodes.";
+		}
+		return NO;
+	}
+	NSString *name = formPart == ORMFormPartEntered ? @"Entered" : formPart == ORMFormPartShown ? @"Shown" : nil;
+	if (![step.part ?: @"" isEqualToString:name ?: @""]) {
+		NSString *title = formPart == ORMFormPartEntered ? @"Enter in Form"
+			: formPart == ORMFormPartShown ? @"Show in Form" : @"Neither Enter nor Show in Form";
+		[self change:title part:step with:^{
+			step.part = name;
 		}];
 	}
 	return YES;

@@ -490,7 +490,10 @@ ORMCellText(id value)
 	[_listCheck setHidden:form];
 	[_formPartPopUp setHidden:!form];
 	[_givenCheck setHidden:!form];
-	[_formPartPopUp selectItemAtIndex:node != nil ? node.formPart : 0];
+	/* A unary step has no node: it is entered or shown itself. */
+	BOOL unary = step != nil && [step.factType isUnary];
+	[_formPartPopUp setEnabled:node != nil || (form && unary)];
+	[_formPartPopUp selectItemAtIndex:node != nil ? node.formPart : unary ? step.formPart : 0];
 	[_givenCheck setState:node.isGiven ? NSControlStateValueOn : NSControlStateValueOff];
 	for (NSControl *control in @[ _operatorPopUp, _aggregatePopUp, _aggregateNodePopUp, _countComparisonPopUp, _countField,
 	                              _removeStepButton, _groupPopUp, _comparedPopUp, _comparedGroupPopUp ]) {
@@ -844,8 +847,12 @@ ORMCellText(id value)
 {
 	(void)sender;
 	ORMQueryNode *node = [self selectedNode];
+	ORMQueryStep *step = [self selectedStep];
+	ORMQueryFormPart part = (ORMQueryFormPart)[_formPartPopUp indexOfSelectedItem];
 	if (node != nil) {
-		[[self queries] setFormPart:(ORMQueryFormPart)[_formPartPopUp indexOfSelectedItem] ofNode:node.identifier reason:NULL];
+		[[self queries] setFormPart:part ofNode:node.identifier reason:NULL];
+	} else if (step != nil) {
+		[[self queries] setFormPart:part ofStep:step.identifier reason:NULL];
 	}
 }
 
@@ -1071,7 +1078,9 @@ ORMCellText(id value)
 		? [NSString stringWithFormat:@"   %@(%@)%@ %@ %@", [ORMQuery nameOfAggregate:step.aggregate],
 		                             [step.aggregateNode designation], group, step.countComparison, compared]
 		: @"";
-	return [NSString stringWithFormat:@"+ %@%@%@", operator, reading, count];
+	/* A form's unary step: ✎ entered, ✓ shown. */
+	NSString *mark = step.formPart == ORMFormPartEntered ? @" ✎" : step.formPart == ORMFormPartShown ? @" ✓" : @"";
+	return [NSString stringWithFormat:@"+ %@%@%@%@", operator, reading, mark, count];
 }
 
 - (id)outlineView:(NSOutlineView *)outlineView objectValueForTableColumn:(NSTableColumn *)column byItem:(id)item

@@ -656,8 +656,20 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	for (ORMQueryNode *each in [query nodes]) {
 		node = [each.identifier isEqualToString:nodeId] ? each : node;
 	}
+	/* A form's unary step, marked after its reading: "+ filled the tank ✎". */
+	ORMQueryFormPart stepPart = ORMFormPartNone;
+	ORMOutlineLine *reading = line;
+	NSString *mark = [[line.tokens lastObject] text];
+	if ([line.tokens count] > at + 1 && ([mark isEqualToString:@"✎"] || [mark isEqualToString:@"✓"])) {
+		stepPart = [mark isEqualToString:@"✎"] ? ORMFormPartEntered : ORMFormPartShown;
+		reading = [[ORMOutlineLine alloc] init];
+		reading.number = line.number;
+		reading.depth = line.depth;
+		reading.text = line.text;
+		reading.tokens = [line.tokens subarrayWithRange:NSMakeRange(0, [line.tokens count] - 1)];
+	}
 	NSArray<ORMOutlineNode *> *said = nil;
-	ORMRole *entry = [self readStep:line at:at from:node nodes:&said];
+	ORMRole *entry = [self readStep:reading at:at from:node nodes:&said];
 	if (entry == nil) {
 		[self fail:[NSString stringWithFormat:@"no fact type of %@ reads so", node.objectType.name ?: @"it"] line:line];
 		return NSNotFound;
@@ -670,6 +682,16 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	}
 	if (operatorKind != ORMQueryAnd) {
 		[_queries setOperator:operatorKind ofStep:stepId];
+	}
+	if (stepPart != ORMFormPartNone) {
+		if (_header.kind != ORMQueryForm) {
+			[self fail:@"only a form's steps are entered (✎) or shown" line:line];
+			return NSNotFound;
+		}
+		if (![_queries setFormPart:stepPart ofStep:stepId reason:&why]) {
+			[self fail:why ?: @"the step cannot be in the form so" line:line];
+			return NSNotFound;
+		}
 	}
 	query = [self query];
 	NSMutableArray *children = [NSMutableArray array];

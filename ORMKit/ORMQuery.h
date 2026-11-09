@@ -179,6 +179,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, weak) ORMQueryNode *comparedGroupNode;
 /* Through a subtype link: "is Professor". */
 - (BOOL)isSubtyping;
+/* In a form, a unary step entered (✎: whether it holds is the user's to
+ * say) or shown (✓); none elsewhere. A unary step has no node to mark. */
+@property (nonatomic, readonly) ORMQueryFormPart formPart;
 @end
 
 @interface ORMQuery : NSObject
@@ -314,6 +317,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * for a node of a query that is not a form. */
 - (BOOL)setFormPart:(ORMQueryFormPart)part ofNode:(NSString *)nodeId reason:(NSString **)reason;
 - (BOOL)setGiven:(BOOL)given ofNode:(NSString *)nodeId reason:(NSString **)reason;
+/* The same of a form's unary step: NO, and why, for one of a query that is
+ * not a form, or a step through a fact type that is not unary. */
+- (BOOL)setFormPart:(ORMQueryFormPart)part ofStep:(NSString *)stepId reason:(NSString **)reason;
 /* comparison nil clears the condition. */
 - (BOOL)setCondition:(NSString *)comparison value:(NSString *)value ofNode:(NSString *)nodeId reason:(NSString **)reason;
 /* A condition comparing the node with another of the query, of the same

@@ -1021,6 +1021,42 @@
 	[queries close];
 }
 
+/* A form's unary step, which has no node to mark, is entered with the same
+ * pop-up when the step is chosen. */
+- (void)testAFormsUnaryStepIsMarkedInTheQueryWindow
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	[[_document undoManager] setGroupsByEvent:NO];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:@"Warehouse is open\n" failures:&failures],
+	              @"%@", failures);
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	[queries window];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Warehouse"] identifier]];
+	ORMRole *open = nil;
+	for (ORMRole *role in [queries availableRoles]) {
+		open = [role.factType isUnary] ? role : open;
+	}
+	XCTAssertNotNil(open);
+	NSString *step = [queries addStepThrough:open];
+	XCTAssertNotNil(step);
+	[[queries valueForKey:@"kindPopUp"] selectItemWithTitle:@"Form"];
+	[queries performSelector:@selector(kindChanged:) withObject:nil];
+	[queries selectElement:step];
+	NSPopUpButton *part = [queries valueForKey:@"formPartPopUp"];
+	XCTAssertTrue([part isEnabled], @"a unary's step is marked itself");
+	[part selectItemAtIndex:ORMFormPartEntered];
+	[queries performSelector:@selector(formPartChanged:) withObject:part];
+	ORMQuery *form = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqual([form.root.steps.firstObject formPart], ORMFormPartEntered);
+	XCTAssertTrue([[form outlineText] rangeOfString:@"is open ✎"].location != NSNotFound, @"%@", [form outlineText]);
+	[queries close];
+}
+
 /* A sample's query run on its own population, then on a made-up one: the
  * Results tab shows the rows, and undoing brings the sample's back. */
 - (void)testAQueryRunsOnASamplePopulation
