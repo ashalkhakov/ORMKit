@@ -453,6 +453,15 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
                    errors:(NSDictionary<NSString *, NSString *> **)errors
                     error:(NSError **)error
 {
+	return [self save:instance inContext:context saving:nil errors:errors error:error];
+}
+
+- (NSManagedObject *)save:(NSDictionary<NSString *, NSString *> *)instance
+                inContext:(NSManagedObjectContext *)context
+                   saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
+                   errors:(NSDictionary<NSString *, NSString *> **)errors
+                    error:(NSError **)error
+{
 	NSEntityDescription *entity = [NSEntityDescription entityForName:_entityName inManagedObjectContext:context];
 	NSAttributeDescription *keyAttribute = [[entity attributesByName] objectForKey:_keyElement ?: @""];
 	if (entity == nil) {
@@ -503,7 +512,7 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 		[object setValue:value forKey:element.name];
 	}
 	NSError *failure = nil;
-	if ([problems count] == 0 && [context save:&failure]) {
+	if ([problems count] == 0 && (saving != nil ? saving(context, &failure) : [context save:&failure])) {
 		return object;
 	}
 	if ([problems count] == 0) {

@@ -500,11 +500,14 @@ never edited, as the validation code is. Customizations are documents of their o
    equality as `required` each way; a value comparison as `constraint`.
    Each control's alert says the constraints its element is in (their
    own statements); each bind names them in `ormf:constraints`. A deontic
-   one is an `ormf:warning` (its element, a test that ought to hold, its
-   words) under `ormf:checks` in the head, never invalid. What the form
+   one is XFormsKit's `xfk:warning` in the model (its element, a test that
+   ought to hold, its words; `urn:xformskit:extensions`), shown and never
+   invalid. The reads (`read`, `choices-*`) are `validate="false"`: a new
+   form's required fields are empty until entered. What the form
    cannot check alone (a join, a pattern, a rule through its facts:
    Logbook's driver who drives the vehicle, its meter going up) is listed
-   there as `ormf:checkedWhereSubmitted`, said in words. Constraints on a
+   under `ormf:checks` in the head as `ormf:checkedWhereSubmitted`, said
+   in words. Constraints on a
    supertype's roles that are about another of its subtypes (a trip's,
    in a fill-up's form) are left out. A value node's expression is a
    `calculate` (`number(../totalAmount) div number(../volumeQuantity)`,

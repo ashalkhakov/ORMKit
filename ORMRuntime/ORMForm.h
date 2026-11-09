@@ -122,6 +122,13 @@ extern NSString * const ORMFormErrorDomain;
                 inContext:(NSManagedObjectContext *)context
                    errors:(NSDictionary<NSString *, NSString *> **)errors
                     error:(NSError **)error;
+/* The same, saved as the app saves (its keys, derivations and rules first,
+ * its own store's way): saving instead of the context's -save:. */
+- (NSManagedObject *)save:(NSDictionary<NSString *, NSString *> *)instance
+                inContext:(NSManagedObjectContext *)context
+                   saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
+                   errors:(NSDictionary<NSString *, NSString *> **)errors
+                    error:(NSError **)error;
 /* What a failed save's error says of each element, "" for the rest. */
 - (NSDictionary<NSString *, NSString *> *)elementErrorsOf:(NSError *)error;
 

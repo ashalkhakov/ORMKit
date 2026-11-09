@@ -261,6 +261,35 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 		NSString *path = [NSString stringWithFormat:@"//*[local-name()='submission'][@resource='%@']", resource];
 		XCTAssertEqual([[self nodes:path in:read] count], 1u, @"%@", resource);
 	}
+	/* A new form's required fields are empty: its reads are not validated,
+	 * its save is. */
+	for (NSString *submission in @[ @"read", @"choices-driver", @"save" ]) {
+		NSString *path = [NSString stringWithFormat:@"//*[local-name()='submission'][@id='%@']/@validate", submission];
+		NSString *validate = [[[self nodes:path in:read] firstObject] stringValue];
+		XCTAssertEqualObjects(validate, [submission isEqualToString:@"save"] ? nil : @"false", @"%@", submission);
+	}
+}
+
+/* What ought to hold is XFormsKit's warning in the model: shown at its
+ * element, in the rule's words, the form valid all the same. */
+- (void)testAWarningIsXFormsKits
+{
+	ORMEditor *editor = [self fillUps];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor]
+	                  addFromText:@"It is obligatory that each FillUp was at some Station.\n" failures:&failures], @"%@", failures);
+	/* As a processor reads it: the document written and read again. */
+	NSData *data = [[[self documentOf:editor] document] XMLDataWithOptions:NSXMLNodePrettyPrint];
+	NSXMLDocument *document = [[NSXMLDocument alloc] initWithData:data options:0 error:NULL];
+	NSArray *warnings = [self nodes:@"//*[local-name()='model']/*[local-name()='warning']" in:document];
+	XCTAssertEqual([warnings count], 1u);
+	NSXMLElement *warning = [warnings firstObject];
+	XCTAssertEqualObjects([warning URI], @"urn:xformskit:extensions");
+	XCTAssertEqualObjects([[warning attributeForName:@"ref"] stringValue], @"station");
+	XCTAssertTrue([[warning stringValue] hasPrefix:@"It is obligatory that"], @"%@", [warning stringValue]);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='checks']/*[local-name()='warning']" in:document] count], 0u);
+	NSString *required = [[[self nodes:@"//*[local-name()='bind'][@ref='station']/@required" in:document] firstObject] stringValue];
+	XCTAssertNil(required, @"never required");
 }
 
 /* Ids come from the form's nodes: a renamed role renames its element, and
@@ -541,6 +570,23 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertNotNil([errors objectForKey:@"timestamp"]);
 	XCTAssertNotNil([saved valueForKey:@"timestamp"], @"put back");
 	XCTAssertEqualObjects([[saved valueForKey:@"mileageQuantity"] description], @"12345.5");
+	/* Saved as the app saves: its refusal said at the element, the object
+	 * as it was. */
+	NSError *rule = [NSError errorWithDomain:NSCocoaErrorDomain code:NSValidationErrorMinimum
+	                                userInfo:@{ NSValidationKeyErrorKey : @"station",
+	                                            NSLocalizedDescriptionKey : @"Each FillUp was at some Station." }];
+	NSMutableDictionary *moved = [read mutableCopy];
+	[moved setObject:@"13000" forKey:@"mileageQuantity"];
+	XCTAssertNil([form save:moved inContext:context saving:^BOOL(NSManagedObjectContext *saving, NSError **failure) {
+		*failure = rule;
+		return NO;
+	} errors:&errors error:&error]);
+	XCTAssertEqualObjects([errors allKeys], @[ @"station" ], @"%@", errors);
+	XCTAssertEqualObjects([[saved valueForKey:@"mileageQuantity"] description], @"12345.5");
+	XCTAssertNotNil([form save:moved inContext:context saving:^BOOL(NSManagedObjectContext *saving, NSError **failure) {
+		return [saving save:failure];
+	} errors:&errors error:&error], @"%@", errors);
+	XCTAssertEqualObjects([[saved valueForKey:@"mileageQuantity"] description], @"13000");
 }
 
 /* The service: the instance sent as OData, its names the service's; a
