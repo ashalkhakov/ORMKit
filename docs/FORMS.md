@@ -444,9 +444,9 @@ through with. Later, after forms are generated.
 
 In the `.orm`, as queries do, `Kind="Form"`, a node's part
 `Part="Entered"` or `"Shown"`, a given one `Given="true"`. **Save a Copy
-for NORMA** leaves them out. `ormtool xforms model.orm [form] [mapping]`
-writes each form's XForms document; generated, never edited, as the
-validation code is. Customizations are documents of their own beside it
+for NORMA** leaves them out. `ormtool xforms model.orm dir/ [form]
+[mapping]` writes each form's XForms document, `<Form>.xhtml`; generated,
+never edited, as the validation code is. Customizations are documents of their own beside it
 ([Customizing](#customizing-generated-forms-and-what-people-add)).
 
 ## Steps
@@ -464,19 +464,76 @@ validation code is. Customizations are documents of their own beside it
    form with several anchors waits: one anchor for now.
 2. **Fmap: the instance.** The form's tree to an XML instance, named as the
    mapping names properties; subtypes, compound values, references, owned
-   groups.
+   groups. *Done for the anchor's own properties* (`ORMFormDocument`):
+   each node is placed by its column in the form's read, which is the
+   form listed (the anchor, what is entered, shown or given, and what a
+   value node computes with), each of the anchor's steps a maybe, the
+   steps under an entered reference left out (they are its choices'
+   condition). So a value is the attribute's element, typed from the
+   attribute and the value type's temporal type; a reference is its
+   relationship's element holding the key (`vehicle`, the vehicle's id);
+   a compound is its parts as the mapping absorbs them (`totalAmount`,
+   `totalCurrency`; `mileageQuantity` and `mileageDistanceUnit`, the
+   unit's code); the anchor's key is the first element. The names are
+   the mapping's (Core Data's) properties; the service's transport says
+   them as ODataKit's `ODataPropertyMapper` does (step 5). A node past a
+   to-many (owned groups, repeats) and one through another object's
+   properties are noted and left out for now, as are subtype parts.
 3. **Binds.** From the constraints whose roles are all in the form, with
    the verbalization as each alert; rules and derivations over the form's
    facts in XPath; the rest listed as checked where it is submitted.
+   *Done, but rules and derivations:* a bind per element, its id
+   `bind-<node id>` (a compound's part's index after it). Required from
+   a simple mandatory on the anchor's role; a compound required whole or
+   not at all; value ranges and text lengths as `constraint`, a list of
+   text values as a `select1`'s items; an inclusive-or as `required`
+   while the others are empty; an exclusion as `relevant` while the
+   others are empty; a subset's first relevant where its second is given;
+   equality as `required` each way; a value comparison as `constraint`.
+   Each control's alert says the constraints its element is in (their
+   own statements); each bind names them in `ormf:constraints`. A deontic
+   one is an `ormf:warning` (its element, a test that ought to hold, its
+   words) under `ormf:checks` in the head, never invalid. What the form
+   cannot check alone (a join, a pattern, a rule through its facts:
+   Logbook's driver who drives the vehicle, its meter going up) is listed
+   there as `ormf:checkedWhereSubmitted`, said in words. Constraints on a
+   supertype's roles that are about another of its subtypes (a trip's,
+   in a fill-up's form) are left out. A value node's expression is a
+   `calculate` (`number(../totalAmount) div number(../volumeQuantity)`,
+   empty until its operands are given); one XPath cannot say (moments,
+   aggregates) is computed where the form is read. Rules over the form's
+   facts alone are not yet said as constraints: they are listed with the
+   rest.
 4. **Controls.** Intent-level, labelled with the form's labels or the
-   roles' names.
+   roles' names. *Done:* in outline order, an `input` for an entered value,
+   a `select1` for a reference (its itemset the choices' instance; a type
+   whose reference mode has a list of values, as units have, its items),
+   a `group` for a compound with a control a part, an `output` for what is
+   shown or calculated; the label the role's name, else its player's; the
+   hint the fact type's note. A given node has no control. Its id is
+   `control-<node id>`. The form's own labels wait for the model to have
+   them.
 5. **In and out, both ways.** Two transports from the same plans: the
    service's (OData reads, POST, PATCH, actions) and the local store's
    (fetches, writes into objects, a save). A refusal's violations shown at
    their nodes; deontic ones as warnings.
 6. **`ormtool xforms`**, and the fill-up form run in XFormsKit's viewer,
    once against Logbook's test server and once against a local store:
-   opened for a vehicle, filled in, refused, corrected, saved.
+   opened for a vehicle, filled in, refused, corrected, saved. *The
+   generator is done:* `ormtool xforms model.orm dir/ [form] [mapping]`
+   writes `<Form>.xhtml` into dir/ and prints what each leaves out, what
+   it leaves to its submission, and the plans `form:read` and each
+   `form:choices/<name>` stand for. In the document: the instance `form`
+   (empty, the shape the read fills), a `choices-<name>` instance for
+   each reference with choices, the submissions `read`, `choices-<name>`
+   and `save` (all `ref="instance('form')"`, so a choices read is given
+   the values it depends on), sent as the form is ready; a reference
+   whose choices depend on another element is read again as that one
+   changes. `-[ORMFormDocument readPlanForKey:]` and
+   `-choicesPlanNamed:given:` are the plans; a given value becomes a
+   condition as each is made, so they are made by ORMKit, not yet
+   tables an app runs with parameters (step 5). Running it in the viewer
+   waits for step 5.
 7. **XFormsKit:** decimal arithmetic, refreshing only what changed, the
    native binding (AppKit, UIKit), deontic warnings.
 8. **Customizations:** stable ids, the layer applied over the generated
