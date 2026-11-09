@@ -461,7 +461,10 @@ never edited, as the validation code is. Customizations are documents of their o
    entered or shown too (`✎City = ?`). `-[ORMQuery subschemaInModel:]` is
    the form read as its subschema. The Queries window has Form among the
    kinds, and a node's part and Given where a list's node has List. A
-   form with several anchors waits: one anchor for now.
+   unary step, which has no node, is marked itself, after its reading
+   (`+ filled the tank ✎`, `Part` on the step); the Queries window's
+   part pop-up marks it when the step is chosen. A form with several
+   anchors waits: one anchor for now.
 2. **Fmap: the instance.** The form's tree to an XML instance, named as the
    mapping names properties; subtypes, compound values, references, owned
    groups. *Done for the anchor's own properties* (`ORMFormDocument`):
@@ -476,7 +479,9 @@ never edited, as the validation code is. Customizations are documents of their o
    `totalCurrency`; `mileageQuantity` and `mileageDistanceUnit`, the
    unit's code); the anchor's key is the first element. The names are
    the mapping's (Core Data's) properties; the service's transport says
-   them as ODataKit's `ODataPropertyMapper` does (step 5). A node past a
+   them as ODataKit's `ODataPropertyMapper` does (step 5). A unary
+   entered or shown is its attribute's element, an `xsd:boolean`
+   (`filledTheTank`), read as a column of its own rather than asked for. A node past a
    to-many (owned groups, repeats) and one through another object's
    properties are noted and left out for now, as are subtype parts.
 3. **Binds.** From the constraints whose roles are all in the form, with
@@ -484,8 +489,11 @@ never edited, as the validation code is. Customizations are documents of their o
    facts in XPath; the rest listed as checked where it is submitted.
    *Done, but rules and derivations:* a bind per element, its id
    `bind-<node id>` (a compound's part's index after it). Required from
-   a simple mandatory on the anchor's role; a compound required whole or
-   not at all; value ranges and text lengths as `constraint`, a list of
+   a simple mandatory on the anchor's role, and from the definition of a
+   subtype the anchor is of (a derivation query's plain steps: "Each
+   MeteredEvent is by definition an Event that was at some Distance"
+   makes a fill-up's distance needed, the definition its alert); a
+   compound required whole or not at all; value ranges and text lengths as `constraint`, a list of
    text values as a `select1`'s items; an inclusive-or as `required`
    while the others are empty; an exclusion as `relevant` while the
    others are empty; a subset's first relevant where its second is given;
@@ -516,7 +524,26 @@ never edited, as the validation code is. Customizations are documents of their o
 5. **In and out, both ways.** Two transports from the same plans: the
    service's (OData reads, POST, PATCH, actions) and the local store's
    (fetches, writes into objects, a save). A refusal's violations shown at
-   their nodes; deontic ones as warnings.
+   their nodes; deontic ones as warnings. *ORMKit's half is done:* what
+   the abstract names stand for is ORMRuntime's `ORMForm`, read from the
+   `<Form>.ormform` table ormtool writes beside the document
+   ([RUNTIME.md](RUNTIME.md#forms)), so an app runs a form without ORMKit.
+   Plans take parameters (`$id`, `$vehicle`), bound where they run: the
+   read's is the key's element, a choices plan's the elements it depends
+   on (with nothing to go by, every one). The instance is a dictionary of
+   texts by element, xsd's lexical forms: the XML is the host's, and iOS
+   has no NSXML. Against the store, `-readKey:inContext:error:`,
+   `-choicesNamed:values:inContext:error:` and
+   `-save:inContext:errors:error:` (the object found by its key or made
+   and given one, each reference found by its key, the context saved; a
+   refusal said by element, from `NSValidationKeyErrorKey`, the object as
+   it was). Against the service, the read and choices as `ORMQueryOData`
+   requests, the save as an `ORMFormRequest` (a POST of what has a
+   value, or a PATCH of what differs with `If-Match`; references as
+   `@odata.bind`, names the service's), and an error body's details by
+   element, by their targets. Sending them is the host's: XFormsKit's
+   submission transport. Actions (a form submitting to one) wait for a
+   form that needs one. Deontic warnings are in the document only.
 6. **`ormtool xforms`**, and the fill-up form run in XFormsKit's viewer,
    once against Logbook's test server and once against a local store:
    opened for a vehicle, filled in, refused, corrected, saved. *The
@@ -529,11 +556,9 @@ never edited, as the validation code is. Customizations are documents of their o
    and `save` (all `ref="instance('form')"`, so a choices read is given
    the values it depends on), sent as the form is ready; a reference
    whose choices depend on another element is read again as that one
-   changes. `-[ORMFormDocument readPlanForKey:]` and
-   `-choicesPlanNamed:given:` are the plans; a given value becomes a
-   condition as each is made, so they are made by ORMKit, not yet
-   tables an app runs with parameters (step 5). Running it in the viewer
-   waits for step 5.
+   changes. Beside it ormtool writes `<Form>.ormform`, what an app runs
+   it with (step 5), and prints the parameterized plans. Running it in
+   the viewer waits for XFormsKit's transport.
 7. **XFormsKit:** decimal arithmetic, refreshing only what changed, the
    native binding (AppKit, UIKit), deontic warnings.
 8. **Customizations:** stable ids, the layer applied over the generated
