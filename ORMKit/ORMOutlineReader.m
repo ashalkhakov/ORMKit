@@ -2,9 +2,12 @@
 #import "ORMOutlineReader.h"
 #import "ORMQuery.h"
 
-/* What a node says in the outline: ✓, its label, its condition, its sort. */
+/* What a node says in the outline: ✓ (✎ in a form), its label, "= ?" in a
+ * form, its condition, its sort. */
 @interface ORMOutlineNode : NSObject
 @property (nonatomic) BOOL projected;
+@property (nonatomic) BOOL entered;
+@property (nonatomic) BOOL given;
 @property (nonatomic, copy) NSString *label;
 @property (nonatomic, copy) NSString *comparison;
 @property (nonatomic, copy) NSString *value;
@@ -199,8 +202,8 @@ ORMNameWords(NSString *name)
 	return words;
 }
 
-/* A node named so from the position: "✓", the name's words, its label's
- * digits after the last, " comparison value" (a list after "in", a quoted
+/* A node named so from the position: "✓" or "✎", the name's words, its
+ * label's digits after the last, "= ?", " comparison value" (a list after "in", a quoted
  * value or what is typed bare after the others), "↑" or "↓". With
  * conditional NO, no condition is read: what looked like one is the
  * reading's own words. nil where no node of the name is there. */
@@ -210,6 +213,7 @@ ORMTakeNode(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger *at, 
 	NSUInteger i = *at, n = [tokens count];
 	ORMOutlineNode *node = [[ORMOutlineNode alloc] init];
 	node.projected = ORMNext(tokens, &i, @"✓");
+	node.entered = !node.projected && ORMNext(tokens, &i, @"✎");
 	for (NSUInteger k = 0; k < [name count]; k++) {
 		ORMOutlineToken *token = i < n ? [tokens objectAtIndex:i] : nil;
 		NSString *word = [name objectAtIndex:k];
@@ -229,6 +233,13 @@ ORMTakeNode(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger *at, 
 		return nil;
 	}
 	ORMOutlineToken *next = i < n ? [tokens objectAtIndex:i] : nil;
+	/* Given: its value comes with the form. */
+	if (conditional && [next.text isEqualToString:@"="] && i + 1 < n
+	    && [[[tokens objectAtIndex:i + 1] text] isEqualToString:@"?"]) {
+		node.given = YES;
+		i += 2;
+		next = i < n ? [tokens objectAtIndex:i] : nil;
+	}
 	if (conditional && next.kind == ORMOutlineWord && [next.text isEqualToString:@"in"] && i + 1 < n
 	    && [[[tokens objectAtIndex:i + 1] text] isEqualToString:@"("]) {
 		NSUInteger close = i + 2;
@@ -489,7 +500,9 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 /* What the outline says of the node, given it. */
 - (BOOL)apply:(ORMOutlineNode *)said to:(NSString *)nodeId line:(ORMOutlineLine *)line
 {
-	[_queries setProjected:said.projected ofNode:nodeId];
+	if (![self mark:said node:nodeId line:line]) {
+		return NO;
+	}
 	if (said.label != nil) {
 		[_queries setLabel:said.label ofNode:nodeId];
 	}
@@ -521,6 +534,25 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	return YES;
 }
 
+/* ✓ ticks a node, or in a form shows it; ✎ enters it in a form, and
+ * "= ?" gives it. */
+- (BOOL)mark:(ORMOutlineNode *)said node:(NSString *)nodeId line:(ORMOutlineLine *)line
+{
+	if (_header.kind != ORMQueryForm) {
+		if (said.entered || said.given) {
+			return [self fail:@"only a form's nodes are entered (✎) or given (= ?)" line:line];
+		}
+		[_queries setProjected:said.projected ofNode:nodeId];
+		return YES;
+	}
+	ORMQueryFormPart part = said.entered ? ORMFormPartEntered : said.projected ? ORMFormPartShown : ORMFormPartNone;
+	NSString *why = nil;
+	if (![_queries setFormPart:part ofNode:nodeId reason:&why] || ![_queries setGiven:said.given ofNode:nodeId reason:&why]) {
+		return [self fail:why ?: @"the node cannot be in the form so" line:line];
+	}
+	return YES;
+}
+
 #pragma mark Value nodes
 
 /* "✓Length = Quantity2 - Quantity1 > 100": the value node, under the node,
@@ -541,7 +573,9 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	if (valueId == nil) {
 		return [self fail:why ?: @"the value cannot be made" line:line];
 	}
-	[_queries setProjected:said.projected ofNode:valueId];
+	if (![self mark:said node:valueId line:line]) {
+		return NO;
+	}
 	if (said.sort != ORMQueryUnsorted) {
 		[_queries setSortOrder:said.sort ofNode:valueId];
 	}
@@ -861,7 +895,8 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 		return nil;
 	}
 	/* The root: the longest object type name it starts with, as a node. */
-	NSString *rootText = [rootLine.text hasPrefix:@"✓"] ? [rootLine.text substringFromIndex:1] : rootLine.text;
+	NSString *rootText = [rootLine.text hasPrefix:@"✓"] || [rootLine.text hasPrefix:@"✎"] ? [rootLine.text substringFromIndex:1]
+	                                                                                    : rootLine.text;
 	ORMObjectType *rootType = nil;
 	ORMOutlineNode *rootSaid = nil;
 	for (ORMObjectType *type in _editor.model.objectTypes) {
@@ -939,6 +974,9 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 			subtypeName = ORMSource(text, tokens, at, n - 1);
 		}
 	}
+	/* "Form RecordFillUp:", a form and its name. */
+	at = 0;
+	NSString *formName = closed && n >= 3 && ORMNext(tokens, &at, @"Form") ? ORMSource(text, tokens, at, n - 1) : nil;
 	if ([text isEqualToString:@"It is impossible that:"] || [text isEqualToString:@"It is forbidden that:"]) {
 		header.kind = ORMQueryConstraint;
 		header.deontic = [text isEqualToString:@"It is forbidden that:"];
@@ -949,6 +987,9 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 		header.calculated = calculatedOf;
 	} else if ([text isEqualToString:@"Derivation:"]) {
 		header.kind = ORMQueryDerivation;
+	} else if ([formName length] > 0) {
+		header.kind = ORMQueryForm;
+		header.name = formName;
 	} else if (subtypeName != nil) {
 		header.kind = ORMQueryDerivation;
 		header.subtype = [_editor.model objectTypeNamed:subtypeName];
@@ -987,6 +1028,10 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	_query = [_queries addQueryNamed:name from:rootType.identifier reason:&why];
 	if (_query == nil) {
 		return [self fail:why ?: @"the query cannot be made" line:rootLine];
+	}
+	/* A form is one before its nodes are entered, shown or given. */
+	if (_header.kind == ORMQueryForm && ![_queries setKind:ORMQueryForm ofQuery:_query reason:&why]) {
+		return [self fail:why ?: @"the query cannot be a form" line:_header.line];
 	}
 	NSString *root = [self query].root.identifier;
 	if (![self apply:rootSaid to:root line:rootLine]) {

@@ -102,12 +102,23 @@ ORMQueryAggregateNames(void)
 	return @[ @"Count", @"Total", @"Average", @"Maximum", @"Minimum" ];
 }
 
+@interface ORMQuerySubschema ()
+@property (nonatomic, readwrite, copy) NSArray<ORMFactType *> *factTypes;
+@property (nonatomic, readwrite, copy) NSArray<ORMObjectType *> *objectTypes;
+@property (nonatomic, readwrite, copy) NSArray<ORMConstraint *> *constraints;
+@end
+
+@implementation ORMQuerySubschema
+@end
+
 @interface ORMQueryNode ()
 @property (nonatomic, readwrite, copy) NSString *identifier;
 @property (nonatomic, readwrite, strong) ORMObjectType *objectType;
 @property (nonatomic, readwrite, strong) ORMRole *role;
 @property (nonatomic, readwrite, weak) ORMQueryStep *step;
 @property (nonatomic, readwrite) BOOL isProjected;
+@property (nonatomic, readwrite) ORMQueryFormPart formPart;
+@property (nonatomic, readwrite) BOOL isGiven;
 @property (nonatomic, readwrite, weak) ORMRole *derivedRole;
 @property (nonatomic, readwrite, copy) NSString *comparison;
 @property (nonatomic, readwrite, copy) NSString *value;
@@ -172,7 +183,7 @@ ORMQueryAggregateNames(void)
 static NSArray<NSString *> *
 ORMQueryKindNames(void)
 {
-	return @[ @"List", @"Constraint", @"Calculation", @"Derivation" ];
+	return @[ @"List", @"Constraint", @"Calculation", @"Derivation", @"Form" ];
 }
 
 static NSArray<NSString *> *
@@ -198,7 +209,8 @@ static NSArray<NSArray<NSString *> *> *
 ORMQueryPartAttributes(void)
 {
 	return @[
-		@[ @"ref", @"ref" ], @[ @"Role", @"roleId" ], @[ @"Projected", @"projected" ], @[ @"For", @"forRole" ],
+		@[ @"ref", @"ref" ], @[ @"Role", @"roleId" ], @[ @"Projected", @"projected" ], @[ @"Part", @"part" ],
+		@[ @"Given", @"given" ], @[ @"For", @"forRole" ],
 		@[ @"Comparison", @"comparison" ], @[ @"Value", @"value" ], @[ @"CompareTo", @"compareTo" ],
 		@[ @"Label", @"label" ], @[ @"Combine", @"combine" ], @[ @"Sort", @"sort" ], @[ @"Operator", @"operatorName" ],
 		@[ @"Count", @"countComparison" ], @[ @"CountValue", @"countValueText" ], @[ @"Aggregate", @"aggregateName" ],
@@ -1591,6 +1603,13 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 	node.objectType = type;
 	node.role = role;
 	node.isProjected = ORMBoolValue(part.projected, NO);
+	if (self.kind == ORMQueryForm) {
+		/* A form's read lists what is entered and what is shown. */
+		node.formPart = [part.part isEqualToString:@"Entered"] ? ORMFormPartEntered
+			: [part.part isEqualToString:@"Shown"] ? ORMFormPartShown : ORMFormPartNone;
+		node.isProjected = node.formPart != ORMFormPartNone;
+		node.isGiven = ORMBoolValue(part.given, NO);
+	}
 	ORMRole *derived = [model elementWithId:part.forRole ?: @""];
 	node.derivedRole = [derived isKindOfClass:[ORMRole class]] ? derived : nil;
 	node.comparison = part.comparison;
@@ -1842,8 +1861,11 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 			: [NSString stringWithFormat:@": %@", node.objectType.name ?: @"?"];
 		computed = [NSString stringWithFormat:@"%@ = %@", typed, [node.expression textWithDesignations:[self designationsById]]];
 	}
-	return [NSString stringWithFormat:@"%@%@%@%@%@", node.isProjected ? @"✓" : @"", [node designation], computed,
-	                                  [self conditionText:node], sort];
+	/* A form's node: ✎ entered, ✓ shown; "= ?" given. */
+	NSString *mark = self.kind != ORMQueryForm ? (node.isProjected ? @"✓" : @"")
+		: node.formPart == ORMFormPartEntered ? @"✎" : node.formPart == ORMFormPartShown ? @"✓" : @"";
+	return [NSString stringWithFormat:@"%@%@%@%@%@%@", mark, [node designation], computed,
+	                                  node.isGiven ? @" = ?" : @"", [self conditionText:node], sort];
 }
 
 - (NSDictionary<NSString *, NSString *> *)designationsById
@@ -1920,10 +1942,48 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		[out appendFormat:@"Derivation of %@:\n", self.derivedSubtype.name];
 	} else if (self.kind == ORMQueryDerivation) {
 		[out appendString:@"Derivation:\n"];
+	} else if (self.kind == ORMQueryForm) {
+		[out appendFormat:@"Form %@:\n", self.name];
 	}
 	[out appendFormat:@"%@\n", [self nodeText:self.root]];
 	[self outlineSteps:self.root indent:1 into:out];
 	return out;
+}
+
+- (ORMQuerySubschema *)subschemaInModel:(ORMModel *)model
+{
+	NSMutableSet *facts = [NSMutableSet set], *types = [NSMutableSet set];
+	for (ORMQueryNode *node in [self nodes]) {
+		if (!node.isValue && node.objectType != nil) {
+			[types addObject:node.objectType];
+		}
+		for (ORMQueryStep *step in node.steps) {
+			[facts addObject:step.factType];
+		}
+	}
+	ORMQuerySubschema *subschema = [[ORMQuerySubschema alloc] init];
+	NSMutableArray *factTypes = [NSMutableArray array], *objectTypes = [NSMutableArray array];
+	for (ORMFactType *fact in model.factTypes) {
+		if ([facts containsObject:fact]) {
+			[factTypes addObject:fact];
+		}
+	}
+	for (ORMObjectType *type in model.objectTypes) {
+		if ([types containsObject:type]) {
+			[objectTypes addObject:type];
+		}
+	}
+	subschema.factTypes = factTypes;
+	subschema.objectTypes = objectTypes;
+	NSMutableArray *constraints = [NSMutableArray array];
+	for (ORMConstraint *constraint in model.constraints) {
+		NSArray *spanned = [constraint factTypes];
+		if ([spanned count] > 0 && [[NSSet setWithArray:spanned] isSubsetOfSet:facts]) {
+			[constraints addObject:constraint];
+		}
+	}
+	subschema.constraints = constraints;
+	return subschema;
 }
 
 - (void)outlineSteps:(ORMQueryNode *)node indent:(NSUInteger)indent into:(NSMutableString *)out
@@ -2252,7 +2312,8 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 	ORMStoredQuery *query = [self query:queryId];
 	if (query == nil || (NSUInteger)kind >= [ORMQueryKindNames() count]) {
 		if (reason != NULL) {
-			*reason = query == nil ? @"There is no such query." : @"A query lists, is a constraint, or is a calculation.";
+			*reason = query == nil ? @"There is no such query."
+			                       : @"A query lists, is a constraint, a calculation, a derivation or a form.";
 		}
 		return NO;
 	}
@@ -2261,7 +2322,8 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		return YES;
 	}
 	NSArray *titles = @[ @"Make Query a List", @"Make Query a Constraint", @"Make Query a Calculation",
-		              @"Make Query a Derivation" ];
+		              @"Make Query a Derivation", @"Make Query a Form" ];
+	BOOL wasForm = [query.kind isEqualToString:@"Form"];
 	ORMFactType *derived = [self derivedFactTypeOf:query];
 	[_editor modelChange:[titles objectAtIndex:(NSUInteger)kind] with:^{
 		query.kind = name;
@@ -2272,6 +2334,21 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		}
 		query.function = nil;
 		query.of = nil;
+		/* A form shows what was listed; what a form entered or showed is
+		 * listed once it is not one, and nothing is given. */
+		for (ORMQueryPart *part in kind == ORMQueryForm || wasForm ? [query.root tree] : @[]) {
+			if (part.isStep) {
+				continue;
+			}
+			if (kind == ORMQueryForm) {
+				part.part = ORMBoolValue(part.projected, NO) ? @"Shown" : nil;
+				part.projected = nil;
+			} else {
+				part.projected = part.part != nil ? @"true" : nil;
+				part.part = nil;
+				part.given = nil;
+			}
+		}
 		[self->_editor wrote:query];
 		/* No longer a derivation: the fact type is asserted again. */
 		[self->_editor.factTypeEditor removeQueryRuleOf:derived];
@@ -2531,6 +2608,50 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 	[self change:projected ? @"List in Query" : @"Do Not List in Query" part:node with:^{
 		node.projected = projected ? @"true" : nil;
 	}];
+}
+
+/* A node of a form, or nil, and why. */
+- (ORMQueryPart *)formNode:(NSString *)nodeId reason:(NSString **)reason
+{
+	ORMQueryPart *node = [self part:nodeId step:NO];
+	if (node == nil || ![[self queryOfPart:node].kind isEqualToString:@"Form"]) {
+		if (reason != NULL) {
+			*reason = node == nil ? @"There is no such node." : @"Only a form's nodes are entered, shown or given.";
+		}
+		return nil;
+	}
+	return node;
+}
+
+- (BOOL)setFormPart:(ORMQueryFormPart)formPart ofNode:(NSString *)nodeId reason:(NSString **)reason
+{
+	ORMQueryPart *node = [self formNode:nodeId reason:reason];
+	if (node == nil) {
+		return NO;
+	}
+	NSString *name = formPart == ORMFormPartEntered ? @"Entered" : formPart == ORMFormPartShown ? @"Shown" : nil;
+	if (![node.part ?: @"" isEqualToString:name ?: @""]) {
+		NSString *title = formPart == ORMFormPartEntered ? @"Enter in Form"
+			: formPart == ORMFormPartShown ? @"Show in Form" : @"Neither Enter nor Show in Form";
+		[self change:title part:node with:^{
+			node.part = name;
+		}];
+	}
+	return YES;
+}
+
+- (BOOL)setGiven:(BOOL)given ofNode:(NSString *)nodeId reason:(NSString **)reason
+{
+	ORMQueryPart *node = [self formNode:nodeId reason:reason];
+	if (node == nil) {
+		return NO;
+	}
+	if (ORMBoolValue(node.given, NO) != given) {
+		[self change:given ? @"Give to Form" : @"Do Not Give to Form" part:node with:^{
+			node.given = given ? @"true" : nil;
+		}];
+	}
+	return YES;
 }
 
 - (BOOL)setCondition:(NSString *)comparison value:(NSString *)value ofNode:(NSString *)nodeId reason:(NSString **)reason

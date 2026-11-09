@@ -1032,6 +1032,48 @@ ORMDerivationMark(ORMDerivationRule *rule)
 		[self emit:[self derivationOf:fact relation:relation mark:nil partial:[fact derivationRule].isPartial]];
 		return;
 	}
+	if (query.kind == ORMQueryForm) {
+		/* "The form RecordFillUp enters Moment and Volume and shows
+		 * PricePerUnit where ...; it is given Vehicle." */
+		NSMutableArray *entered = [NSMutableArray array], *shown = [NSMutableArray array], *given = [NSMutableArray array];
+		for (ORMQueryNode *node in [query nodes]) {
+			ORMVariable *variable = [variables objectForKey:node.identifier];
+			if (variable == nil) {
+				continue;
+			}
+			if (node.formPart == ORMFormPartEntered) {
+				[entered addObject:variable];
+			} else if (node.formPart == ORMFormPartShown) {
+				[shown addObject:variable];
+			}
+			if (node.isGiven) {
+				[given addObject:variable];
+			}
+		}
+		[b keyword:@"The form "];
+		[b plain:query.name ?: @"form"];
+		if ([entered count] > 0) {
+			[b keyword:@" enters "];
+			[phrase list:entered into:b];
+		}
+		if ([shown count] > 0) {
+			[b keyword:[entered count] > 0 ? @" and shows " : @" shows "];
+			[phrase list:shown into:b];
+		}
+		if ([entered count] + [shown count] == 0) {
+			[b keyword:@" enters and shows nothing yet"];
+		}
+		if ([query.root.steps count] > 0 || query.root.comparison != nil) {
+			[b keyword:@" where "];
+			[phrase say:relation.formula from:root relative:NO into:b];
+		}
+		if ([given count] > 0) {
+			[b keyword:@"; it is given "];
+			[phrase list:given into:b];
+		}
+		[self emit:b];
+		return;
+	}
 	[b keyword:@"List each "];
 	[phrase list:relation.columns into:b];
 	if ([query.root.steps count] > 0 || query.root.comparison != nil) {

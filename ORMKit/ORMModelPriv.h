@@ -319,6 +319,9 @@
 @property (nonatomic, copy) NSString *ref;
 @property (nonatomic, copy) NSString *roleId;
 @property (nonatomic, copy) NSString *projected;
+/* A form's node: "Entered" or "Shown"; given, "true". */
+@property (nonatomic, copy) NSString *part;
+@property (nonatomic, copy) NSString *given;
 @property (nonatomic, copy) NSString *forRole;
 @property (nonatomic, copy) NSString *comparison;
 @property (nonatomic, copy) NSString *value;
