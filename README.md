@@ -192,10 +192,14 @@ ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]
 ormtool import Model.xcdatamodeld [model.orm]
 ormtool validation model.orm dir/ [mapping name]
 ormtool query model.orm [query name] [mapping name]
+ormtool xforms model.orm dir/ [form name] [mapping name]
 ormtool forml model.orm [out.forml]
 ormtool apply model.orm changes.forml [out.orm]
 ormtool build schema.forml model.orm
 ```
+
+`xforms` writes each form ([docs/FORMS.md](docs/FORMS.md)) as an XForms
+document, `<Form>.xhtml` in dir/: generated, never edited.
 
 `forml` writes the model as schema text: every statement, a line each as the
 verbalizer says it, by diagram, each element's note as a comment before it,

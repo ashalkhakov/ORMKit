@@ -32,6 +32,11 @@
  *                                            ODataKit makes of the mapping, the plan, how the
  *                                            interpreter runs it against a Core Data store, and
  *                                            the rows it finds in the sample population
+ *   ormtool xforms model.orm dir/ [form name] [mapping name]
+ *                                            each form (or the named one) as an XForms document,
+ *                                            <Form>.xhtml in dir/ (docs/FORMS.md): generated, never
+ *                                            edited; what each leaves out, what it leaves to where it
+ *                                            is submitted, and the plans its reads stand for printed
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -71,6 +76,7 @@ ORMUsage(void)
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
+	      "       ormtool xforms model.orm dir/ [form name] [mapping name]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
 	      "       ormtool forml model.orm [out.forml]\n"
 	      "       ormtool apply model.orm changes.forml [out.orm]\n"
@@ -507,6 +513,57 @@ main(int argc, const char *argv[])
 				return 1;
 			}
 			return 0;
+		}
+		if ([command isEqualToString:@"xforms"] && [args count] >= 3) {
+			ORMCoreDataMapping *mapping = nil;
+			for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
+				if ([args count] < 5 || [each.name isEqualToString:[args objectAtIndex:4]]) {
+					mapping = each;
+					break;
+				}
+			}
+			NSString *directory = [args objectAtIndex:2];
+			[[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil
+			                                                error:NULL];
+			BOOL found = NO;
+			int status = 0;
+			for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
+				if (query.kind != ORMQueryForm || ([args count] > 3 && ![query.name isEqualToString:[args objectAtIndex:3]])) {
+					continue;
+				}
+				found = YES;
+				NSString *reason = nil;
+				ORMFormDocument *form = [ORMFormDocument documentForForm:query model:model mapping:mapping reason:&reason];
+				if (form == nil) {
+					fprintf(stderr, "ormtool: %s: %s\n", [query.name UTF8String], [reason UTF8String]);
+					status = 1;
+					continue;
+				}
+				NSString *path = [directory stringByAppendingPathComponent:[query.name stringByAppendingPathExtension:@"xhtml"]];
+				NSData *data = [[form document] XMLDataWithOptions:NSXMLNodePrettyPrint];
+				if (![data writeToFile:path atomically:YES]) {
+					fprintf(stderr, "ormtool: cannot write %s\n", [path UTF8String]);
+					return 1;
+				}
+				ORMPrint([NSString stringWithFormat:@"%@: %@\n", query.name, path]);
+				for (NSString *note in form.notes) {
+					ORMPrint([NSString stringWithFormat:@"note: %@\n", note]);
+				}
+				for (NSString *check in form.checkedWhereSubmitted) {
+					ORMPrint([NSString stringWithFormat:@"checked where submitted: %@\n", check]);
+				}
+				ORMPrint([NSString stringWithFormat:@"\nform:read\n%@\n", [[form readPlanForKey:nil] text]]);
+				for (NSString *name in [form choiceNames]) {
+					ORMPrint([NSString stringWithFormat:@"\nform:choices/%@\n%@\n", name,
+					                                    [[form choicesPlanNamed:name given:@{}] text]]);
+				}
+				ORMPrint(@"\n");
+			}
+			if (!found) {
+				fprintf(stderr, "ormtool: %s\n", [args count] > 3 ? "no form of that name" : "the model has no forms");
+				return 1;
+			}
+			return status;
 		}
 		if ([command isEqualToString:@"svg"]) {
 			NSString *out = [args count] > 2 ? [args objectAtIndex:2] : nil;
