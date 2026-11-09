@@ -521,6 +521,9 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 	/* Refused: the object as it was. */
 	if (made) {
 		[context deleteObject:object];
+		/* Gone now, its relationships' other ends too, before anything else
+		 * is done with the context (a rollback). */
+		[context processPendingChanges];
 	} else {
 		for (NSString *name in before) {
 			id value = [before objectForKey:name];
@@ -600,6 +603,12 @@ ORMFormMessage(NSError *error)
 	id key = ORMFormValue(keyText, keyAttribute, &problem);
 	if (isNew && key != nil) {
 		[body setObject:[coder JSONForCoreDataValue:key attribute:keyAttribute] forKey:[mapper propertyForAttribute:keyAttribute]];
+	}
+	/* One type of several in its set (a FillUp among the Records): named, so
+	 * that the service knows whose properties these are. */
+	NSString *type = [mapper entityIsDerivedInItsSet:entity] ? [mapper qualifiedTypeForEntity:entity] : nil;
+	if (type != nil) {
+		[body setObject:[@"#" stringByAppendingString:type] forKey:@"@odata.type"];
 	}
 	for (ORMFormElement *element in _elements) {
 		NSString *text = [instance objectForKey:element.name] ?: @"";

@@ -108,7 +108,7 @@ it Fmap:
 | In the form | In the instance |
 | --- | --- |
 | the anchor | the document element, named as its entity |
-| a step to a value type, functional (at most one) | a child element, named as the property the mapping made of the role (`mileageQuantity`), typed: `xsd:decimal`, `xsd:date`, `xsd:dateTime`, `xsd:boolean`, `xsd:string` |
+| a step to a value type, functional (at most one) | a child element, named as the property the mapping made of the role (`mileageQuantity`), typed: `xsd:decimal`, `xsd:date`, `xsd:dateTime`, `xsd:boolean`, `xsd:string` (its bind XForms' own `xf:decimal` and the rest, which take empty as a value, as an optional field is until entered) |
 | a compound value absorbed by the mapping (Money, Distance) | its properties, as the mapping absorbed them (`totalAmount`, `totalCurrency`) |
 | a step to an entity the form refers to, functional | an element holding its key (`driver` = the user's email); its choices in an instance of their own |
 | a step to an entity the form owns (an item of a service) | a child element, its own steps beneath it |
@@ -560,8 +560,17 @@ never edited, as the validation code is. Customizations are documents of their o
    the values it depends on), sent as the form is ready; a reference
    whose choices depend on another element is read again as that one
    changes. Beside it ormtool writes `<Form>.ormform`, what an app runs
-   it with (step 5), and prints the parameterized plans. Running it in
-   the viewer waits for XFormsKit's transport.
+   it with (step 5), and prints the parameterized plans. *Run both ways
+   in Logbook* (its branch `forms`: `Tests/LBFormCheck.m`, and its
+   desktop app's File > Record a Fill-Up with the Form…): XFormsKit's
+   `XFSchemeTransport`, given as the processor is made, answers `form:`
+   from Logbook's store (saved as Logbook saves, `-save:inContext:saving:`)
+   or from its server's OData service (the requests ORMForm makes, a POST
+   naming a derived type's `@odata.type`, a PATCH with `If-Match`); a
+   refusal said at its field with XFormsKit's host errors, cleared as the
+   field is changed. Logbook's model showed a form needs every mandatory
+   role its anchor plays, a given one where the app knows it (who enters
+   a record: `+ was entered by User2 = ?`).
 7. **XFormsKit:** decimal arithmetic, refreshing only what changed, the
    native binding (AppKit, UIKit), deontic warnings.
 8. **Customizations:** stable ids, the layer applied over the generated
@@ -569,7 +578,11 @@ never edited, as the validation code is. Customizations are documents of their o
    with provisional fields under construction and refused; the designer
    editing the layer, not the form.
 9. **Logbook:** one form generated and laid out natively, offline; then the
-   checklists, whose questions are data, as forms of their own.
+   checklists, whose questions are data, as forms of their own. *Begun:*
+   RecordFillUp is in Logbook's model, generated with its build and in its
+   desktop app's resources, run in a window of its own by XFormsKit's
+   view, the app's own store behind it (online, over its server); laid
+   out by XFormsKit, not natively yet, and not on the phone.
 10. **Flows:** `.flow` files read and written; screens, transitions,
     entries; generated into the forms' actions; walked through over the
     sample population; a modal form returning what it made. Their canvas:

@@ -1446,7 +1446,10 @@ ORMXText(NSString *name, NSString *text)
 	NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
 	[attributes setObject:[@"bind-" stringByAppendingString:[field fieldId]] forKey:@"id"];
 	[attributes setObject:field.elementName forKey:@"ref"];
-	[attributes setObject:field.schemaType forKey:@"type"];
+	/* XForms' own datatypes: XML Schema's, but empty is one of their
+	 * values, as an optional field's is until it is entered (required says
+	 * whether it may stay so). */
+	[attributes setObject:[field.schemaType stringByReplacingOccurrencesOfString:@"xsd:" withString:@"xf:"] forKey:@"type"];
 	if ([bind.required count] > 0) {
 		[attributes setObject:[bind.required containsObject:@"true()"] ? @"true()"
 		                       : [NSString stringWithFormat:@"(%@)", [bind.required componentsJoinedByString:@") or ("]]

@@ -204,7 +204,7 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	NSString *bind = @"//*[local-name()='bind'][@ref='%@']";
 	NSXMLNode *timestamp = [[self nodes:[NSString stringWithFormat:bind, @"timestamp"] in:document] firstObject];
 	XCTAssertEqualObjects([self attribute:@"required" of:timestamp], @"true()");
-	XCTAssertEqualObjects([self attribute:@"type" of:timestamp], @"xsd:dateTime");
+	XCTAssertEqualObjects([self attribute:@"type" of:timestamp], @"xf:dateTime", @"XForms', which has empty a value");
 	NSString *timestampAlert = [[[self nodes:[NSString stringWithFormat:@"//*[@bind='%@']/*[local-name()='alert']",
 	                                                                   [self attribute:@"id" of:timestamp]]
 	                                     in:document] firstObject] stringValue];
