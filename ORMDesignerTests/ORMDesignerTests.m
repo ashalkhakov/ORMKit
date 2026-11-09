@@ -963,6 +963,64 @@
 	XCTAssertEqual([[ORMQuery queryWithId:query inModel:editor.model].root.steps count], 0u);
 }
 
+/* A query made a form in the Queries window: its nodes are entered, shown
+ * or given with the controls in the List check's place, which the XIB
+ * connects. */
+- (void)testAFormsNodesAreMarkedInTheQueryWindow
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	[queries window];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Warehouse"] identifier]];
+	ORMRole *contains = nil;
+	for (ORMRole *role in [queries availableRoles]) {
+		for (ORMRole *other in role.factType.roles) {
+			if (other != role && [other.player.name isEqualToString:@"Location"]) {
+				contains = role;
+			}
+		}
+	}
+	XCTAssertNotNil([queries addStepThrough:contains]);
+	NSPopUpButton *part = [queries valueForKey:@"formPartPopUp"];
+	NSButton *given = [queries valueForKey:@"givenCheck"];
+	NSButton *list = [queries valueForKey:@"listCheck"];
+	XCTAssertNotNil(part);
+	XCTAssertNotNil(given);
+	XCTAssertTrue([part isHidden], @"a list's nodes are listed");
+	XCTAssertFalse([list isHidden]);
+
+	[[queries valueForKey:@"kindPopUp"] selectItemWithTitle:@"Form"];
+	[queries performSelector:@selector(kindChanged:) withObject:nil];
+	ORMQuery *form = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqual(form.kind, ORMQueryForm);
+	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:[form.name stringByAppendingString:@" (form)"]]);
+	ORMQueryNode *location = [[[form.root.steps firstObject] nodes] firstObject];
+	[queries selectElement:location.identifier];
+	XCTAssertFalse([part isHidden]);
+	XCTAssertFalse([given isHidden]);
+	XCTAssertTrue([list isHidden]);
+	[part selectItemAtIndex:ORMFormPartEntered];
+	[queries performSelector:@selector(formPartChanged:) withObject:part];
+	[given setState:NSControlStateValueOn];
+	[queries performSelector:@selector(givenChanged:) withObject:given];
+	location = [[[[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject] nodes] firstObject];
+	XCTAssertEqual(location.formPart, ORMFormPartEntered);
+	XCTAssertTrue(location.isGiven);
+	XCTAssertEqual([part indexOfSelectedItem], (NSInteger)ORMFormPartEntered, @"shown as it is");
+	XCTAssertTrue([[queries verbalizationText] hasPrefix:@"The form "], @"%@", [queries verbalizationText]);
+	/* Undone, given no more. */
+	[[_document undoManager] undo];
+	location = [[[[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject] nodes] firstObject];
+	XCTAssertFalse(location.isGiven);
+	XCTAssertEqual(location.formPart, ORMFormPartEntered);
+	[queries close];
+}
+
 /* A sample's query run on its own population, then on a made-up one: the
  * Results tab shows the rows, and undoing brings the sample's back. */
 - (void)testAQueryRunsOnASamplePopulation

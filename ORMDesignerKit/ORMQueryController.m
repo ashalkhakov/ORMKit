@@ -15,6 +15,10 @@ ORMComparisonTitles(void)
 @property (nonatomic, strong) IBOutlet NSOutlineView *outline;
 @property (nonatomic, strong) IBOutlet NSTableView *roles;
 @property (nonatomic, strong) IBOutlet NSButton *listCheck;
+/* A form's node, in the list check's place: entered, shown or neither;
+ * and whether it is given. */
+@property (nonatomic, strong) IBOutlet NSPopUpButton *formPartPopUp;
+@property (nonatomic, strong) IBOutlet NSButton *givenCheck;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *comparisonPopUp;
 @property (nonatomic, strong) IBOutlet NSTextField *valueField;
 @property (nonatomic, strong) IBOutlet NSButton *alternativesCheck;
@@ -149,7 +153,8 @@ static const NSUInteger ORMResultsPage = 200;
 		 * sample population breaks it. */
 		BOOL breaks = [broken containsObject:query.identifier];
 		NSString *kind = query.kind == ORMQueryConstraint ? (breaks ? @" (rule, broken)" : @" (rule)")
-			: (query.kind == ORMQueryCalculation ? (breaks ? @" (calculation, broken)" : @" (calculation)") : @"");
+			: query.kind == ORMQueryCalculation ? (breaks ? @" (calculation, broken)" : @" (calculation)")
+			: query.kind == ORMQueryForm ? @" (form)" : @"";
 		[_queryPopUp addItemWithTitle:[query.name stringByAppendingString:kind]];
 		[[_queryPopUp lastItem] setRepresentedObject:query.identifier];
 		if ([query.identifier isEqualToString:self.queryId]) {
@@ -476,10 +481,17 @@ ORMCellText(id value)
 {
 	ORMQueryNode *node = [self selectedNode];
 	ORMQueryStep *step = [self selectedStep];
-	for (NSControl *control in @[ _listCheck, _comparisonPopUp, _valueField, _alternativesCheck, _labelField,
-	                              _sortPopUp ]) {
+	for (NSControl *control in @[ _listCheck, _formPartPopUp, _givenCheck, _comparisonPopUp, _valueField, _alternativesCheck,
+	                              _labelField, _sortPopUp ]) {
 		[control setEnabled:node != nil];
 	}
+	/* A form's node is entered, shown or given, not listed. */
+	BOOL form = _query.kind == ORMQueryForm;
+	[_listCheck setHidden:form];
+	[_formPartPopUp setHidden:!form];
+	[_givenCheck setHidden:!form];
+	[_formPartPopUp selectItemAtIndex:node != nil ? node.formPart : 0];
+	[_givenCheck setState:node.isGiven ? NSControlStateValueOn : NSControlStateValueOff];
 	for (NSControl *control in @[ _operatorPopUp, _aggregatePopUp, _aggregateNodePopUp, _countComparisonPopUp, _countField,
 	                              _removeStepButton, _groupPopUp, _comparedPopUp, _comparedGroupPopUp ]) {
 		[control setEnabled:step != nil];
@@ -828,6 +840,24 @@ ORMCellText(id value)
 	}
 }
 
+- (void)formPartChanged:(id)sender
+{
+	(void)sender;
+	ORMQueryNode *node = [self selectedNode];
+	if (node != nil) {
+		[[self queries] setFormPart:(ORMQueryFormPart)[_formPartPopUp indexOfSelectedItem] ofNode:node.identifier reason:NULL];
+	}
+}
+
+- (void)givenChanged:(id)sender
+{
+	(void)sender;
+	ORMQueryNode *node = [self selectedNode];
+	if (node != nil) {
+		[[self queries] setGiven:[_givenCheck state] == NSControlStateValueOn ofNode:node.identifier reason:NULL];
+	}
+}
+
 - (void)conditionChanged:(id)sender
 {
 	(void)sender;
@@ -999,8 +1029,10 @@ ORMCellText(id value)
 
 - (NSString *)textOfNode:(ORMQueryNode *)node
 {
-	NSMutableString *text = [NSMutableString stringWithFormat:@"%@%@", node.isProjected ? @"✓ " : @"",
-	                                                          [node designation]];
+	/* A form's: ✎ entered, ✓ shown, "= ?" given. */
+	NSString *mark = _query.kind != ORMQueryForm ? (node.isProjected ? @"✓ " : @"")
+		: node.formPart == ORMFormPartEntered ? @"✎ " : node.formPart == ORMFormPartShown ? @"✓ " : @"";
+	NSMutableString *text = [NSMutableString stringWithFormat:@"%@%@%@", mark, [node designation], node.isGiven ? @" = ?" : @""];
 	if (node.comparedNode != nil) {
 		[text appendFormat:@" %@ %@", node.comparison, [node.comparedNode designation]];
 	} else if (node.comparison != nil) {
