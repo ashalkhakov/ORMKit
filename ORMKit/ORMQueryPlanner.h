@@ -38,4 +38,8 @@
 - (instancetype)initWithModel:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping;
 @property (nonatomic, readonly, strong) ORMCDModel *coreData;
 - (ORMQueryPlan *)planForQuery:(ORMQuery *)query;
+/* The attribute a unary step's fact is kept in, of the entity its node
+ * maps to: "fullTank" for "FillUp filled the tank". nil for a step that is
+ * no unary's, or one the mapping keeps in no attribute. */
+- (NSString *)attributeOfUnaryStep:(ORMQueryStep *)step;
 @end

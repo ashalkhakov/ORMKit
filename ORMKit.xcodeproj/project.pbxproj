@@ -599,6 +599,11 @@
 			isa = PBXBuildFile;
 			fileRef = 33259032F6265EC521DE7B8A /* ORMModelMenus.xib */;
 		};
+		7250F4188ABEF11C5D1B3415 /* ORMForm.h */ = {
+			isa = PBXBuildFile;
+			fileRef = D40F1C519B53B6FF1EA8465A /* ORMForm.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		7290F8E1AFDA9B6ACEFC8FDC /* ORMDesignerKit.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = 122CBA97CCC7669CF2098CFC /* ORMDesignerKit.framework */;
@@ -1041,6 +1046,10 @@
 		D27A6179B05FED4C532D5D0A /* ORMSampleMenu.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 73BDA4A4C10D412D6D61374F /* ORMSampleMenu.m */;
+		};
+		D3270C5D747A9B92AE619087 /* ORMForm.m */ = {
+			isa = PBXBuildFile;
+			fileRef = FFD03C0F744DC3CB47AB4472 /* ORMForm.m */;
 		};
 		D355C1A7D6F65025CD6FBC18 /* DMTabBarItem.m */ = {
 			isa = PBXBuildFile;
@@ -2569,6 +2578,12 @@
 			path = ORM2Extension.m;
 			sourceTree = "<group>";
 		};
+		D40F1C519B53B6FF1EA8465A /* ORMForm.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMForm.h;
+			sourceTree = "<group>";
+		};
 		D58612C177D979473E9B4A75 /* LSPKit.xcframework */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = wrapper.xcframework;
@@ -2846,6 +2861,12 @@
 			includeInIndex = 0;
 			path = ORMRuntime.framework;
 			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		FFD03C0F744DC3CB47AB4472 /* ORMForm.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMForm.m;
+			sourceTree = "<group>";
 		};
 /* End PBXFileReference section */
 
@@ -3153,6 +3174,8 @@
 			children = (
 				5B02C3D66BEF9643289A0BCF /* ORMCursor.h */,
 				3991801820FA2F22C806039D /* ORMCursor.m */,
+				D40F1C519B53B6FF1EA8465A /* ORMForm.h */,
+				FFD03C0F744DC3CB47AB4472 /* ORMForm.m */,
 				A9D9814A2C114AAD16CD818C /* ORMJoinedObject.h */,
 				E92DE55981E76DFF8BB89AAE /* ORMJoinedObject.m */,
 				7173E01D6E563A57D37D3142 /* ORMQueryInterpreter.h */,
@@ -3363,6 +3386,7 @@
 				F7D2E3B4AD130E07AFF39020 /* ORMSaveHook.h */,
 				9B2E2B41F81A1A0A3081753F /* ORMValidator.h */,
 				714B833787B90E162ED7FDF2 /* ORMJoinedObject.h */,
+				7250F4188ABEF11C5D1B3415 /* ORMForm.h */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3762,6 +3786,7 @@
 				865877A8C4AA1D2231E76213 /* ORMSaveHook.m */,
 				C6EE27C0DC910DAD6020E6D9 /* ORMValidator.m */,
 				C2D367794895ADB136F15656 /* ORMJoinedObject.m */,
+				D3270C5D747A9B92AE619087 /* ORMForm.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -71,6 +71,11 @@
 @interface ORMPlanValue : NSObject <NSCopying>
 + (instancetype)valueAtPath:(ORMPlanPath *)path;
 + (instancetype)constant:(NSString *)text type:(NSString *)attributeType;
+/* A constant not known yet: a parameter, its value given where the plan
+ * is run (a form's object, the vehicle its choices are for). Its text nil
+ * until -[ORMQueryPlan planBinding:error:] puts the value in its place. */
++ (instancetype)parameter:(NSString *)name type:(NSString *)attributeType;
+@property (nonatomic, readonly, copy) NSString *parameterName;
 /* An aggregate of a bag the plan defines, as ConQuer-II's are (also
  * "value", the one value, and "distinct", how many values there are): the bag a
  * set whose rows are its tuples (the whole query, its aggregates left out,
@@ -396,6 +401,14 @@ typedef NS_ENUM(NSInteger, ORMPlanConditionKind) {
 
 /* The plan to read: "let join1 = ...\nread Employee\nwhere ...\nlist ...". */
 - (NSString *)text;
+
+/* The parameters its constants are (ORMPlanValue +parameter:type:), by
+ * name, sorted; none for a plan that can be run as it is. */
+- (NSArray<NSString *> *)parameterNames;
+/* The plan with each parameter's value put in its place, a constant of the
+ * parameter's type: what is run. nil, and why, where values has none for
+ * one of them. */
+- (ORMQueryPlan *)planBinding:(NSDictionary<NSString *, NSString *> *)values error:(NSError **)error;
 @end
 
 extern NSString * const ORMQueryPlanErrorDomain;

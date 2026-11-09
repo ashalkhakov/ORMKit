@@ -102,6 +102,10 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	/* The steps under an entered reference: its choices' conditions, by id. */
 	NSMutableSet<NSString *> *_conditionSteps;
 	ORMVerbalizer *_verbalizer;
+	/* The anchor's unary steps entered or shown, by id: a flag each. */
+	NSMutableDictionary<NSString *, ORMQueryStep *> *_unarySteps;
+	/* -definingSteps, worked out once. */
+	NSArray<NSArray *> *_definingSteps;
 }
 
 #pragma mark The form's parts
@@ -251,6 +255,12 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_warnings = [NSMutableArray array];
 	_conditionSteps = [NSMutableSet set];
 	_elementOfNode = [NSMutableDictionary dictionary];
+	_unarySteps = [NSMutableDictionary dictionary];
+	for (ORMQueryStep *step in form.root.steps) {
+		if (step.formPart != ORMFormPartNone && [step.factType isUnary]) {
+			[_unarySteps setObject:step forKey:step.identifier];
+		}
+	}
 	for (ORMQueryNode *node in [form nodes]) {
 		if (node != form.root && !node.isValue && node.formPart == ORMFormPartEntered && ORMPartsOf(node) == nil) {
 			for (ORMQueryStep *step in node.steps) {
@@ -265,6 +275,7 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_entityName = [plan.entityName copy];
 	[_notes addObjectsFromArray:plan.notes];
 	[self placeNodesIn:plan];
+	[self placeUnariesIn:plan];
 	[self bindValues];
 	[self bindConstraints];
 	return nil;
@@ -295,7 +306,8 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	NSMutableArray *conditions = [NSMutableArray array];
 	for (ORMQueryPart *part in [copy.root tree]) {
 		if (part.isStep) {
-			if ([_conditionSteps containsObject:part.identifier]) {
+			/* A unary entered or shown is read, not asked for. */
+			if ([_conditionSteps containsObject:part.identifier] || [_unarySteps objectForKey:part.identifier] != nil) {
 				[conditions addObject:part];
 			} else if (part.operatorName == nil && part.parent == copy.root) {
 				/* What is not given yet leaves no object out. */
@@ -314,7 +326,29 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 		copy.root.comparison = @"=";
 		copy.root.value = key;
 	}
-	return [self plan:copy];
+	ORMQueryPlan *plan = [self plan:copy];
+	/* Each unary's flag, a column of its own. */
+	NSMutableArray *columns = [NSMutableArray array];
+	for (ORMQueryStep *step in [_form.root.steps copy]) {
+		NSString *attribute = [_unarySteps objectForKey:step.identifier] != nil ? [_planner attributeOfUnaryStep:step] : nil;
+		if (attribute != nil) {
+			[columns addObject:[ORMPlanColumn columnTitled:[step.factType displayText]
+			                                          node:step.identifier
+			                                          path:[ORMPlanPath pathFrom:nil keys:@[ attribute ]]
+			                                    identifier:nil]];
+		}
+	}
+	if ([columns count] == 0 || plan.entityName == nil) {
+		return plan;
+	}
+	ORMQueryPlan *flagged = [ORMQueryPlan planReading:plan.entityName
+	                                            where:plan.condition
+	                                          columns:[plan.columns arrayByAddingObjectsFromArray:columns]
+	                                            sorts:plan.sorts
+	                                            notes:plan.notes
+	                                      definitions:plan.definitions];
+	flagged.rowSorts = plan.rowSorts;
+	return flagged;
 }
 
 /* A query not in the model, planned as the planner plans one that is: each
@@ -412,6 +446,24 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 		if ([field.nodeId isEqualToString:node.identifier]) {
 			field.isHidden = hidden;
 		}
+	}
+}
+
+/* Each unary's flag: an element of its attribute's, a boolean. */
+- (void)placeUnariesIn:(ORMQueryPlan *)plan
+{
+	for (ORMQueryStep *step in _form.root.steps) {
+		if ([_unarySteps objectForKey:step.identifier] == nil) {
+			continue;
+		}
+		ORMPlanColumn *column = [plan columnOfNode:step.identifier];
+		NSString *name = [column.path.keys firstObject];
+		if (name == nil) {
+			[_notes addObject:[NSString stringWithFormat:@"\"%@\": the mapping keeps it in no attribute.",
+			                                             [step.factType displayText]]];
+			continue;
+		}
+		[self addField:step.identifier name:name kind:ORMFormFieldValue type:@"xsd:boolean"];
 	}
 }
 
@@ -663,6 +715,11 @@ ORMItemsOf(ORMValueConstraint *values)
 	for (ORMFormField *field in _fields) {
 		ORMQueryNode *node = [self nodeWithId:field.nodeId];
 		ORMFormBind *bind = [self bindOf:field];
+		ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
+		if (unary != nil) {
+			bind.readonly = unary.formPart == ORMFormPartShown;
+			continue;
+		}
 		if (field.kind == ORMFormFieldCalculated) {
 			bind.calculate = ORMXPathOf(node.expression, elements);
 			bind.readonly = YES;
@@ -698,6 +755,22 @@ ORMItemsOf(ORMValueConstraint *values)
 					} else {
 						[self warn:constraint at:field test:@". != ''"];
 					}
+				}
+			}
+		}
+		/* What the definition of a subtype the anchor is of asks of each
+		 * one: "Each MeteredEvent is by definition an Event that was at
+		 * some Distance" makes a fill-up's distance needed. */
+		if (node.formPart == ORMFormPartEntered && node.step.parent == _form.root) {
+			for (NSArray *defining in [self definingSteps]) {
+				ORMQuery *rule = [defining firstObject];
+				ORMQueryStep *step = [defining lastObject];
+				if (step.factType == node.step.factType && step.entryRole == entry
+				    && ![bind.sources containsObject:rule.identifier]) {
+					[bind.sources addObject:rule.identifier];
+					NSString *text = [ORMVerbalizer plainTextOfSentences:[_verbalizer sentencesForQuery:rule]];
+					[bind.alerts addObject:[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]];
+					[bind.required addObject:@"true()"];
 				}
 			}
 		}
@@ -740,6 +813,35 @@ ORMItemsOf(ORMValueConstraint *values)
 			                                               ORMLabelOf(field.role, valueType), valueType.valuePattern]];
 		}
 	}
+}
+
+/* The steps every object of the anchor's type has by the definitions of
+ * the subtypes it is of (itself among them): @[ the derivation, its step ],
+ * each a plain step from its root, with nothing said of its node. */
+- (NSArray<NSArray *> *)definingSteps
+{
+	if (_definingSteps != nil) {
+		return _definingSteps;
+	}
+	ORMObjectType *anchor = _form.root.objectType;
+	NSMutableArray *defining = [NSMutableArray array];
+	for (ORMObjectType *subtype in [@[ anchor ] arrayByAddingObjectsFromArray:[anchor allSupertypes]]) {
+		ORMQuery *rule = [ORMQuery derivationOfSubtype:subtype inModel:_model];
+		if (rule == nil || rule.root.combinesWithOr) {
+			continue;
+		}
+		for (ORMQueryStep *step in rule.root.steps) {
+			BOOL plain = step.operatorKind == ORMQueryAnd && step.countComparison == nil;
+			for (ORMQueryNode *node in step.nodes) {
+				plain = plain && node.comparison == nil && [node.steps count] == 0 && [node.values count] == 0;
+			}
+			if (plain) {
+				[defining addObject:@[ rule, step ]];
+			}
+		}
+	}
+	_definingSteps = defining;
+	return _definingSteps;
 }
 
 - (ORMQueryNode *)nodeWithId:(NSString *)identifier
@@ -1082,6 +1184,145 @@ ORMNoneGiven(NSArray<ORMFormField *> *fields)
 	return [self plan:query];
 }
 
+#pragma mark What an app runs
+
+/* What stands for a parameter while the planner plans: a value no one
+ * gives, put back as the parameter after. */
+static NSString *
+ORMParameterSentinel(NSString *name)
+{
+	return [@"ORMFormParameter_" stringByAppendingString:name];
+}
+
+/* The property list with each constant a sentinel's a parameter of its
+ * name, of the constant's type. */
+static id
+ORMParameterized(id list, NSDictionary<NSString *, NSString *> *names)
+{
+	if ([list isKindOfClass:[NSDictionary class]]) {
+		NSString *name = [names objectForKey:[list objectForKey:@"constant"] ?: @""];
+		if (name != nil) {
+			return @{ @"parameter": name, @"type": [list objectForKey:@"type"] ?: @"String" };
+		}
+		NSMutableDictionary *copy = [NSMutableDictionary dictionary];
+		for (id key in list) {
+			[copy setObject:ORMParameterized([list objectForKey:key], names) forKey:key];
+		}
+		return copy;
+	}
+	if ([list isKindOfClass:[NSArray class]]) {
+		NSMutableArray *copy = [NSMutableArray array];
+		for (id item in list) {
+			[copy addObject:ORMParameterized(item, names)];
+		}
+		return copy;
+	}
+	return list;
+}
+
+static ORMQueryPlan *
+ORMPlanWithParameters(ORMQueryPlan *plan, NSDictionary<NSString *, NSString *> *names)
+{
+	if (plan == nil) {
+		return nil;
+	}
+	ORMQueryPlan *parameterized = [ORMQueryPlan planWithPropertyList:ORMParameterized([plan propertyList], names) error:NULL];
+	return parameterized ?: plan;
+}
+
+/* The anchor's key: its first element. */
+- (ORMFormField *)keyField
+{
+	ORMFormField *first = [_fields firstObject];
+	return [first.nodeId isEqualToString:_form.root.identifier] ? first : nil;
+}
+
+- (ORMQueryPlan *)readPlan
+{
+	NSString *name = [self keyField].elementName;
+	if (name == nil) {
+		return nil;
+	}
+	return ORMPlanWithParameters([self readPlanForKey:ORMParameterSentinel(name)], @{ ORMParameterSentinel(name): name });
+}
+
+- (ORMQueryPlan *)choicesPlanNamed:(NSString *)elementName
+{
+	NSMutableDictionary *given = [NSMutableDictionary dictionary], *names = [NSMutableDictionary dictionary];
+	for (NSString *name in [self elementsChoicesDependOn:elementName]) {
+		[given setObject:ORMParameterSentinel(name) forKey:name];
+		[names setObject:name forKey:ORMParameterSentinel(name)];
+	}
+	return [given count] > 0 ? ORMPlanWithParameters([self choicesPlanNamed:elementName given:given], names) : nil;
+}
+
+static NSString *
+ORMFieldKindName(ORMFormFieldKind kind)
+{
+	return kind == ORMFormFieldReference ? @"reference" : kind == ORMFormFieldCalculated ? @"calculated" : @"value";
+}
+
+- (id)tablePropertyList
+{
+	ORMQueryPlan *read = [self readPlan];
+	NSMutableArray *elements = [NSMutableArray array];
+	for (ORMFormField *field in _fields) {
+		ORMQueryNode *node = [self nodeWithId:field.nodeId];
+		ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
+		NSMutableDictionary *element = [NSMutableDictionary dictionary];
+		[element setObject:field.elementName forKey:@"name"];
+		[element setObject:ORMFieldKindName(field.kind) forKey:@"kind"];
+		[element setObject:field.schemaType ?: @"xsd:string" forKey:@"type"];
+		/* Where the read has it: its column, and a compound's part. */
+		NSUInteger column = 0;
+		for (ORMPlanColumn *each in read.columns) {
+			if ([each.nodeId isEqualToString:field.nodeId]) {
+				[element setObject:@(column) forKey:@"column"];
+				break;
+			}
+			column++;
+		}
+		if (field.isPart) {
+			[element setObject:@(field.partIndex) forKey:@"part"];
+		}
+		if (field.kind == ORMFormFieldReference) {
+			[element setObject:field.entityName ?: @"" forKey:@"entity"];
+			[element setObject:field.keyName ?: @"" forKey:@"key"];
+		}
+		/* What a save writes: what the user enters, and what the form is
+		 * given; never what it shows or computes. */
+		ORMQueryFormPart part = unary != nil ? unary.formPart : node.formPart;
+		BOOL written = node != _form.root && field.kind != ORMFormFieldCalculated && !field.isHidden
+		               && (part == ORMFormPartEntered || (node.isGiven && part != ORMFormPartShown));
+		[element setObject:@(written) forKey:@"written"];
+		[elements addObject:element];
+	}
+	NSMutableDictionary *choices = [NSMutableDictionary dictionary];
+	for (NSString *name in [self choiceNames]) {
+		NSMutableDictionary *choice = [NSMutableDictionary dictionary];
+		ORMQueryPlan *all = [self choicesPlanNamed:name given:@{}];
+		ORMQueryPlan *theirs = [self choicesPlanNamed:name];
+		[choice setObject:[all propertyList] forKey:@"all"];
+		if (theirs != nil) {
+			[choice setObject:[theirs propertyList] forKey:@"plan"];
+			[choice setObject:[self elementsChoicesDependOn:name] forKey:@"dependsOn"];
+		}
+		[choices setObject:choice forKey:name];
+	}
+	NSMutableDictionary *list = [NSMutableDictionary dictionary];
+	[list setObject:@1 forKey:@"format"];
+	[list setObject:_form.name forKey:@"form"];
+	[list setObject:_entityName forKey:@"entity"];
+	[list setObject:[self keyField].elementName ?: @"" forKey:@"key"];
+	[list setObject:elements forKey:@"elements"];
+	if (read != nil) {
+		[list setObject:[read propertyList] forKey:@"read"];
+	}
+	[list setObject:choices forKey:@"choices"];
+	[list setObject:[self checkedWhereSubmitted] forKey:@"checkedWhereSubmitted"];
+	return list;
+}
+
 #pragma mark The document
 
 - (NSXMLElement *)instanceGiven:(NSDictionary<NSString *, NSString *> *)values
@@ -1227,6 +1468,15 @@ ORMXText(NSString *name, NSString *text)
 	NSMutableSet *done = [NSMutableSet set];
 	for (ORMFormField *field in _fields) {
 		ORMQueryNode *node = [self nodeWithId:field.nodeId];
+		ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
+		if (unary != nil) {
+			/* Labelled by its reading: "filled the tank". */
+			NSString *reading = [[ORMQuery readingOfStep:unary] stringByReplacingOccurrencesOfString:@"{0}" withString:@""];
+			[body addChild:[self controlOf:field
+			                          node:nil
+			                         label:[reading stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]]];
+			continue;
+		}
 		if (field.isHidden || node == _form.root || [done containsObject:field.nodeId]
 		    || (node.formPart == ORMFormPartNone && field.kind != ORMFormFieldCalculated)) {
 			continue;
@@ -1254,7 +1504,8 @@ ORMXText(NSString *name, NSString *text)
 {
 	NSString *identifier = [@"control-" stringByAppendingString:[field fieldId]];
 	NSString *bind = [@"bind-" stringByAppendingString:[field fieldId]];
-	BOOL shown = node.formPart == ORMFormPartShown || field.kind == ORMFormFieldCalculated;
+	ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
+	BOOL shown = (unary != nil ? unary.formPart : node.formPart) == ORMFormPartShown || field.kind == ORMFormFieldCalculated;
 	ORMValueConstraint *values = field.role.valueConstraint ?: [field.role.player valueType].valueConstraint;
 	/* A value list, or the one of the type a reference is to (units). */
 	NSArray *items = field.kind == ORMFormFieldValue ? ORMItemsOf(values) : ORMItemsOf(field.referredType.valueConstraint);
@@ -1262,7 +1513,7 @@ ORMXText(NSString *name, NSString *text)
 		: field.kind == ORMFormFieldReference || items != nil ? @"xf:select1" : @"xf:input";
 	NSXMLElement *control = ORMXElement(kind, @{ @"id" : identifier, @"bind" : bind });
 	[control addChild:ORMXText(@"xf:label", label)];
-	NSString *note = node.step.factType.noteText;
+	NSString *note = (unary ?: node.step).factType.noteText;
 	if ([note length] > 0 && !shown && field.partIndex == 0) {
 		[control addChild:ORMXText(@"xf:hint", note)];
 	}

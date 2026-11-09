@@ -35,8 +35,10 @@
  *   ormtool xforms model.orm dir/ [form name] [mapping name]
  *                                            each form (or the named one) as an XForms document,
  *                                            <Form>.xhtml in dir/ (docs/FORMS.md): generated, never
- *                                            edited; what each leaves out, what it leaves to where it
- *                                            is submitted, and the plans its reads stand for printed
+ *                                            edited; beside it <Form>.ormform, what an app runs it
+ *                                            with (ORMRuntime's ORMForm); what each leaves out, what
+ *                                            it leaves to where it is submitted, and the plans its
+ *                                            reads stand for printed
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -545,17 +547,28 @@ main(int argc, const char *argv[])
 					fprintf(stderr, "ormtool: cannot write %s\n", [path UTF8String]);
 					return 1;
 				}
-				ORMPrint([NSString stringWithFormat:@"%@: %@\n", query.name, path]);
+				/* What an app runs it with, beside it: the plans its names
+				 * stand for (ORMRuntime's ORMForm). */
+				NSString *tablePath = [directory stringByAppendingPathComponent:[query.name stringByAppendingPathExtension:@"ormform"]];
+				NSData *table = [NSPropertyListSerialization dataWithPropertyList:[form tablePropertyList]
+				                                                           format:NSPropertyListXMLFormat_v1_0
+				                                                          options:0
+				                                                            error:NULL];
+				if (![table writeToFile:tablePath atomically:YES]) {
+					fprintf(stderr, "ormtool: cannot write %s\n", [tablePath UTF8String]);
+					return 1;
+				}
+				ORMPrint([NSString stringWithFormat:@"%@: %@, %@\n", query.name, path, tablePath]);
 				for (NSString *note in form.notes) {
 					ORMPrint([NSString stringWithFormat:@"note: %@\n", note]);
 				}
 				for (NSString *check in form.checkedWhereSubmitted) {
 					ORMPrint([NSString stringWithFormat:@"checked where submitted: %@\n", check]);
 				}
-				ORMPrint([NSString stringWithFormat:@"\nform:read\n%@\n", [[form readPlanForKey:nil] text]]);
+				ORMPrint([NSString stringWithFormat:@"\nform:read\n%@\n", [[form readPlan] text]]);
 				for (NSString *name in [form choiceNames]) {
-					ORMPrint([NSString stringWithFormat:@"\nform:choices/%@\n%@\n", name,
-					                                    [[form choicesPlanNamed:name given:@{}] text]]);
+					ORMQueryPlan *choices = [form choicesPlanNamed:name] ?: [form choicesPlanNamed:name given:@{}];
+					ORMPrint([NSString stringWithFormat:@"\nform:choices/%@\n%@\n", name, [choices text]]);
 				}
 				ORMPrint(@"\n");
 			}

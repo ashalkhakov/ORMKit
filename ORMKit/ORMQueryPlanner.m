@@ -1212,6 +1212,11 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		&& [self propertyOfNode:node above:NULL] == nil;
 }
 
+- (NSString *)attributeOfUnaryStep:(ORMQueryStep *)step
+{
+	return [self unaryOfStep:step].name;
+}
+
 /* A unary step's attribute, of the entity it is from; nil for another. */
 - (ORMCDAttribute *)unaryOfStep:(ORMQueryStep *)step
 {

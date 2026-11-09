@@ -88,6 +88,17 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 - (NSArray<NSString *> *)choiceNames;
 /* The elements whose values a reference's choices depend on. */
 - (NSArray<NSString *> *)elementsChoicesDependOn:(NSString *)elementName;
+/* The same as an app runs them (ORMRuntime's ORMForm): the read of the
+ * object whose key is the parameter named as the key's element; each
+ * reference's choices, a parameter for each element they depend on, named
+ * so, and nil where they depend on none. */
+- (ORMQueryPlan *)readPlan;
+- (ORMQueryPlan *)choicesPlanNamed:(NSString *)elementName;
+/* What an app needs to run the form (ORMRuntime's ORMForm, docs/RUNTIME.md):
+ * its elements and the read's columns they are of, the plans that answer
+ * "form:read" and "form:choices/<name>", and what "form:save" writes; as
+ * ormtool xforms writes it, <Form>.ormform beside the document. */
+- (id)tablePropertyList;
 /* The constraints, and the rules, the form cannot check alone, as their
  * verbalizations: checked where it is submitted. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;

@@ -199,7 +199,10 @@ ormtool build schema.forml model.orm
 ```
 
 `xforms` writes each form ([docs/FORMS.md](docs/FORMS.md)) as an XForms
-document, `<Form>.xhtml` in dir/: generated, never edited.
+document, `<Form>.xhtml` in dir/: generated, never edited. Beside it,
+`<Form>.ormform` is what an app runs the form with: its read, its choices
+and what a save writes, for ORMRuntime's `ORMForm`
+([docs/RUNTIME.md](docs/RUNTIME.md#forms)).
 
 `forml` writes the model as schema text: every statement, a line each as the
 verbalizer says it, by diagram, each element's note as a comment before it,

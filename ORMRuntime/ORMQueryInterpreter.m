@@ -851,6 +851,12 @@ ORMBagKey(ORMPlanValue *value)
 		if ([@[ @"false", @"no", @"0" ] containsObject:lower]) {
 			return @NO;
 		}
+	} else if ([type isEqualToString:@"UUID"]) {
+		/* An object id: "00000000-0000-4000-8000-000000000007". */
+		NSUUID *uuid = [[NSUUID alloc] initWithUUIDString:text];
+		if (uuid != nil) {
+			return uuid;
+		}
 	} else if ([type isEqualToString:@"Date"]) {
 		NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
 		formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
@@ -2265,8 +2271,23 @@ ORMFetchAsked(NSFetchRequest *fetch)
 	return run;
 }
 
+/* NO, and why, for a plan whose parameters are not given their values. */
+static BOOL
+ORMHasNoParameters(ORMQueryPlan *plan, NSError **error)
+{
+	NSArray *names = [plan parameterNames];
+	if ([names count] > 0 && error != NULL) {
+		*error = ORMInterpreterError([NSString stringWithFormat:@"The plan takes %@: bind them first (-planBinding:error:).",
+		                                                        [names componentsJoinedByString:@", "]]);
+	}
+	return [names count] == 0;
+}
+
 - (ORMQueryCursor *)cursorForPlan:(ORMQueryPlan *)plan inContext:(NSManagedObjectContext *)context error:(NSError **)error
 {
+	if (!ORMHasNoParameters(plan, error)) {
+		return nil;
+	}
 	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context reads:[NSMutableDictionary dictionary]
 	                        error:error];
 	if (run == nil) {
@@ -2315,6 +2336,9 @@ ORMFetchAsked(NSFetchRequest *fetch)
                       inContext:(NSManagedObjectContext *)context
                           error:(NSError **)error
 {
+	if (!ORMHasNoParameters(plan, error)) {
+		return nil;
+	}
 	ORMPlanRun *run = [self runOf:plan bindings:@{} equal:@[] inContext:context reads:[NSMutableDictionary dictionary]
 	                        error:error];
 	if (run == nil) {

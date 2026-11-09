@@ -165,6 +165,14 @@ ORMPlanKindNames(void)
 	return value;
 }
 
++ (instancetype)parameter:(NSString *)name type:(NSString *)attributeType
+{
+	ORMPlanValue *value = [[self alloc] init];
+	value->_parameterName = [name copy];
+	value->_attributeType = [attributeType copy] ?: @"String";
+	return value;
+}
+
 + (instancetype)aggregate:(NSString *)function
                        of:(NSString *)column
                        in:(ORMPlanDefinition *)bag
@@ -323,6 +331,9 @@ ORMColumnTitle(ORMPlanDefinition *bag, NSString *nodeId)
 			[where appendFormat:@", %@ %@ %@", ORMColumnTitle(_bag, _windowColumn), _windowOtherComparison, _windowOtherValue];
 		}
 		return [NSString stringWithFormat:@"%@ in %@ where %@", of, _bag.name, where];
+	}
+	if (_parameterName != nil) {
+		return [@"$" stringByAppendingString:_parameterName];
 	}
 	BOOL quoted = [_attributeType isEqualToString:@"String"] || [_attributeType isEqualToString:@"Date"];
 	return quoted ? [NSString stringWithFormat:@"'%@'", [_text stringByReplacingOccurrencesOfString:@"'" withString:@"''"]]
@@ -1539,6 +1550,9 @@ ORMValueList(ORMPlanValue *value)
 		}
 		return list;
 	}
+	if (value.parameterName != nil) {
+		return @{ @"parameter": value.parameterName, @"type": value.attributeType };
+	}
 	return value.path != nil ? @{ @"path": ORMPathList(value.path) }
 	                         : @{ @"constant": value.text, @"type": value.attributeType };
 }
@@ -2070,6 +2084,14 @@ ORMReadValue(id list, NSError **error)
 		ORMPlanPath *path = ORMReadPath([list objectForKey:@"path"], error);
 		return path != nil ? [ORMPlanValue valueAtPath:path] : nil;
 	}
+	id parameter = [list objectForKey:@"parameter"];
+	if (parameter != nil) {
+		if (![parameter isKindOfClass:[NSString class]] || ![[list objectForKey:@"type"] isKindOfClass:[NSString class]]) {
+			*error = ORMPlanError(@"a parameter has its name and its type.");
+			return nil;
+		}
+		return [ORMPlanValue parameter:parameter type:[list objectForKey:@"type"]];
+	}
 	id text = [list objectForKey:@"constant"];
 	id type = [list objectForKey:@"type"];
 	if (![text isKindOfClass:[NSString class]] || ![type isKindOfClass:[NSString class]]) {
@@ -2203,6 +2225,68 @@ ORMReadCondition(id list, NSDictionary<NSString *, ORMPlanDefinition *> *defined
 	condition.boundVariable = binding;
 	condition.isOptional = [[list objectForKey:@"optional"] boolValue];
 	return condition;
+}
+
+/* The property list with each parameter (a dictionary naming one) given
+ * to the block: what it answers in its place, or nil to stop. */
+static id
+ORMReplaceParameters(id list, id (^replace)(NSDictionary *parameter), BOOL *stopped)
+{
+	if ([list isKindOfClass:[NSDictionary class]]) {
+		if ([list objectForKey:@"parameter"] != nil) {
+			id replaced = replace(list);
+			*stopped = *stopped || replaced == nil;
+			return replaced ?: list;
+		}
+		NSMutableDictionary *copy = [NSMutableDictionary dictionary];
+		for (id key in list) {
+			[copy setObject:ORMReplaceParameters([list objectForKey:key], replace, stopped) forKey:key];
+		}
+		return copy;
+	}
+	if ([list isKindOfClass:[NSArray class]]) {
+		NSMutableArray *copy = [NSMutableArray array];
+		for (id item in list) {
+			[copy addObject:ORMReplaceParameters(item, replace, stopped)];
+		}
+		return copy;
+	}
+	return list;
+}
+
+- (NSArray<NSString *> *)parameterNames
+{
+	NSMutableSet *names = [NSMutableSet set];
+	BOOL stopped = NO;
+	ORMReplaceParameters([self propertyList], ^id(NSDictionary *parameter) {
+		[names addObject:[parameter objectForKey:@"parameter"]];
+		return parameter;
+	}, &stopped);
+	return [[names allObjects] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (ORMQueryPlan *)planBinding:(NSDictionary<NSString *, NSString *> *)values error:(NSError **)error
+{
+	__block NSString *missing = nil;
+	BOOL stopped = NO;
+	id bound = ORMReplaceParameters([self propertyList], ^id(NSDictionary *parameter) {
+		NSString *name = [parameter objectForKey:@"parameter"];
+		id value = [values objectForKey:name];
+		if (![value isKindOfClass:[NSString class]]) {
+			missing = name;
+			return nil;
+		}
+		return @{ @"constant": value, @"type": [parameter objectForKey:@"type"] };
+	}, &stopped);
+	if (stopped) {
+		if (error != NULL) {
+			*error = [NSError errorWithDomain:ORMQueryPlanErrorDomain code:4
+			                         userInfo:@{ NSLocalizedDescriptionKey:
+			                                         [NSString stringWithFormat:@"No value for the plan's parameter %@.", missing] }];
+		}
+		return nil;
+	}
+	return [ORMQueryPlan planWithPropertyList:bound error:error];
 }
 
 + (instancetype)planWithPropertyList:(id)list error:(NSError **)error
