@@ -169,6 +169,48 @@ ORMFlowKinds(void)
 	return NSMakePoint(right, 60);
 }
 
+/* The Diagram menu's zoom (ORMModelMenus.xib), wherever the focus is in
+ * the flow's window or tab: the canvas's. */
+- (IBAction)zoomIn:(id)sender
+{
+	[self.canvas zoomIn:sender];
+}
+
+- (IBAction)zoomOut:(id)sender
+{
+	[self.canvas zoomOut:sender];
+}
+
+- (IBAction)zoomToFit:(id)sender
+{
+	[self.canvas zoomToFit:sender];
+}
+
+- (IBAction)zoomToActualSize:(id)sender
+{
+	[self.canvas zoomToActualSize:sender];
+}
+
+- (IBAction)zoomCanvasIn:(id)sender
+{
+	[self.canvas zoomIn:sender];
+}
+
+- (IBAction)zoomCanvasOut:(id)sender
+{
+	[self.canvas zoomOut:sender];
+}
+
+- (IBAction)zoomCanvasToFit:(id)sender
+{
+	[self.canvas zoomToFit:sender];
+}
+
+- (IBAction)zoomCanvasToActualSize:(id)sender
+{
+	[self.canvas zoomToActualSize:sender];
+}
+
 - (IBAction)play:(id)sender
 {
 	_player = [[ORMFlowPlayController alloc] initWithFlow:self.editor.flow model:self.editor.model];

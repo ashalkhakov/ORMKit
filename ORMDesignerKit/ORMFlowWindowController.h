@@ -43,6 +43,18 @@
 - (IBAction)chooseTransitionKind:(id)sender;
 - (IBAction)chooseTransitionTo:(id)sender;
 - (IBAction)delete:(id)sender;
+/* The canvas zoomed: in, out, the whole flow in view, actual size (the
+ * buttons under it; the Diagram menu's Zoom In, Zoom Out, Zoom to Fit and
+ * Actual Size, as zoomIn: and the like, wherever the focus is in the
+ * flow; Command and the scroll wheel too). */
+- (IBAction)zoomCanvasIn:(id)sender;
+- (IBAction)zoomCanvasOut:(id)sender;
+- (IBAction)zoomCanvasToFit:(id)sender;
+- (IBAction)zoomCanvasToActualSize:(id)sender;
+- (IBAction)zoomIn:(id)sender;
+- (IBAction)zoomOut:(id)sender;
+- (IBAction)zoomToFit:(id)sender;
+- (IBAction)zoomToActualSize:(id)sender;
 /* The flow played over the model's sample population, in a window of its
  * own (ORMFlowPlayController.h): begun again at each Play. */
 - (IBAction)play:(id)sender;

@@ -146,14 +146,14 @@
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <subviews>
 <scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="problemsScroll">
-<rect key="frame" x="0" y="0" width="698" height="159"/>
+<rect key="frame" x="0" y="0" width="698" height="129"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <clipView key="contentView" copiesOnScroll="NO" id="problemsClip">
-<rect key="frame" x="1" y="1" width="696" height="157"/>
+<rect key="frame" x="1" y="1" width="696" height="127"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <subviews>
 <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="problemsHeader" identifier="problems" id="problems">
-<rect key="frame" x="0" y="0" width="696" height="134"/>
+<rect key="frame" x="0" y="0" width="696" height="104"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <size key="intercellSpacing" width="3" height="2"/>
 <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
@@ -176,11 +176,11 @@
 </subviews>
 </clipView>
 <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="problemsHScroller">
-<rect key="frame" x="1" y="143" width="696" height="15"/>
+<rect key="frame" x="1" y="113" width="696" height="15"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
 </scroller>
 <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="problemsVScroller">
-<rect key="frame" x="682" y="1" width="15" height="157"/>
+<rect key="frame" x="682" y="1" width="15" height="127"/>
 <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
 </scroller>
 <tableHeaderView key="headerView" wantsLayer="YES" id="problemsHeader">
@@ -188,6 +188,38 @@
 <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
 </tableHeaderView>
 </scrollView>
+<button toolTip="Zoom out" verticalHuggingPriority="750" identifier="zoomOut" id="zoomOut">
+<rect key="frame" x="502" y="131" width="30" height="24"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="−" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="zoomOutCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="zoomCanvasOut:" target="-2" id="zoomOutAction"/></connections>
+</button>
+<button toolTip="Zoom in" verticalHuggingPriority="750" identifier="zoomIn" id="zoomIn">
+<rect key="frame" x="534" y="131" width="30" height="24"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="+" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="zoomInCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="zoomCanvasIn:" target="-2" id="zoomInAction"/></connections>
+</button>
+<button toolTip="The whole flow in view" verticalHuggingPriority="750" identifier="zoomToFit" id="zoomToFit">
+<rect key="frame" x="566" y="131" width="56" height="24"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Fit" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="zoomToFitCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="zoomCanvasToFit:" target="-2" id="zoomToFitAction"/></connections>
+</button>
+<button toolTip="Actual size" verticalHuggingPriority="750" identifier="zoomToActualSize" id="zoomToActualSize">
+<rect key="frame" x="624" y="131" width="62" height="24"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="100%" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="zoomToActualSizeCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="zoomCanvasToActualSize:" target="-2" id="zoomToActualSizeAction"/></connections>
+</button>
 
 </subviews>
 </customView>

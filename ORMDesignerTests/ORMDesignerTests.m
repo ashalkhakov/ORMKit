@@ -1750,6 +1750,34 @@
 	}
 	XCTAssertTrue([window.canvas isKindOfClass:[ORMFlowCanvasView class]]);
 	XCTAssertEqual(window.canvas.editor, document.editor);
+	/* Zoomed by the buttons under the canvas, and by the Diagram menu's
+	 * items, which reach the window's controller whatever has the focus. */
+	NSButton *zoomIn = nil, *zoomOut = nil;
+	NSMutableArray *pending = [NSMutableArray arrayWithObject:[[window window] contentView]];
+	while ([pending count] > 0) {
+		NSView *view = [pending lastObject];
+		[pending removeLastObject];
+		[pending addObjectsFromArray:[view subviews]];
+		if ([view isKindOfClass:[NSButton class]] && [(NSButton *)view action] == @selector(zoomCanvasIn:)) {
+			zoomIn = (NSButton *)view;
+		}
+		if ([view isKindOfClass:[NSButton class]] && [(NSButton *)view action] == @selector(zoomCanvasOut:)) {
+			zoomOut = (NSButton *)view;
+		}
+	}
+	XCTAssertNotNil(zoomIn);
+	XCTAssertNotNil(zoomOut);
+	XCTAssertEqual([zoomIn target], window);
+	double zoom = window.canvas.zoom;
+	[zoomIn performClick:nil];
+	XCTAssertTrue(window.canvas.zoom > zoom, @"%g after %g", window.canvas.zoom, zoom);
+	[zoomOut performClick:nil];
+	XCTAssertEqualWithAccuracy(window.canvas.zoom, zoom, 1e-9);
+	XCTAssertTrue([window respondsToSelector:@selector(zoomIn:)] && [window respondsToSelector:@selector(zoomToFit:)]);
+	[window zoomIn:nil];
+	XCTAssertTrue(window.canvas.zoom > zoom, @"the menu's Zoom In");
+	[window zoomToActualSize:nil];
+	XCTAssertEqualWithAccuracy(window.canvas.zoom, 1.0, 1e-9, @"Actual Size");
 	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"nothing");
 	XCTAssertEqual([window.palette numberOfRows], 2, @"the model's form and list");
 	XCTAssertEqualObjects([window tableView:window.palette objectValueForTableColumn:nil row:0], @"RecordFillUp (form)");
