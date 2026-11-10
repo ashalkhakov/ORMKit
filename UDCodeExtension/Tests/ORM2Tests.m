@@ -310,7 +310,7 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	[opening.flowController.canvas selectScreen:@"RecordFillUp"];
 	[opening.flowController openScreen:nil];
 	XCTAssertNotNil(workbench.shown, @"the model shown");
-	id queries = [workbench.shown.modelController valueForKey:@"queryController"];
+	NSWindowController *queries = [workbench.shown.modelController valueForKey:@"queryController"];
 	XCTAssertTrue([[queries window] isVisible], @"its Conceptual Queries window");
 	XCTAssertEqualObjects([queries valueForKey:@"queryId"], formId, @"the form chosen in it");
 	[[queries window] close];
