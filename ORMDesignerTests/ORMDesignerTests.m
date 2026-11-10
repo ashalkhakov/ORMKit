@@ -1932,6 +1932,32 @@
 	XCTAssertEqualObjects([player.screenTitle stringValue], @"Vehicles (list)");
 	XCTAssertEqual([player.walk.log count], 1u, @"begun again");
 	[[player window] close];
+
+	/* Its entry: a start dot left of Vehicles, chosen like the rest, its
+	 * page in the inspector; renamed, started elsewhere, deleted. */
+	ORMFlowCanvasView *canvas = window.canvas;
+	NSRect dot = [canvas dotOfEntry:0];
+	NSRect list = [canvas frameOfScreen:vehicles];
+	XCTAssertTrue(NSMaxX(dot) < NSMinX(list) && NSMidY(dot) > NSMinY(list) && NSMidY(dot) < NSMinY(list) + 30, @"%@ by %@",
+	              NSStringFromRect(dot), NSStringFromRect(list));
+	XCTAssertEqualObjects([canvas canvas:canvas itemAtPoint:NSMakePoint(NSMidX(dot), NSMidY(dot))], [ORMFlowCanvasView itemOfEntry:0]);
+	[canvas selectEntry:0];
+	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"entry");
+	XCTAssertEqualObjects([window.entryName stringValue], @"Start");
+	XCTAssertEqualObjects([window.entryScreen titleOfSelectedItem], vehicles.name);
+	[window.entryName setStringValue:@"Begin"];
+	[window renameEntry:window.entryName];
+	XCTAssertEqualObjects([[editor.flow.entries firstObject] name], @"Begin");
+	[window.entryScreen selectItemAtIndex:[window.entryScreen indexOfItemWithRepresentedObject:form.identifier]];
+	[window chooseEntryScreen:window.entryScreen];
+	XCTAssertEqualObjects([[editor.flow.entries firstObject] screen], form.identifier, @"started at the form");
+	XCTAssertTrue(NSMaxX([canvas dotOfEntry:0]) < NSMinX([canvas frameOfScreen:form]), @"drawn by it");
+	[canvas selectEntry:0];
+	/* The new flow's own Start is still there: only the chosen one goes. */
+	NSUInteger entries = [editor.flow.entries count];
+	[canvas delete:nil];
+	XCTAssertEqual([editor.flow.entries count], entries - 1);
+	XCTAssertFalse([[editor.flow.entries valueForKey:@"name"] containsObject:@"Begin"]);
 	[document close];
 	[[NSFileManager defaultManager] removeItemAtPath:folder error:NULL];
 }

@@ -21,6 +21,8 @@
 <outlet property="transitionKind" destination="transitionKind" id="transitionKindOutlet"/>
 <outlet property="transitionTo" destination="transitionTo" id="transitionToOutlet"/>
 <outlet property="gives" destination="gives" id="givesOutlet"/>
+<outlet property="entryName" destination="entryName" id="entryNameOutlet"/>
+<outlet property="entryScreen" destination="entryScreen" id="entryScreenOutlet"/>
 </connections>
 </customObject>
 <customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
@@ -255,7 +257,7 @@
 <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="nothingHelp">
 <rect key="frame" x="12" y="610" width="256" height="90"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
-<textFieldCell key="cell" lineBreakMode="wordWrapping" selectable="YES" alignment="left" title="Add the model's forms and lists from the left. Drag from a screen's dot to another screen to add a transition. Double-click a screen to rename it." id="nothingHelpCell">
+<textFieldCell key="cell" lineBreakMode="wordWrapping" selectable="YES" alignment="left" title="Add the model's forms and lists from the left. Drag from a screen's dot to another screen to add a transition. Double-click a screen's title to rename it, below it to open its form. The filled dot with an arrow is where the flow starts." id="nothingHelpCell">
 <font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
 </textFieldCell>
 </textField>
@@ -492,6 +494,67 @@
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
 </buttonCell>
 <connections><action selector="delete:" target="-2" id="deleteTransitionAction"/></connections>
+</button>
+</subviews>
+</view>
+</tabViewItem>
+<tabViewItem label="Entry" identifier="entry" id="entryItem">
+<view key="view" id="entryView">
+<rect key="frame" x="0" y="0" width="280" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="entryTitle">
+<rect key="frame" x="12" y="720" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Entry" id="entryTitleCell">
+<font key="font" metaFont="systemBold"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="entryHelp">
+<rect key="frame" x="12" y="692" width="256" height="30"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="wordWrapping" selectable="YES" alignment="left" title="Where the flow begins: an app, or a process's task." id="entryHelpCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="entryNameLabel">
+<rect key="frame" x="12" y="658" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Name" id="entryNameLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField verticalHuggingPriority="750" identifier="entryName" id="entryName">
+<rect key="frame" x="12" y="638" width="256" height="22"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="entryNameCell">
+<font key="font" metaFont="system"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+<connections><action selector="renameEntry:" target="-2" id="entryNameAction"/></connections>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="entryScreenLabel">
+<rect key="frame" x="12" y="606" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Starts at" id="entryScreenLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<popUpButton verticalHuggingPriority="750" identifier="entryScreen" id="entryScreen">
+<rect key="frame" x="9" y="584" width="262" height="26"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="entryScreenCell">
+<behavior key="behavior" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+<menu key="menu" id="entryScreenMenu"><items></items></menu>
+</popUpButtonCell>
+<connections><action selector="chooseEntryScreen:" target="-2" id="entryScreenAction"/></connections>
+</popUpButton>
+<button verticalHuggingPriority="750" identifier="deleteEntry" id="deleteEntry">
+<rect key="frame" x="6" y="543" width="268" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Delete Entry" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="deleteEntryCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="delete:" target="-2" id="deleteEntryAction"/></connections>
 </button>
 </subviews>
 </view>

@@ -3,6 +3,10 @@
 
 static NSString * const ORMScreenItemPrefix = @"screen:";
 static NSString * const ORMTransitionItemPrefix = @"transition:";
+static NSString * const ORMEntryItemPrefix = @"entry:";
+/* An entry's dot, and how far left of its screen it is. */
+static const double ORMFlowEntryRadius = 7;
+static const double ORMFlowEntryGap = 48;
 /* A card's title bar, its port's radius, a return's length. */
 static const double ORMFlowTitleHeight = 26;
 static const double ORMFlowPortRadius = 5;
@@ -81,6 +85,47 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 + (NSString *)itemOfTransition:(NSUInteger)index
 {
 	return [NSString stringWithFormat:@"%@%lu", ORMTransitionItemPrefix, (unsigned long)index];
+}
+
++ (NSString *)itemOfEntry:(NSUInteger)index
+{
+	return [NSString stringWithFormat:@"%@%lu", ORMEntryItemPrefix, (unsigned long)index];
+}
+
+- (NSIndexSet *)selectedEntries
+{
+	NSMutableIndexSet *indexes = [NSMutableIndexSet indexSet];
+	for (NSString *item in self.selection) {
+		if ([item hasPrefix:ORMEntryItemPrefix]) {
+			[indexes addIndex:(NSUInteger)[[item substringFromIndex:[ORMEntryItemPrefix length]] integerValue]];
+		}
+	}
+	return indexes;
+}
+
+- (void)selectEntry:(NSUInteger)index
+{
+	self.selection = [NSSet setWithObject:[ORMFlowCanvasView itemOfEntry:index]];
+	[self.flowDelegate flowCanvasSelectionDidChange:self];
+}
+
+/* An entry's dot: left of its screen, at its title, the screen's others
+ * under it. NSZeroRect for one to no screen. */
+- (NSRect)dotOfEntry:(NSUInteger)index
+{
+	NSArray<ORMFlowEntry *> *entries = self.editor.flow.entries;
+	ORMFlowEntry *entry = index < [entries count] ? [entries objectAtIndex:index] : nil;
+	ORMFlowScreen *screen = entry != nil ? [self.editor.flow screenWithId:entry.screen] : nil;
+	if (screen == nil) {
+		return NSZeroRect;
+	}
+	NSUInteger before = 0;
+	for (NSUInteger i = 0; i < index; i++) {
+		before += [[[entries objectAtIndex:i] screen] isEqualToString:entry.screen] ? 1 : 0;
+	}
+	NSRect frame = [self frameOfScreen:screen];
+	NSPoint center = NSMakePoint(NSMinX(frame) - ORMFlowEntryGap, NSMinY(frame) + ORMFlowTitleHeight / 2 + 34 * before);
+	return NSMakeRect(center.x - ORMFlowEntryRadius, center.y - ORMFlowEntryRadius, 2 * ORMFlowEntryRadius, 2 * ORMFlowEntryRadius);
 }
 
 - (NSArray<NSString *> *)selectedScreens
@@ -281,11 +326,25 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 			bounds = NSUnionRect(bounds, NSMakeRect(p.x - 80, p.y - 20, 160, 60));
 		}
 	}
+	for (NSUInteger i = 0; i < [self.editor.flow.entries count]; i++) {
+		NSRect dot = [self dotOfEntry:i];
+		if (!NSIsEmptyRect(dot)) {
+			bounds = NSUnionRect(bounds, NSInsetRect(dot, -60, -30));
+		}
+	}
 	return bounds;
 }
 
 - (id)canvas:(DKCanvasView *)canvas itemAtPoint:(NSPoint)point
 {
+	for (NSUInteger i = [self.editor.flow.entries count]; i > 0; i--) {
+		NSRect dot = [self dotOfEntry:i - 1];
+		/* The dot, its name over it, and its arrow into the screen. */
+		NSRect touch = NSMakeRect(NSMinX(dot) - 24, NSMinY(dot) - 18, ORMFlowEntryGap + 24 + ORMFlowEntryRadius, NSHeight(dot) + 22);
+		if (!NSIsEmptyRect(dot) && NSPointInRect(point, touch)) {
+			return [ORMFlowCanvasView itemOfEntry:i - 1];
+		}
+	}
 	for (NSUInteger i = [self.editor.flow.transitions count]; i > 0; i--) {
 		NSArray<NSValue *> *route = [self routeOfTransition:i - 1];
 		for (NSUInteger j = 0; j + 1 < [route count]; j++) {
@@ -305,6 +364,11 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 - (NSArray *)canvas:(DKCanvasView *)canvas itemsInRect:(NSRect)rect
 {
 	NSMutableArray *items = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [self.editor.flow.entries count]; i++) {
+		if (NSIntersectsRect(rect, [self dotOfEntry:i])) {
+			[items addObject:[ORMFlowCanvasView itemOfEntry:i]];
+		}
+	}
 	for (ORMFlowScreen *screen in self.editor.flow.screens) {
 		if (NSIntersectsRect(rect, [self frameOfScreen:screen])) {
 			[items addObject:[ORMFlowCanvasView itemOfScreen:screen.identifier]];
@@ -318,6 +382,9 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 	if ([item hasPrefix:ORMScreenItemPrefix]) {
 		ORMFlowScreen *screen = [self.editor.flow screenWithId:[item substringFromIndex:[ORMScreenItemPrefix length]]];
 		return screen != nil ? [self frameOfScreen:screen] : NSZeroRect;
+	}
+	if ([item hasPrefix:ORMEntryItemPrefix]) {
+		return [self dotOfEntry:(NSUInteger)[[item substringFromIndex:[ORMEntryItemPrefix length]] integerValue]];
 	}
 	NSRect frame = NSZeroRect;
 	for (NSValue *point in [self routeOfTransition:(NSUInteger)[[item substringFromIndex:[ORMTransitionItemPrefix length]] integerValue]]) {
@@ -392,19 +459,28 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 		NSRect dot = NSMakeRect(port.x - ORMFlowPortRadius, port.y - ORMFlowPortRadius, 2 * ORMFlowPortRadius, 2 * ORMFlowPortRadius);
 		[surface fillPath:[DKPath pathWithOvalInRect:dot] color:ORMDiagramPaper(state.dark)];
 		[surface strokePath:[DKPath pathWithOvalInRect:dot] color:ink width:1 style:DKStrokeSolid];
-		/* Its entries: a tab on its left. */
-		double y = NSMinY(frame) + 4;
-		for (ORMFlowEntry *entry in self.editor.flow.entries) {
-			if (![entry.screen isEqualToString:screen.identifier]) {
-				continue;
-			}
-			NSString *text = [@"▶ " stringByAppendingString:entry.name ?: @"?"];
-			NSSize size = [surface sizeOfText:text font:small];
-			NSRect tab = NSMakeRect(NSMinX(frame) - size.width - 14, y, size.width + 10, size.height + 6);
-			[surface fillPath:[DKPath pathWithRoundedRect:tab radius:4] color:ORMDiagramPick()];
-			[surface drawText:text at:NSMakePoint(NSMinX(tab) + 5, NSMinY(tab) + 3) font:small color:DKColorWhite() centered:NO];
-			y = NSMaxY(tab) + 4;
+	}
+	/* The entries: a statechart's initial state -- a filled dot, its name
+	 * over it, an arrow into its screen. */
+	for (NSUInteger i = 0; i < [self.editor.flow.entries count]; i++) {
+		NSRect dot = [self dotOfEntry:i];
+		if (NSIsEmptyRect(dot)) {
+			continue;
 		}
+		BOOL selected = [state.selection containsObject:[ORMFlowCanvasView itemOfEntry:i]];
+		DKColor color = selected ? DKColorSelection() : ink;
+		ORMFlowEntry *entry = [self.editor.flow.entries objectAtIndex:i];
+		ORMFlowScreen *screen = [self.editor.flow screenWithId:entry.screen];
+		NSPoint from = NSMakePoint(NSMaxX(dot), NSMidY(dot)), to = NSMakePoint(NSMinX([self frameOfScreen:screen]), NSMidY(dot));
+		DKDrawRoute(surface, @[ [NSValue valueWithPoint:from], [NSValue valueWithPoint:to] ], color, selected ? 2 : 1.2, DKStrokeSolid,
+		            DKEdgeEndNone, DKEdgeEndArrow);
+		[surface fillPath:[DKPath pathWithOvalInRect:dot] color:color];
+		if (selected) {
+			[surface strokePath:[DKPath pathWithOvalInRect:NSInsetRect(dot, -3, -3)] color:color width:1.5 style:DKStrokeSolid];
+		}
+		NSString *name = entry.name ?: @"?";
+		NSSize size = [surface sizeOfText:name font:small];
+		[surface drawText:name at:NSMakePoint(NSMidX(dot) - size.width / 2, NSMinY(dot) - size.height - 3) font:small color:color centered:NO];
 	}
 	if (_drawingFrom != nil) {
 		ORMFlowScreen *from = [self.editor.flow screenWithId:_drawingFrom];
@@ -502,6 +578,12 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 {
 	NSArray *screens = [self selectedScreens];
 	NSIndexSet *transitions = [self selectedTransitions];
+	NSIndexSet *entries = [self selectedEntries];
+	if ([entries count] > 0) {
+		NSMutableArray *kept = [self.editor.flow.entries mutableCopy];
+		[kept removeObjectsAtIndexes:entries];
+		[self.editor setEntries:kept];
+	}
 	if ([transitions count] > 0) {
 		[self.editor removeTransitions:transitions];
 	}

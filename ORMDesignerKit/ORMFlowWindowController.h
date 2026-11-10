@@ -46,11 +46,17 @@
 @property (nonatomic, strong) IBOutlet NSPopUpButton *transitionKind;
 @property (nonatomic, strong) IBOutlet NSPopUpButton *transitionTo;
 @property (nonatomic, strong) IBOutlet NSTableView *gives;
+/* An entry's page: its name, and the screen it starts at. */
+@property (nonatomic, strong) IBOutlet NSTextField *entryName;
+@property (nonatomic, strong) IBOutlet NSPopUpButton *entryScreen;
 
 /* The palette's chosen form or list placed as a screen, right of the rest. */
 - (IBAction)addToFlow:(id)sender;
 - (IBAction)renameScreen:(id)sender;
 - (IBAction)setEntry:(id)sender;
+/* The chosen entry renamed (emptied: deleted), or started elsewhere. */
+- (IBAction)renameEntry:(id)sender;
+- (IBAction)chooseEntryScreen:(id)sender;
 - (IBAction)addCancelBack:(id)sender;
 - (IBAction)chooseTransitionOn:(id)sender;
 - (IBAction)chooseTransitionKind:(id)sender;

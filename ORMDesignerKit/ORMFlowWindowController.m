@@ -326,6 +326,18 @@ ORMFlowKinds(void)
 {
 	ORMFlowScreen *screen = [self chosenScreen];
 	ORMFlowTransition *transition = [self chosenTransition];
+	ORMFlowEntry *entry = [self chosenEntry];
+	if (entry != nil) {
+		[self.inspector selectTabViewItemWithIdentifier:@"entry"];
+		[self.entryName setStringValue:entry.name ?: @""];
+		[self.entryScreen removeAllItems];
+		for (ORMFlowScreen *each in self.editor.flow.screens) {
+			[self.entryScreen addItemWithTitle:each.name ?: each.identifier];
+			[[self.entryScreen lastItem] setRepresentedObject:each.identifier];
+		}
+		[self.entryScreen selectItemAtIndex:[self.entryScreen indexOfItemWithRepresentedObject:entry.screen]];
+		return;
+	}
 	if (screen != nil) {
 		[self.inspector selectTabViewItemWithIdentifier:@"screen"];
 		[self.screenName setStringValue:screen.name ?: @""];
@@ -371,6 +383,69 @@ ORMFlowKinds(void)
 	if (screen != nil) {
 		[self.editor renameScreen:screen.identifier to:[self.screenName stringValue]];
 	}
+}
+
+/* The one entry chosen on the canvas, nothing else with it. */
+- (ORMFlowEntry *)chosenEntry
+{
+	NSIndexSet *entries = [self.canvas selectedEntries];
+	if ([entries count] != 1 || [[self.canvas selectedScreens] count] > 0 || [[self.canvas selectedTransitions] count] > 0) {
+		return nil;
+	}
+	NSUInteger index = [entries firstIndex];
+	return index < [self.editor.flow.entries count] ? [self.editor.flow.entries objectAtIndex:index] : nil;
+}
+
+/* The entries, the chosen one changed so (nil: gone). */
+- (void)replaceChosenEntryWith:(ORMFlowEntry *)entry
+{
+	NSUInteger index = [[self.canvas selectedEntries] firstIndex];
+	NSMutableArray *entries = [self.editor.flow.entries mutableCopy];
+	if (index >= [entries count]) {
+		return;
+	}
+	if (entry != nil) {
+		[entries replaceObjectAtIndex:index withObject:entry];
+	} else {
+		[entries removeObjectAtIndex:index];
+		self.canvas.selection = [NSSet set];
+	}
+	[self.editor setEntries:entries];
+	if (entry != nil) {
+		[self.canvas selectEntry:index];
+	}
+}
+
+- (IBAction)renameEntry:(id)sender
+{
+	ORMFlowEntry *chosen = [self chosenEntry];
+	if (chosen == nil) {
+		return;
+	}
+	NSString *name = [[self.entryName stringValue] stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+	if ([name isEqualToString:chosen.name ?: @""]) {
+		return;
+	}
+	ORMFlowEntry *entry = nil;
+	if ([name length] > 0) {
+		entry = [[ORMFlowEntry alloc] init];
+		entry.name = name;
+		entry.screen = chosen.screen;
+	}
+	[self replaceChosenEntryWith:entry];
+}
+
+- (IBAction)chooseEntryScreen:(id)sender
+{
+	ORMFlowEntry *chosen = [self chosenEntry];
+	NSString *screen = [[self.entryScreen selectedItem] representedObject];
+	if (chosen == nil || screen == nil || [screen isEqualToString:chosen.screen]) {
+		return;
+	}
+	ORMFlowEntry *entry = [[ORMFlowEntry alloc] init];
+	entry.name = chosen.name;
+	entry.screen = screen;
+	[self replaceChosenEntryWith:entry];
 }
 
 /* The screen's entry named so; none where it is emptied. */

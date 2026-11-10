@@ -15,7 +15,7 @@
 /* A flow (docs/FORMS.md, Flows) drawn and edited: DiagramKit's canvas, its
  * own data source and delegate. Each screen a card -- its name, whether a
  * form or a list, and its outline as the model has it (= ? given, ✎
- * entered, ✓ shown) -- an entry a ▶ tab on its screen's card, each
+ * entered, ✓ shown) -- an entry a dot with an arrow into its screen, each
  * transition an arrow from its screen's port (the dot on its right edge)
  * to the next, said with its action and what it gives, a return (back, or
  * the overlay closed) a dotted arrow to the screen it comes back to. A drag from a
@@ -34,6 +34,13 @@
 - (NSIndexSet *)selectedTransitions;
 - (void)selectScreen:(NSString *)screenId;
 - (void)selectTransition:(NSUInteger)index;
+/* The entries (where the flow begins): drawn as a statechart's initial
+ * state, a dot left of its screen with an arrow into it; selected, and
+ * deleted, as the rest are ("entry:<index>"). */
++ (NSString *)itemOfEntry:(NSUInteger)index;
+- (NSIndexSet *)selectedEntries;
+- (void)selectEntry:(NSUInteger)index;
+- (NSRect)dotOfEntry:(NSUInteger)index;
 
 /* Where a screen's card is, and its port; the item at a point. */
 - (NSRect)frameOfScreen:(ORMFlowScreen *)screen;
