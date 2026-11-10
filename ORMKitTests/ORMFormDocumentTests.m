@@ -642,6 +642,204 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertEqualObjects([[form elementErrorsOf:given] allKeys], @[ @"" ], @"the vehicle is given: of the form");
 }
 
+#pragma mark Repeats
+
+static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
+                                   @"Reference Mode: .number\n"
+                                   @"PurchaseLine is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"StockItem is an entity type.\n"
+                                   @"Reference Mode: .sku\n"
+                                   @"Quantity is a value type.\n"
+                                   @"Portable data type: Numeric: Decimal(19, 4)\n"
+                                   @"Day is a value type.\n"
+                                   @"Portable data type: Temporal: Date\n"
+                                   @"PurchaseOrder was placed on Day\n"
+                                   @"Each PurchaseOrder was placed on at most one Day.\n"
+                                   @"PurchaseLine is in PurchaseOrder\n"
+                                   @"Each PurchaseLine is in exactly one PurchaseOrder.\n"
+                                   @"PurchaseLine is of StockItem\n"
+                                   @"Each PurchaseLine is of exactly one StockItem.\n"
+                                   @"PurchaseLine wants Quantity\n"
+                                   @"Each PurchaseLine wants at most one Quantity.\n"
+                                   @"\n"
+                                   @"Query ReceiveGoods:\n"
+                                   @"Form ReceiveGoods:\n"
+                                   @"PurchaseOrder\n"
+                                   @"  + was placed on ✓Day\n"
+                                   @"  + PurchaseLine is in that PurchaseOrder\n"
+                                   @"    + is of ✎StockItem\n"
+                                   @"    + wants ✎Quantity\n";
+
+- (ORMEditor *)orders
+{
+	ORMEditor *editor = [self newEditor];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:ORMOrders failures:&failures], @"%@", failures);
+	return editor;
+}
+
+- (ORMFormDocument *)receiveGoodsOf:(ORMEditor *)editor
+{
+	ORMQuery *form = nil;
+	for (ORMQuery *query in [ORMQuery queriesInModel:editor.model]) {
+		if ([query.name isEqualToString:@"ReceiveGoods"]) {
+			form = query;
+		}
+	}
+	XCTAssertNotNil(form, @"%@", [[ORMQuery queriesInModel:editor.model] valueForKey:@"name"]);
+	NSString *reason = nil;
+	ORMFormDocument *document = [ORMFormDocument documentForForm:form model:editor.model mapping:nil reason:&reason];
+	XCTAssertNotNil(document, @"%@", reason);
+	return document;
+}
+
+/* A step from the anchor to many, a repeat: a form of its own over the
+ * order's lines, given the order, its read every line of it; the order's
+ * own read leaves them out. */
+- (void)testAStepToManyIsARepeat
+{
+	ORMEditor *editor = [self orders];
+	ORMFormDocument *document = [self receiveGoodsOf:editor];
+	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"], (@[ @"number", @"day" ]), @"%@", document.notes);
+	XCTAssertEqualObjects([document.repeats allKeys], @[ @"purchaseLines" ]);
+	ORMFormDocument *lines = [document.repeats objectForKey:@"purchaseLines"];
+	XCTAssertEqualObjects([lines.fields valueForKey:@"elementName"], (@[ @"id", @"purchaseOrder", @"stockItem", @"quantity" ]));
+	XCTAssertEqualObjects(lines.linkElement, @"purchaseOrder");
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([form repeatNames], @[ @"purchaseLines" ]);
+	ORMForm *repeat = [form repeatNamed:@"purchaseLines"];
+	XCTAssertEqualObjects(repeat.linkElement, @"purchaseOrder");
+	XCTAssertEqualObjects([repeat elementNamed:@"quantity"].role, @"entered");
+	XCTAssertEqualObjects([repeat elementNamed:@"stockItem"].role, @"entered");
+	XCTAssertEqualObjects([[form instanceGiven:@{}] objectForKey:@"purchaseLines"], @[], @"a new order: no lines");
+	NSUInteger columns = [form.readPlan.columns count];
+	XCTAssertEqual(columns, 2u, @"the order's read: its own, not its lines'");
+}
+
+/* The order's lines read as rows, changed, added and taken away, saved in
+ * the order's one save; a row refused said at its element, as they were. */
+- (void)testARepeatsRowsAreReadAndSaved
+{
+	ORMEditor *editor = [self orders];
+	ORMForm *form = [ORMForm formWithPropertyList:[[self receiveGoodsOf:editor] tablePropertyList] error:NULL];
+	NSManagedObjectModel *model = [[[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:nil] map] managedObjectModel];
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	NSError *error = nil;
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error]);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+	[context setPersistentStoreCoordinator:coordinator];
+	NSManagedObject *order = [NSEntityDescription insertNewObjectForEntityForName:@"PurchaseOrder" inManagedObjectContext:context];
+	[order setValue:@7 forKey:@"number"];
+	NSMutableDictionary *items = [NSMutableDictionary dictionary];
+	for (NSString *sku in @[ @"OIL", @"FILTER", @"WIPER" ]) {
+		NSManagedObject *item = [NSEntityDescription insertNewObjectForEntityForName:@"StockItem" inManagedObjectContext:context];
+		[item setValue:sku forKey:@"sku"];
+		[items setObject:item forKey:sku];
+	}
+	for (NSString *sku in @[ @"OIL", @"FILTER" ]) {
+		NSManagedObject *line = [NSEntityDescription insertNewObjectForEntityForName:@"PurchaseLine" inManagedObjectContext:context];
+		[line setValue:[NSUUID UUID] forKey:@"id"];
+		[line setValue:order forKey:@"purchaseOrder"];
+		[line setValue:[items objectForKey:sku] forKey:@"stockItem"];
+		[line setValue:[NSDecimalNumber decimalNumberWithString:@"4"] forKey:@"quantity"];
+	}
+	XCTAssertTrue([context save:&error], @"%@", error);
+
+	NSDictionary *read = [form readKey:@"7" inContext:context error:&error];
+	NSArray *rows = [read objectForKey:@"purchaseLines"];
+	XCTAssertEqual([rows count], 2u, @"%@ %@", read, error);
+	NSArray *skus = [[rows valueForKey:@"stockItem"] sortedArrayUsingSelector:@selector(compare:)];
+	XCTAssertEqualObjects(skus, (@[ @"FILTER", @"OIL" ]));
+	XCTAssertEqualObjects([[rows firstObject] objectForKey:@"quantity"], @"4");
+
+	/* The oil's changed, the filter's taken away, a wiper's added. */
+	NSMutableArray *changed = [NSMutableArray array];
+	for (NSDictionary *row in rows) {
+		if ([[row objectForKey:@"stockItem"] isEqualToString:@"OIL"]) {
+			NSMutableDictionary *oil = [row mutableCopy];
+			[oil setObject:@"6" forKey:@"quantity"];
+			[changed addObject:oil];
+		}
+	}
+	[changed addObject:@{ @"id": @"", @"stockItem": @"WIPER", @"quantity": @"2" }];
+	NSMutableDictionary *instance = [read mutableCopy];
+	[instance setObject:changed forKey:@"purchaseLines"];
+	NSDictionary *errors = nil;
+	XCTAssertNotNil([form save:instance inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
+	NSArray *now = [[form readKey:@"7" inContext:context error:NULL] objectForKey:@"purchaseLines"];
+	NSMutableDictionary *quantities = [NSMutableDictionary dictionary];
+	for (NSDictionary *row in now) {
+		[quantities setObject:[row objectForKey:@"quantity"] forKey:[row objectForKey:@"stockItem"]];
+	}
+	XCTAssertEqualObjects(quantities, (@{ @"OIL": @"6", @"WIPER": @"2" }), @"one save, the filter's line gone");
+
+	/* A row naming an item there is none of: said at it, nothing changed. */
+	NSMutableArray *wrong = [now mutableCopy];
+	[wrong addObject:@{ @"id": @"", @"stockItem": @"BRAKES", @"quantity": @"1" }];
+	[instance setObject:wrong forKey:@"purchaseLines"];
+	XCTAssertNil([form save:instance inContext:context errors:&errors error:&error]);
+	XCTAssertEqualObjects([errors allKeys], @[ @"purchaseLines[2].stockItem" ], @"%@", errors);
+	XCTAssertEqual([[[form readKey:@"7" inContext:context error:NULL] objectForKey:@"purchaseLines"] count], 2u, @"as they were");
+}
+
+/* A session over an order: its lines as rows, set and saved; and
+ * submitted instead of saved, what the submission refuses said by row. */
+- (void)testASessionHasRowsAndMaySubmit
+{
+	ORMEditor *editor = [self orders];
+	ORMForm *form = [ORMForm formWithPropertyList:[[self receiveGoodsOf:editor] tablePropertyList] error:NULL];
+	NSManagedObjectModel *model = [[[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:nil] map] managedObjectModel];
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	[coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:NULL];
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+	[context setPersistentStoreCoordinator:coordinator];
+	NSManagedObject *order = [NSEntityDescription insertNewObjectForEntityForName:@"PurchaseOrder" inManagedObjectContext:context];
+	[order setValue:@9 forKey:@"number"];
+	NSManagedObject *item = [NSEntityDescription insertNewObjectForEntityForName:@"StockItem" inManagedObjectContext:context];
+	[item setValue:@"OIL" forKey:@"sku"];
+	NSManagedObject *line = [NSEntityDescription insertNewObjectForEntityForName:@"PurchaseLine" inManagedObjectContext:context];
+	[line setValue:[NSUUID UUID] forKey:@"id"];
+	[line setValue:order forKey:@"purchaseOrder"];
+	[line setValue:item forKey:@"stockItem"];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useContext:context saving:nil];
+	session.key = @"9";
+	XCTAssertTrue([session open:&error], @"%@", error);
+	NSArray *rows = [session rowsOfRepeat:@"purchaseLines"];
+	XCTAssertEqual([rows count], 1u);
+	XCTAssertEqualObjects([session choicesNamed:@"stockItem" inRepeat:@"purchaseLines" row:0 error:&error], @[ @"OIL" ], @"%@", error);
+	NSMutableDictionary *row = [[rows firstObject] mutableCopy];
+	[row setObject:@"12" forKey:@"quantity"];
+	[session setRows:@[ row ] forRepeat:@"purchaseLines"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqualObjects([[[session rowsOfRepeat:@"purchaseLines"] firstObject] objectForKey:@"quantity"], @"12", @"read again");
+
+	/* Submitted: the handler's refusal by row, then done. */
+	__block NSDictionary *submitted = nil;
+	session.submitting = ^NSDictionary *(NSDictionary *values, NSString **made) {
+		submitted = values;
+		NSString *quantity = [[[values objectForKey:@"purchaseLines"] firstObject] objectForKey:@"quantity"];
+		if ([quantity doubleValue] > 10) {
+			return @{ @"purchaseLines[0].quantity": @"More than was ordered." };
+		}
+		*made = @"R1";
+		return @{};
+	};
+	XCTAssertFalse([session save:&error]);
+	XCTAssertEqualObjects(session.errors, (@{ @"purchaseLines[0].quantity": @"More than was ordered." }));
+	XCTAssertEqual([[submitted objectForKey:@"purchaseLines"] count], 1u, @"handed the rows");
+	[row setObject:@"8" forKey:@"quantity"];
+	[session setRows:@[ row ] forRepeat:@"purchaseLines"];
+	XCTAssertTrue([session save:&error]);
+	XCTAssertEqualObjects(session.savedKey, @"R1", @"what it made");
+	XCTAssertEqualObjects([[line valueForKey:@"quantity"] description], @"12", @"submitted, not written");
+}
+
 #pragma mark Flows
 
 /* The fill-up model, with a list of its vehicles: a flow's screens. */

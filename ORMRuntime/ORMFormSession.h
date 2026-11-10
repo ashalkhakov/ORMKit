@@ -50,15 +50,29 @@
 - (BOOL)open:(NSError **)error;
 /* The values, by element: each element's text, as the form's table has it
  * (xsd's lexical forms: "2026-11-10T08:30:00Z", "true", "40.5"). */
-@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSString *> *values;
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, id> *values;
 - (NSString *)valueForElement:(NSString *)name;
 - (void)setValue:(NSString *)value forElement:(NSString *)name;
 /* All of them, as a view (XForms' instance) has them after its own edits. */
-- (void)setValues:(NSDictionary<NSString *, NSString *> *)values;
+- (void)setValues:(NSDictionary<NSString *, id> *)values;
 
 /* A reference's choices for the values as they are (the vehicle's
  * drivers): their keys, in order. nil, and why, where they cannot be read. */
 - (NSArray<NSString *> *)choicesNamed:(NSString *)name error:(NSError **)error;
+
+/* A repeat's rows (an order's lines), each its elements' text as the
+ * repeat's form has them; set all at once, as a view's table has them. */
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)rowsOfRepeat:(NSString *)name;
+- (void)setRows:(NSArray<NSDictionary<NSString *, NSString *> *> *)rows forRepeat:(NSString *)name;
+/* A reference's choices in a repeat's row, for its values as they are. */
+- (NSArray<NSString *> *)choicesNamed:(NSString *)name inRepeat:(NSString *)repeat row:(NSUInteger)row error:(NSError **)error;
+
+/* Submitted, not saved: what a process's task is done with (its form
+ * handler carries out the procedure the form stands for). Given, -save:
+ * hands the values to it instead of writing them; it answers what it
+ * refuses by element ("" for the form's own; a row's "lines[1].quantity"),
+ * none when done, and what it made, by its key. */
+@property (nonatomic, copy) NSDictionary<NSString *, NSString *> *(^submitting)(NSDictionary<NSString *, id> *values, NSString **savedKey);
 
 /* The values written into the object and saved: YES, its key the result.
  * NO where it is refused (errors) or cannot be sent (error). */

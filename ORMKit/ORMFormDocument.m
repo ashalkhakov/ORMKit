@@ -108,6 +108,17 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	NSMutableDictionary<NSString *, ORMQueryStep *> *_unarySteps;
 	/* -definingSteps, worked out once. */
 	NSArray<NSArray *> *_definingSteps;
+	/* The steps from the anchor to many (an order's lines), by id, and the
+	 * element each is (its relationship's name): a repeat each, a form of
+	 * its own over the objects it reaches. */
+	NSMutableDictionary<NSString *, NSString *> *_repeatSteps;
+	NSMutableDictionary<NSString *, ORMFormDocument *> *_repeats;
+	/* A repeat's own: its given node that is the anchor of the form it is
+	 * in, by id; its read is of every object linked to it. */
+	NSString *_linkNodeId;
+	/* While the read is planned by the link's value, not the key's. */
+	BOOL _linkValue;
+	ORMCoreDataMapping *_mapping;
 }
 
 #pragma mark The form's parts
@@ -242,12 +253,21 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	if (form.kind != ORMQueryForm || form.root == nil) {
 		return @"It is no form.";
 	}
-	_form = form;
-	_model = model;
-	_stored = ORMStoredForm(model, form.identifier);
-	if (_stored == nil) {
+	ORMStoredQuery *stored = ORMStoredForm(model, form.identifier);
+	if (stored == nil) {
 		return @"The form is not in the model.";
 	}
+	return [self makeForm:form stored:stored model:model mapping:mapping];
+}
+
+- (NSString *)makeForm:(ORMQuery *)form stored:(ORMStoredQuery *)stored model:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping
+{
+	_form = form;
+	_model = model;
+	_stored = stored;
+	_mapping = mapping;
+	_repeatSteps = [NSMutableDictionary dictionary];
+	_repeats = [NSMutableDictionary dictionary];
 	_planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:mapping];
 	_verbalizer = [[ORMVerbalizer alloc] initWithModel:model];
 	_fields = [NSMutableArray array];
@@ -280,7 +300,85 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	[self placeUnariesIn:plan];
 	[self bindValues];
 	[self bindConstraints];
+	[self makeRepeats];
 	return nil;
+}
+
+/* The step under the anchor the node hangs from; nil for the anchor. */
+- (ORMQueryStep *)topStepOf:(ORMQueryNode *)node
+{
+	ORMQueryStep *step = node.step;
+	while (step != nil && step.parent != _form.root) {
+		step = step.parent.step;
+	}
+	return step;
+}
+
+/* Each step from the anchor to many, a form of its own: anchored on what
+ * the step reaches (an order's line), its steps the step's, and given the
+ * anchor by the same fact type the other way round, which its read is of
+ * (every line of the order). */
+- (void)makeRepeats
+{
+	for (NSString *stepId in [[_repeatSteps allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		NSString *name = [_repeatSteps objectForKey:stepId];
+		ORMQueryPart *step = [_stored partWithId:stepId step:YES];
+		ORMQueryPart *reached = [[step nodes] firstObject];
+		ORMQueryStep *formStep = nil;
+		for (ORMQueryStep *each in _form.root.steps) {
+			if ([each.identifier isEqualToString:stepId]) {
+				formStep = each;
+			}
+		}
+		ORMQueryNode *reachedNode = [formStep.nodes firstObject];
+		if (step == nil || reached == nil || reachedNode.objectType == nil) {
+			[_notes addObject:[NSString stringWithFormat:@"%@: a repeat of nothing the model has.", name]];
+			continue;
+		}
+		ORMQueryPart *root = [reached copy];
+		root.ref = reachedNode.objectType.identifier;
+		root.roleId = nil;
+		root.part = nil;
+		root.given = nil;
+		ORMQueryPart *back = [[ORMQueryPart alloc] init];
+		back.identifier = [stepId stringByAppendingString:@"-of"];
+		back.isStep = YES;
+		back.ref = step.ref;
+		back.roleId = reached.roleId;
+		ORMQueryPart *anchor = [[ORMQueryPart alloc] init];
+		anchor.identifier = [_form.root.identifier stringByAppendingString:@"-of"];
+		anchor.roleId = step.roleId;
+		anchor.given = @"true";
+		[back addPart:anchor];
+		[root insertPart:back atIndex:0];
+		ORMStoredQuery *stored = [[ORMStoredQuery alloc] init];
+		stored.identifier = [NSString stringWithFormat:@"%@-%@", _stored.identifier, stepId];
+		stored.name = [NSString stringWithFormat:@"%@.%@", _form.name ?: @"Form", name];
+		stored.kind = @"Form";
+		stored.root = root;
+		ORMQuery *query = [ORMQuery queryOf:stored model:_model];
+		ORMFormDocument *repeat = [[ORMFormDocument alloc] init];
+		repeat->_linkNodeId = anchor.identifier;
+		NSString *why = query != nil ? [repeat makeForm:query stored:stored model:_model mapping:_mapping] : @"it cannot be read";
+		if (why != nil) {
+			[_notes addObject:[NSString stringWithFormat:@"%@: a repeat not made: %@", name, why]];
+			continue;
+		}
+		[_notes addObjectsFromArray:repeat.notes];
+		[_repeats setObject:repeat forKey:name];
+	}
+}
+
+- (NSDictionary<NSString *, ORMFormDocument *> *)repeats
+{
+	return _repeats;
+}
+
+/* A repeat's element that holds the key of the object of the form it is in
+ * (an order's line's order); nil for a form that is no repeat. */
+- (NSString *)linkElement
+{
+	return _linkNodeId != nil ? [_elementOfNode objectForKey:_linkNodeId] : nil;
 }
 
 /* The nodes the read lists: the anchor, what is entered, shown or given,
@@ -309,9 +407,12 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	for (ORMQueryPart *part in [copy.root tree]) {
 		if (part.isStep) {
 			/* A unary entered or shown is read, not asked for. */
-			if ([_conditionSteps containsObject:part.identifier] || [_unarySteps objectForKey:part.identifier] != nil) {
+			/* A repeat's step is read by the repeat, row by row. */
+			if ([_conditionSteps containsObject:part.identifier] || [_unarySteps objectForKey:part.identifier] != nil
+			    || [_repeatSteps objectForKey:part.identifier] != nil) {
 				[conditions addObject:part];
-			} else if (part.operatorName == nil && part.parent == copy.root) {
+			} else if (part.operatorName == nil && part.parent == copy.root
+			           && !(_linkNodeId != nil && [[[part nodes] firstObject].identifier isEqualToString:_linkNodeId])) {
 				/* What is not given yet leaves no object out. */
 				part.operatorName = @"Maybe";
 			}
@@ -324,7 +425,12 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	for (ORMQueryPart *step in conditions) {
 		[step detach];
 	}
-	if (key != nil) {
+	if (key != nil && _linkNodeId != nil && _linkValue) {
+		/* A repeat's: every object linked to the one of the key. */
+		ORMQueryPart *link = [copy partWithId:_linkNodeId step:NO];
+		link.comparison = @"=";
+		link.value = key;
+	} else if (key != nil) {
 		copy.root.comparison = @"=";
 		copy.root.value = key;
 	}
@@ -406,7 +512,14 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 			}
 		}
 		if (!toOnes) {
-			[_notes addObject:[NSString stringWithFormat:@"%@: one of many; repeated groups are not generated yet.", name]];
+			/* Under a step from the anchor to many: a repeat's. */
+			ORMQueryStep *top = [self topStepOf:node];
+			ORMCDRelationship *first = (ORMCDRelationship *)ORMPropertyOf(coreData, _entityName, [keys firstObject]);
+			if (top != nil && [first isKindOfClass:[ORMCDRelationship class]] && first.toMany) {
+				[_repeatSteps setObject:[keys firstObject] forKey:top.identifier];
+			} else {
+				[_notes addObject:[NSString stringWithFormat:@"%@: one of many, not reached by one step from the anchor.", name]];
+			}
 			continue;
 		}
 		if (node == _form.root) {
@@ -1241,11 +1354,15 @@ ORMPlanWithParameters(ORMQueryPlan *plan, NSDictionary<NSString *, NSString *> *
 
 - (ORMQueryPlan *)readPlan
 {
-	NSString *name = [self keyField].elementName;
+	/* A repeat's is of the objects linked to the key of its link's element. */
+	NSString *name = [self linkElement] ?: [self keyField].elementName;
 	if (name == nil) {
 		return nil;
 	}
-	return ORMPlanWithParameters([self readPlanForKey:ORMParameterSentinel(name)], @{ ORMParameterSentinel(name): name });
+	_linkValue = [self linkElement] != nil;
+	ORMQueryPlan *plan = ORMPlanWithParameters([self readPlanForKey:ORMParameterSentinel(name)], @{ ORMParameterSentinel(name): name });
+	_linkValue = NO;
+	return plan;
 }
 
 - (ORMQueryPlan *)choicesPlanNamed:(NSString *)elementName
@@ -1328,6 +1445,17 @@ ORMFieldKindName(ORMFormFieldKind kind)
 	}
 	[list setObject:choices forKey:@"choices"];
 	[list setObject:[self checkedWhereSubmitted] forKey:@"checkedWhereSubmitted"];
+	/* A repeat's link; the repeats, each a table of its own. */
+	if ([self linkElement] != nil) {
+		[list setObject:[self linkElement] forKey:@"link"];
+	}
+	if ([_repeats count] > 0) {
+		NSMutableDictionary *repeats = [NSMutableDictionary dictionary];
+		[_repeats enumerateKeysAndObjectsUsingBlock:^(NSString *name, ORMFormDocument *repeat, BOOL *stop) {
+			[repeats setObject:[repeat tablePropertyList] forKey:name];
+		}];
+		[list setObject:repeats forKey:@"repeats"];
+	}
 	return list;
 }
 

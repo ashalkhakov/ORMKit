@@ -162,6 +162,9 @@ ORMFormValue(NSString *text, NSAttributeDescription *attribute, NSString **probl
 	}
 }
 
+/* What an error says of a property, for the user (below). */
+static NSString *ORMFormMessage(NSError *error);
+
 #pragma mark The table
 
 @implementation ORMForm
@@ -170,6 +173,7 @@ ORMFormValue(NSString *text, NSAttributeDescription *attribute, NSString **probl
 	NSDictionary<NSString *, ORMQueryPlan *> *_allChoices;
 	NSDictionary<NSString *, ORMQueryPlan *> *_choicesBy;
 	NSDictionary<NSString *, NSArray<NSString *> *> *_dependsOn;
+	NSDictionary<NSString *, ORMForm *> *_repeats;
 }
 
 + (instancetype)formWithPropertyList:(id)list error:(NSError **)error
@@ -254,7 +258,32 @@ ORMFormValue(NSString *text, NSAttributeDescription *attribute, NSString **probl
 	_choicesBy = by;
 	_dependsOn = dependsOn;
 	_checkedWhereSubmitted = [[list objectForKey:@"checkedWhereSubmitted"] copy] ?: @[];
+	_linkElement = [[list objectForKey:@"link"] copy];
+	NSMutableDictionary *repeats = [NSMutableDictionary dictionary];
+	NSDictionary *tables = [list objectForKey:@"repeats"] ?: @{};
+	for (NSString *name in tables) {
+		ORMForm *repeat = [[ORMForm alloc] init];
+		if (![repeat read:[tables objectForKey:name] error:error]) {
+			return NO;
+		}
+		if (repeat.linkElement == nil) {
+			*error = ORMFormError([NSString stringWithFormat:@"The repeat %@ names no link to the form.", name]);
+			return NO;
+		}
+		[repeats setObject:repeat forKey:name];
+	}
+	_repeats = repeats;
 	return YES;
+}
+
+- (NSArray<NSString *> *)repeatNames
+{
+	return [[_repeats allKeys] sortedArrayUsingSelector:@selector(compare:)];
+}
+
+- (ORMForm *)repeatNamed:(NSString *)name
+{
+	return [_repeats objectForKey:name];
 }
 
 - (id)propertyList
@@ -350,7 +379,7 @@ ORMRegisteredForms(void)
 	return [_dependsOn objectForKey:name] ?: @[];
 }
 
-- (ORMQueryPlan *)choicesPlanNamed:(NSString *)name values:(NSDictionary<NSString *, NSString *> *)values error:(NSError **)error
+- (ORMQueryPlan *)choicesPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error
 {
 	ORMQueryPlan *all = [_allChoices objectForKey:name];
 	if (all == nil) {
@@ -368,7 +397,7 @@ ORMRegisteredForms(void)
 
 #pragma mark The instance
 
-- (NSDictionary<NSString *, NSString *> *)instanceGiven:(NSDictionary<NSString *, NSString *> *)values
+- (NSDictionary<NSString *, id> *)instanceGiven:(NSDictionary<NSString *, id> *)values
 {
 	NSMutableDictionary *instance = [NSMutableDictionary dictionary];
 	for (ORMFormElement *element in _elements) {
@@ -377,10 +406,13 @@ ORMRegisteredForms(void)
 		NSString *none = [element.role isEqualToString:@"entered"] && [element.schemaType hasSuffix:@"boolean"] ? @"false" : @"";
 		[instance setObject:[values objectForKey:element.name] ?: none forKey:element.name];
 	}
+	for (NSString *name in _repeats) {
+		[instance setObject:@[] forKey:name];
+	}
 	return instance;
 }
 
-- (NSDictionary<NSString *, NSString *> *)instanceOfRow:(NSArray *)row
+- (NSDictionary<NSString *, id> *)instanceOfRow:(NSArray *)row
 {
 	NSMutableDictionary *instance = [NSMutableDictionary dictionary];
 	for (ORMFormElement *element in _elements) {
@@ -395,7 +427,7 @@ ORMRegisteredForms(void)
 
 #pragma mark The store
 
-- (NSDictionary<NSString *, NSString *> *)readKey:(NSString *)key
+- (NSDictionary<NSString *, id> *)readKey:(NSString *)key
                                         inContext:(NSManagedObjectContext *)context
                                             error:(NSError **)error
 {
@@ -411,11 +443,41 @@ ORMRegisteredForms(void)
 		}
 		return nil;
 	}
-	return [self instanceOfRow:[result.rows firstObject]];
+	NSMutableDictionary *instance = [[self instanceOfRow:[result.rows firstObject]] mutableCopy];
+	for (NSString *name in _repeats) {
+		NSArray *rows = [[_repeats objectForKey:name] rowsLinkedTo:key inContext:context error:error];
+		if (rows == nil) {
+			return nil;
+		}
+		[instance setObject:rows forKey:name];
+	}
+	return instance;
+}
+
+- (NSArray<NSDictionary *> *)rowsLinkedTo:(NSString *)key inContext:(NSManagedObjectContext *)context error:(NSError **)error
+{
+	ORMQueryPlan *plan = [_readPlan planBinding:@{ _linkElement ?: @"": key ?: @"" } error:error];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[[context persistentStoreCoordinator] managedObjectModel]];
+	ORMQueryResult *result = plan != nil ? [interpreter executePlan:plan inContext:context error:error] : nil;
+	if (result == nil) {
+		return nil;
+	}
+	NSMutableArray *rows = [NSMutableArray array];
+	NSMutableSet *seen = [NSMutableSet set];
+	for (NSArray *row in result.rows) {
+		NSDictionary *instance = [self instanceOfRow:row];
+		NSString *rowKey = [instance objectForKey:_keyElement] ?: @"";
+		if ([rowKey length] > 0 && [seen containsObject:rowKey]) {
+			continue;
+		}
+		[seen addObject:rowKey];
+		[rows addObject:instance];
+	}
+	return rows;
 }
 
 - (NSArray<NSString *> *)choicesNamed:(NSString *)name
-                               values:(NSDictionary<NSString *, NSString *> *)values
+                               values:(NSDictionary<NSString *, id> *)values
                             inContext:(NSManagedObjectContext *)context
                                 error:(NSError **)error
 {
@@ -472,7 +534,7 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 	}
 }
 
-- (NSManagedObject *)save:(NSDictionary<NSString *, NSString *> *)instance
+- (NSManagedObject *)save:(NSDictionary<NSString *, id> *)instance
                 inContext:(NSManagedObjectContext *)context
                    errors:(NSDictionary<NSString *, NSString *> **)errors
                     error:(NSError **)error
@@ -480,11 +542,18 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 	return [self save:instance inContext:context saving:nil errors:errors error:error];
 }
 
-- (NSManagedObject *)save:(NSDictionary<NSString *, NSString *> *)instance
-                inContext:(NSManagedObjectContext *)context
-                   saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
-                   errors:(NSDictionary<NSString *, NSString *> **)errors
-                    error:(NSError **)error
+/* The instance written into its object, found by its key or made (a key
+ * given it where it has none): what was wrong of each element said under
+ * its name after the prefix ("purchaseLines[1]."), what the object had
+ * before kept to put back, whether it was made. nil, and why, where the
+ * store has no such entity. */
+- (NSManagedObject *)write:(NSDictionary *)instance
+                 inContext:(NSManagedObjectContext *)context
+                  problems:(NSMutableDictionary<NSString *, NSString *> *)problems
+                    prefix:(NSString *)prefix
+                    before:(NSMutableDictionary *)before
+                      made:(BOOL *)made
+                     error:(NSError **)error
 {
 	NSEntityDescription *entity = [NSEntityDescription entityForName:_entityName inManagedObjectContext:context];
 	NSAttributeDescription *keyAttribute = [[entity attributesByName] objectForKey:_keyElement ?: @""];
@@ -494,21 +563,19 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 		}
 		return nil;
 	}
-	NSMutableDictionary *problems = [NSMutableDictionary dictionary];
 	NSString *problem = nil;
 	id key = ORMFormValue([instance objectForKey:_keyElement] ?: @"", keyAttribute, &problem);
 	NSManagedObject *object = key != nil ? ORMFormFind(entity, _keyElement, key, context) : nil;
-	BOOL made = object == nil;
-	if (made) {
+	*made = object == nil;
+	if (*made) {
 		object = [NSEntityDescription insertNewObjectForEntityForName:_entityName inManagedObjectContext:context];
 		if (keyAttribute != nil) {
 			[object setValue:key ?: ORMFormNewKey(entity, keyAttribute, context) forKey:_keyElement];
 		}
 	}
-	/* What it had, to put back where it is refused. */
-	NSMutableDictionary *before = [NSMutableDictionary dictionary];
 	for (ORMFormElement *element in _elements) {
-		if (!element.written) {
+		/* A repeat's link is written by the form it is in. */
+		if (!element.written && ![element.name isEqualToString:_linkElement ?: @""]) {
 			continue;
 		}
 		NSString *text = [instance objectForKey:element.name] ?: @"";
@@ -529,31 +596,114 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 			problem = attribute == nil ? [NSString stringWithFormat:@"%@ has no %@.", _entityName, element.name] : problem;
 		}
 		if (problem != nil) {
-			[problems setObject:problem forKey:element.name];
+			[problems setObject:problem forKey:[prefix stringByAppendingString:element.name]];
 			continue;
 		}
 		[before setObject:[object valueForKey:element.name] ?: [NSNull null] forKey:element.name];
 		[object setValue:value forKey:element.name];
+	}
+	return object;
+}
+
+/* The object as it was, where its save was refused: one made, gone. */
+static void
+ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManagedObjectContext *context)
+{
+	if (made) {
+		[context deleteObject:object];
+		/* Gone now, its relationships' other ends too, before anything else
+		 * is done with the context (a rollback). */
+		[context processPendingChanges];
+		return;
+	}
+	for (NSString *name in before) {
+		id value = [before objectForKey:name];
+		[object setValue:value == [NSNull null] ? nil : value forKey:name];
+	}
+}
+
+- (NSManagedObject *)save:(NSDictionary<NSString *, id> *)instance
+                inContext:(NSManagedObjectContext *)context
+                   saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
+                   errors:(NSDictionary<NSString *, NSString *> **)errors
+                    error:(NSError **)error
+{
+	NSMutableDictionary *problems = [NSMutableDictionary dictionary];
+	NSMutableDictionary *before = [NSMutableDictionary dictionary];
+	BOOL made = NO;
+	NSManagedObject *object = [self write:instance inContext:context problems:problems prefix:@"" before:before made:&made error:error];
+	if (object == nil) {
+		return nil;
+	}
+	/* Each repeat's rows written into their objects, linked to this one;
+	 * those it had and the rows no longer have, gone. A row's problem is
+	 * said under "<repeat>[<index>].<element>". */
+	NSString *keyText = ORMFormText([object valueForKey:_keyElement ?: @""], nil, nil);
+	NSMutableArray *rowObjects = [NSMutableArray array], *rowBefores = [NSMutableArray array], *rowMade = [NSMutableArray array];
+	NSMutableDictionary<NSValue *, NSString *> *rowPrefixes = [NSMutableDictionary dictionary];
+	for (NSString *name in [self repeatNames]) {
+		NSArray *rows = (NSArray *)[(NSDictionary *)instance objectForKey:name];
+		if (![rows isKindOfClass:[NSArray class]]) {
+			continue;
+		}
+		ORMForm *repeat = [_repeats objectForKey:name];
+		NSMutableSet *kept = [NSMutableSet set];
+		for (NSUInteger i = 0; i < [rows count]; i++) {
+			NSMutableDictionary *row = [[rows objectAtIndex:i] mutableCopy];
+			[row setObject:keyText forKey:repeat.linkElement];
+			NSString *prefix = [NSString stringWithFormat:@"%@[%lu].", name, (unsigned long)i];
+			NSMutableDictionary *was = [NSMutableDictionary dictionary];
+			BOOL rowWasMade = NO;
+			NSManagedObject *rowObject = [repeat write:row inContext:context problems:problems prefix:prefix before:was
+			                                     made:&rowWasMade error:error];
+			if (rowObject == nil) {
+				return nil;
+			}
+			[kept addObject:rowObject];
+			[rowObjects addObject:rowObject];
+			[rowBefores addObject:was];
+			[rowMade addObject:@(rowWasMade)];
+			[rowPrefixes setObject:prefix forKey:[NSValue valueWithNonretainedObject:rowObject]];
+		}
+		NSFetchRequest *linked = [NSFetchRequest fetchRequestWithEntityName:repeat.entityName];
+		[linked setPredicate:[NSPredicate predicateWithFormat:@"%K == %@", repeat.linkElement, object]];
+		for (NSManagedObject *gone in [context executeFetchRequest:linked error:NULL]) {
+			if (![kept containsObject:gone]) {
+				[context deleteObject:gone];
+			}
+		}
 	}
 	NSError *failure = nil;
 	if ([problems count] == 0 && (saving != nil ? saving(context, &failure) : [context save:&failure])) {
 		return object;
 	}
 	if ([problems count] == 0) {
-		[problems addEntriesFromDictionary:[self elementErrorsOf:failure]];
-	}
-	/* Refused: the object as it was. */
-	if (made) {
-		[context deleteObject:object];
-		/* Gone now, its relationships' other ends too, before anything else
-		 * is done with the context (a rollback). */
-		[context processPendingChanges];
-	} else {
-		for (NSString *name in before) {
-			id value = [before objectForKey:name];
-			[object setValue:value == [NSNull null] ? nil : value forKey:name];
+		NSArray *each = [[failure userInfo] objectForKey:NSDetailedErrorsKey] ?: (failure != nil ? @[ failure ] : @[]);
+		for (NSError *one in each) {
+			id about = [[one userInfo] objectForKey:NSValidationObjectErrorKey];
+			NSString *prefix = about != nil ? [rowPrefixes objectForKey:[NSValue valueWithNonretainedObject:about]] : nil;
+			if (prefix == nil) {
+				[self addErrorsOf:one to:problems];
+				continue;
+			}
+			ORMForm *repeat = nil;
+			for (NSString *name in _repeats) {
+				if ([prefix hasPrefix:[name stringByAppendingString:@"["]]) {
+					repeat = [_repeats objectForKey:name];
+				}
+			}
+			NSString *element = [repeat elementOfError:one];
+			NSString *at = [element length] > 0 ? [prefix stringByAppendingString:element] : @"";
+			NSString *said = [problems objectForKey:at];
+			NSString *message = ORMFormMessage(one);
+			[problems setObject:said != nil ? [NSString stringWithFormat:@"%@ %@", said, message] : message forKey:at];
 		}
 	}
+	/* Refused: the objects as they were. */
+	for (NSUInteger i = [rowObjects count]; i > 0; i--) {
+		ORMFormPutBack([rowObjects objectAtIndex:i - 1], [[rowMade objectAtIndex:i - 1] boolValue], [rowBefores objectAtIndex:i - 1], context);
+	}
+	ORMFormPutBack(object, made, before, context);
 	if (errors != NULL) {
 		*errors = problems;
 	}
@@ -613,12 +763,17 @@ ORMFormMessage(NSError *error)
 	NSMutableDictionary *errors = [NSMutableDictionary dictionary];
 	NSArray *each = [[error userInfo] objectForKey:NSDetailedErrorsKey] ?: (error != nil ? @[ error ] : @[]);
 	for (NSError *one in each) {
-		NSString *name = [self elementOfError:one];
-		NSString *said = [errors objectForKey:name];
-		NSString *message = ORMFormMessage(one);
-		[errors setObject:said != nil ? [NSString stringWithFormat:@"%@ %@", said, message] : message forKey:name];
+		[self addErrorsOf:one to:errors];
 	}
 	return errors;
+}
+
+- (void)addErrorsOf:(NSError *)one to:(NSMutableDictionary<NSString *, NSString *> *)errors
+{
+	NSString *name = [self elementOfError:one];
+	NSString *said = [errors objectForKey:name];
+	NSString *message = ORMFormMessage(one);
+	[errors setObject:said != nil ? [NSString stringWithFormat:@"%@ %@", said, message] : message forKey:name];
 }
 
 #pragma mark The service
@@ -630,7 +785,7 @@ ORMFormMessage(NSError *error)
 }
 
 - (ORMQueryOData *)choicesRequestNamed:(NSString *)name
-                                values:(NSDictionary<NSString *, NSString *> *)values
+                                values:(NSDictionary<NSString *, id> *)values
                                  model:(NSManagedObjectModel *)model
                                  error:(NSError **)error
 {
@@ -638,8 +793,8 @@ ORMFormMessage(NSError *error)
 	return plan != nil ? [ORMQueryOData requestForPlan:plan model:model error:error] : nil;
 }
 
-- (ORMFormRequest *)saveRequestFor:(NSDictionary<NSString *, NSString *> *)instance
-                          original:(NSDictionary<NSString *, NSString *> *)original
+- (ORMFormRequest *)saveRequestFor:(NSDictionary<NSString *, id> *)instance
+                          original:(NSDictionary<NSString *, id> *)original
                               etag:(NSString *)etag
                              model:(NSManagedObjectModel *)model
                              error:(NSError **)error

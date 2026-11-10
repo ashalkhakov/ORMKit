@@ -98,49 +98,63 @@ extern NSString * const ORMFormErrorDomain;
 @property (nonatomic, readonly, strong) ORMQueryPlan *readPlan;
 /* The form's inputs: the elements given as it opens, by name. */
 - (NSArray<NSString *> *)inputNames;
+/* Its repeats (docs/FORMS.md: a step from the anchor to many, an order's
+ * lines), by the element each is: a form of its own each, over the objects
+ * linked to this one by its link element (the line's order). In an
+ * instance a repeat's value is its rows: an array of instances, each as
+ * the repeat's form has them. */
+- (NSArray<NSString *> *)repeatNames;
+- (ORMForm *)repeatNamed:(NSString *)name;
+/* A repeat's element that holds the key of the object of the form it is in;
+ * nil for a form that is no repeat. */
+@property (nonatomic, readonly, copy) NSString *linkElement;
+/* A repeat's rows linked to the object of the key, read in the context. */
+- (NSArray<NSDictionary *> *)rowsLinkedTo:(NSString *)key inContext:(NSManagedObjectContext *)context error:(NSError **)error;
 /* The references with choices, by element name. */
 - (NSArray<NSString *> *)choiceNames;
 /* The elements a reference's choices depend on. */
 - (NSArray<NSString *> *)elementsChoicesDependOn:(NSString *)name;
 /* Its choices' plan for the instance's values: by what it depends on where
  * each has a value, else every one. nil, and why, for no reference. */
-- (ORMQueryPlan *)choicesPlanNamed:(NSString *)name values:(NSDictionary<NSString *, NSString *> *)values error:(NSError **)error;
+- (ORMQueryPlan *)choicesPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error;
 /* The rules the form cannot check, said: the store or the service does. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 
 /* An instance as the form opens on a new object: each element empty, but
- * the values given (the vehicle it is for), and a flag entered "false". */
-- (NSDictionary<NSString *, NSString *> *)instanceGiven:(NSDictionary<NSString *, NSString *> *)values;
+ * the values given (the vehicle it is for), a flag entered "false", and
+ * each repeat no rows. */
+- (NSDictionary<NSString *, id> *)instanceGiven:(NSDictionary<NSString *, id> *)values;
 /* A row of the read, from the store or the service, as the instance: each
  * element's text from its column (a compound's from its part, a reference's
  * key), xsd's lexical forms ("2026-11-10T08:30:00Z", "true", "40.5"). */
-- (NSDictionary<NSString *, NSString *> *)instanceOfRow:(NSArray *)row;
+- (NSDictionary<NSString *, id> *)instanceOfRow:(NSArray *)row;
 
 #pragma mark The store
 
 /* The object of the key read in the context, as the instance; nil, and why,
  * where there is none or it cannot be read. */
-- (NSDictionary<NSString *, NSString *> *)readKey:(NSString *)key
+- (NSDictionary<NSString *, id> *)readKey:(NSString *)key
                                         inContext:(NSManagedObjectContext *)context
                                             error:(NSError **)error;
 /* A reference's choices for the instance's values: their keys, in order. */
 - (NSArray<NSString *> *)choicesNamed:(NSString *)name
-                               values:(NSDictionary<NSString *, NSString *> *)values
+                               values:(NSDictionary<NSString *, id> *)values
                             inContext:(NSManagedObjectContext *)context
                                 error:(NSError **)error;
 /* The instance written into its object, found by its key or made (a key
- * given it where it has none), each reference found by its key, and the
- * context saved: the object saved. nil where it is refused, and what was
+ * given it where it has none), each reference found by its key, each
+ * repeat's rows written into their objects linked to it (those it had and
+ * the rows have not, deleted), and the context saved: the object saved. nil where it is refused, and what was
  * done to the object undone: errors then each element's message, by name
  * (what the store's validation, the model's rules at save among them, says
  * of its property), "" for what is said of no element. */
-- (NSManagedObject *)save:(NSDictionary<NSString *, NSString *> *)instance
+- (NSManagedObject *)save:(NSDictionary<NSString *, id> *)instance
                 inContext:(NSManagedObjectContext *)context
                    errors:(NSDictionary<NSString *, NSString *> **)errors
                     error:(NSError **)error;
 /* The same, saved as the app saves (its keys, derivations and rules first,
  * its own store's way): saving instead of the context's -save:. */
-- (NSManagedObject *)save:(NSDictionary<NSString *, NSString *> *)instance
+- (NSManagedObject *)save:(NSDictionary<NSString *, id> *)instance
                 inContext:(NSManagedObjectContext *)context
                    saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
                    errors:(NSDictionary<NSString *, NSString *> **)errors
@@ -157,7 +171,7 @@ extern NSString * const ORMFormErrorDomain;
  * plan's; their rows go through -instanceOfRow: and the choice's key. */
 - (ORMQueryOData *)readRequestForKey:(NSString *)key model:(NSManagedObjectModel *)model error:(NSError **)error;
 - (ORMQueryOData *)choicesRequestNamed:(NSString *)name
-                                values:(NSDictionary<NSString *, NSString *> *)values
+                                values:(NSDictionary<NSString *, id> *)values
                                  model:(NSManagedObjectModel *)model
                                  error:(NSError **)error;
 /* What saves the instance: a POST of each element written that has a
@@ -165,8 +179,8 @@ extern NSString * const ORMFormErrorDomain;
  * with the ETag read (If-Match). A reference is bound
  * ("Vehicle@odata.bind": "Vehicles(7)"); names are the service's. nil, and
  * why, where a value is not of its type. */
-- (ORMFormRequest *)saveRequestFor:(NSDictionary<NSString *, NSString *> *)instance
-                          original:(NSDictionary<NSString *, NSString *> *)original
+- (ORMFormRequest *)saveRequestFor:(NSDictionary<NSString *, id> *)instance
+                          original:(NSDictionary<NSString *, id> *)original
                               etag:(NSString *)etag
                              model:(NSManagedObjectModel *)model
                              error:(NSError **)error;

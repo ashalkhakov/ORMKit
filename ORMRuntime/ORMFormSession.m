@@ -54,10 +54,10 @@ ORMFormSessionError(NSString *text)
 	NSURL *_root;
 	NSManagedObjectModel *_model;
 	id<ODataTransport> _transport;
-	NSMutableDictionary<NSString *, NSString *> *_values;
+	NSMutableDictionary<NSString *, id> *_values;
 	/* The object as the service gave it, to change no more of it than was
 	 * changed, and its version (If-Match). */
-	NSDictionary<NSString *, NSString *> *_original;
+	NSDictionary<NSString *, id> *_original;
 	NSString *_etag;
 	NSDictionary<NSString *, NSString *> *_errors;
 	NSString *_savedKey;
@@ -91,7 +91,7 @@ ORMFormSessionError(NSString *text)
 
 #pragma mark The values
 
-- (NSDictionary<NSString *, NSString *> *)values
+- (NSDictionary<NSString *, id> *)values
 {
 	return [_values copy];
 }
@@ -106,7 +106,7 @@ ORMFormSessionError(NSString *text)
 	[_values setObject:value ?: @"" forKey:name];
 }
 
-- (void)setValues:(NSDictionary<NSString *, NSString *> *)values
+- (void)setValues:(NSDictionary<NSString *, id> *)values
 {
 	_values = [values mutableCopy] ?: [NSMutableDictionary dictionary];
 }
@@ -168,7 +168,7 @@ ORMFormSessionError(NSString *text)
 	return rows;
 }
 
-- (NSDictionary<NSString *, NSString *> *)readFromService:(NSString *)key error:(NSError **)error
+- (NSDictionary<NSString *, id> *)readFromService:(NSString *)key error:(NSError **)error
 {
 	ORMQueryOData *request = [_form readRequestForKey:key model:_model error:error];
 	NSArray *objects = nil;
@@ -211,10 +211,46 @@ ORMFormSessionError(NSString *text)
 
 #pragma mark Saving
 
+- (NSArray<NSDictionary<NSString *, NSString *> *> *)rowsOfRepeat:(NSString *)name
+{
+	NSArray *rows = [_values objectForKey:name];
+	return [rows isKindOfClass:[NSArray class]] ? rows : @[];
+}
+
+- (void)setRows:(NSArray<NSDictionary<NSString *, NSString *> *> *)rows forRepeat:(NSString *)name
+{
+	[_values setObject:[rows copy] ?: @[] forKey:name];
+}
+
+- (NSArray<NSString *> *)choicesNamed:(NSString *)name inRepeat:(NSString *)repeat row:(NSUInteger)row error:(NSError **)error
+{
+	ORMForm *form = [_form repeatNamed:repeat];
+	NSArray *rows = [self rowsOfRepeat:repeat];
+	NSDictionary *values = row < [rows count] ? [rows objectAtIndex:row] : @{};
+	if (form == nil || _context == nil) {
+		if (error != NULL) {
+			*error = ORMFormSessionError(form == nil ? [NSString stringWithFormat:@"The form has no repeat %@.", repeat]
+			                                         : @"A repeat's choices are read from a store.");
+		}
+		return nil;
+	}
+	return [form choicesNamed:name values:values inContext:_context error:error];
+}
+
 - (BOOL)save:(NSError **)error
 {
 	_errors = @{};
 	_savedKey = nil;
+	if (_submitting != nil) {
+		NSString *made = nil;
+		NSDictionary *refused = _submitting([_values copy], &made);
+		if ([refused count] > 0) {
+			_errors = [refused copy];
+			return NO;
+		}
+		_savedKey = [made copy] ?: [_values objectForKey:_form.keyElement];
+		return YES;
+	}
 	if (_context != nil) {
 		NSDictionary *errors = nil;
 		NSError *failure = nil;

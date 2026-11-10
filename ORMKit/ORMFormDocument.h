@@ -104,4 +104,10 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 /* What the form says that the document leaves out, and why. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
+/* The steps from the anchor to many (an order's lines), each a form of its
+ * own by the element it is (its relationship's name): anchored on what the
+ * step reaches, given the anchor back, read for every object linked to
+ * it. A repeat's link is that element (the line's order). */
+- (NSDictionary<NSString *, ORMFormDocument *> *)repeats;
+- (NSString *)linkElement;
 @end

@@ -121,6 +121,25 @@ The names are the OData properties' (the mapping's), so that the instance
 is the entity's own representation, read and written as the service has it,
 and the same whether a store or the service holds it.
 
+**A repeat is a form of its own.** A step from the anchor to many (an
+order's lines: `+ PurchaseLine is in that PurchaseOrder`, its own steps
+under it) is generated as a form anchored on what the step reaches, given
+the anchor by the same fact type the other way round: its elements the
+line's, its link the element holding the order's key, its read every line
+linked to the order. The form's table keeps it under `repeats`, by the
+relationship's name (`purchaseLines`); `ORMForm` reads an order's lines as
+rows, and saves them in the order's one save -- each row written into its
+line, found or made and linked to the order, a line the rows no longer have
+deleted -- a row's refusal said at `purchaseLines[1].quantity`; the
+order's own read leaves them out. A repeat in the generated document
+(`xf:repeat`) and through the service are still to come.
+
+**Submitted, not saved.** A process's task is done with a form whose values
+a procedure takes (goods received: a receipt and its moves, made by the
+procedure, not written as they stand). `ORMFormSession`'s `submitting`
+hands the values to whoever submits them -- a task's form handler -- and
+takes back what it refuses, by element and by row, and what it made.
+
 ## Binds: the constraints that apply
 
 A constraint is a bind when all its roles are in the form. Each says its
