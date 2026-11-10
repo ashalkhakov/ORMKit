@@ -8,9 +8,10 @@
 
 /* A .flow document's tab in UDCode (ORM2FlowEditor.xib): ORMDesignerKit's
  * flow designer (ORMFlowWindowController's view: the model's forms and
- * lists to place, the canvas and its zoom, the inspector,
- * Play) over the flow its text holds and the model it names, read from
- * beside the file.
+ * lists to place, the canvas and its zoom, Play) over the flow its text
+ * holds and the model it names, read from beside the file. Its inspector
+ * is the window's inspector pane's Flow tab, after File; a screen's form
+ * or list opens in the model's tab, the query in its Queries window.
  *
  * The text is the flow. Each change the designer makes is written back as
  * one edit of the text (the lines it changed), so the text's undo undoes

@@ -318,8 +318,16 @@
 </textFieldCell>
 <connections><action selector="setEntry:" target="-2" id="screenEntryAction"/></connections>
 </textField>
-<button verticalHuggingPriority="750" identifier="addCancel" id="addCancel">
+<button verticalHuggingPriority="750" identifier="openScreen" id="openScreen">
 <rect key="frame" x="6" y="527" width="268" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Open in the Model" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="openScreenCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="openScreen:" target="-2" id="openScreenAction"/></connections>
+</button>
+<button verticalHuggingPriority="750" identifier="addCancel" id="addCancel">
+<rect key="frame" x="6" y="491" width="268" height="32"/>
 <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
 <buttonCell key="cell" type="push" title="Add Cancel → Back" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="addCancelCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
@@ -327,7 +335,7 @@
 <connections><action selector="addCancelBack:" target="-2" id="addCancelAction"/></connections>
 </button>
 <button verticalHuggingPriority="750" identifier="deleteScreen" id="deleteScreen">
-<rect key="frame" x="6" y="491" width="268" height="32"/>
+<rect key="frame" x="6" y="455" width="268" height="32"/>
 <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
 <buttonCell key="cell" type="push" title="Delete Screen" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="deleteScreenCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>

@@ -6,6 +6,10 @@
 @protocol ORMFlowCanvasDelegate <NSObject>
 /* The selection changed: what the inspector shows. */
 - (void)flowCanvasSelectionDidChange:(ORMFlowCanvasView *)canvas;
+@optional
+/* A screen double-clicked below its title: its form or list to be shown
+ * where it is made, in the model. */
+- (void)flowCanvas:(ORMFlowCanvasView *)canvas openScreen:(NSString *)screenId;
 @end
 
 /* A flow (docs/FORMS.md, Flows) drawn and edited: DiagramKit's canvas, its
@@ -16,6 +20,8 @@
  * to the next, said with its action and what it gives, a return (back, or
  * the overlay closed) a short arrow down out of its screen. A drag from a
  * port to another screen adds a transition; a drag of screens moves them;
+ * a double-click on a screen's title renames it, below it opens its form
+ * or list in the model (the delegate's);
  * Delete removes what is selected. Its items are the screens' ids and the
  * transitions' indexes ("screen:<id>", "transition:<index>"). It changes the
  * flow through its editor and never itself. */

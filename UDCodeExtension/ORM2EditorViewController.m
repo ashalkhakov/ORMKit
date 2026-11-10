@@ -53,9 +53,27 @@ static UDDiagnosticSource const ORM2IssueSource = @"orm2";
 	NSMutableDictionary<NSString *, NSString *> *_issueElements;
 }
 
+/* The tabs there are, held weakly: a flow's tab finds its model's. */
+static NSHashTable<ORM2EditorViewController *> *ORM2Editors;
+
++ (ORM2EditorViewController *)editorShowingURL:(NSURL *)url
+{
+	NSString *path = [[url URLByStandardizingPath] path];
+	for (ORM2EditorViewController *editor in [ORM2Editors allObjects]) {
+		if (path != nil && [[[editor.document.fileURL URLByStandardizingPath] path] isEqualToString:path]) {
+			return editor;
+		}
+	}
+	return nil;
+}
+
 - (instancetype)initWithDocument:(UDCodeDocument *)document workbench:(id<UDWorkbench>)workbench
 {
 	if ((self = [super initWithNibName:@"ORM2Editor" bundle:[NSBundle bundleForClass:[ORM2EditorViewController class]]])) {
+		if (ORM2Editors == nil) {
+			ORM2Editors = [NSHashTable weakObjectsHashTable];
+		}
+		[ORM2Editors addObject:self];
 		_document = document;
 		_workbench = workbench;
 		[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(textDidChange:)

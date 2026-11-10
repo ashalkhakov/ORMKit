@@ -276,6 +276,13 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 		XCTAssertNotNil([designer valueForKey:outlet], @"%@ connected", outlet);
 	}
 	XCTAssertTrue([designer.canvas isDescendantOf:[tab view]], @"the designer's view is the tab's");
+	/* Its inspector a tab of the window's inspector, not a pane of the tab. */
+	NSArray *inspectors = [tab inspectorViewControllers];
+	XCTAssertEqual([inspectors count], 1u);
+	XCTAssertTrue([designer.inspector isDescendantOf:[[inspectors firstObject] view]]);
+	XCTAssertFalse([designer.inspector isDescendantOf:[tab view]]);
+	XCTAssertNotNil([tab imageForInspectorViewController:[inspectors firstObject]]);
+	XCTAssertNotNil(designer.openQueryHandler, @"a screen's form opens in the model's tab");
 	XCTAssertFalse([[designer window] isVisible], @"its own window never shown");
 	XCTAssertEqual([designer.editor.flow.screens count], 5u);
 	XCTAssertEqual([designer.palette numberOfRows], 5, @"the model's four forms and its list");

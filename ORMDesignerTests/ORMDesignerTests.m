@@ -1876,6 +1876,15 @@
 	[editor addEntryNamed:@"Start" toScreen:vehicles.identifier];
 	XCTAssertEqualObjects([editor problems], @[]);
 
+	/* Its form opened where the model has it: here, the host's way. */
+	__block NSString *opened = nil;
+	window.openQueryHandler = ^(NSString *queryId) {
+		opened = queryId;
+	};
+	[window.canvas selectScreen:form.identifier];
+	[window openScreen:nil];
+	XCTAssertEqualObjects(opened, form.formId, @"Open in the Model");
+
 	[window play:nil];
 	ORMFlowPlayController *player = window.player;
 	XCTAssertNotNil([player window], @"from its XIB");

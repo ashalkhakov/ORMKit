@@ -20,6 +20,17 @@
  * host's to show then (the editor's -problems): under the canvas, only its
  * zoom. */
 - (NSView *)hostedView;
+/* The inspector's pane, out of the hosted view, for the host's own
+ * inspector (UDCode's inspector tabs); nil until -hostedView. */
+@property (nonatomic, readonly, strong) NSView *hostedInspectorView;
+/* What opens a screen's form or list where the model has it: the host's
+ * (UDCode's: the model's tab, the query in its Queries window), given the
+ * query's id. nil: ORMDesigner's model document beside the flow, opened,
+ * the query shown. */
+@property (nonatomic, copy) void (^openQueryHandler)(NSString *queryId);
+/* The chosen screen's form or list, where the model has it (a double-click
+ * below its title, or Open in the Model). */
+- (IBAction)openScreen:(id)sender;
 @property (nonatomic, readonly, strong) ORMFlowEditor *editor;
 
 @property (nonatomic, strong) IBOutlet ORMFlowCanvasView *canvas;

@@ -7,6 +7,8 @@
 #import "ORMFlowWindowController.h"
 #import "ORM2TextDiff.h"
 #import "ORMFlowCanvasView.h"
+#import "ORM2EditorViewController.h"
+#import "ORMModelViewController.h"
 
 /* What is wrong of the flow, among the document's diagnostics. */
 static UDDiagnosticSource const ORM2FlowIssueSource = @"ormflow";
@@ -51,6 +53,8 @@ static UDDiagnosticSource const ORM2FlowIssueSource = @"ormflow";
 	BOOL _writing;
 	/* Each problem's screen, by its diagnostic's line and message. */
 	NSMutableDictionary<NSString *, NSString *> *_issueScreens;
+	/* The designer's inspector, as a tab of the window's inspector. */
+	NSViewController *_inspector;
 }
 
 - (instancetype)initWithDocument:(UDCodeDocument *)document workbench:(id<UDWorkbench>)workbench
@@ -125,6 +129,14 @@ static UDDiagnosticSource const ORM2FlowIssueSource = @"ormflow";
 	}
 	self.flowController = [[ORMFlowWindowController alloc] initWithEditor:editor];
 	_flowView = [_flowController hostedView];
+	_inspector = [[NSViewController alloc] init];
+	[_inspector setView:_flowController.hostedInspectorView ?: [[NSView alloc] initWithFrame:NSZeroRect]];
+	[_inspector setTitle:@"Flow"];
+	/* A screen's form or list: the model's tab, the query shown there. */
+	__weak ORM2FlowEditorViewController *weakSelf = self;
+	_flowController.openQueryHandler = ^(NSString *queryId) {
+		[weakSelf openQuery:queryId];
+	};
 	[[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(flowDidChange:)
 	                                             name:ORMFlowEditorDidChangeNotification object:editor];
 }
@@ -152,6 +164,61 @@ static UDDiagnosticSource const ORM2FlowIssueSource = @"ormflow";
 	(void)notification;
 	[self write];
 	[self findIssues];
+}
+
+#pragma mark Opening the model
+
+/* The model the flow names, in its tab (the one showing it, else a new
+ * one), the query chosen there: a form in the Queries window. */
+- (void)openQuery:(NSString *)queryId
+{
+	NSString *modelPath = _flowController.editor.flow.modelPath;
+	NSURL *beside = [_document.fileURL URLByDeletingLastPathComponent];
+	if ([modelPath length] == 0 || beside == nil) {
+		NSBeep();
+		return;
+	}
+	NSURL *modelURL = [NSURL fileURLWithPath:modelPath relativeToURL:beside];
+	[_workbench showURL:modelURL];
+	ORM2EditorViewController *editor = [ORM2EditorViewController editorShowingURL:modelURL];
+	[editor.modelController showElementOrQuery:queryId];
+}
+
+#pragma mark The window's panes (UDEditorPanes)
+
+- (NSArray<NSViewController *> *)inspectorViewControllers
+{
+	return _inspector != nil && self.problem == nil ? @[ _inspector ] : @[];
+}
+
+/* The Flow tab: Xcode's Attributes inspector's sliders, as the model's
+ * Element tab has them. */
+- (NSImage *)imageForInspectorViewController:(NSViewController *)viewController
+{
+	if (viewController != _inspector) {
+		return nil;
+	}
+#ifndef GNUSTEP
+	if ([NSImage respondsToSelector:@selector(imageWithSystemSymbolName:accessibilityDescription:)]) {
+		return [NSImage imageWithSystemSymbolName:@"slider.horizontal.3" accessibilityDescription:viewController.title];
+	}
+#endif
+	NSImage *image = [[NSImage alloc] initWithSize:NSMakeSize(16, 16)];
+	[image lockFocus];
+	[[NSColor colorWithCalibratedWhite:0.25 alpha:1] set];
+	CGFloat knobs[] = { 10.5, 5.5, 8.5 };
+	for (NSInteger row = 0; row < 3; row++) {
+		CGFloat y = 3.5 + 4.5 * row;
+		NSBezierPath *track = [NSBezierPath bezierPath];
+		[track moveToPoint:NSMakePoint(1.5, y)];
+		[track lineToPoint:NSMakePoint(14.5, y)];
+		[track setLineWidth:1.2];
+		[track setLineCapStyle:NSRoundLineCapStyle];
+		[track stroke];
+		[[NSBezierPath bezierPathWithOvalInRect:NSMakeRect(knobs[row] - 1.8, y - 1.8, 3.6, 3.6)] fill];
+	}
+	[image unlockFocus];
+	return image;
 }
 
 #pragma mark Issues

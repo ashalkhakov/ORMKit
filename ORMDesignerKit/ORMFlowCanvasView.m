@@ -43,6 +43,8 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 }
 
 @implementation ORMFlowCanvasView {
+	/* Where the last press was: a double-click's, on a title or below it. */
+	NSPoint _pressedAt;
 	/* A transition being drawn out of a port: from which screen, to where. */
 	NSString *_drawingFrom;
 	NSPoint _drawingTo;
@@ -379,6 +381,7 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 
 - (BOOL)canvas:(DKCanvasView *)canvas mouseDown:(NSEvent *)event atPoint:(NSPoint)point
 {
+	_pressedAt = point;
 	ORMFlowScreen *from = [self screenWithPortAt:point];
 	if (from == nil) {
 		return NO;
@@ -416,6 +419,12 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 	}
 	ORMFlowScreen *screen = [self.editor.flow screenWithId:[item substringFromIndex:[ORMScreenItemPrefix length]]];
 	NSRect frame = [self frameOfScreen:screen];
+	/* Below its title: its form or list, where the model has it. */
+	id<ORMFlowCanvasDelegate> delegate = self.flowDelegate;
+	if (_pressedAt.y > NSMinY(frame) + ORMFlowTitleHeight && [delegate respondsToSelector:@selector(flowCanvas:openScreen:)]) {
+		[delegate flowCanvas:self openScreen:screen.identifier];
+		return;
+	}
 	[self editTextOfItem:item text:screen.name ?: @"" inRect:NSMakeRect(NSMinX(frame) + 4, NSMinY(frame) + 3, NSWidth(frame) - 60, 20)
 	                font:[DKFont systemFontOfSize:12 bold:YES]];
 }

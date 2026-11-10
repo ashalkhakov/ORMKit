@@ -1,6 +1,9 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMFlowWindowController.h"
 #import "ORMFlowPlayController.h"
+#import "ORMDocument.h"
+#import "ORMWindowController.h"
+#import "ORMModelViewController.h"
 
 /* The inspector's actions and kinds, in its pop-ups' order. */
 static NSArray<NSString *> *
@@ -71,6 +74,17 @@ ORMFlowKinds(void)
 	[problems setHidden:YES];
 	if ([split isKindOfClass:[NSSplitView class]]) {
 		[split setPosition:NSHeight([split bounds]) - 32 - [split dividerThickness] ofDividerAtIndex:0];
+	}
+	/* The inspector is the host's too: its pane out of the columns. */
+	NSView *inspectorPane = [self.inspector superview];
+	NSSplitView *columns = (NSSplitView *)[inspectorPane superview];
+	if (_hostedInspectorView == nil && [columns isKindOfClass:[NSSplitView class]]) {
+		/* The palette keeps its width; the canvas takes the inspector's. */
+		CGFloat palette = NSWidth([[[columns subviews] firstObject] frame]);
+		[inspectorPane removeFromSuperview];
+		[columns adjustSubviews];
+		[columns setPosition:palette ofDividerAtIndex:0];
+		_hostedInspectorView = inspectorPane;
 	}
 	return content;
 }
@@ -218,6 +232,55 @@ ORMFlowKinds(void)
 - (IBAction)zoomCanvasToActualSize:(id)sender
 {
 	[self.canvas zoomToActualSize:sender];
+}
+
+- (void)flowCanvas:(ORMFlowCanvasView *)canvas openScreen:(NSString *)screenId
+{
+	ORMFlowScreen *screen = [self.editor.flow screenWithId:screenId];
+	NSString *queryId = screen.formId ?: screen.queryId;
+	if (queryId == nil) {
+		NSBeep();
+		return;
+	}
+	if (self.openQueryHandler != nil) {
+		self.openQueryHandler(queryId);
+		return;
+	}
+	/* ORMDesigner: the model beside the flow, as a document of its own. */
+	NSURL *flowURL = [[self document] fileURL];
+	NSString *modelPath = self.editor.flow.modelPath;
+	if (flowURL == nil || [modelPath length] == 0) {
+		NSBeep();
+		return;
+	}
+	NSURL *modelURL = [NSURL fileURLWithPath:modelPath relativeToURL:[flowURL URLByDeletingLastPathComponent]];
+	[[NSDocumentController sharedDocumentController]
+		openDocumentWithContentsOfURL:modelURL
+		                      display:YES
+		            completionHandler:^(NSDocument *document, BOOL alreadyOpen, NSError *error) {
+			    (void)alreadyOpen;
+			    if (document == nil) {
+				    if (error != nil) {
+					    [NSApp presentError:error];
+				    }
+				    return;
+			    }
+			    for (NSWindowController *controller in [document windowControllers]) {
+				    if ([controller isKindOfClass:[ORMWindowController class]]) {
+					    [[(ORMWindowController *)controller modelController] showElementOrQuery:queryId];
+				    }
+			    }
+		    }];
+}
+
+- (IBAction)openScreen:(id)sender
+{
+	NSArray *screens = [self.canvas selectedScreens];
+	if ([screens count] != 1) {
+		NSBeep();
+		return;
+	}
+	[self flowCanvas:self.canvas openScreen:[screens firstObject]];
 }
 
 - (IBAction)play:(id)sender
