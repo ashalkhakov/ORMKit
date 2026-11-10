@@ -31,9 +31,11 @@
 /* The form's inputs, as it was opened with them. */
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, NSString *> *given;
 
-/* Against a context of the form's own, on its queue, saved by saving (the
- * app's way: its keys, derivations and rules first), or by the context's
- * -save: where it is nil; a refused save is rolled back. */
+/* Against a context, on its queue, saved by saving (the app's way: its
+ * keys, derivations and rules first), or by the context's -save: where it
+ * is nil. A refused save puts the object back as it was; the rest of the
+ * context is its owner's, a window's own to roll back, the main window's
+ * other changes kept. */
 - (void)useContext:(NSManagedObjectContext *)context
             saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving;
 /* Against the service at the root, its names the model's, its requests sent

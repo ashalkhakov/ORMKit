@@ -220,9 +220,6 @@ ORMFormSessionError(NSString *text)
 		NSError *failure = nil;
 		NSManagedObject *saved = [_form save:_values inContext:_context saving:_saving errors:&errors error:&failure];
 		if (saved == nil) {
-			/* The context the form's own: what saving it changed before it
-			 * was refused (the rules' preparations) undone too. */
-			[_context rollback];
 			_errors = [errors count] > 0 ? errors : @{ @"" : failure.localizedDescription ?: @"Not saved." };
 			return NO;
 		}
