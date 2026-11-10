@@ -1758,10 +1758,12 @@
 		NSView *view = [pending lastObject];
 		[pending removeLastObject];
 		[pending addObjectsFromArray:[view subviews]];
-		if ([view isKindOfClass:[NSButton class]] && [(NSButton *)view action] == @selector(zoomCanvasIn:)) {
+		/* By name: GNUstep's selectors of one name need not be one pointer. */
+		NSString *action = [view isKindOfClass:[NSButton class]] ? NSStringFromSelector([(NSButton *)view action]) : nil;
+		if ([action isEqualToString:@"zoomCanvasIn:"]) {
 			zoomIn = (NSButton *)view;
 		}
-		if ([view isKindOfClass:[NSButton class]] && [(NSButton *)view action] == @selector(zoomCanvasOut:)) {
+		if ([action isEqualToString:@"zoomCanvasOut:"]) {
 			zoomOut = (NSButton *)view;
 		}
 	}
