@@ -1825,7 +1825,13 @@
 	[window.canvas selectScreen:@"RecordFillUp"];
 	[window addCancelBack:nil];
 	XCTAssertEqual([flow.transitions count], 2u);
-	XCTAssertEqual([[window.canvas routeOfTransition:1] count], 2u, @"a return: down out of its screen");
+	/* A return drawn to the screen it comes back to: the one way in. */
+	NSArray<NSValue *> *back = [window.canvas routeOfTransition:1];
+	NSRect list = [window.canvas frameOfScreen:vehicles];
+	XCTAssertTrue([back count] > 2, @"%@", back);
+	NSPoint end = [[back lastObject] pointValue];
+	XCTAssertTrue(end.x >= NSMinX(list) && end.x <= NSMaxX(list) && fabs(end.y - NSMaxY(list)) < 1, @"into Vehicles: %@", back);
+	XCTAssertEqualObjects([window.canvas textOfTransition:1], @"cancelled → back");
 	XCTAssertEqual([window.problems numberOfRows], 0, @"%@", [document.editor problems]);
 
 	/* Deleted, and undone: one step (no event loop here groups them). */

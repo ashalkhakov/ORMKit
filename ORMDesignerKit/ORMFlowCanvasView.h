@@ -18,7 +18,7 @@
  * entered, ✓ shown) -- an entry a ▶ tab on its screen's card, each
  * transition an arrow from its screen's port (the dot on its right edge)
  * to the next, said with its action and what it gives, a return (back, or
- * the overlay closed) a short arrow down out of its screen. A drag from a
+ * the overlay closed) a dotted arrow to the screen it comes back to. A drag from a
  * port to another screen adds a transition; a drag of screens moves them;
  * a double-click on a screen's title renames it, below it opens its form
  * or list in the model (the delegate's);
@@ -39,8 +39,13 @@
 - (NSRect)frameOfScreen:(ORMFlowScreen *)screen;
 - (NSPoint)portOfScreen:(ORMFlowScreen *)screen;
 /* The route a transition is drawn along: its first point its screen's
- * port, its last the next screen's edge (a return's, below its screen). */
+ * port, its last the next screen's edge. A return goes, dotted, to the
+ * screen it comes back to (an overlay's opener; Back's one way in), or
+ * down out of its screen where that is whichever it came from. */
 - (NSArray<NSValue *> *)routeOfTransition:(NSUInteger)index;
+/* What its arrow says: the actions of all going the same way on the first
+ * ("saved, cancelled → back"), "" on the others; and what each gives. */
+- (NSString *)textOfTransition:(NSUInteger)index;
 
 /* Each item's name, as the canvas has it. */
 + (NSString *)itemOfScreen:(NSString *)screenId;

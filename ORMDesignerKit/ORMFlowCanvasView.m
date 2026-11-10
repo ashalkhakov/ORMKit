@@ -131,17 +131,52 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 	return NSMakePoint(NSMaxX(frame), NSMinY(frame) + ORMFlowTitleHeight / 2);
 }
 
-/* Which of the transitions between the same two screens it is: they are
- * drawn apart. */
+/* The screen a transition goes to: its own; a return's, the one it comes
+ * back to -- an overlay closed, the screen it was opened over; Back, the
+ * one screen whose way leads to it (nil where several do: it goes back to
+ * whichever it came from). */
+- (ORMFlowScreen *)targetOfTransition:(ORMFlowTransition *)transition
+{
+	ORMFlow *flow = self.editor.flow;
+	if (transition.toScreen != nil) {
+		return [flow screenWithId:transition.toScreen];
+	}
+	ORMFlowScreen *from = [flow screenWithId:transition.fromScreen];
+	if ([transition.kind isEqualToString:ORMFlowKindClose]) {
+		return from != nil ? [flow openerOf:from] : nil;
+	}
+	NSString *before = nil;
+	for (ORMFlowTransition *each in flow.transitions) {
+		if ([each.toScreen isEqualToString:transition.fromScreen] && ![each.fromScreen isEqualToString:transition.fromScreen]) {
+			if (before != nil && ![before isEqualToString:each.fromScreen]) {
+				return nil;
+			}
+			before = each.fromScreen;
+		}
+	}
+	return before != nil ? [flow screenWithId:before] : nil;
+}
+
+/* Whether two transitions go the same way: from one screen to the same
+ * screen, or both returns there. */
+- (BOOL)transition:(ORMFlowTransition *)a goesAs:(ORMFlowTransition *)b
+{
+	if (![a.fromScreen isEqualToString:b.fromScreen] || (a.toScreen == nil) != (b.toScreen == nil)) {
+		return NO;
+	}
+	ORMFlowScreen *one = [self targetOfTransition:a], *other = [self targetOfTransition:b];
+	return one == other || [one.identifier isEqualToString:other.identifier];
+}
+
+/* Which of the transitions going the same way it is: they are drawn apart,
+ * and said once, on the first. */
 - (NSUInteger)laneOfTransition:(NSUInteger)index
 {
 	NSArray<ORMFlowTransition *> *transitions = self.editor.flow.transitions;
 	ORMFlowTransition *transition = [transitions objectAtIndex:index];
 	NSUInteger lane = 0;
 	for (NSUInteger i = 0; i < index; i++) {
-		ORMFlowTransition *each = [transitions objectAtIndex:i];
-		if ([each.fromScreen isEqualToString:transition.fromScreen]
-		    && ((each.toScreen == nil && transition.toScreen == nil) || [each.toScreen isEqualToString:transition.toScreen])) {
+		if ([self transition:[transitions objectAtIndex:i] goesAs:transition]) {
 			lane++;
 		}
 	}
@@ -156,14 +191,14 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 	}
 	ORMFlowTransition *transition = [transitions objectAtIndex:index];
 	ORMFlowScreen *from = [self.editor.flow screenWithId:transition.fromScreen];
-	ORMFlowScreen *to = transition.toScreen != nil ? [self.editor.flow screenWithId:transition.toScreen] : nil;
+	ORMFlowScreen *to = [self targetOfTransition:transition];
 	if (from == nil) {
 		return @[];
 	}
 	double lane = [self laneOfTransition:index] * 22.0;
 	NSRect source = [self frameOfScreen:from];
 	if (to == nil) {
-		/* A return: down out of its screen. */
+		/* A return to whichever screen it came from: down out of it. */
 		NSPoint start = NSMakePoint(NSMidX(source) + lane, NSMaxY(source));
 		return @[ [NSValue valueWithPoint:start], [NSValue valueWithPoint:NSMakePoint(start.x, start.y + ORMFlowReturnLength)] ];
 	}
@@ -196,16 +231,40 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 	return NSMakePoint((a.x + b.x) / 2, (a.y + b.y) / 2);
 }
 
+/* What a transition's arrow says: the actions of all going the same way
+ * on the first ("saved, cancelled → back"), nothing on the others; and
+ * what each gives, named as its screen names it. */
 - (NSString *)textOfTransition:(NSUInteger)index
 {
-	ORMFlowTransition *transition = [self.editor.flow.transitions objectAtIndex:index];
-	ORMFlowScreen *to = transition.toScreen != nil ? [self.editor.flow screenWithId:transition.toScreen] : nil;
+	NSArray<ORMFlowTransition *> *transitions = self.editor.flow.transitions;
+	ORMFlowTransition *transition = [transitions objectAtIndex:index];
+	if ([self laneOfTransition:index] > 0) {
+		return @"";
+	}
+	NSMutableArray *actions = [NSMutableArray array];
 	NSMutableArray *gives = [NSMutableArray array];
-	for (ORMFlowGive *give in transition.gives) {
-		[gives addObject:[NSString stringWithFormat:@"%@ = %@", [self.editor nameOfNode:give.nodeId inScreen:to], give.from ?: @"?"]];
+	for (ORMFlowTransition *each in transitions) {
+		if (each != transition && ![self transition:each goesAs:transition]) {
+			continue;
+		}
+		NSString *said = ORMFlowSaid(each);
+		NSRange arrow = [said rangeOfString:@" → "];
+		[actions addObject:arrow.location != NSNotFound ? [said substringToIndex:arrow.location] : said];
+		/* A return gives to the screen it comes back to. */
+		ORMFlowScreen *to = [self targetOfTransition:each];
+		for (ORMFlowGive *give in each.gives) {
+			[gives addObject:[NSString stringWithFormat:@"%@ = %@", [self.editor nameOfNode:give.nodeId inScreen:to], give.from ?: @"?"]];
+		}
 	}
 	NSString *said = ORMFlowSaid(transition);
-	return [gives count] > 0 ? [NSString stringWithFormat:@"%@\n%@", said, [gives componentsJoinedByString:@", "]] : said;
+	NSRange arrow = [said rangeOfString:@" → "];
+	NSString *tail = arrow.location != NSNotFound ? [said substringFromIndex:arrow.location] : @"";
+	NSString *line = [[actions componentsJoinedByString:@", "] stringByAppendingString:tail];
+	if ([transition.kind isEqualToString:ORMFlowKindOverlay] && arrow.location == NSNotFound) {
+		line = [[actions componentsJoinedByString:@", "] stringByAppendingString:@" (over it)"];
+		line = [line stringByReplacingOccurrencesOfString:@" (over it) (over it)" withString:@" (over it)"];
+	}
+	return [gives count] > 0 ? [NSString stringWithFormat:@"%@\n%@", line, [gives componentsJoinedByString:@", "]] : line;
 }
 
 #pragma mark DKCanvasDataSource
@@ -283,10 +342,15 @@ ORMDistanceToSegment(NSPoint p, NSPoint a, NSPoint b)
 		BOOL selected = [state.selection containsObject:item];
 		DKColor color = selected ? DKColorSelection() : ink;
 		ORMFlowTransition *transition = [self.editor.flow.transitions objectAtIndex:i];
-		DKStrokeStyle style = [transition.kind isEqualToString:ORMFlowKindOverlay] ? DKStrokeDashed : DKStrokeSolid;
+		/* Over it: dashed; a return: dotted. */
+		BOOL back = [transition.kind isEqualToString:ORMFlowKindBack] || [transition.kind isEqualToString:ORMFlowKindClose];
+		DKStrokeStyle style = [transition.kind isEqualToString:ORMFlowKindOverlay] ? DKStrokeDashed : back ? DKStrokeDotted : DKStrokeSolid;
 		DKDrawRoute(surface, [self routeOfTransition:i], color, selected ? 2 : 1.2, style, DKEdgeEndNone, DKEdgeEndArrow);
 		NSPoint at = [self labelOfTransition:i];
 		NSString *text = [self textOfTransition:i];
+		if ([text length] == 0) {
+			continue;
+		}
 		NSSize size = [surface sizeOfText:text font:label wrappedToWidth:170];
 		NSRect box = NSMakeRect(at.x - size.width / 2 - 3, at.y - size.height - 4, size.width + 6, size.height + 2);
 		[surface fillPath:[DKPath pathWithRoundedRect:box radius:3] color:DKColorWithAlpha(ORMDiagramPaper(state.dark), 0.9)];
