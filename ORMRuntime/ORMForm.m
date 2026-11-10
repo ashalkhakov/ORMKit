@@ -372,7 +372,10 @@ ORMRegisteredForms(void)
 {
 	NSMutableDictionary *instance = [NSMutableDictionary dictionary];
 	for (ORMFormElement *element in _elements) {
-		[instance setObject:[values objectForKey:element.name] ?: @"" forKey:element.name];
+		/* A flag entered and not yet set is not so: "filled the tank"
+		 * unticked is false, not missing. */
+		NSString *none = [element.role isEqualToString:@"entered"] && [element.schemaType hasSuffix:@"boolean"] ? @"false" : @"";
+		[instance setObject:[values objectForKey:element.name] ?: none forKey:element.name];
 	}
 	return instance;
 }

@@ -636,6 +636,7 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertTrue([session open:&error], @"%@", error);
 	XCTAssertEqualObjects([session valueForElement:@"vehicle"], ORMCarSeven, @"given");
 	XCTAssertEqualObjects([session valueForElement:@"driver"], @"");
+	XCTAssertEqualObjects([session valueForElement:@"filledTheTank"], @"false", @"a flag not set is not so");
 	XCTAssertEqualObjects([session choicesNamed:@"driver" error:&error], @[ @"ann@example.com" ], @"%@", error);
 	NSDictionary *fillUp = [self fillUpIn:form];
 	for (NSString *name in fillUp) {

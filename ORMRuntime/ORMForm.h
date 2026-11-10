@@ -109,7 +109,7 @@ extern NSString * const ORMFormErrorDomain;
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 
 /* An instance as the form opens on a new object: each element empty, but
- * the values given (the vehicle it is for). */
+ * the values given (the vehicle it is for), and a flag entered "false". */
 - (NSDictionary<NSString *, NSString *> *)instanceGiven:(NSDictionary<NSString *, NSString *> *)values;
 /* A row of the read, from the store or the service, as the instance: each
  * element's text from its column (a compound's from its part, a reference's
