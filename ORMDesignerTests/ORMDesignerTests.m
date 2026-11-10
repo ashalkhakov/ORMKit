@@ -1916,10 +1916,34 @@
 		}
 	}
 	XCTAssertTrue(litres >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
+	/* Each value entered with the control its type wants, from the XIB. */
 	NSTableColumn *value = [player.values tableColumnWithIdentifier:@"value"];
-	XCTAssertTrue([player tableView:player.values shouldEditTableColumn:value row:litres], @"entered: typed into");
-	[player tableView:player.values setObjectValue:@"40" forTableColumn:value row:litres];
+	NSDictionary *wanted = @{ @"xsd:date" : @"date", @"xsd:dateTime" : @"dateTime", @"xsd:boolean" : @"flag", @"xsd:decimal" : @"number" };
+	for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+		ORMFormElement *element = [player.walk.session.form.elements objectAtIndex:(NSUInteger)row];
+		NSString *editor = [player editorOfRow:row];
+		if (![element.role isEqualToString:@"entered"]) {
+			XCTAssertEqualObjects(editor, @"shown", @"%@", element.name);
+		} else if ([element.kind isEqualToString:@"reference"]) {
+			XCTAssertEqualObjects(editor, @"choice", @"%@", element.name);
+		} else if ([wanted objectForKey:element.schemaType] != nil) {
+			XCTAssertEqualObjects(editor, [wanted objectForKey:element.schemaType], @"%@", element.name);
+		}
+		NSTableCellView *view = (NSTableCellView *)[player tableView:player.values viewForTableColumn:value row:row];
+		XCTAssertEqualObjects([view identifier], editor, @"%@'s prototype in the XIB", element.name);
+		XCTAssertTrue([[view subviews] count] > 0, @"%@", element.name);
+		if ([editor isEqualToString:@"choice"]) {
+			NSPopUpButton *popUp = [[view subviews] firstObject];
+			XCTAssertTrue([popUp numberOfItems] > 1, @"%@'s choices", element.name);
+			XCTAssertNotNil([[popUp lastItem] representedObject], @"its key");
+		}
+	}
+	XCTAssertEqualObjects([player editorOfRow:litres], @"number");
+	[player setValue:@"40" ofRow:litres];
 	XCTAssertEqualObjects([player.walk.session valueForElement:[player.walk.session.form.elements objectAtIndex:(NSUInteger)litres].name], @"40");
+	NSTextField *litresField = [(NSTableCellView *)[player tableView:player.values viewForTableColumn:value row:litres] textField];
+	XCTAssertNotNil([litresField formatter], @"a number's field takes numbers only");
+	XCTAssertEqualObjects([[litresField objectValue] description], @"40");
 	[player submit:nil];
 	NSString *said = [player.walk.log componentsJoinedByString:@"\n"];
 	XCTAssertTrue([said rangeOfString:@"RecordFillUp saved: "].location != NSNotFound || [said rangeOfString:@"RecordFillUp refused: "].location != NSNotFound,

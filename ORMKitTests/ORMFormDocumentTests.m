@@ -1011,6 +1011,9 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 	XCTAssertEqualObjects(walk.screen.identifier, @"s2");
 	XCTAssertEqualObjects([walk.session valueForElement:@"vehicle"], ORMCarSeven, @"given the car chosen");
 	XCTAssertEqualObjects([walk.session choicesNamed:@"driver" error:&error], @[ @"ann@example.com" ], @"the car's drivers: %@", error);
+	XCTAssertEqualObjects([walk labelOfKey:@"ann@example.com" element:@"driver"], @"ann@example.com", @"a user known by the key");
+	XCTAssertEqualObjects([walk labelOfKey:ORMCarSeven element:@"vehicle"], ORMCarSeven, @"a car with no other text, by its key");
+	XCTAssertEqualObjects([walk labelOfKey:@"Diesel" element:@"timestamp"], @"Diesel", @"no reference: as it is");
 	XCTAssertFalse([walk submit:&error], @"nothing entered");
 	XCTAssertEqualObjects(walk.screen.identifier, @"s2", @"no way on a refusal: still there");
 	XCTAssertTrue([[walk.log lastObject] hasPrefix:@"RecordFillUp refused: "], @"%@", walk.log);

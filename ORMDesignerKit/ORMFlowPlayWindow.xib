@@ -48,33 +48,175 @@
 <rect key="frame" x="1" y="1" width="444" height="278"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <subviews>
-<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="valuesHeader" identifier="values" id="values">
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" rowSizeStyle="custom" viewBased="YES" headerView="valuesHeader" identifier="values" id="values">
 <rect key="frame" x="0" y="0" width="444" height="255"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <size key="intercellSpacing" width="3" height="2"/>
 <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
 <tableColumns>
-<tableColumn identifier="name" width="150" minWidth="40" maxWidth="4000" editable="NO" id="valuesnameColumn">
+<tableColumn identifier="name" width="186" minWidth="40" maxWidth="4000" editable="NO" id="valuesnameColumn">
 <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Element or row">
 <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
 </tableHeaderCell>
-<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="valuesnameCell">
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="valuesnameCell">
 <font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
 </textFieldCell>
+<prototypeCellViews>
+<tableCellView identifier="name" id="nameView">
+<rect key="frame" x="1" y="1" width="186" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<textField verticalHuggingPriority="750" id="nameField">
+<rect key="frame" x="2" y="2" width="182" height="20"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" alignment="left" id="nameFieldCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+</subviews>
+<connections><outlet property="textField" destination="nameField" id="nameViewField"/></connections>
+</tableCellView>
+</prototypeCellViews>
 </tableColumn>
-<tableColumn identifier="value" width="280" minWidth="40" maxWidth="4000"  id="valuesvalueColumn">
+<tableColumn identifier="value" width="250" minWidth="40" maxWidth="4000" editable="NO" id="valuesvalueColumn">
 <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Value">
 <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
 </tableHeaderCell>
-<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" alignment="left" title="Text Cell" id="valuesvalueCell">
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Text Cell" id="valuesvalueCell">
 <font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
 </textFieldCell>
+<prototypeCellViews>
+<tableCellView identifier="shown" id="shownView">
+<rect key="frame" x="1" y="1" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<textField verticalHuggingPriority="750" id="shownField">
+<rect key="frame" x="2" y="2" width="296" height="20"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" alignment="left" id="shownFieldCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+</subviews>
+<connections><outlet property="textField" destination="shownField" id="shownViewField"/></connections>
+</tableCellView>
+<tableCellView identifier="text" id="textView">
+<rect key="frame" x="1" y="1" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<textField verticalHuggingPriority="750" id="textField">
+<rect key="frame" x="2" y="2" width="296" height="20"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" borderStyle="bezel" drawsBackground="YES" alignment="left" id="textFieldCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell><connections><action selector="valueChanged:" target="-2" id="textFieldAction"/></connections>
+</textField>
+</subviews>
+<connections><outlet property="textField" destination="textField" id="textViewField"/></connections>
+</tableCellView>
+<tableCellView identifier="number" id="numberView">
+<rect key="frame" x="1" y="1" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<textField verticalHuggingPriority="750" id="numberField">
+<rect key="frame" x="2" y="2" width="140" height="20"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" borderStyle="bezel" drawsBackground="YES" alignment="right" id="numberFieldCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/><numberFormatter key="formatter" formatterBehavior="custom10_4" numberStyle="decimal" usesGroupingSeparator="NO" generatesDecimalNumbers="YES" maximumFractionDigits="6" id="numberFormatter"/>
+</textFieldCell><connections><action selector="valueChanged:" target="-2" id="numberFieldAction"/></connections>
+</textField>
+</subviews>
+<connections><outlet property="textField" destination="numberField" id="numberViewField"/></connections>
+</tableCellView>
+<tableCellView identifier="date" id="dateView">
+<rect key="frame" x="1" y="1" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<datePicker verticalHuggingPriority="750" id="datePicker">
+<rect key="frame" x="2" y="1" width="110" height="22"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<datePickerCell key="cell" controlSize="small" borderStyle="bezel" alignment="left" id="datePickerCell">
+<font key="font" metaFont="smallSystem"/>
+<date key="date" timeIntervalSinceReferenceDate="0"/>
+<color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+<color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+<datePickerElements key="datePickerElements" year="YES" month="YES" day="YES"/>
+</datePickerCell>
+<connections><action selector="valueChanged:" target="-2" id="datePickerAction"/></connections>
+</datePicker><button toolTip="Leave it empty" verticalHuggingPriority="750" id="dateClear">
+<rect key="frame" x="118" y="2" width="56" height="20"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Clear" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="dateClearCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="clearValue:" target="-2" id="dateClearAction"/></connections>
+</button>
+</subviews>
+<connections></connections>
+</tableCellView>
+<tableCellView identifier="dateTime" id="dateTimeView">
+<rect key="frame" x="1" y="1" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<datePicker verticalHuggingPriority="750" id="dateTimePicker">
+<rect key="frame" x="2" y="1" width="160" height="22"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<datePickerCell key="cell" controlSize="small" borderStyle="bezel" alignment="left" id="dateTimePickerCell">
+<font key="font" metaFont="smallSystem"/>
+<date key="date" timeIntervalSinceReferenceDate="0"/>
+<color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+<color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
+<datePickerElements key="datePickerElements" year="YES" month="YES" day="YES" hour="YES" minute="YES"/>
+</datePickerCell>
+<connections><action selector="valueChanged:" target="-2" id="dateTimePickerAction"/></connections>
+</datePicker><button toolTip="Leave it empty" verticalHuggingPriority="750" id="dateTimeClear">
+<rect key="frame" x="168" y="2" width="56" height="20"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Clear" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="dateTimeClearCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="clearValue:" target="-2" id="dateTimeClearAction"/></connections>
+</button>
+</subviews>
+<connections></connections>
+</tableCellView>
+<tableCellView identifier="flag" id="flagView">
+<rect key="frame" x="1" y="1" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<button verticalHuggingPriority="750" id="flagBox">
+<rect key="frame" x="2" y="3" width="296" height="18"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="check" title="" bezelStyle="regularSquare" imagePosition="left" controlSize="small" inset="2" id="flagBoxCell">
+<behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="valueChanged:" target="-2" id="flagBoxAction"/></connections>
+</button>
+</subviews>
+<connections></connections>
+</tableCellView>
+<tableCellView identifier="choice" id="choiceView">
+<rect key="frame" x="1" y="1" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<popUpButton verticalHuggingPriority="750" id="choicePopUp">
+<rect key="frame" x="0" y="0" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="choicePopUpCell">
+<behavior key="behavior" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+<menu key="menu" id="choiceMenu"><items><menuItem title="(none)" id="choiceNone"/></items></menu>
+</popUpButtonCell>
+<connections><action selector="valueChanged:" target="-2" id="choicePopUpAction"/></connections>
+</popUpButton>
+</subviews>
+<connections></connections>
+</tableCellView>
+</prototypeCellViews>
 </tableColumn>
 </tableColumns>
 <connections>
 <outlet property="dataSource" destination="-2" id="valuesDataSource"/>
 <outlet property="delegate" destination="-2" id="valuesDelegate"/>
-
 </connections>
 </tableView>
 </subviews>

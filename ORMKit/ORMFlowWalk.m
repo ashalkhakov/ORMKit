@@ -7,6 +7,7 @@
 #import "ORMForm.h"
 #import "ORMFormSession.h"
 #import "ORMQueryInterpreter.h"
+#import "ORMCDModel.h"
 #import <CoreData/CoreData.h>
 
 static NSString * const ORMFlowWalkErrorDomain = @"ORMFlowWalk";
@@ -293,6 +294,69 @@ ORMFlowWalkName(ORMFlowScreen *screen)
 	return [key length] > 0 ? key : @"?";
 }
 
+- (NSString *)labelOfKey:(NSString *)key element:(NSString *)name
+{
+	return [self labelOfKey:key element:name session:[self session]];
+}
+
+- (NSString *)labelOfKey:(NSString *)key element:(NSString *)name session:(ORMFormSession *)session
+{
+	ORMFormElement *element = [session.form elementNamed:name];
+	if ([key length] == 0 || ![element.kind isEqualToString:@"reference"] || _context == nil) {
+		return key;
+	}
+	NSEntityDescription *entity = [[_store.managedObjectModel entitiesByName] objectForKey:session.form.entityName ?: @""];
+	NSEntityDescription *destination = [[[entity relationshipsByName] objectForKey:name] destinationEntity];
+	NSDictionary *attributes = [destination attributesByName];
+	NSAttributeDescription *keyAttribute = [attributes objectForKey:element.keyName ?: @""];
+	id typed = key;
+	switch ([keyAttribute attributeType]) {
+	case NSUUIDAttributeType:
+		typed = [[NSUUID alloc] initWithUUIDString:key];
+		break;
+	case NSInteger16AttributeType:
+	case NSInteger32AttributeType:
+	case NSInteger64AttributeType:
+		typed = [NSNumber numberWithLongLong:[key longLongValue]];
+		break;
+	default:
+		break;
+	}
+	if (keyAttribute == nil || typed == nil) {
+		return key;
+	}
+	/* Its other identifiers first, then its texts, as the model has them. */
+	ORMCDEntity *described = [_planner.coreData entityNamed:[destination name]];
+	NSMutableArray *names = [NSMutableArray array];
+	for (NSArray *unique in described.uniquenessConstraints) {
+		if ([unique count] == 1) {
+			[names addObject:[unique firstObject]];
+		}
+	}
+	for (ORMCDAttribute *attribute in described.attributes) {
+		[names addObject:attribute.name];
+	}
+	__block NSString *label = nil;
+	[_context performBlockAndWait:^{
+		NSFetchRequest *request = [[NSFetchRequest alloc] init];
+		[request setEntity:destination];
+		[request setPredicate:[NSPredicate predicateWithFormat:@"%K == %@", element.keyName, typed]];
+		[request setFetchLimit:1];
+		NSManagedObject *object = [[self->_context executeFetchRequest:request error:NULL] firstObject];
+		for (NSString *each in names) {
+			if ([each isEqualToString:element.keyName] || [(NSAttributeDescription *)[attributes objectForKey:each] attributeType] != NSStringAttributeType) {
+				continue;
+			}
+			NSString *text = [object valueForKey:each];
+			if ([text length] > 0) {
+				label = text;
+				return;
+			}
+		}
+	}];
+	return label ?: key;
+}
+
 /* A screen as the log says it: a list's rows, a form's given values. */
 - (NSString *)said:(ORMFlowWalkFrame *)frame
 {
@@ -308,7 +372,9 @@ ORMFlowWalkName(ORMFlowScreen *screen)
 	}
 	NSMutableArray *given = [NSMutableArray array];
 	for (NSString *element in [[frame.session.given allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
-		[given addObject:[NSString stringWithFormat:@"%@ = %@", element, [frame.session.given objectForKey:element]]];
+		NSString *value = [frame.session.given objectForKey:element];
+		[given addObject:[NSString stringWithFormat:@"%@ = %@", element,
+		                                            [self labelOfKey:value element:element session:frame.session]]];
 	}
 	return [given count] > 0 ? [NSString stringWithFormat:@"%@, given %@", name, [given componentsJoinedByString:@", "]] : name;
 }
