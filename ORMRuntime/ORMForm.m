@@ -573,13 +573,47 @@ ORMFormMessage(NSError *error)
 	return [error localizedDescription] ?: @"";
 }
 
+/* Whether the entity, or one it is a kind of, is the form's anchor's. */
+- (BOOL)isAnchor:(NSEntityDescription *)entity
+{
+	for (NSEntityDescription *each = entity; each != nil; each = [each superentity]) {
+		if ([[each name] isEqualToString:_entityName]) {
+			return YES;
+		}
+	}
+	return entity == nil;
+}
+
+/* Where what an error says is said: of a rule over several of the anchor's
+ * properties (ORMKeys: a driver who does not drive the vehicle), at the
+ * first of them the form enters, not at what it is given, which the user
+ * cannot change; at its one property (NSValidationKeyErrorKey) where that
+ * is an element; else of the form, "". */
+- (NSString *)elementOfError:(NSError *)error
+{
+	NSDictionary *info = [error userInfo];
+	id object = [info objectForKey:NSValidationObjectErrorKey];
+	if ([object respondsToSelector:@selector(entity)] && ![self isAnchor:[object entity]]) {
+		return @"";
+	}
+	NSArray *keys = [info objectForKey:@"ORMKeys"];
+	for (NSString *key in [keys isKindOfClass:[NSArray class]] ? keys : @[]) {
+		ORMFormElement *element = [self elementNamed:key];
+		if ([element.role isEqualToString:@"entered"]) {
+			return key;
+		}
+	}
+	NSString *key = [info objectForKey:NSValidationKeyErrorKey];
+	ORMFormElement *element = key != nil ? [self elementNamed:key] : nil;
+	return element != nil && ![element.role isEqualToString:@"given"] && ![element.role isEqualToString:@"key"] ? key : @"";
+}
+
 - (NSDictionary<NSString *, NSString *> *)elementErrorsOf:(NSError *)error
 {
 	NSMutableDictionary *errors = [NSMutableDictionary dictionary];
 	NSArray *each = [[error userInfo] objectForKey:NSDetailedErrorsKey] ?: (error != nil ? @[ error ] : @[]);
 	for (NSError *one in each) {
-		NSString *key = [[one userInfo] objectForKey:NSValidationKeyErrorKey];
-		NSString *name = key != nil && [self elementNamed:key] != nil ? key : @"";
+		NSString *name = [self elementOfError:one];
 		NSString *said = [errors objectForKey:name];
 		NSString *message = ORMFormMessage(one);
 		[errors setObject:said != nil ? [NSString stringWithFormat:@"%@ %@", said, message] : message forKey:name];

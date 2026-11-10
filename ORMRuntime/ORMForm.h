@@ -145,7 +145,10 @@ extern NSString * const ORMFormErrorDomain;
                    saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
                    errors:(NSDictionary<NSString *, NSString *> **)errors
                     error:(NSError **)error;
-/* What a failed save's error says of each element, "" for the rest. */
+/* What a failed save's error says of each element, "" for the rest: a
+ * rule's said at the first of its properties (ORMKeys) the form enters, so
+ * that one the user cannot change (the vehicle given) is not where it is
+ * said; a rule of another object of the form's. */
 - (NSDictionary<NSString *, NSString *> *)elementErrorsOf:(NSError *)error;
 
 #pragma mark The service

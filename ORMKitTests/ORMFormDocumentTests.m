@@ -622,6 +622,26 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertEqualObjects([older elementNamed:@"timestamp"].label, @"timestamp");
 }
 
+/* A rule over several of the fill-up's properties is said at the one the
+ * form enters, not at the vehicle it is given; one property's at it; one
+ * the form cannot place, of the form. */
+- (void)testARuleIsSaidWhereTheUserCanChangeIt
+{
+	ORMForm *form = [ORMForm formWithPropertyList:[[self documentOf:[self fillUps]] tablePropertyList] error:NULL];
+	NSError *drives = [NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError
+	                                  userInfo:@{ NSLocalizedDescriptionKey : @"That User drives that Vehicle.",
+	                                              NSValidationKeyErrorKey : @"vehicle", @"ORMKeys" : @[ @"vehicle", @"driver" ] }];
+	XCTAssertEqualObjects([form elementErrorsOf:drives], (@{ @"driver" : @"That User drives that Vehicle." }));
+	NSError *missing = [NSError errorWithDomain:NSCocoaErrorDomain code:NSValidationMissingMandatoryPropertyError
+	                                   userInfo:@{ NSLocalizedDescriptionKey : @"Each FillUp was at some Moment.",
+	                                               NSValidationKeyErrorKey : @"timestamp" }];
+	XCTAssertEqualObjects([[form elementErrorsOf:missing] allKeys], @[ @"timestamp" ]);
+	NSError *given = [NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError
+	                                 userInfo:@{ NSLocalizedDescriptionKey : @"Each Vehicle is owned by some User.",
+	                                             NSValidationKeyErrorKey : @"vehicle", @"ORMKeys" : @[ @"vehicle" ] }];
+	XCTAssertEqualObjects([[form elementErrorsOf:given] allKeys], @[ @"" ], @"the vehicle is given: of the form");
+}
+
 /* A session over the store, as a view of the app's own runs the form:
  * opened with its inputs, its values set one by one, the driver's choices
  * those of the car given, refused at the element, saved, and read again. */

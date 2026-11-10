@@ -422,10 +422,13 @@ id from the model element it comes from (the role's, the constraint's), not
 from its name or its place, so a renamed role or a reordered outline keeps
 it, and a customized copy still matches.
 
-**What a message says is the form's to word.** A refusal's text is the
-rule's verbalization unless the form, or the rule, says it in the app's
-words ("You don't drive this vehicle."), and it is shown at the element the
-rule is about.
+**Where a refusal is said, and in whose words.** A refusal is shown at
+the element the rule is about; a rule over several (the driver must drive
+the vehicle) at the first of them the form enters, since what it is given
+the user cannot change, and of the form where it enters none. Its text is
+the rule's verbalization for now; wording it in the app's words ("You don't
+drive this vehicle."), by the form or the rule, is to come: it needs a line
+of the form's outline that FORML reads back.
 
 **A form under construction does not run.** A field the model has no fact
 type for has nowhere to go: no property in the store, none in the service,
