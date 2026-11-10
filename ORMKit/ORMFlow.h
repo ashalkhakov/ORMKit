@@ -57,7 +57,8 @@ extern NSString * const ORMFlowKindClose;
 @interface ORMFlowGive : NSObject
 /* The given node of the next screen's form. */
 @property (nonatomic, copy) NSString *nodeId;
-/* "row", "result", or "<screen id>.<node id>". */
+/* "row", "result", or "<screen id>.<node id>". A Close's gives a node of
+ * the form the overlay is over: what the overlay made, returned to it. */
 @property (nonatomic, copy) NSString *from;
 @end
 
@@ -91,6 +92,12 @@ extern NSString * const ORMFlowKindClose;
 @property (nonatomic, copy) NSArray<ORMFlowEntry *> *entries;
 
 - (ORMFlowScreen *)screenWithId:(NSString *)identifier;
+/* The screen's form, or its list's query; nil where it has neither, or
+ * the model has none of the id. */
+- (ORMQuery *)queryOf:(ORMFlowScreen *)screen inModel:(ORMModel *)model;
+/* The screen an overlay is opened over: the first to open it so; nil for
+ * one opened over nothing. */
+- (ORMFlowScreen *)openerOf:(ORMFlowScreen *)overlay;
 /* What is wrong of it against the model, each said: a screen's query gone
  * or of the wrong kind, a transition from or to no screen, an action its
  * screen has not (a row chosen in a form), a value given to what is not an

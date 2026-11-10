@@ -261,7 +261,50 @@ found there, not in production.
 In XForms a transition is what a submission's `xforms-submit-done` or
 `xforms-submit-error`, or a trigger's `DOMActivate`, does: load the next form
 (`xf:load`), with its given values. A flow is generated into those actions;
-the forms themselves do not name each other.
+the forms themselves do not name each other. `ormtool xforms model.orm dir/
+--flow Records.flow` writes each screen's form with the flow's ways on from
+it: the save's `xforms-submit-done` and `xforms-submit-error`, a Cancel
+trigger, and a trigger for each control a transition names, each an
+`xf:load` of a resource the app resolves, as it does the form's own:
+
+| Resource | Where it goes |
+| --- | --- |
+| `form:open/<Form>?<element>=<value>&...` | the next form, its given elements; over this one (`show="new"`) for an overlay |
+| `form:list/<Query>` | the next list |
+| `form:back` | the screen before |
+| `form:close?<element>=<value>&...` | the overlay closed, the values given to the form it is over |
+
+A value is one of this form's elements (its key, for what it saved), or
+`{<screen id>.<node id>}` for a screen's before it, which the app keeps:
+
+```xml
+<xf:submission id="save" resource="form:save" method="post" ref="instance('form')" replace="instance" instance="form">
+  <xf:action ev:event="xforms-submit-done">
+    <xf:load show="replace">
+      <xf:resource value="concat('form:open/RecordFillUp', '?vehicle=', instance('form')/vehicle)"/>
+    </xf:load>
+  </xf:action>
+</xf:submission>
+```
+
+**Walked through.** `ORMFlowWalk` runs a flow over the model's sample
+population, in a store made of it (`ORMPopulationStore`), as an app opens
+its screens: a list's rows are its query's over the population; a form
+opens with what the way to it gave, its choices are the population's, and
+a save is checked as the form checks it before it submits (each value it
+requires, said in the constraint's own words at its element), then saved.
+An overlay returns what it made to the form it was opened over: a `Close`
+gives that form's nodes what the overlay saved (`From="result"`).
+`ormtool flow model.orm Records.flow walk [entry]` walks it on its own,
+each way once (a list's first row chosen, each form submitted as it opens),
+and prints what happened:
+
+```
+▶ Start: Vehicles, 2 rows: car-7 | car-8
+Vehicles —RowChosen (car-7)→ RecordFillUp, given vehicle = car-7
+RecordFillUp refused: timestamp: Each FillUp was at some Moment.
+RecordFillUp —Cancel→ back: Vehicles
+```
 
 **BPMN** sees the same from the process's side. A user task is performed
 with a form or a flow: the task's input data are its entry's given nodes,
@@ -307,7 +350,10 @@ by XFormsKit), its transitions arrows from a screen or a control to a
 screen, its entries marked. Editing it changes the flow file and nothing
 else: a form's layout is edited in XFormsKit's designer, the model in its
 own. **Play** runs the flow from an entry over the sample population
-([Flows](#flows-forms-and-the-ways-between-them)).
+([Flows](#flows-forms-and-the-ways-between-them)): its window
+(ORMDesignerKit's ORMFlowPlayController) names the screen it is at, lists
+what it shows (a list's rows, a form's elements, typed into), the ways on,
+and what happened; Submit saves the form, a refusal said at its element.
 
 ### A little Figma
 
@@ -622,12 +668,19 @@ never edited, as the validation code is. Customizations are documents of their o
 10. **Flows:** `.flow` files read and written; screens, transitions,
     entries; generated into the forms' actions; walked through over the
     sample population; a modal form returning what it made. Their canvas:
-    a document window of its own, screens drawn from their forms, Play. *Begun:* ORMKit's `ORMFlow` reads and writes `.flow` files
-    (screens a form or a list by the query's id, transitions on an action
-    giving the next form's inputs, entries) and checks them against the
-    model; `ormtool flow model.orm file.flow` lists a flow and what is
-    wrong of it, and the inputs each transition leaves to the app.
-    Logbook's `Model/Records.flow` is checked by its build.
+    a document window of its own, screens drawn from their forms, Play.
+    *Done:* ORMKit's `ORMFlow` reads and writes `.flow` files (screens a
+    form or a list by the query's id, transitions on an action giving the
+    next form's inputs, entries) and checks them against the model;
+    `ormtool flow model.orm file.flow` lists a flow, what is wrong of it,
+    and the inputs each transition leaves to the app. `ORMFormDocument`
+    generates a screen's ways on into its form's actions (`ormtool xforms
+    ... --flow`); `ORMFlowWalk` walks a flow over the sample population
+    (`ormtool flow ... walk`), an overlay returning what it made. ORMDesigner
+    has a `.flow` document's window: the model's forms and lists placed as
+    screens, drawn with their outlines, transitions drawn port to screen,
+    an inspector, undo, and Play. Logbook's `Model/Records.flow` is checked
+    by its build.
 11. **Figma:** import through its REST API (frames, interactions, starting
     points, layers named as controls); export through a plugin of our own,
     ids kept in plugin data.

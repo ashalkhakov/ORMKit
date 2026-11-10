@@ -1,5 +1,6 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMFlowWindowController.h"
+#import "ORMFlowPlayController.h"
 
 /* The inspector's actions and kinds, in its pop-ups' order. */
 static NSArray<NSString *> *
@@ -154,6 +155,12 @@ ORMFlowKinds(void)
 		right = MAX(right, NSMaxX([self.canvas frameOfScreen:screen]) + 120);
 	}
 	return NSMakePoint(right, 60);
+}
+
+- (IBAction)play:(id)sender
+{
+	_player = [[ORMFlowPlayController alloc] initWithFlow:self.editor.flow model:self.editor.model];
+	[_player showWindow:sender];
 }
 
 - (IBAction)addToFlow:(id)sender

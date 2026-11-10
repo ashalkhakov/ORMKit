@@ -50,14 +50,14 @@
 </textFieldCell>
 </textField>
 <scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="paletteScroll">
-<rect key="frame" x="0" y="44" width="220" height="676"/>
+<rect key="frame" x="0" y="78" width="220" height="642"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <clipView key="contentView" copiesOnScroll="NO" id="paletteClip">
-<rect key="frame" x="1" y="1" width="218" height="674"/>
+<rect key="frame" x="1" y="1" width="218" height="640"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <subviews>
 <tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="paletteHeader" identifier="palette" id="palette">
-<rect key="frame" x="0" y="0" width="218" height="651"/>
+<rect key="frame" x="0" y="0" width="218" height="617"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <size key="intercellSpacing" width="3" height="2"/>
 <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
@@ -80,11 +80,11 @@
 </subviews>
 </clipView>
 <scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="paletteHScroller">
-<rect key="frame" x="1" y="660" width="218" height="15"/>
+<rect key="frame" x="1" y="626" width="218" height="15"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
 </scroller>
 <scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="paletteVScroller">
-<rect key="frame" x="204" y="1" width="15" height="674"/>
+<rect key="frame" x="204" y="1" width="15" height="640"/>
 <autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
 </scroller>
 <tableHeaderView key="headerView" wantsLayer="YES" id="paletteHeader">
@@ -93,12 +93,20 @@
 </tableHeaderView>
 </scrollView>
 <button verticalHuggingPriority="750" identifier="addToFlow" id="addToFlow">
-<rect key="frame" x="6" y="3" width="208" height="32"/>
+<rect key="frame" x="6" y="37" width="208" height="32"/>
 <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
 <buttonCell key="cell" type="push" title="Add to Flow" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="addToFlowCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
 </buttonCell>
 <connections><action selector="addToFlow:" target="-2" id="addToFlowAction"/></connections>
+</button>
+<button verticalHuggingPriority="750" identifier="play" id="play">
+<rect key="frame" x="6" y="3" width="208" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Play" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="playCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="play:" target="-2" id="playAction"/></connections>
 </button>
 </subviews>
 </customView>

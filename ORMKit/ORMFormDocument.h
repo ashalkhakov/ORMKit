@@ -1,6 +1,8 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMQueryPlanner.h"
 
+@class ORMFlow, ORMFlowScreen;
+
 /* A form (docs/FORMS.md) as an XForms 1.1 document: what ormtool xforms
  * writes, generated and never edited.
  *
@@ -110,4 +112,29 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
  * it. A repeat's link is that element (the line's order). */
 - (NSDictionary<NSString *, ORMFormDocument *> *)repeats;
 - (NSString *)linkElement;
+/* The element a node of the form is placed as; nil for one not placed. */
+- (NSString *)elementOfNode:(NSString *)nodeId;
+/* The elements the form asks a value of before it is submitted, whatever
+ * else is entered (its binds' required "true()"), each with what the
+ * constraints it comes from say: "Each FillUp was at some Moment." */
+- (NSDictionary<NSString *, NSString *> *)requiredElements;
+
+/* The screen of a flow the document is shown as (docs/FORMS.md, Flows),
+ * set before -document: the flow's transitions from it generated into the
+ * document's actions, the save done or refused loading what comes next,
+ * Cancel and each trigger's control a trigger that does. What comes next
+ * is a resource the app resolves, as it does the form's own:
+ *
+ *   form:open/<Form>?<element>=<value>&...  the next screen's form, its
+ *                                           given elements; over this one
+ *                                           for an overlay (show="new")
+ *   form:list/<Query>                       the next screen's list
+ *   form:back                               the screen before
+ *   form:close?<element>=<value>&...        the overlay closed, the values
+ *                                           given to the form it is over
+ *
+ * A value is one of this form's elements (its key, for "result"), or
+ * "{<screen id>.<node id>}" for a screen's before it, which the app keeps.
+ * The next form's elements are named as its document names them. */
+- (void)setFlow:(ORMFlow *)flow screen:(ORMFlowScreen *)screen;
 @end

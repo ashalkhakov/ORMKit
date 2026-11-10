@@ -185,8 +185,6 @@ ORMFlowNumber(double value)
 	return nil;
 }
 
-/* The screen's form, or its list's query; nil where it has neither or the
- * model has none of the id. */
 - (ORMQuery *)queryOf:(ORMFlowScreen *)screen inModel:(ORMModel *)model
 {
 	NSString *identifier = screen.formId ?: screen.queryId;
@@ -210,6 +208,16 @@ ORMFlowInputs(ORMQuery *form)
 		}
 	}
 	return inputs;
+}
+
+- (ORMFlowScreen *)openerOf:(ORMFlowScreen *)overlay
+{
+	for (ORMFlowTransition *transition in _transitions) {
+		if ([transition.kind isEqualToString:ORMFlowKindOverlay] && [transition.toScreen isEqualToString:overlay.identifier]) {
+			return [self screenWithId:transition.fromScreen];
+		}
+	}
+	return nil;
 }
 
 - (NSArray<NSString *> *)problemsInModel:(ORMModel *)model
@@ -278,6 +286,23 @@ ORMFlowInputs(ORMQuery *form)
 		}
 		ORMQuery *form = to.formId != nil ? [self queryOf:to inModel:model] : nil;
 		NSDictionary *inputs = form != nil ? ORMFlowInputs(form) : @{};
+		/* An overlay closed gives what it made to the form it was over:
+		 * any of that form's nodes (the expense kind just made, chosen). */
+		ORMFlowScreen *opener = [transition.kind isEqualToString:ORMFlowKindClose] ? [self openerOf:from] : nil;
+		if (opener != nil) {
+			to = opener;
+			form = to.formId != nil ? [self queryOf:to inModel:model] : nil;
+			NSMutableDictionary *nodes = [NSMutableDictionary dictionary];
+			for (ORMQueryNode *node in [form nodes]) {
+				if (node.identifier != nil) {
+					[nodes setObject:node forKey:node.identifier];
+				}
+			}
+			inputs = nodes;
+		} else if ([transition.kind isEqualToString:ORMFlowKindClose] && [transition.gives count] > 0) {
+			[problems addObject:[NSString stringWithFormat:@"%@ closes, but %@ is opened over nothing.", said, ORMFlowScreenName(from)]];
+			continue;
+		}
 		for (ORMFlowGive *give in transition.gives) {
 			if (to.formId == nil) {
 				[problems addObject:[NSString stringWithFormat:@"%@ gives a value to %@, which is no form.", said, ORMFlowScreenName(to)]];

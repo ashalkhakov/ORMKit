@@ -2,6 +2,7 @@
 #import "ORMFormDocument.h"
 #import "ORMModelPriv.h"
 #import "ORMVerbalizer.h"
+#import "ORMFlow.h"
 
 NSString * const ORMFormNamespace = @"urn:ormkit:forms";
 
@@ -119,6 +120,9 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	/* While the read is planned by the link's value, not the key's. */
 	BOOL _linkValue;
 	ORMCoreDataMapping *_mapping;
+	/* The flow's screen it is shown as: its transitions, its actions. */
+	ORMFlow *_flow;
+	ORMFlowScreen *_screen;
 }
 
 #pragma mark The form's parts
@@ -1559,10 +1563,18 @@ ORMXText(NSString *name, NSString *text)
 			@"instance" : [@"choices-" stringByAppendingString:name], @"validate" : @"false",
 		})];
 	}
-	[model addChild:ORMXElement(@"xf:submission", @{
+	NSXMLElement *save = ORMXElement(@"xf:submission", @{
 		@"id" : @"save", @"resource" : @"form:save", @"method" : @"post", @"ref" : @"instance('form')",
 		@"replace" : @"instance", @"instance" : @"form",
-	})];
+	});
+	/* What the flow does next, the save done or refused. */
+	for (ORMFlowTransition *transition in [self transitionsOn:@[ ORMFlowOnSubmitDone, ORMFlowOnSubmitError ]]) {
+		NSString *event = [transition.on isEqualToString:ORMFlowOnSubmitDone] ? @"xforms-submit-done" : @"xforms-submit-error";
+		NSXMLElement *action = ORMXElement(@"xf:action", @{ @"ev:event" : event });
+		[action addChild:[self loadOf:transition]];
+		[save addChild:action];
+	}
+	[model addChild:save];
 	/* Opened: the object read (or the new one made, its given values in
 	 * it), then each reference's choices. */
 	NSXMLElement *ready = ORMXElement(@"xf:action", @{ @"ev:event" : @"xforms-ready" });
@@ -1679,6 +1691,134 @@ ORMXText(NSString *name, NSString *text)
 	NSXMLElement *submit = ORMXElement(@"xf:submit", @{ @"id" : @"control-save", @"submission" : @"save" });
 	[submit addChild:ORMXText(@"xf:label", @"Save")];
 	[body addChild:submit];
+	/* The flow's ways on from here a user takes: Cancel, and the triggers. */
+	for (ORMFlowTransition *transition in [self transitionsOn:@[ ORMFlowOnCancel, ORMFlowOnTrigger ]]) {
+		BOOL cancel = [transition.on isEqualToString:ORMFlowOnCancel];
+		NSString *control = cancel ? @"cancel" : transition.control;
+		ORMFlowScreen *to = transition.toScreen != nil ? [_flow screenWithId:transition.toScreen] : nil;
+		NSXMLElement *trigger = ORMXElement(@"xf:trigger", @{ @"id" : [@"control-" stringByAppendingString:control] });
+		[trigger addChild:ORMXText(@"xf:label", cancel ? @"Cancel" : to.name ?: control)];
+		NSXMLElement *action = ORMXElement(@"xf:action", @{ @"ev:event" : @"DOMActivate" });
+		[action addChild:[self loadOf:transition]];
+		[trigger addChild:action];
+		[body addChild:trigger];
+	}
+}
+
+#pragma mark Its flow
+
+- (NSString *)elementOfNode:(NSString *)nodeId
+{
+	return nodeId != nil ? [_elementOfNode objectForKey:nodeId] : nil;
+}
+
+- (NSDictionary<NSString *, NSString *> *)requiredElements
+{
+	NSMutableDictionary *required = [NSMutableDictionary dictionary];
+	for (ORMFormBind *bind in [_binds allValues]) {
+		if ([bind.required containsObject:@"true()"] && bind.field.elementName != nil) {
+			NSString *said = [bind.alerts componentsJoinedByString:@" "];
+			[required setObject:[said length] > 0 ? said : @"A value is required." forKey:bind.field.elementName];
+		}
+	}
+	return required;
+}
+
+- (void)setFlow:(ORMFlow *)flow screen:(ORMFlowScreen *)screen
+{
+	_flow = flow;
+	_screen = screen;
+}
+
+/* The flow's transitions from the screen on these actions, in its order. */
+- (NSArray<ORMFlowTransition *> *)transitionsOn:(NSArray<NSString *> *)actions
+{
+	NSMutableArray *found = [NSMutableArray array];
+	for (ORMFlowTransition *transition in _flow.transitions) {
+		if ([transition.fromScreen isEqualToString:_screen.identifier] && [actions containsObject:transition.on ?: @""]) {
+			[found addObject:transition];
+		}
+	}
+	return found;
+}
+
+/* The document of a screen's form; nil for a list's, or a form gone. */
+- (ORMFormDocument *)documentOfScreen:(ORMFlowScreen *)screen
+{
+	ORMQuery *query = screen.formId != nil ? [_flow queryOf:screen inModel:_model] : nil;
+	return query != nil ? [ORMFormDocument documentForForm:query model:_model mapping:_mapping reason:NULL] : nil;
+}
+
+/* An XPath string literal of the text. */
+static NSString *
+ORMXPathLiteral(NSString *text)
+{
+	return [text rangeOfString:@"'"].location == NSNotFound ? [NSString stringWithFormat:@"'%@'", text]
+		: [NSString stringWithFormat:@"\"%@\"", text];
+}
+
+/* What a value given comes from, as an XPath expression of this form's
+ * instance: its key for the result, its element for one of its nodes, the
+ * app's "{<screen>.<node>}" for a screen's before it. */
+- (NSString *)valueOf:(ORMFlowGive *)give
+{
+	if ([give.from isEqualToString:@"result"]) {
+		return [NSString stringWithFormat:@"instance('form')/%@", [[_fields firstObject] elementName]];
+	}
+	NSRange dot = [give.from rangeOfString:@"."];
+	if (dot.location != NSNotFound && [[give.from substringToIndex:dot.location] isEqualToString:_screen.identifier]) {
+		NSString *element = [self elementOfNode:[give.from substringFromIndex:NSMaxRange(dot)]];
+		if (element != nil) {
+			return [NSString stringWithFormat:@"instance('form')/%@", element];
+		}
+	}
+	return ORMXPathLiteral([NSString stringWithFormat:@"{%@}", give.from ?: @""]);
+}
+
+/* The xf:load a transition is: where it goes, and what it gives there. */
+- (NSXMLElement *)loadOf:(ORMFlowTransition *)transition
+{
+	ORMFlowScreen *to = transition.toScreen != nil ? [_flow screenWithId:transition.toScreen] : nil;
+	BOOL overlay = [transition.kind isEqualToString:ORMFlowKindOverlay];
+	if ([transition.kind isEqualToString:ORMFlowKindBack]) {
+		return ORMXElement(@"xf:load", @{ @"resource" : @"form:back" });
+	}
+	NSString *base = nil;
+	ORMFormDocument *named = nil;
+	if ([transition.kind isEqualToString:ORMFlowKindClose]) {
+		base = @"form:close";
+		/* The values go to the form it is over: an overlay's opener. */
+		for (ORMFlowTransition *each in _flow.transitions) {
+			if ([each.kind isEqualToString:ORMFlowKindOverlay] && [each.toScreen isEqualToString:_screen.identifier]) {
+				named = [self documentOfScreen:[_flow screenWithId:each.fromScreen]];
+				break;
+			}
+		}
+	} else if (to.queryId != nil) {
+		ORMQuery *list = [_flow queryOf:to inModel:_model];
+		return ORMXElement(@"xf:load", @{ @"resource" : [@"form:list/" stringByAppendingString:list.name ?: to.queryId] });
+	} else {
+		named = [self documentOfScreen:to];
+		base = [@"form:open/" stringByAppendingString:named.form.name ?: to.name ?: transition.toScreen ?: @""];
+	}
+	NSMutableArray *parts = [NSMutableArray array];
+	NSString *separator = @"?";
+	for (ORMFlowGive *give in transition.gives) {
+		NSString *element = [named elementOfNode:give.nodeId] ?: give.nodeId;
+		[parts addObject:ORMXPathLiteral([NSString stringWithFormat:@"%@%@=", separator, element])];
+		[parts addObject:[self valueOf:give]];
+		separator = @"&";
+	}
+	NSDictionary *show = @{ @"show" : overlay ? @"new" : @"replace" };
+	if ([parts count] == 0) {
+		NSMutableDictionary *attributes = [show mutableCopy];
+		[attributes setObject:base forKey:@"resource"];
+		return ORMXElement(@"xf:load", attributes);
+	}
+	NSXMLElement *load = ORMXElement(@"xf:load", show);
+	NSString *value = [NSString stringWithFormat:@"concat(%@, %@)", ORMXPathLiteral(base), [parts componentsJoinedByString:@", "]];
+	[load addChild:ORMXElement(@"xf:resource", @{ @"value" : value })];
+	return load;
 }
 
 - (NSXMLElement *)controlOf:(ORMFormField *)field node:(ORMQueryNode *)node label:(NSString *)label

@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" customObjectInstantitationMethod="direct">
+<dependencies>
+<deployment identifier="macosx"/>
+<plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
+</dependencies>
+<objects>
+<customObject id="-2" userLabel="File's Owner" customClass="ORMFlowPlayController">
+<connections>
+<outlet property="window" destination="playWindow" id="playWindowOutlet"/>
+<outlet property="screenTitle" destination="screenTitle" id="screenTitleOutlet"/>
+<outlet property="values" destination="values" id="valuesOutlet"/>
+<outlet property="ways" destination="ways" id="waysOutlet"/>
+<outlet property="log" destination="log" id="logOutlet"/>
+<outlet property="takeButton" destination="take" id="takeOutlet"/>
+<outlet property="submitButton" destination="submit" id="submitOutlet"/>
+</connections>
+</customObject>
+<customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+<customObject id="-3" userLabel="Application" customClass="NSObject"/>
+<window title="Play" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" frameAutosaveName="ORMFlowPlayWindow" animationBehavior="default" identifier="playWindow" id="playWindow">
+<windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
+<rect key="contentRect" x="160" y="160" width="760" height="560"/>
+<rect key="screenRect" x="0" y="0" width="1920" height="1080"/>
+<value key="minSize" type="size" width="600" height="440"/>
+<view key="contentView" id="playContent">
+<rect key="frame" x="0" y="0" width="760" height="560"/>
+<autoresizingMask key="autoresizingMask"/>
+<subviews>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="screenTitle">
+<rect key="frame" x="12" y="528" width="736" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="No screen" id="screenTitleCell">
+<font key="font" metaFont="systemBold"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="valuesTitle">
+<rect key="frame" x="12" y="502" width="446" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="What it shows" id="valuesTitleCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="valuesScroll">
+<rect key="frame" x="12" y="214" width="446" height="280"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<clipView key="contentView" copiesOnScroll="NO" id="valuesClip">
+<rect key="frame" x="1" y="1" width="444" height="278"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="valuesHeader" identifier="values" id="values">
+<rect key="frame" x="0" y="0" width="444" height="255"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<size key="intercellSpacing" width="3" height="2"/>
+<color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+<tableColumns>
+<tableColumn identifier="name" width="150" minWidth="40" maxWidth="4000" editable="NO" id="valuesnameColumn">
+<tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Element or row">
+<color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+</tableHeaderCell>
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="valuesnameCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</tableColumn>
+<tableColumn identifier="value" width="280" minWidth="40" maxWidth="4000"  id="valuesvalueColumn">
+<tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Value">
+<color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+</tableHeaderCell>
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" alignment="left" title="Text Cell" id="valuesvalueCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</tableColumn>
+</tableColumns>
+<connections>
+<outlet property="dataSource" destination="-2" id="valuesDataSource"/>
+<outlet property="delegate" destination="-2" id="valuesDelegate"/>
+
+</connections>
+</tableView>
+</subviews>
+</clipView>
+<scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="valuesHScroller">
+<rect key="frame" x="1" y="264" width="444" height="15"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+</scroller>
+<scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="valuesVScroller">
+<rect key="frame" x="430" y="1" width="15" height="278"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+</scroller>
+<tableHeaderView key="headerView" wantsLayer="YES" id="valuesHeader">
+<rect key="frame" x="0" y="0" width="444" height="23"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+</tableHeaderView>
+</scrollView>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="waysTitle">
+<rect key="frame" x="470" y="502" width="278" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Ways on" id="waysTitleCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="waysScroll">
+<rect key="frame" x="470" y="250" width="278" height="244"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+<clipView key="contentView" copiesOnScroll="NO" id="waysClip">
+<rect key="frame" x="1" y="1" width="276" height="242"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="waysHeader" identifier="ways" id="ways">
+<rect key="frame" x="0" y="0" width="276" height="219"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<size key="intercellSpacing" width="3" height="2"/>
+<color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+<tableColumns>
+<tableColumn identifier="way" width="270" minWidth="40" maxWidth="4000" editable="NO" id="wayswayColumn">
+<tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Double-click, or Take">
+<color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+</tableHeaderCell>
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="wayswayCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</tableColumn>
+</tableColumns>
+<connections>
+<outlet property="dataSource" destination="-2" id="waysDataSource"/>
+<outlet property="delegate" destination="-2" id="waysDelegate"/>
+<action selector="takeWay:" target="-2" id="waysDouble"/>
+</connections>
+</tableView>
+</subviews>
+</clipView>
+<scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="waysHScroller">
+<rect key="frame" x="1" y="228" width="276" height="15"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+</scroller>
+<scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="waysVScroller">
+<rect key="frame" x="262" y="1" width="15" height="242"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+</scroller>
+<tableHeaderView key="headerView" wantsLayer="YES" id="waysHeader">
+<rect key="frame" x="0" y="0" width="276" height="23"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+</tableHeaderView>
+</scrollView>
+<button verticalHuggingPriority="750" identifier="take" id="take">
+<rect key="frame" x="464" y="207" width="145" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Take" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="takeCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="takeWay:" target="-2" id="takeAction"/></connections>
+</button>
+<button verticalHuggingPriority="750" identifier="submit" id="submit">
+<rect key="frame" x="609" y="207" width="145" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Submit" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="submitCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="submit:" target="-2" id="submitAction"/></connections>
+</button>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="logTitle">
+<rect key="frame" x="12" y="180" width="736" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="What happened" id="logTitleCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="logScroll">
+<rect key="frame" x="12" y="44" width="736" height="130"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMaxY="YES"/>
+<clipView key="contentView" copiesOnScroll="NO" id="logClip">
+<rect key="frame" x="1" y="1" width="734" height="128"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO"  identifier="log" id="log">
+<rect key="frame" x="0" y="0" width="734" height="105"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<size key="intercellSpacing" width="3" height="2"/>
+<color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+<tableColumns>
+<tableColumn identifier="step" width="728" minWidth="40" maxWidth="4000" editable="NO" id="logstepColumn">
+<tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Step">
+<color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+</tableHeaderCell>
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="logstepCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</tableColumn>
+</tableColumns>
+<connections>
+<outlet property="dataSource" destination="-2" id="logDataSource"/>
+<outlet property="delegate" destination="-2" id="logDelegate"/>
+
+</connections>
+</tableView>
+</subviews>
+</clipView>
+<scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="logHScroller">
+<rect key="frame" x="1" y="114" width="734" height="15"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+</scroller>
+<scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="logVScroller">
+<rect key="frame" x="720" y="1" width="15" height="128"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+</scroller>
+
+</scrollView>
+<button verticalHuggingPriority="750" identifier="restart" id="restart">
+<rect key="frame" x="6" y="3" width="132" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Start Over" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="restartCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="startOver:" target="-2" id="restartAction"/></connections>
+</button>
+</subviews>
+</view>
+</window>
+</objects>
+</document>

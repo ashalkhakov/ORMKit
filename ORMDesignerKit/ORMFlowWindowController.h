@@ -2,6 +2,8 @@
 #import <AppKit/AppKit.h>
 #import "ORMFlowCanvasView.h"
 
+@class ORMFlowPlayController;
+
 /* A flow's window (ORMFlowWindow.xib, docs/FORMS.md, Flows): the model's
  * forms and lists on the left, to place as screens (Add to Flow, or a
  * double-click); the flow on its canvas in the middle, what is wrong of it
@@ -37,6 +39,10 @@
 - (IBAction)chooseTransitionKind:(id)sender;
 - (IBAction)chooseTransitionTo:(id)sender;
 - (IBAction)delete:(id)sender;
+/* The flow played over the model's sample population, in a window of its
+ * own (ORMFlowPlayController.h): begun again at each Play. */
+- (IBAction)play:(id)sender;
+@property (nonatomic, readonly, strong) ORMFlowPlayController *player;
 
 /* Everything shown again, as the flow is now. */
 - (void)flowDidChange;

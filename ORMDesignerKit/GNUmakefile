@@ -33,6 +33,7 @@ ORMDesignerKit_HEADER_FILES = \
   ORMQueryController.h \
   ORMFlowDocument.h \
   ORMFlowWindowController.h \
+  ORMFlowPlayController.h \
   ORMFlowCanvasView.h \
   ORMPane.h \
   ORMInsertPalette.h \

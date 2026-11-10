@@ -6,6 +6,7 @@
 #import "ORMDocument.h"
 #import "ORMFlowDocument.h"
 #import "ORMFlowWindowController.h"
+#import "ORMFlowPlayController.h"
 #import "ORMQueryController.h"
 #import "ORMInsertPalette.h"
 #import "ORMIssuesView.h"
@@ -1717,6 +1718,13 @@
 	                 @"  + is of Vehicle = ?\n"
 	                 @"  + took ✎Litres\n";
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	/* Its sample: two cars, to play the flow over. */
+	NSString *reason = nil;
+	for (NSString *car in @[ @"Car 7", @"Car 8" ]) {
+		XCTAssertNotNil([editor.populationEditor addInstanceOf:[[editor.model objectTypeNamed:@"Vehicle"] identifier] named:car
+		                                               reason:&reason],
+		                @"%@", reason);
+	}
 	*folder = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
 	[[NSFileManager defaultManager] createDirectoryAtPath:*folder withIntermediateDirectories:YES attributes:nil error:NULL];
 	NSURL *modelURL = [NSURL fileURLWithPath:[*folder stringByAppendingPathComponent:@"Fleet.orm"]];
@@ -1815,6 +1823,70 @@
 	XCTAssertTrue([again readFromURL:url ofType:ORMFlowDocumentType error:&error], @"%@", error);
 	XCTAssertEqualObjects([again.editor.flow.screens valueForKey:@"identifier"], (@[ @"Vehicles", @"RecordFillUp" ]));
 	XCTAssertEqualObjects([again.editor problems], @[], @"its model read from beside it");
+	[document close];
+	[[NSFileManager defaultManager] removeItemAtPath:folder error:NULL];
+}
+
+/* Played from its window: Play's window, from its XIB, connected; the cars
+ * listed over the sample, the second chosen, its fill-up's form opened
+ * given it; litres typed and saved, or refused in the rule's words; then
+ * back to the cars; begun again. */
+- (void)testAFlowIsPlayedOverTheSample
+{
+	NSString *folder = nil;
+	ORMFlowDocument *document = [self newFlowInFolder:&folder];
+	[document makeWindowControllers];
+	ORMFlowWindowController *window = [[document windowControllers] firstObject];
+	XCTAssertNotNil([window window]);
+	ORMFlowEditor *editor = document.editor;
+	ORMFlowScreen *vehicles = [editor addScreenForQuery:[[editor lists] firstObject] at:NSMakePoint(0, 0)];
+	ORMFlowScreen *form = [editor addScreenForQuery:[[editor forms] firstObject] at:NSMakePoint(480, 0)];
+	XCTAssertNotNil([editor addTransitionFrom:vehicles.identifier to:form.identifier]);
+	XCTAssertNotNil([editor addReturnFrom:form.identifier on:ORMFlowOnSubmitDone kind:ORMFlowKindBack]);
+	[editor addEntryNamed:@"Start" toScreen:vehicles.identifier];
+	XCTAssertEqualObjects([editor problems], @[]);
+
+	[window play:nil];
+	ORMFlowPlayController *player = window.player;
+	XCTAssertNotNil([player window], @"from its XIB");
+	for (NSString *outlet in @[ @"screenTitle", @"values", @"ways", @"log", @"takeButton", @"submitButton" ]) {
+		XCTAssertNotNil([player valueForKey:outlet], @"%@ connected", outlet);
+	}
+	XCTAssertEqualObjects([player.screenTitle stringValue], @"Vehicles (list)");
+	XCTAssertEqual([player.values numberOfRows], 2, @"the sample's cars");
+	XCTAssertFalse([player.submitButton isEnabled], @"a list is not submitted");
+	XCTAssertEqual([player.ways numberOfRows], 1);
+	XCTAssertEqualObjects([player tableView:player.ways objectValueForTableColumn:nil row:0], @"RowChosen → RecordFillUp");
+
+	[player.values selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+	[player takeWay:nil];
+	XCTAssertEqualObjects([player.screenTitle stringValue], @"RecordFillUp (form)", @"%@", player.walk.log);
+	XCTAssertTrue([player.submitButton isEnabled]);
+	XCTAssertEqualObjects([player.walk.session valueForElement:@"vehicle"], [player.walk.log count] > 0 ? [player.walk.session.given objectForKey:@"vehicle"] : nil);
+	XCTAssertTrue([[[player.walk.log lastObject] description] rangeOfString:@"given vehicle = Car "].location != NSNotFound, @"%@", player.walk.log);
+	NSInteger litres = -1;
+	for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+		if ([[player.walk.session.form.elements objectAtIndex:(NSUInteger)row].name isEqualToString:@"litres"]) {
+			litres = row;
+		}
+	}
+	XCTAssertTrue(litres >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
+	NSTableColumn *value = [player.values tableColumnWithIdentifier:@"value"];
+	XCTAssertTrue([player tableView:player.values shouldEditTableColumn:value row:litres], @"entered: typed into");
+	[player tableView:player.values setObjectValue:@"40" forTableColumn:value row:litres];
+	XCTAssertEqualObjects([player.walk.session valueForElement:[player.walk.session.form.elements objectAtIndex:(NSUInteger)litres].name], @"40");
+	[player submit:nil];
+	NSString *said = [player.walk.log componentsJoinedByString:@"\n"];
+	XCTAssertTrue([said rangeOfString:@"RecordFillUp saved: "].location != NSNotFound || [said rangeOfString:@"RecordFillUp refused: "].location != NSNotFound,
+	              @"%@", said);
+	XCTAssertEqual([player.log numberOfRows], (NSInteger)[player.walk.log count], @"the log shown");
+	if ([said rangeOfString:@"RecordFillUp saved: "].location != NSNotFound) {
+		XCTAssertEqualObjects([player.screenTitle stringValue], @"Vehicles (list)", @"back: %@", said);
+	}
+	[player startOver:nil];
+	XCTAssertEqualObjects([player.screenTitle stringValue], @"Vehicles (list)");
+	XCTAssertEqual([player.walk.log count], 1u, @"begun again");
+	[[player window] close];
 	[document close];
 	[[NSFileManager defaultManager] removeItemAtPath:folder error:NULL];
 }

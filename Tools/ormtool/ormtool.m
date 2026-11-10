@@ -37,13 +37,20 @@
  *                                            what is wrong of it against the model, and each
  *                                            next form's inputs it leaves to the app; 1 when
  *                                            something is wrong
- *   ormtool xforms model.orm dir/ [form name] [mapping name]
+ *   ormtool flow model.orm file.flow walk [entry name]
+ *                                            the flow walked through over the model's sample
+ *                                            population (ORMFlowWalk): each list's first row
+ *                                            chosen, each form submitted as it opens, each way
+ *                                            taken once; what happened, a line a step
+ *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]
  *                                            each form (or the named one) as an XForms document,
  *                                            <Form>.xhtml in dir/ (docs/FORMS.md): generated, never
  *                                            edited; beside it <Form>.ormform, what an app runs it
  *                                            with (ORMRuntime's ORMForm); what each leaves out, what
  *                                            it leaves to where it is submitted, and the plans its
- *                                            reads stand for printed
+ *                                            reads stand for printed; with a flow, each of its
+ *                                            screens' forms with the flow's ways on from it in its
+ *                                            actions (xf:load of the next form, given its values)
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -83,8 +90,8 @@ ORMUsage(void)
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
-	      "       ormtool flow model.orm file.flow\n"
-	      "       ormtool xforms model.orm dir/ [form name] [mapping name]\n"
+	      "       ormtool flow model.orm file.flow [walk [entry name]]\n"
+	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
 	      "       ormtool forml model.orm [out.forml]\n"
 	      "       ormtool apply model.orm changes.forml [out.orm]\n"
@@ -522,6 +529,18 @@ main(int argc, const char *argv[])
 			}
 			return 0;
 		}
+		if ([command isEqualToString:@"flow"] && [args count] >= 4 && [[args objectAtIndex:3] isEqualToString:@"walk"]) {
+			NSError *error = nil;
+			ORMFlow *flow = [ORMFlow flowWithContentsOfURL:[NSURL fileURLWithPath:[args objectAtIndex:2]] error:&error];
+			ORMFlowWalk *walk = flow != nil ? [[ORMFlowWalk alloc] initWithFlow:flow model:editor.model mapping:nil] : nil;
+			NSString *text = [walk walkFrom:[args count] > 4 ? [args objectAtIndex:4] : nil error:&error];
+			if (text == nil) {
+				fprintf(stderr, "ormtool: %s\n", [[error localizedDescription] UTF8String]);
+				return 1;
+			}
+			ORMPrint(text);
+			return 0;
+		}
 		if ([command isEqualToString:@"flow"] && [args count] == 3) {
 			NSError *error = nil;
 			ORMFlow *flow = [ORMFlow flowWithContentsOfURL:[NSURL fileURLWithPath:[args objectAtIndex:2]] error:&error];
@@ -556,6 +575,22 @@ main(int argc, const char *argv[])
 			return [problems count] > 0 ? 1 : 0;
 		}
 		if ([command isEqualToString:@"xforms"] && [args count] >= 3) {
+			/* A flow's screens: their forms' ways on, in their actions. */
+			ORMFlow *flow = nil;
+			NSUInteger flowAt = [args indexOfObject:@"--flow"];
+			if (flowAt != NSNotFound) {
+				NSError *error = nil;
+				flow = flowAt + 1 < [args count] ? [ORMFlow flowWithContentsOfURL:[NSURL fileURLWithPath:[args objectAtIndex:flowAt + 1]]
+				                                                            error:&error]
+				                                 : nil;
+				if (flow == nil) {
+					fprintf(stderr, "ormtool: --flow: %s\n", [[error localizedDescription] ?: @"names no file" UTF8String]);
+					return 1;
+				}
+				NSMutableArray *rest = [args mutableCopy];
+				[rest removeObjectsInRange:NSMakeRange(flowAt, 2)];
+				args = rest;
+			}
 			ORMCoreDataMapping *mapping = nil;
 			for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
 				if ([args count] < 5 || [each.name isEqualToString:[args objectAtIndex:4]]) {
@@ -579,6 +614,12 @@ main(int argc, const char *argv[])
 					fprintf(stderr, "ormtool: %s: %s\n", [query.name UTF8String], [reason UTF8String]);
 					status = 1;
 					continue;
+				}
+				for (ORMFlowScreen *screen in flow.screens) {
+					if ([screen.formId isEqualToString:query.identifier]) {
+						[form setFlow:flow screen:screen];
+						break;
+					}
 				}
 				NSString *path = [directory stringByAppendingPathComponent:[query.name stringByAppendingPathExtension:@"xhtml"]];
 				NSData *data = [[form document] XMLDataWithOptions:NSXMLNodePrettyPrint];
