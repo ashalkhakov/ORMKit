@@ -58,9 +58,10 @@ static NSHashTable<ORM2EditorViewController *> *ORM2Editors;
 
 + (ORM2EditorViewController *)editorShowingURL:(NSURL *)url
 {
-	NSString *path = [[url URLByStandardizingPath] path];
+	/* Symbolic links resolved: /tmp is /private/tmp. */
+	NSString *path = [[url URLByResolvingSymlinksInPath] path];
 	for (ORM2EditorViewController *editor in [ORM2Editors allObjects]) {
-		if (path != nil && [[[editor.document.fileURL URLByStandardizingPath] path] isEqualToString:path]) {
+		if (path != nil && [[[editor.document.fileURL URLByResolvingSymlinksInPath] path] isEqualToString:path]) {
 			return editor;
 		}
 	}

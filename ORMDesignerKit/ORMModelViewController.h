@@ -44,6 +44,9 @@
 /* An element shown, on a page that shows it, or a query's in the Queries
  * window: what choosing it in a navigator does. */
 - (void)showElementOrQuery:(NSString *)identifier;
+/* The Conceptual Queries window shown, the query (a form, a list) chosen
+ * in it: a flow's screen opened in the model. */
+- (void)showQuery:(NSString *)queryId;
 
 /* The Model, Diagram, Core Data and Query menus, from ORMModelMenus.xib,
  * new each time: a menu bar's (ORMDesigner's, after Edit) or a host's. Their

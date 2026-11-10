@@ -178,10 +178,28 @@ static UDDiagnosticSource const ORM2FlowIssueSource = @"ormflow";
 		NSBeep();
 		return;
 	}
-	NSURL *modelURL = [NSURL fileURLWithPath:modelPath relativeToURL:beside];
+	NSURL *modelURL = [[NSURL fileURLWithPath:modelPath relativeToURL:beside] absoluteURL];
 	[_workbench showURL:modelURL];
+	[self showQuery:queryId ofModelAt:modelURL tries:20];
+}
+
+/* The query shown in the model's tab once there is one: UDCode may make it
+ * a moment after it is asked to show the file. */
+- (void)showQuery:(NSString *)queryId ofModelAt:(NSURL *)modelURL tries:(NSInteger)tries
+{
 	ORM2EditorViewController *editor = [ORM2EditorViewController editorShowingURL:modelURL];
-	[editor.modelController showElementOrQuery:queryId];
+	if (editor.modelController != nil) {
+		[editor.modelController showQuery:queryId];
+		return;
+	}
+	if (tries <= 0) {
+		NSBeep();
+		return;
+	}
+	__weak ORM2FlowEditorViewController *weakSelf = self;
+	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+		[weakSelf showQuery:queryId ofModelAt:modelURL tries:tries - 1];
+	});
 }
 
 #pragma mark The window's panes (UDEditorPanes)

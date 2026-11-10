@@ -267,7 +267,7 @@ ORMFlowKinds(void)
 			    }
 			    for (NSWindowController *controller in [document windowControllers]) {
 				    if ([controller isKindOfClass:[ORMWindowController class]]) {
-					    [[(ORMWindowController *)controller modelController] showElementOrQuery:queryId];
+					    [[(ORMWindowController *)controller modelController] showQuery:queryId];
 				    }
 			    }
 		    }];

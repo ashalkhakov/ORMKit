@@ -16,6 +16,24 @@
 @interface ORM2Tests : XCTestCase
 @end
 
+/* A workbench that shows a model's URL in a tab of its own, as UDCode
+ * does: a flow's screen opened in the model. */
+@interface ORM2ShowingWorkbench : NSObject
+@property (nonatomic, strong) ORM2EditorViewController *shown;
+@end
+
+@implementation ORM2ShowingWorkbench
+
+- (void)showURL:(NSURL *)url
+{
+	NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:NULL];
+	UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:text fileURL:url languageMode:nil];
+	self.shown = [[ORM2EditorViewController alloc] initWithDocument:document workbench:nil];
+	[self.shown view];
+}
+
+@end
+
 @implementation ORM2Tests
 {
 	UDCodeDocument *_document;
@@ -283,6 +301,19 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	XCTAssertFalse([designer.inspector isDescendantOf:[tab view]]);
 	XCTAssertNotNil([tab imageForInspectorViewController:[inspectors firstObject]]);
 	XCTAssertNotNil(designer.openQueryHandler, @"a screen's form opens in the model's tab");
+	/* Opened: the model's tab, its Conceptual Queries window, the form chosen. */
+	ORM2ShowingWorkbench *workbench = [[ORM2ShowingWorkbench alloc] init];
+	ORM2FlowEditorViewController *opening = [[ORM2FlowEditorViewController alloc] initWithDocument:document
+	                                                                                      workbench:(id<UDWorkbench>)workbench];
+	[opening view];
+	NSString *formId = [opening.flowController.editor.flow screenWithId:@"RecordFillUp"].formId;
+	[opening.flowController.canvas selectScreen:@"RecordFillUp"];
+	[opening.flowController openScreen:nil];
+	XCTAssertNotNil(workbench.shown, @"the model shown");
+	id queries = [workbench.shown.modelController valueForKey:@"queryController"];
+	XCTAssertTrue([[queries window] isVisible], @"its Conceptual Queries window");
+	XCTAssertEqualObjects([queries valueForKey:@"queryId"], formId, @"the form chosen in it");
+	[[queries window] close];
 	XCTAssertFalse([[designer window] isVisible], @"its own window never shown");
 	XCTAssertEqual([designer.editor.flow.screens count], 5u);
 	XCTAssertEqual([designer.palette numberOfRows], 5, @"the model's four forms and its list");
