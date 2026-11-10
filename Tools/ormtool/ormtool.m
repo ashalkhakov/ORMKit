@@ -32,6 +32,11 @@
  *                                            ODataKit makes of the mapping, the plan, how the
  *                                            interpreter runs it against a Core Data store, and
  *                                            the rows it finds in the sample population
+ *   ormtool flow model.orm file.flow         a flow (docs/FORMS.md, Flows) as a reader reads
+ *                                            it, its screens and transitions a line each; then
+ *                                            what is wrong of it against the model, and each
+ *                                            next form's inputs it leaves to the app; 1 when
+ *                                            something is wrong
  *   ormtool xforms model.orm dir/ [form name] [mapping name]
  *                                            each form (or the named one) as an XForms document,
  *                                            <Form>.xhtml in dir/ (docs/FORMS.md): generated, never
@@ -78,6 +83,7 @@ ORMUsage(void)
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
+	      "       ormtool flow model.orm file.flow\n"
 	      "       ormtool xforms model.orm dir/ [form name] [mapping name]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
 	      "       ormtool forml model.orm [out.forml]\n"
@@ -515,6 +521,39 @@ main(int argc, const char *argv[])
 				return 1;
 			}
 			return 0;
+		}
+		if ([command isEqualToString:@"flow"] && [args count] == 3) {
+			NSError *error = nil;
+			ORMFlow *flow = [ORMFlow flowWithContentsOfURL:[NSURL fileURLWithPath:[args objectAtIndex:2]] error:&error];
+			if (flow == nil) {
+				fprintf(stderr, "ormtool: %s\n", [[error localizedDescription] UTF8String]);
+				return 1;
+			}
+			ORMPrint([flow textInModel:editor.model]);
+			for (ORMFlowTransition *transition in flow.transitions) {
+				NSArray *left = [flow inputsLeftBy:transition inModel:editor.model];
+				ORMFlowScreen *to = [flow screenWithId:transition.toScreen];
+				ORMQuery *form = to.formId != nil ? [ORMQuery queryWithId:to.formId inModel:editor.model] : nil;
+				NSMutableArray *named = [NSMutableArray array];
+				for (NSString *nodeId in left) {
+					NSString *name = nodeId;
+					for (ORMQueryNode *node in [form nodes]) {
+						if ([node.identifier isEqualToString:nodeId] && node.objectType.name != nil) {
+							name = [NSString stringWithFormat:@"%@ (%@)", node.objectType.name, nodeId];
+						}
+					}
+					[named addObject:name];
+				}
+				if ([named count] > 0) {
+					ORMPrint([NSString stringWithFormat:@"left to the app, from %@ on %@: %@\n", transition.fromScreen, transition.on,
+					                                    [named componentsJoinedByString:@", "]]);
+				}
+			}
+			NSArray *problems = [flow problemsInModel:editor.model];
+			for (NSString *problem in problems) {
+				fprintf(stderr, "%s: %s\n", [[args objectAtIndex:2] UTF8String], [problem UTF8String]);
+			}
+			return [problems count] > 0 ? 1 : 0;
 		}
 		if ([command isEqualToString:@"xforms"] && [args count] >= 3) {
 			ORMCoreDataMapping *mapping = nil;

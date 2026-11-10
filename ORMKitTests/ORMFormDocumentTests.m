@@ -642,6 +642,116 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertEqualObjects([[form elementErrorsOf:given] allKeys], @[ @"" ], @"the vehicle is given: of the form");
 }
 
+#pragma mark Flows
+
+/* The fill-up model, with a list of its vehicles: a flow's screens. */
+- (ORMEditor *)fillUpsWithVehicles
+{
+	ORMEditor *editor = [self fillUps];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:@"Query Vehicles:\n✓Vehicle\n" failures:&failures],
+	              @"%@", failures);
+	return editor;
+}
+
+- (ORMQuery *)query:(NSString *)name in:(ORMModel *)model
+{
+	for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
+		if ([query.name isEqualToString:name]) {
+			return query;
+		}
+	}
+	XCTFail(@"no %@", name);
+	return nil;
+}
+
+/* The form's given node of the type. */
+- (ORMQueryNode *)givenNodeOf:(ORMQuery *)form type:(NSString *)typeName
+{
+	for (ORMQueryNode *node in [form nodes]) {
+		if (node.isGiven && [node.objectType.name isEqualToString:typeName]) {
+			return node;
+		}
+	}
+	XCTFail(@"no given %@", typeName);
+	return nil;
+}
+
+- (NSString *)flowXMLFrom:(ORMQuery *)vehicles to:(ORMQuery *)form giving:(NSString *)nodeId
+{
+	return [NSString stringWithFormat:
+	                     @"<flow:Flow xmlns:flow=\"http://schemas.ormkit.org/2026-10/Flows\" Name=\"Records\" Model=\"Logbook.orm\">"
+	                     @"<flow:Entry Name=\"Start\" Screen=\"s1\"/>"
+	                     @"<flow:Screen id=\"s1\" Query=\"%@\" Name=\"Vehicles\" X=\"0\" Y=\"0\" Width=\"390\" Height=\"844\"/>"
+	                     @"<flow:Screen id=\"s2\" Form=\"%@\" Name=\"RecordFillUp\" X=\"480\" Y=\"0\" Width=\"390\" Height=\"844\"/>"
+	                     @"<flow:Transition From=\"s1\" On=\"RowChosen\" To=\"s2\"><flow:Give Node=\"%@\" From=\"row\"/></flow:Transition>"
+	                     @"<flow:Transition From=\"s2\" On=\"SubmitDone\" Kind=\"Back\"/>"
+	                     @"<flow:Transition From=\"s2\" On=\"Cancel\" Kind=\"Back\"/>"
+	                     @"</flow:Flow>",
+	                     vehicles.identifier, form.identifier, nodeId];
+}
+
+/* A flow read, checked against the model, said, and written back as read. */
+- (void)testAFlowOfTheModelsFormsHolds
+{
+	ORMEditor *editor = [self fillUpsWithVehicles];
+	ORMQuery *vehicles = [self query:@"Vehicles" in:editor.model], *form = [self formIn:editor.model];
+	ORMQueryNode *vehicle = [self givenNodeOf:form type:@"Vehicle"];
+	NSError *error = nil;
+	ORMFlow *flow = [ORMFlow flowWithData:[[self flowXMLFrom:vehicles to:form giving:vehicle.identifier] dataUsingEncoding:NSUTF8StringEncoding]
+	                                error:&error];
+	XCTAssertNotNil(flow, @"%@", error);
+	XCTAssertEqualObjects(flow.name, @"Records");
+	XCTAssertEqualObjects(flow.modelPath, @"Logbook.orm");
+	XCTAssertEqual([flow.screens count], 2u);
+	XCTAssertEqualObjects([flow screenWithId:@"s2"].formId, form.identifier);
+	XCTAssertEqual([flow screenWithId:@"s1"].width, 390.0);
+	XCTAssertEqualObjects([flow problemsInModel:editor.model], @[]);
+	XCTAssertEqualObjects([flow inputsLeftBy:[flow.transitions firstObject] inModel:editor.model], @[], @"the vehicle given");
+	NSString *text = [flow textInModel:editor.model];
+	XCTAssertTrue([text rangeOfString:@"▶ Start: Vehicles\n"].location != NSNotFound, @"%@", text);
+	XCTAssertTrue([text rangeOfString:@"Vehicles (list) —RowChosen→ RecordFillUp (form): Vehicle = row\n"].location != NSNotFound, @"%@", text);
+	XCTAssertTrue([text rangeOfString:@"RecordFillUp (form) —SubmitDone→ back\n"].location != NSNotFound, @"%@", text);
+	ORMFlow *again = [ORMFlow flowWithData:[flow XMLData] error:&error];
+	XCTAssertEqualObjects([again XMLData], [flow XMLData], @"written back as read");
+	XCTAssertEqualObjects([again textInModel:editor.model], text);
+}
+
+/* What a flow says wrong of the model, each said. */
+- (void)testAFlowSaysWhatIsWrongOfIt
+{
+	ORMEditor *editor = [self fillUpsWithVehicles];
+	ORMQuery *vehicles = [self query:@"Vehicles" in:editor.model], *form = [self formIn:editor.model];
+	NSError *error = nil;
+	/* A value given to what is no input of the form. */
+	ORMFlow *flow = [ORMFlow flowWithData:[[self flowXMLFrom:vehicles to:form giving:@"_nowhere"] dataUsingEncoding:NSUTF8StringEncoding] error:&error];
+	NSArray *problems = [flow problemsInModel:editor.model];
+	XCTAssertEqual([problems count], 1u, @"%@", problems);
+	XCTAssertTrue([[problems firstObject] rangeOfString:@"gives _nowhere, which is not an input of RecordFillUp"].location != NSNotFound, @"%@", problems);
+	XCTAssertEqual([[flow inputsLeftBy:[flow.transitions firstObject] inModel:editor.model] count], 1u, @"the vehicle left to the app");
+	/* A list shown as a form, a form gone, a row chosen in a form, no entry. */
+	ORMFlowScreen *asForm = [[ORMFlowScreen alloc] init];
+	asForm.identifier = @"s3";
+	asForm.formId = vehicles.identifier;
+	ORMFlowScreen *gone = [[ORMFlowScreen alloc] init];
+	gone.identifier = @"s4";
+	gone.formId = @"_gone";
+	ORMFlowTransition *row = [[ORMFlowTransition alloc] init];
+	row.fromScreen = @"s2";
+	row.on = ORMFlowOnRowChosen;
+	row.toScreen = @"s1";
+	row.kind = ORMFlowKindNavigate;
+	flow.screens = [flow.screens arrayByAddingObjectsFromArray:@[ asForm, gone ]];
+	flow.transitions = [flow.transitions arrayByAddingObject:row];
+	flow.entries = @[];
+	problems = [flow problemsInModel:editor.model];
+	NSString *all = [problems componentsJoinedByString:@"\n"];
+	for (NSString *said in @[ @"shows Vehicles as a form, which is not one", @"shows _gone, which the model no longer has",
+	                          @"RecordFillUp on RowChosen: a form has no rows to choose", @"The flow has no entry" ]) {
+		XCTAssertTrue([all rangeOfString:said].location != NSNotFound, @"%@ in %@", said, all);
+	}
+}
+
 /* A session over the store, as a view of the app's own runs the form:
  * opened with its inputs, its values set one by one, the driver's choices
  * those of the car given, refused at the element, saved, and read again. */

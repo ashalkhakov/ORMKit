@@ -60,6 +60,7 @@
 #endif
 #import "ORMQueryPlanner.h"
 #import "ORMFormDocument.h"
+#import "ORMFlow.h"
 #import "ORMRuleChecker.h"
 #import "ORMIssueFinder.h"
 #import "ORMDeriver.h"

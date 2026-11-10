@@ -603,7 +603,12 @@ never edited, as the validation code is. Customizations are documents of their o
 10. **Flows:** `.flow` files read and written; screens, transitions,
     entries; generated into the forms' actions; walked through over the
     sample population; a modal form returning what it made. Their canvas:
-    a document window of its own, screens drawn from their forms, Play.
+    a document window of its own, screens drawn from their forms, Play. *Begun:* ORMKit's `ORMFlow` reads and writes `.flow` files
+    (screens a form or a list by the query's id, transitions on an action
+    giving the next form's inputs, entries) and checks them against the
+    model; `ormtool flow model.orm file.flow` lists a flow and what is
+    wrong of it, and the inputs each transition leaves to the app.
+    Logbook's `Model/Records.flow` is checked by its build.
 11. **Figma:** import through its REST API (frames, interactions, starting
     points, layers named as controls); export through a plugin of our own,
     ids kept in plugin data.
