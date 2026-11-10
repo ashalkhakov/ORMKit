@@ -157,7 +157,9 @@
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)column row:(NSInteger)row
 {
 	if (tableView != self.values) {
-		return nil;
+		NSTableCellView *line = [tableView makeViewWithIdentifier:@"line" owner:self];
+		[line.textField setStringValue:[self tableView:tableView objectValueForTableColumn:column row:row] ?: @""];
+		return line;
 	}
 	BOOL isValue = [[column identifier] isEqualToString:@"value"];
 	NSString *editor = isValue ? [self editorOfRow:row] : @"name";
@@ -238,7 +240,7 @@
 		return @"shown";
 	}
 	NSString *type = element.schemaType ?: @"";
-	if ([element.kind isEqualToString:@"reference"]) {
+	if ([element.kind isEqualToString:@"reference"] || element.items != nil) {
 		return @"choice";
 	}
 	if ([type hasSuffix:@":boolean"]) {

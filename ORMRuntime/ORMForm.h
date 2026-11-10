@@ -66,6 +66,9 @@ extern NSString * const ORMFormErrorDomain;
 /* What the model calls it ("filled the tank", "driver"); its name in a
  * table from before labels. */
 @property (nonatomic, readonly, copy) NSString *label;
+/* The values it may have, where the model lists them (a fuel, a
+ * currency): its choices, whatever the store holds; nil for others. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *items;
 @end
 
 /* What to send the service to save the form: the method, the path under

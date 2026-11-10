@@ -588,7 +588,13 @@ ORMFlowWalkName(ORMFlowScreen *screen)
 /* Each reference left empty given its first choice, as a user picks one. */
 - (void)chooseFirstChoicesIn:(ORMFormSession *)session
 {
-	for (NSString *name in [session.form choiceNames]) {
+	NSMutableArray *names = [[session.form choiceNames] mutableCopy];
+	for (ORMFormElement *element in session.form.elements) {
+		if (element.items != nil && [element.role isEqualToString:@"entered"] && ![names containsObject:element.name]) {
+			[names addObject:element.name];
+		}
+	}
+	for (NSString *name in names) {
 		if ([[session valueForElement:name] length] > 0 || [session.given objectForKey:name] != nil) {
 			continue;
 		}

@@ -454,7 +454,9 @@ in and out of it.
 - **What is entered and shown:** each element's `role` ("key", "given",
   "entered", "shown", "calculated", "hidden") and `label`, what the model
   calls it (a unary's reading, a role's name).
-- **What it may offer:** each reference's choices, and what they depend on.
+- **What it may offer:** each reference's choices, and what they depend on;
+  an element's `items`, where the model lists its values (a fuel, a
+  currency: the value constraint the XForms document's items come from).
 - **What a save writes, and its result:** the object saved, its key.
 - **The rules:** the model's, checked as the form is filled in where they
   can be and always where it is submitted.

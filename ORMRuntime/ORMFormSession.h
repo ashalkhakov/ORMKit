@@ -57,7 +57,9 @@
 - (void)setValues:(NSDictionary<NSString *, id> *)values;
 
 /* A reference's choices for the values as they are (the vehicle's
- * drivers): their keys, in order. nil, and why, where they cannot be read. */
+ * drivers): their keys, in order; an element's the model lists the values
+ * of (a fuel, a currency), the list. nil, and why, where they cannot be
+ * read. */
 - (NSArray<NSString *> *)choicesNamed:(NSString *)name error:(NSError **)error;
 
 /* A repeat's rows (an order's lines), each its elements' text as the

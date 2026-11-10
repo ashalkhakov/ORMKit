@@ -1423,6 +1423,14 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		if (node.isGiven) {
 			[element setObject:@YES forKey:@"given"];
 		}
+		/* The model's list of its values (fuels, currencies), as the
+		 * XForms document's items: what a view offers to choose from. */
+		ORMValueConstraint *values = field.role.valueConstraint ?: [field.role.player valueType].valueConstraint;
+		NSArray *items = field.kind == ORMFormFieldValue ? ORMItemsOf(values)
+		               : field.kind == ORMFormFieldReference ? ORMItemsOf(field.referredType.valueConstraint) : nil;
+		if (items != nil) {
+			[element setObject:items forKey:@"items"];
+		}
 		[element setObject:[self labelOfField:field] forKey:@"label"];
 		[elements addObject:element];
 	}

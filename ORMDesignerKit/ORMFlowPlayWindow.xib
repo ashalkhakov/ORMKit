@@ -236,7 +236,7 @@
 </scrollView>
 <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="waysTitle">
 <rect key="frame" x="470" y="502" width="278" height="17"/>
-<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
 <textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Ways on" id="waysTitleCell">
 <font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
 </textFieldCell>
@@ -248,7 +248,7 @@
 <rect key="frame" x="1" y="1" width="276" height="242"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <subviews>
-<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="waysHeader" identifier="ways" id="ways">
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="waysHeader" rowHeight="19" rowSizeStyle="custom" viewBased="YES" identifier="ways" id="ways">
 <rect key="frame" x="0" y="0" width="276" height="219"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <size key="intercellSpacing" width="3" height="2"/>
@@ -261,6 +261,22 @@
 <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="wayswayCell">
 <font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
 </textFieldCell>
+<prototypeCellViews>
+<tableCellView identifier="line" id="waysLineView">
+<rect key="frame" x="1" y="1" width="270" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<textField verticalHuggingPriority="750" id="waysLineField">
+<rect key="frame" x="2" y="0" width="266" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" id="waysLineFieldCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+</subviews>
+<connections><outlet property="textField" destination="waysLineField" id="waysLineViewField"/></connections>
+</tableCellView>
+</prototypeCellViews>
 </tableColumn>
 </tableColumns>
 <connections>
@@ -286,7 +302,7 @@
 </scrollView>
 <button verticalHuggingPriority="750" identifier="take" id="take">
 <rect key="frame" x="464" y="207" width="145" height="32"/>
-<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMaxY="YES"/>
 <buttonCell key="cell" type="push" title="Take" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="takeCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
 </buttonCell>
@@ -294,7 +310,7 @@
 </button>
 <button verticalHuggingPriority="750" identifier="submit" id="submit">
 <rect key="frame" x="609" y="207" width="145" height="32"/>
-<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMaxY="YES"/>
 <buttonCell key="cell" type="push" title="Submit" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="submitCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
 </buttonCell>
@@ -302,7 +318,7 @@
 </button>
 <textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="logTitle">
 <rect key="frame" x="12" y="180" width="736" height="17"/>
-<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMaxY="YES"/>
 <textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="What happened" id="logTitleCell">
 <font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
 </textFieldCell>
@@ -314,7 +330,7 @@
 <rect key="frame" x="1" y="1" width="734" height="128"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <subviews>
-<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO"  identifier="log" id="log">
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO"  rowHeight="19" rowSizeStyle="custom" viewBased="YES" identifier="log" id="log">
 <rect key="frame" x="0" y="0" width="734" height="105"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <size key="intercellSpacing" width="3" height="2"/>
@@ -327,6 +343,22 @@
 <textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="logstepCell">
 <font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
 </textFieldCell>
+<prototypeCellViews>
+<tableCellView identifier="line" id="logLineView">
+<rect key="frame" x="1" y="1" width="728" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<textField verticalHuggingPriority="750" id="logLineField">
+<rect key="frame" x="2" y="0" width="724" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" id="logLineFieldCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+</subviews>
+<connections><outlet property="textField" destination="logLineField" id="logLineViewField"/></connections>
+</tableCellView>
+</prototypeCellViews>
 </tableColumn>
 </tableColumns>
 <connections>
@@ -349,7 +381,7 @@
 </scrollView>
 <button verticalHuggingPriority="750" identifier="restart" id="restart">
 <rect key="frame" x="6" y="3" width="132" height="32"/>
-<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
 <buttonCell key="cell" type="push" title="Start Over" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="restartCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
 </buttonCell>

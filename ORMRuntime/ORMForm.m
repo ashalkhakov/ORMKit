@@ -26,6 +26,7 @@ ORMFormError(NSString *text)
 @property (nonatomic, readwrite) BOOL written;
 @property (nonatomic, readwrite, copy) NSString *role;
 @property (nonatomic, readwrite) BOOL given;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *items;
 @property (nonatomic, readwrite, copy) NSString *label;
 @end
 
@@ -221,6 +222,7 @@ static NSString *ORMFormMessage(NSError *error);
 		element.written = [[item objectForKey:@"written"] boolValue];
 		element.given = [[item objectForKey:@"given"] boolValue];
 		element.label = [item objectForKey:@"label"] ?: element.name;
+		element.items = [[item objectForKey:@"items"] isKindOfClass:[NSArray class]] ? [item objectForKey:@"items"] : nil;
 		/* A table from before roles: what it writes entered, the rest shown. */
 		element.role = [item objectForKey:@"role"]
 		    ?: ([element.name isEqualToString:_keyElement ?: @""] ? @"key"

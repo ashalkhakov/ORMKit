@@ -1902,6 +1902,17 @@
 	XCTAssertFalse([player.submitButton isEnabled], @"a list is not submitted");
 	XCTAssertEqual([player.ways numberOfRows], 1);
 	XCTAssertEqualObjects([player tableView:player.ways objectValueForTableColumn:nil row:0], @"RowChosen → RecordFillUp");
+	NSTableCellView *way = (NSTableCellView *)[player tableView:player.ways viewForTableColumn:[[player.ways tableColumns] firstObject] row:0];
+	XCTAssertEqualObjects([way.textField stringValue], @"RowChosen → RecordFillUp", @"shown in its line");
+	/* Resized, the buttons keep to their corners and the log to the bottom. */
+	NSView *content = [[player window] contentView];
+	NSRect take = [player.takeButton frame];
+	CGFloat takeRight = NSWidth([content bounds]) - NSMaxX(take), logBottom = NSMinY([[player.log enclosingScrollView] frame]);
+	NSSize grown = NSMakeSize(NSWidth([content bounds]) + 200, NSHeight([content bounds]) + 150);
+	[[player window] setContentSize:grown];
+	XCTAssertEqualWithAccuracy(NSWidth([content bounds]) - NSMaxX([player.takeButton frame]), takeRight, 0.5, @"Take kept to the right");
+	XCTAssertEqualWithAccuracy(NSMinY([player.takeButton frame]), NSMinY(take), 0.5, @"Take kept above the log");
+	XCTAssertEqualWithAccuracy(NSMinY([[player.log enclosingScrollView] frame]), logBottom, 0.5, @"the log kept at the bottom");
 
 	[player.values selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
 	[player takeWay:nil];

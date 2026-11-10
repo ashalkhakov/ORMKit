@@ -191,6 +191,9 @@ ORMFormSessionError(NSString *text)
 
 - (NSArray<NSString *> *)choicesNamed:(NSString *)name error:(NSError **)error
 {
+	if ([_form elementNamed:name].items != nil) {
+		return [_form elementNamed:name].items;
+	}
 	if (_context != nil) {
 		return [_form choicesNamed:name values:_values inContext:_context error:error];
 	}
@@ -225,6 +228,9 @@ ORMFormSessionError(NSString *text)
 - (NSArray<NSString *> *)choicesNamed:(NSString *)name inRepeat:(NSString *)repeat row:(NSUInteger)row error:(NSError **)error
 {
 	ORMForm *form = [_form repeatNamed:repeat];
+	if ([form elementNamed:name].items != nil) {
+		return [form elementNamed:name].items;
+	}
 	NSArray *rows = [self rowsOfRepeat:repeat];
 	NSDictionary *values = row < [rows count] ? [rows objectAtIndex:row] : @{};
 	if (form == nil || _context == nil) {
