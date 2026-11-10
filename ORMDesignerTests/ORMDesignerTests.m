@@ -4,6 +4,8 @@
 #import "ORMCanvasView.h"
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
+#import "ORMFlowDocument.h"
+#import "ORMFlowWindowController.h"
 #import "ORMQueryController.h"
 #import "ORMInsertPalette.h"
 #import "ORMIssuesView.h"
@@ -1403,8 +1405,10 @@
 {
 	[self open:@"StockMate.orm"];
 	NSMenu *menu = [ORMAppDelegate newMainMenu];
+	/* The window's controller is in its chain too (New Flow). */
 	NSArray *responders = @[ _controller, _controller.canvas, _document, [NSDocumentController sharedDocumentController],
-	                         NSApp, [[_controller view] window], [[ORMAppDelegate alloc] init] ];
+	                         NSApp, [[_controller view] window], [[[_controller view] window] windowController],
+	                         [[ORMAppDelegate alloc] init] ];
 	NSMutableArray *pending = [NSMutableArray arrayWithObject:menu];
 	NSArray *standard = @[ @"undo:", @"redo:", @"cut:", @"copy:", @"paste:", @"performMiniaturize:", @"arrangeInFront:",
 	                       @"orderFrontStandardAboutPanel:", @"hide:", @"terminate:" ];
@@ -1683,6 +1687,136 @@
 	population.elementId = entryId;
 	XCTAssertEqualObjects([population textAtRow:0 column:0], @"7");
 	XCTAssertGreaterThan([[population textAtRow:0 column:1] length], 0u);
+}
+
+#pragma mark Flows
+
+/* A model with a list of vehicles and a form for a fill-up, saved in a
+ * folder of its own; a flow of it. */
+- (ORMFlowDocument *)newFlowInFolder:(NSString **)folder
+{
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Fleet"] undoManager:nil];
+	NSArray *failures = nil;
+	NSString *text = @"Vehicle is an entity type.\n"
+	                 @"Reference Mode: .name\n"
+	                 @"FillUp is an entity type.\n"
+	                 @"Reference Mode: .number\n"
+	                 @"Litres is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                 @"FillUp is of Vehicle\n"
+	                 @"Each FillUp is of exactly one Vehicle.\n"
+	                 @"FillUp took Litres\n"
+	                 @"Each FillUp took at most one Litres.\n"
+	                 @"\n"
+	                 @"Query Vehicles:\n"
+	                 @"✓Vehicle\n"
+	                 @"\n"
+	                 @"Query RecordFillUp:\n"
+	                 @"Form RecordFillUp:\n"
+	                 @"FillUp\n"
+	                 @"  + is of Vehicle = ?\n"
+	                 @"  + took ✎Litres\n";
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	*folder = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:*folder withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSURL *modelURL = [NSURL fileURLWithPath:[*folder stringByAppendingPathComponent:@"Fleet.orm"]];
+	XCTAssertTrue([[editor dataForSaving] writeToURL:modelURL atomically:YES]);
+	return [ORMFlowDocument flowForModelAtURL:modelURL model:editor.model named:@"Records"];
+}
+
+/* The flow's window, from its XIB, connected; a flow designed in it as a
+ * modeller does: screens placed from the palette, a transition drawn from
+ * one's port to the other giving the form its vehicle, changed in the
+ * inspector, deleted and undone; saved, and opened again with its model. */
+- (void)testAFlowIsDesignedInItsWindow
+{
+	NSString *folder = nil;
+	ORMFlowDocument *document = [self newFlowInFolder:&folder];
+	[document makeWindowControllers];
+	ORMFlowWindowController *window = [[document windowControllers] firstObject];
+	XCTAssertNotNil([window window]);
+	for (NSString *outlet in @[ @"canvas", @"palette", @"problems", @"inspector", @"screenName", @"screenShows", @"screenEntry",
+	                            @"transitionFrom", @"transitionOn", @"transitionControl", @"transitionKind", @"transitionTo",
+	                            @"gives" ]) {
+		XCTAssertNotNil([window valueForKey:outlet], @"%@ connected", outlet);
+	}
+	XCTAssertTrue([window.canvas isKindOfClass:[ORMFlowCanvasView class]]);
+	XCTAssertEqual(window.canvas.editor, document.editor);
+	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"nothing");
+	XCTAssertEqual([window.palette numberOfRows], 2, @"the model's form and list");
+	XCTAssertEqualObjects([window tableView:window.palette objectValueForTableColumn:nil row:0], @"RecordFillUp (form)");
+
+	[window.palette selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+	[window addToFlow:nil];
+	[window.palette selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+	[window addToFlow:nil];
+	ORMFlow *flow = document.editor.flow;
+	XCTAssertEqualObjects([flow.screens valueForKey:@"identifier"], (@[ @"Vehicles", @"RecordFillUp" ]));
+	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"screen", @"the new screen chosen");
+	XCTAssertEqualObjects([window.screenName stringValue], @"RecordFillUp");
+	XCTAssertEqual([window.problems numberOfRows], 0);
+	ORMFlowScreen *vehicles = [flow screenWithId:@"Vehicles"], *form = [flow screenWithId:@"RecordFillUp"];
+	XCTAssertTrue(NSMinX([window.canvas frameOfScreen:form]) > NSMaxX([window.canvas frameOfScreen:vehicles]), @"placed right of it");
+
+	/* Drawn from the list's port to the form. */
+	NSPoint port = [window.canvas portOfScreen:vehicles];
+	NSRect target = [window.canvas frameOfScreen:form];
+	NSEvent *press = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:NSZeroPoint modifierFlags:0 timestamp:0
+	                                windowNumber:[[window window] windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+	XCTAssertTrue([window.canvas canvas:window.canvas mouseDown:press atPoint:port], @"the port takes the press");
+	[window.canvas canvas:window.canvas mouseDragged:press atPoint:NSMakePoint(NSMidX(target), NSMidY(target))];
+	[window.canvas canvas:window.canvas mouseUp:press atPoint:NSMakePoint(NSMidX(target), NSMidY(target))];
+	XCTAssertEqual([flow.transitions count], 1u);
+	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"transition");
+	XCTAssertEqualObjects([window.transitionOn titleOfSelectedItem], @"row chosen");
+	XCTAssertEqualObjects([window.transitionTo titleOfSelectedItem], @"RecordFillUp");
+	XCTAssertEqual([window.gives numberOfRows], 1, @"the form's one input");
+	XCTAssertEqualObjects([window tableView:window.gives objectValueForTableColumn:[window.gives tableColumnWithIdentifier:@"from"] row:0],
+	                      @"row", @"given the row chosen");
+	NSArray<NSValue *> *route = [window.canvas routeOfTransition:0];
+	XCTAssertTrue(NSEqualPoints([[route firstObject] pointValue], port));
+	XCTAssertEqualObjects([window.canvas canvas:window.canvas itemAtPoint:[[route objectAtIndex:1] pointValue]],
+	                      [ORMFlowCanvasView itemOfTransition:0], @"its line is picked");
+
+	/* Changed in the inspector: going over it, then back. */
+	[window.transitionKind selectItemAtIndex:1];
+	[window chooseTransitionKind:window.transitionKind];
+	XCTAssertEqualObjects([[flow.transitions firstObject] kind], ORMFlowKindOverlay);
+	[window.transitionKind selectItemAtIndex:0];
+	[window chooseTransitionKind:window.transitionKind];
+	[window.canvas selectScreen:@"RecordFillUp"];
+	[window addCancelBack:nil];
+	XCTAssertEqual([flow.transitions count], 2u);
+	XCTAssertEqual([[window.canvas routeOfTransition:1] count], 2u, @"a return: down out of its screen");
+	XCTAssertEqual([window.problems numberOfRows], 0, @"%@", [document.editor problems]);
+
+	/* Deleted, and undone: one step (no event loop here groups them). */
+	NSUndoManager *undo = [document undoManager];
+	while ([undo groupingLevel] > 0) {
+		[undo endUndoGrouping];
+	}
+	[undo setGroupsByEvent:NO];
+	[window.canvas selectScreen:@"RecordFillUp"];
+	[undo beginUndoGrouping];
+	[window delete:nil];
+	[undo endUndoGrouping];
+	XCTAssertEqual([flow.screens count], 1u);
+	XCTAssertEqual([flow.transitions count], 0u);
+	[[document undoManager] undo];
+	XCTAssertEqual([flow.screens count], 2u);
+	XCTAssertEqual([flow.transitions count], 2u);
+	XCTAssertTrue([document isDocumentEdited]);
+
+	/* Saved beside its model, and opened again. */
+	NSURL *url = [NSURL fileURLWithPath:[folder stringByAppendingPathComponent:@"Records.flow"]];
+	NSError *error = nil;
+	XCTAssertTrue([[document dataOfType:ORMFlowDocumentType error:&error] writeToURL:url atomically:YES]);
+	ORMFlowDocument *again = [[ORMFlowDocument alloc] init];
+	XCTAssertTrue([again readFromURL:url ofType:ORMFlowDocumentType error:&error], @"%@", error);
+	XCTAssertEqualObjects([again.editor.flow.screens valueForKey:@"identifier"], (@[ @"Vehicles", @"RecordFillUp" ]));
+	XCTAssertEqualObjects([again.editor problems], @[], @"its model read from beside it");
+	[document close];
+	[[NSFileManager defaultManager] removeItemAtPath:folder error:NULL];
 }
 
 @end

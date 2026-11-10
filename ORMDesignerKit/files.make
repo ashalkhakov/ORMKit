@@ -13,6 +13,9 @@ ORM_DESIGNERKIT_OBJC_FILES = \
   ORMModelBrowser.m \
   ORMCoreDataController.m \
   ORMQueryController.m \
+  ORMFlowDocument.m \
+  ORMFlowWindowController.m \
+  ORMFlowCanvasView.m \
   ORMPane.m \
   ORMInsertPalette.m \
   ORMIssuesView.m \
@@ -27,6 +30,7 @@ ORM_DESIGNERKIT_RESOURCE_FILES = \
   ORMModelMenus.xib \
   ORMDocumentWindow.xib \
   ORMQueryWindow.xib \
+  ORMFlowWindow.xib \
   ORMCoreDataWindow.xib \
   ORMInsertPalette.xib \
   ORMIssuesView.xib \

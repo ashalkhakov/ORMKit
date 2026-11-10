@@ -14,4 +14,7 @@
 
 /* The document's editor was replaced (a revert). */
 - (void)editorDidChange;
+/* File > New Flow: a flow of this model (docs/FORMS.md, Flows), in a
+ * window of its own; the model saved first, since the flow names its file. */
+- (IBAction)newFlow:(id)sender;
 @end

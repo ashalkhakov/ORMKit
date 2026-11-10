@@ -27,4 +27,7 @@
 #import "ORMSearchNavigator.h"
 #import "ORMPopulationView.h"
 #import "ORMQueryController.h"
+#import "ORMFlowDocument.h"
+#import "ORMFlowWindowController.h"
+#import "ORMFlowCanvasView.h"
 #import "ORMCoreDataController.h"
