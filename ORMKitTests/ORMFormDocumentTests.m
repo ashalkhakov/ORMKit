@@ -589,6 +589,79 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertEqualObjects([[saved valueForKey:@"mileageQuantity"] description], @"13000");
 }
 
+/* The form's contract, whatever shows it: what each element is to whoever
+ * opens the form, what it is called, and what the form is given. */
+- (void)testTheContractSaysWhatEachElementIs
+{
+	ORMForm *form = [ORMForm formWithPropertyList:[[self documentOf:[self fillUps]] tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([form elementNamed:@"id"].role, @"key");
+	XCTAssertEqualObjects([form elementNamed:@"vehicle"].role, @"given");
+	XCTAssertTrue([form elementNamed:@"vehicle"].given);
+	XCTAssertEqualObjects([form elementNamed:@"timestamp"].role, @"entered");
+	XCTAssertEqualObjects([form elementNamed:@"driver"].role, @"entered");
+	XCTAssertEqualObjects([form elementNamed:@"filledTheTank"].role, @"entered");
+	XCTAssertEqualObjects([form elementNamed:@"pricePerUnit"].role, @"calculated");
+	XCTAssertEqualObjects([form inputNames], @[ @"vehicle" ]);
+	XCTAssertEqualObjects([form elementNamed:@"filledTheTank"].label, @"filled the tank", @"its reading");
+	for (ORMFormElement *element in form.elements) {
+		XCTAssertTrue([element.label length] > 0, @"%@ called something", element.name);
+	}
+	/* A table from before roles: what it writes entered, the rest shown. */
+	NSMutableDictionary *old = [[form propertyList] mutableCopy];
+	NSMutableArray *elements = [NSMutableArray array];
+	for (NSDictionary *each in [old objectForKey:@"elements"]) {
+		NSMutableDictionary *element = [each mutableCopy];
+		[element removeObjectsForKeys:@[ @"role", @"given", @"label" ]];
+		[elements addObject:element];
+	}
+	[old setObject:elements forKey:@"elements"];
+	ORMForm *older = [ORMForm formWithPropertyList:old error:NULL];
+	XCTAssertEqualObjects([older elementNamed:@"id"].role, @"key");
+	XCTAssertEqualObjects([older elementNamed:@"timestamp"].role, @"entered");
+	XCTAssertEqualObjects([older elementNamed:@"pricePerUnit"].role, @"calculated");
+	XCTAssertEqualObjects([older elementNamed:@"timestamp"].label, @"timestamp");
+}
+
+/* A session over the store, as a view of the app's own runs the form:
+ * opened with its inputs, its values set one by one, the driver's choices
+ * those of the car given, refused at the element, saved, and read again. */
+- (void)testASessionRunsTheFormOnTheStore
+{
+	ORMEditor *editor = [self fillUps];
+	ORMForm *form = [ORMForm formWithPropertyList:[[self documentOf:editor] tablePropertyList] error:NULL];
+	NSManagedObjectContext *context = [self storeOf:editor];
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{ @"vehicle" : ORMCarSeven }];
+	[session useContext:context saving:nil];
+	NSError *error = nil;
+	XCTAssertTrue([session open:&error], @"%@", error);
+	XCTAssertEqualObjects([session valueForElement:@"vehicle"], ORMCarSeven, @"given");
+	XCTAssertEqualObjects([session valueForElement:@"driver"], @"");
+	XCTAssertEqualObjects([session choicesNamed:@"driver" error:&error], @[ @"ann@example.com" ], @"%@", error);
+	NSDictionary *fillUp = [self fillUpIn:form];
+	for (NSString *name in fillUp) {
+		if ([name length] > 0 && ![name isEqualToString:@"vehicle"]) {
+			[session setValue:[fillUp objectForKey:name] forElement:name];
+		}
+	}
+	[session setValue:@"" forElement:@"timestamp"];
+	XCTAssertFalse([session save:&error]);
+	XCTAssertEqualObjects([session.errors allKeys], @[ @"timestamp" ], @"%@", session.errors);
+	XCTAssertNil(session.savedKey);
+	[session setValue:@"2026-11-10T08:30:00Z" forElement:@"timestamp"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqual([session.errors count], 0u);
+	XCTAssertTrue([session.savedKey length] > 0, @"its result, the object's key");
+	XCTAssertTrue([[session valueForElement:@"pricePerUnit"] hasPrefix:@"500"], @"read again: %@",
+	              [session valueForElement:@"pricePerUnit"]);
+	/* Opened on what it saved: the same values. */
+	ORMFormSession *again = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[again useContext:context saving:nil];
+	again.key = session.savedKey;
+	XCTAssertTrue([again open:&error], @"%@", error);
+	XCTAssertEqualObjects([again valueForElement:@"mileageQuantity"], @"12345.5");
+	XCTAssertEqualObjects([again valueForElement:@"driver"], @"ann@example.com");
+}
+
 /* The service: the instance sent as OData, its names the service's; a
  * refusal's details said at their elements. */
 - (void)testTheServiceIsSentTheInstance

@@ -310,7 +310,7 @@ through it:
 
 What is inside a screen is not in the flow file: the form's controls, and
 where they are, are the form's and its customization's
-([Customizing](#customizing-generated-forms-and-what-people-add)). A flow
+([Customizing](#customizing-the-contract-and-the-views-of-it)). A flow
 draws each screen from them; it does not keep a copy.
 
 **From Figma.** Figma's REST API reads a file (`GET /v1/files/:key`, the
@@ -333,7 +333,7 @@ Importing maps them to a flow:
   that control; its place seeds the customization's layout;
 - a layer that looks like a field and names nothing the form has is a
   provisional field: the form is under construction
-  ([Customizing](#customizing-generated-forms-and-what-people-add)), and
+  ([Customizing](#customizing-the-contract-and-the-views-of-it)), and
   the modeller is asked;
 - `ON_CLICK` and `NODE` with `NAVIGATE` (or `SWAP`) is a navigating
   transition, `OVERLAY` an overlay, `BACK` back, `CLOSE` the overlay closed;
@@ -373,48 +373,59 @@ It also found what XFormsKit needs first:
   to type in. Only the controls whose node, or whose binds' dependencies,
   changed need refreshing.
 
-## Customizing: generated forms and what people add
+## Customizing: the contract, and the views of it
 
-An app's developers change a generated form: they lay it out, relabel it,
-group and order its fields, hide some, add help, make a field required that
-the model leaves optional, add a field the model does not have yet. The
-model changes too, and the form is generated again. Neither may undo the
-other. Customizing is the developers' work, kept with the app's sources;
-the app's users do not change its forms.
+Generating a form gets it working the moment it is in the model, but a
+generated form reads like the model, not like the app. People lay forms
+out, word them, and build their own in Cocoa, as Logbook's hand-made
+fill-up window is. What has to hold is not how a form looks but what goes
+in and out of it.
 
-**So nobody edits what is generated.** A form is two layers, kept apart and
-applied in order when the form is opened:
+**A form in the model is a contract.** What it says, and the form's table
+(`<Form>.ormform`, ORMRuntime's `ORMForm`) holds:
 
-1. **The generated form:** instances, binds, submissions, default controls.
-   Written by `ormtool xforms`, never edited, replaced whole when the model
-   changes.
-2. **The customization:** a document of its own that refers to the
-   generated one and says only what differs, made in XFormsKit's designer
-   or by hand.
+- **Its inputs:** what it is given as it opens (`= ?`: the vehicle, who is
+  entering), `-inputNames`.
+- **What is entered and shown:** each element's `role` ("key", "given",
+  "entered", "shown", "calculated", "hidden") and `label`, what the model
+  calls it (a unary's reading, a role's name).
+- **What it may offer:** each reference's choices, and what they depend on.
+- **What a save writes, and its result:** the object saved, its key.
+- **The rules:** the model's, checked as the form is filled in where they
+  can be and always where it is submitted.
 
-**What a customization refers to must survive regeneration.** Every
-generated node, bind and control has an id from the model element it comes
-from (the role's, the constraint's), not from its name or its place, so a
-renamed role or a reordered outline keeps it. A layer that refers to
-something the model no longer has is reported, not applied, as a query's
-step through a deleted fact type is ([QUERIES.md](QUERIES.md#where-queries-live)).
+Flows and processes refer to a form only by its contract. Which view shows
+it is the app's choice, and changing the view changes nothing that leads to
+it.
 
-**What a layer may do:**
+**Any view of the contract runs it, through ORMFormSession.** The session
+opens with the inputs, holds the values by element, gives each reference's
+choices for the values as they are, and saves against the app's store or
+the model's service; a refusal comes back by element, for the view to show
+at its control, "" for the form's own. The views:
 
-| A layer may | How it is applied |
-| --- | --- |
-| lay out, group, order, hide, relabel, add hints and help | its controls replace the generated ones it names; generated controls it does not name follow, in their order |
-| make a field stricter: `required`, a narrower `constraint`, `readonly`, less `relevant` | combined with the generated bind: `required` or'ed, `constraint` and `relevant` and'ed, `readonly` or'ed |
-| add a `calculate` where the model has none | taken as it is |
-| loosen a rule of the model | refused: the model's rules hold wherever the form is submitted, so a looser form would only fail later |
-| add actions, messages, triggers, events | added |
-| add a field the model does not have | makes the form **under construction** (below) |
+1. **The generated XForms document**, the default: `ormtool xforms`, never
+   edited, replaced whole when the model changes. Its host answers
+   `form:read`, `form:choices/<name>` and `form:save` from a session.
+2. **A customized copy of it**, kept with the app's sources and edited
+   freely, by hand or in XFormsKit's designer. The build checks it against
+   the contract instead of writing over it: an input it does not take, an
+   element it binds that the contract has not, or one the contract enters
+   that it never binds, is an error; a bind looser than the model's is a
+   warning, since the save refuses what the model does not allow anyway.
+3. **A view of the app's own:** a XIB's window or view, its controls bound
+   to the session's values, its pop-ups filled from the choices, the
+   refusals shown at its controls.
 
-XForms 1.1 does not allow two binds to set the same property of one node,
-so layers are not two documents at run time: opening a form applies them in
-order to the generated document and runs the result. A native layout (a
-XIB, a storyboard) is a customization too: its controls name the generated
-ones by id, and whatever it does not lay out is not shown.
+**Ids survive regeneration.** Every generated node, bind and control has an
+id from the model element it comes from (the role's, the constraint's), not
+from its name or its place, so a renamed role or a reordered outline keeps
+it, and a customized copy still matches.
+
+**What a message says is the form's to word.** A refusal's text is the
+rule's verbalization unless the form, or the rule, says it in the app's
+words ("You don't drive this vehicle."), and it is shown at the element the
+rule is about.
 
 **A form under construction does not run.** A field the model has no fact
 type for has nowhere to go: no property in the store, none in the service,
@@ -447,7 +458,7 @@ In the `.orm`, as queries do, `Kind="Form"`, a node's part
 for NORMA** leaves them out. `ormtool xforms model.orm dir/ [form]
 [mapping]` writes each form's XForms document, `<Form>.xhtml`; generated,
 never edited, as the validation code is. Customizations are documents of their own beside it
-([Customizing](#customizing-generated-forms-and-what-people-add)).
+([Customizing](#customizing-the-contract-and-the-views-of-it)).
 
 ## Steps
 
@@ -573,10 +584,13 @@ never edited, as the validation code is. Customizations are documents of their o
    a record: `+ was entered by User2 = ?`).
 7. **XFormsKit:** decimal arithmetic, refreshing only what changed, the
    native binding (AppKit, UIKit), deontic warnings.
-8. **Customizations:** stable ids, the layer applied over the generated
-   form, the binds combined, references to what is gone reported; a form
-   with provisional fields under construction and refused; the designer
-   editing the layer, not the form.
+8. **The contract and its views:** each element's role and label and the
+   form's inputs in its table, `ORMFormSession` running any view of it
+   (store or service, refusals by element, its result the key saved); a
+   customized copy of the XForms checked against the contract at build; a
+   view of the app's own (a XIB) on a session; messages in the form's
+   words; a form with provisional fields under construction and refused.
+   *Begun:* roles, labels, `-inputNames` and `ORMFormSession`.
 9. **Logbook:** one form generated and laid out natively, offline; then the
    checklists, whose questions are data, as forms of their own. *Begun:*
    RecordFillUp is in Logbook's model, generated with its build and in its

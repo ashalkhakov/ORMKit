@@ -24,6 +24,9 @@ ORMFormError(NSString *text)
 @property (nonatomic, readwrite, copy) NSString *entityName;
 @property (nonatomic, readwrite, copy) NSString *keyName;
 @property (nonatomic, readwrite) BOOL written;
+@property (nonatomic, readwrite, copy) NSString *role;
+@property (nonatomic, readwrite) BOOL given;
+@property (nonatomic, readwrite, copy) NSString *label;
 @end
 
 @implementation ORMFormElement
@@ -212,6 +215,13 @@ ORMFormValue(NSString *text, NSAttributeDescription *attribute, NSString **probl
 		element.entityName = [item objectForKey:@"entity"];
 		element.keyName = [item objectForKey:@"key"];
 		element.written = [[item objectForKey:@"written"] boolValue];
+		element.given = [[item objectForKey:@"given"] boolValue];
+		element.label = [item objectForKey:@"label"] ?: element.name;
+		/* A table from before roles: what it writes entered, the rest shown. */
+		element.role = [item objectForKey:@"role"]
+		    ?: ([element.name isEqualToString:_keyElement ?: @""] ? @"key"
+		        : [element.kind isEqualToString:@"calculated"] ? @"calculated"
+		        : element.written ? @"entered" : @"shown");
 		[elements addObject:element];
 	}
 	_elements = elements;
@@ -311,6 +321,17 @@ ORMRegisteredForms(void)
 		}
 	}
 	return nil;
+}
+
+- (NSArray<NSString *> *)inputNames
+{
+	NSMutableArray *names = [NSMutableArray array];
+	for (ORMFormElement *element in _elements) {
+		if (element.given) {
+			[names addObject:element.name];
+		}
+	}
+	return names;
 }
 
 - (NSArray<NSString *> *)choiceNames

@@ -1297,6 +1297,12 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		BOOL written = node != _form.root && field.kind != ORMFormFieldCalculated && !field.isHidden
 		               && (part == ORMFormPartEntered || (node.isGiven && part != ORMFormPartShown));
 		[element setObject:@(written) forKey:@"written"];
+		/* What it is to whoever opens the form, and what it is called. */
+		[element setObject:[self roleOfField:field] forKey:@"role"];
+		if (node.isGiven) {
+			[element setObject:@YES forKey:@"given"];
+		}
+		[element setObject:[self labelOfField:field] forKey:@"label"];
 		[elements addObject:element];
 	}
 	NSMutableDictionary *choices = [NSMutableDictionary dictionary];
@@ -1475,6 +1481,46 @@ ORMXText(NSString *name, NSString *text)
 	return ORMXElement(@"xf:bind", attributes);
 }
 
+/* What a field is called, in the document's controls and the form's table:
+ * a unary's reading ("filled the tank"), a part's role, a value's node, a
+ * reference's role or its type. */
+- (NSString *)labelOfField:(ORMFormField *)field
+{
+	ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
+	if (unary != nil) {
+		NSString *reading = [[ORMQuery readingOfStep:unary] stringByReplacingOccurrencesOfString:@"{0}" withString:@""];
+		return [reading stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+	}
+	if (field.isPart) {
+		return ORMLabelOf(field.role, field.role.player);
+	}
+	ORMQueryNode *node = [self nodeWithId:field.nodeId];
+	return node.isValue ? (node.name ?: @"") : ORMLabelOf(node.role, node.objectType);
+}
+
+/* What a field is to whoever opens the form: "key" (the anchor's), "given"
+ * (it comes in, and is not entered), "entered", "shown", "calculated", or
+ * "hidden" (kept only to compute with). */
+- (NSString *)roleOfField:(ORMFormField *)field
+{
+	ORMQueryNode *node = [self nodeWithId:field.nodeId];
+	ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
+	ORMQueryFormPart part = unary != nil ? unary.formPart : node.formPart;
+	if (node == _form.root) {
+		return @"key";
+	}
+	if (field.kind == ORMFormFieldCalculated) {
+		return @"calculated";
+	}
+	if (part == ORMFormPartEntered) {
+		return @"entered";
+	}
+	if (part == ORMFormPartShown) {
+		return @"shown";
+	}
+	return node.isGiven ? @"given" : @"hidden";
+}
+
 - (void)addControlsTo:(NSXMLElement *)body
 {
 	NSMutableSet *done = [NSMutableSet set];
@@ -1482,11 +1528,7 @@ ORMXText(NSString *name, NSString *text)
 		ORMQueryNode *node = [self nodeWithId:field.nodeId];
 		ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
 		if (unary != nil) {
-			/* Labelled by its reading: "filled the tank". */
-			NSString *reading = [[ORMQuery readingOfStep:unary] stringByReplacingOccurrencesOfString:@"{0}" withString:@""];
-			[body addChild:[self controlOf:field
-			                          node:nil
-			                         label:[reading stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]]];
+			[body addChild:[self controlOf:field node:nil label:[self labelOfField:field]]];
 			continue;
 		}
 		if (field.isHidden || node == _form.root || [done containsObject:field.nodeId]
@@ -1499,13 +1541,12 @@ ORMXText(NSString *name, NSString *text)
 			NSXMLElement *group = ORMXElement(@"xf:group", @{ @"id" : [@"control-" stringByAppendingString:field.nodeId] });
 			[group addChild:ORMXText(@"xf:label", ORMLabelOf(node.role, node.objectType))];
 			for (ORMFormField *part in fields) {
-				[group addChild:[self controlOf:part node:node label:ORMLabelOf(part.role, part.role.player)]];
+				[group addChild:[self controlOf:part node:node label:[self labelOfField:part]]];
 			}
 			[body addChild:group];
 			continue;
 		}
-		[body addChild:[self controlOf:field node:node label:node.isValue ? (node.name ?: @"")
-		                                                                    : ORMLabelOf(node.role, node.objectType)]];
+		[body addChild:[self controlOf:field node:node label:[self labelOfField:field]]];
 	}
 	NSXMLElement *submit = ORMXElement(@"xf:submit", @{ @"id" : @"control-save", @"submission" : @"save" });
 	[submit addChild:ORMXText(@"xf:label", @"Save")];

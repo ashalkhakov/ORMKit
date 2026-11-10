@@ -5,7 +5,11 @@
 
 /* A form as an app runs it (docs/FORMS.md, In and out): the table ormtool
  * xforms writes beside the form's XForms document, <Form>.ormform, and
- * what its abstract names stand for.
+ * what its abstract names stand for. It is the form's contract, whatever
+ * shows it: what it is given (its inputs), what is entered and shown, the
+ * choices it offers, and what a save writes, its result the object saved.
+ * The XForms document generated is one view of it; a view of the app's own
+ * (a XIB's) runs the same contract through ORMFormSession.
  *
  *   form:read              the object read, its row put into the instance
  *   form:choices/<name>    a reference's choices: their keys
@@ -52,6 +56,16 @@ extern NSString * const ORMFormErrorDomain;
 @property (nonatomic, readonly, copy) NSString *entityName;
 @property (nonatomic, readonly, copy) NSString *keyName;
 @property (nonatomic, readonly) BOOL written;
+/* What it is to whoever opens the form: "key" (the object's own), "given"
+ * (it comes in, and is not entered), "entered", "shown", "calculated", or
+ * "hidden" (read only to compute with). */
+@property (nonatomic, readonly, copy) NSString *role;
+/* It comes in as the form opens (the vehicle it is for): one of the form's
+ * inputs, entered or not. */
+@property (nonatomic, readonly) BOOL given;
+/* What the model calls it ("filled the tank", "driver"); its name in a
+ * table from before labels. */
+@property (nonatomic, readonly, copy) NSString *label;
 @end
 
 /* What to send the service to save the form: the method, the path under
@@ -82,6 +96,8 @@ extern NSString * const ORMFormErrorDomain;
 - (ORMFormElement *)elementNamed:(NSString *)name;
 /* The read: its parameter the key's element. */
 @property (nonatomic, readonly, strong) ORMQueryPlan *readPlan;
+/* The form's inputs: the elements given as it opens, by name. */
+- (NSArray<NSString *> *)inputNames;
 /* The references with choices, by element name. */
 - (NSArray<NSString *> *)choiceNames;
 /* The elements a reference's choices depend on. */
