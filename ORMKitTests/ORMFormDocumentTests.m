@@ -752,6 +752,70 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	}
 }
 
+/* A flow designed: screens added for the model's list and form, the first
+ * the entry; a transition from the list giving the form its vehicle, the
+ * row; a return; moved, renamed, removed; each one undo step. */
+- (void)testAFlowIsDesignedOneStepAtATime
+{
+	ORMEditor *editor = [self fillUpsWithVehicles];
+	NSUndoManager *undo = [[NSUndoManager alloc] init];
+	[undo setGroupsByEvent:NO];
+	ORMFlow *flow = [[ORMFlow alloc] init];
+	flow.name = @"Records";
+	flow.modelPath = @"Logbook.orm";
+	ORMFlowEditor *designer = [[ORMFlowEditor alloc] initWithFlow:flow model:editor.model undoManager:undo];
+	XCTAssertEqualObjects([[designer forms] valueForKey:@"name"], @[ @"RecordFillUp" ]);
+	XCTAssertEqualObjects([[designer lists] valueForKey:@"name"], @[ @"Vehicles" ]);
+	__block NSUInteger told = 0;
+	id observer = [[NSNotificationCenter defaultCenter] addObserverForName:ORMFlowEditorDidChangeNotification object:designer queue:nil
+	                                                            usingBlock:^(NSNotification *note) { told++; }];
+	[undo beginUndoGrouping];
+	ORMFlowScreen *vehicles = [designer addScreenForQuery:[[designer lists] firstObject] at:NSMakePoint(10, 20)];
+	[undo endUndoGrouping];
+	[undo beginUndoGrouping];
+	ORMFlowScreen *form = [designer addScreenForQuery:[[designer forms] firstObject] at:NSMakePoint(400, 20)];
+	[undo endUndoGrouping];
+	XCTAssertEqualObjects(vehicles.identifier, @"Vehicles");
+	XCTAssertEqualObjects(form.identifier, @"RecordFillUp");
+	XCTAssertEqualObjects([flow.entries valueForKey:@"screen"], @[ @"Vehicles" ], @"the first screen the entry");
+	XCTAssertEqual([[designer inputsOfScreen:form] count], 1u);
+	[undo beginUndoGrouping];
+	ORMFlowTransition *chosen = [designer addTransitionFrom:@"Vehicles" to:@"RecordFillUp"];
+	[undo endUndoGrouping];
+	XCTAssertEqualObjects(chosen.on, ORMFlowOnRowChosen);
+	XCTAssertEqual([chosen.gives count], 1u, @"the vehicle, given the row");
+	XCTAssertEqualObjects([[chosen.gives firstObject] from], @"row");
+	XCTAssertEqualObjects([designer nameOfNode:[[chosen.gives firstObject] nodeId] inScreen:form], @"Vehicle");
+	XCTAssertNil([designer addTransitionFrom:@"Vehicles" to:@"Vehicles"], @"not to itself");
+	[undo beginUndoGrouping];
+	[designer addReturnFrom:@"RecordFillUp" on:ORMFlowOnSubmitDone kind:ORMFlowKindBack];
+	[undo endUndoGrouping];
+	XCTAssertEqualObjects([designer problems], @[], @"it holds");
+	[undo beginUndoGrouping];
+	[designer moveScreens:@[ @"RecordFillUp" ] by:NSMakeSize(30, -5)];
+	[undo endUndoGrouping];
+	XCTAssertEqual(form.x, 430.0);
+	[undo beginUndoGrouping];
+	[designer renameScreen:@"RecordFillUp" to:@"  Fill-up  "];
+	[undo endUndoGrouping];
+	XCTAssertEqualObjects([flow screenWithId:@"RecordFillUp"].name, @"Fill-up");
+	NSData *designed = [designer XMLData];
+	[undo beginUndoGrouping];
+	[designer removeScreens:@[ @"RecordFillUp" ]];
+	[undo endUndoGrouping];
+	XCTAssertEqual([flow.screens count], 1u);
+	XCTAssertEqual([flow.transitions count], 0u, @"its transitions gone with it");
+	[undo undo];
+	XCTAssertEqualObjects([designer XMLData], designed, @"undone: as it was");
+	XCTAssertEqualObjects([undo redoActionName], @"Delete Screen");
+	[undo undo];
+	XCTAssertEqualObjects([flow screenWithId:@"RecordFillUp"].name, @"RecordFillUp");
+	XCTAssertEqual(told, 9u, @"told of each change, undo included");
+	[[NSNotificationCenter defaultCenter] removeObserver:observer];
+	ORMFlow *read = [ORMFlow flowWithData:[designer XMLData] error:NULL];
+	XCTAssertEqualObjects([read problemsInModel:editor.model], @[], @"written as it is, it holds");
+}
+
 /* A session over the store, as a view of the app's own runs the form:
  * opened with its inputs, its values set one by one, the driver's choices
  * those of the car given, refused at the element, saved, and read again. */

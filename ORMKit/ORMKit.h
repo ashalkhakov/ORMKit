@@ -61,6 +61,7 @@
 #import "ORMQueryPlanner.h"
 #import "ORMFormDocument.h"
 #import "ORMFlow.h"
+#import "ORMFlowEditor.h"
 #import "ORMRuleChecker.h"
 #import "ORMIssueFinder.h"
 #import "ORMDeriver.h"

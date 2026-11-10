@@ -57,6 +57,7 @@ ORMKit_HEADER_FILES = \
   ORMQueryPlanner.h \
   ORMFormDocument.h \
   ORMFlow.h \
+  ORMFlowEditor.h \
   ORMQueryOData+ORMKit.h \
   ORMRuleChecker.h \
   ORMIssueFinder.h \
@@ -108,6 +109,7 @@ ORMKit_OBJC_FILES = \
   ORMQueryPlanner.m \
   ORMFormDocument.m \
   ORMFlow.m \
+  ORMFlowEditor.m \
   ORMRuleChecker.m \
   ORMIssueFinder.m \
   ORMDeriver.m \
