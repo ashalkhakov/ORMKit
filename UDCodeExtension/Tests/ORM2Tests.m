@@ -6,6 +6,9 @@
 #import <UDCodeKit/UDCodeDocument.h>
 #import <UDPieceTable/UDTextModel.h>
 #import "ORM2EditorViewController.h"
+#import "ORM2FlowEditorViewController.h"
+#import "ORMFlowWindowController.h"
+#import "ORMFlowCanvasView.h"
 #import "ORM2Extension.h"
 #import "ORM2TextDiff.h"
 #import "ORMModelViewController.h"
@@ -243,6 +246,52 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	[_tab.modelController.canvas clearSelection];
 	[_tab revealDiagnostic:orphan];
 	XCTAssertEqualObjects(_tab.modelController.inspector.elementId, added);
+}
+
+/* A flow's tab (ORM2FlowEditor.xib): the Fleet sample's flow, its model
+ * read from beside it, in the flow designer's view, connected; a screen
+ * renamed there is one edit of the text, which its undo takes back; a text
+ * that is no flow says why. */
+- (void)testAFlowOpensInItsTab
+{
+	NSString *here = [[NSString stringWithUTF8String:__FILE__] stringByDeletingLastPathComponent];
+	if (![here isAbsolutePath]) {
+		here = [[[NSFileManager defaultManager] currentDirectoryPath] stringByAppendingPathComponent:here];
+	}
+	NSString *path = [[[here stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByAppendingPathComponent:@"Samples/Fleet.flow"];
+	NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL];
+	XCTAssertNotNil(text, @"%@", path);
+	UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:text fileURL:[NSURL fileURLWithPath:path] languageMode:nil];
+	ORM2FlowEditorViewController *tab = [[ORM2FlowEditorViewController alloc] initWithDocument:document workbench:nil];
+	XCTAssertNil(tab.problem, @"%@", tab.problem);
+	NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1200, 760)
+	                                               styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:YES];
+	[window setReleasedWhenClosed:NO];
+	[[tab view] setFrame:[[window contentView] bounds]];
+	[[window contentView] addSubview:[tab view]];
+	ORMFlowWindowController *designer = tab.flowController;
+	XCTAssertNotNil(designer);
+	for (NSString *outlet in @[ @"canvas", @"palette", @"problems", @"inspector", @"gives" ]) {
+		XCTAssertNotNil([designer valueForKey:outlet], @"%@ connected", outlet);
+	}
+	XCTAssertTrue([designer.canvas isDescendantOf:[tab view]], @"the designer's view is the tab's");
+	XCTAssertFalse([[designer window] isVisible], @"its own window never shown");
+	XCTAssertEqual([designer.editor.flow.screens count], 5u);
+	XCTAssertEqual([designer.palette numberOfRows], 5, @"the model's four forms and its list");
+	XCTAssertEqual([designer.problems numberOfRows], 0);
+
+	[designer.editor renameScreen:@"Vehicles" to:@"Vans"];
+	XCTAssertTrue([[document.textModel getValue] rangeOfString:@"Name=\"Vans\""].location != NSNotFound, @"written to the text");
+	XCTAssertTrue(document.textModel.undoManager.canUndo);
+	[document.textModel.undoManager undo];
+	XCTAssertEqualObjects([document.textModel getValue], text, @"undone as the text");
+	XCTAssertEqualObjects([designer.editor.flow screenWithId:@"Vehicles"].name, @"Vehicles", @"and read again");
+
+	UDCodeDocument *broken = [[UDCodeDocument alloc] initWithText:@"<nothing" fileURL:nil languageMode:nil];
+	ORM2FlowEditorViewController *none = [[ORM2FlowEditorViewController alloc] initWithDocument:broken workbench:nil];
+	XCTAssertTrue([none.problem hasPrefix:@"This is not a flow that can be shown"], @"%@", none.problem);
+	[window close];
 }
 
 /* The Editor menu's items and Undo reach the tab, and its editor, from

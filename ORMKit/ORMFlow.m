@@ -367,7 +367,9 @@ ORMFlowInputs(ORMQuery *form)
 		if ([transition.kind isEqualToString:ORMFlowKindOverlay]) {
 			target = [target stringByAppendingString:@" over it"];
 		}
-		ORMQuery *form = to.formId != nil ? [self queryOf:to inModel:model] : nil;
+		/* A Close gives to the form the overlay is over. */
+		ORMFlowScreen *given = [transition.kind isEqualToString:ORMFlowKindClose] ? [self openerOf:from] : to;
+		ORMQuery *form = given.formId != nil ? [self queryOf:given inModel:model] : nil;
 		NSMutableArray *gives = [NSMutableArray array];
 		for (ORMFlowGive *give in transition.gives) {
 			ORMQueryNode *node = nil;

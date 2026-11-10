@@ -135,7 +135,7 @@
 	for (NSMenuItem *item in [menu itemArray]) {
 		[titles addObject:[item isSeparatorItem] ? @"-" : [item title]];
 	}
-	XCTAssertEqualObjects(titles, (@[ @"Company", @"Customers", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
+	XCTAssertEqualObjects(titles, (@[ @"Company", @"Customers", @"Fleet", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
 	XCTAssertEqual([[[menu itemWithTitle:@"ActiveFacts"] submenu] numberOfItems], (NSInteger)29);
 	NSMenuItem *company = [menu itemWithTitle:@"Company"];
 	XCTAssertEqual([company action], @selector(openSample:));

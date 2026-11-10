@@ -94,7 +94,7 @@
 </scrollView>
 <button verticalHuggingPriority="750" identifier="addToFlow" id="addToFlow">
 <rect key="frame" x="6" y="37" width="208" height="32"/>
-<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
 <buttonCell key="cell" type="push" title="Add to Flow" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="addToFlowCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
 </buttonCell>
@@ -102,7 +102,7 @@
 </button>
 <button verticalHuggingPriority="750" identifier="play" id="play">
 <rect key="frame" x="6" y="3" width="208" height="32"/>
-<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
 <buttonCell key="cell" type="push" title="Play" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="playCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
 </buttonCell>

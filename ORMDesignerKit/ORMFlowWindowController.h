@@ -14,6 +14,10 @@
 @interface ORMFlowWindowController : NSWindowController <ORMFlowCanvasDelegate, NSTableViewDataSource, NSTableViewDelegate>
 
 - (instancetype)initWithEditor:(ORMFlowEditor *)editor;
+/* The window's content, out of it, for a host to show where it will (a
+ * UDCode tab, ORM2FlowEditorViewController): its controls still this
+ * controller's, the window never shown. */
+- (NSView *)hostedView;
 @property (nonatomic, readonly, strong) ORMFlowEditor *editor;
 
 @property (nonatomic, strong) IBOutlet ORMFlowCanvasView *canvas;

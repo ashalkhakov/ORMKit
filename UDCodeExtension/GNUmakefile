@@ -18,11 +18,13 @@ include ../ORMDesignerKit/files.make
 ORM2_OBJC_FILES = \
   ORM2Extension.m \
   ORM2EditorViewController.m \
+  ORM2FlowEditorViewController.m \
   ORM2TextDiff.m \
   $(addprefix ../ORMDesignerKit/,$(ORM_DESIGNERKIT_OBJC_FILES))
 ORM2_RESOURCE_FILES = \
   Resources/LanguageInfo.plist \
   ORM2Editor.xib \
+  ORM2FlowEditor.xib \
   $(addprefix ../ORMDesignerKit/,$(ORM_DESIGNERKIT_RESOURCE_FILES))
 # ORMDesignerCompat.h (ORMDesignerKit's): current AppKit names gnustep-gui
 # spells the old way.

@@ -9,6 +9,9 @@
 /* The type NSDocument reads and writes: ORMKit's .flow. */
 extern NSString * const ORMFlowDocumentType;
 
+/* The model at the URL, read as ORMDesigner reads one; nil, and why. */
+extern ORMModel *ORMFlowModelAt(NSURL *url, NSString **reason);
+
 /* A .flow file open in ORMDesigner (docs/FORMS.md, Flows), in a window of
  * its own (ORMFlowWindowController): the flow, and the model it names,
  * read from beside it -- its forms and lists are what its screens show. Its

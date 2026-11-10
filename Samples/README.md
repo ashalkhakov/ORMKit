@@ -2,7 +2,7 @@
 
 ORM2 models to open in ORMDesigner and query: our own models of the
 schemas Terry Halpin's papers publish, with the papers' conceptual queries,
-and one of our own, Customers.
+and two of our own: Customers, and Fleet, with its forms and a flow.
 The schemas are the papers'; the files, their layout and their wording are
 ORMKit's. `Tools/fixtures/halpin.m` builds them through ORMEditor and lays
 each diagram out with `arrangeDiagram:`. Rebuild them after changing it, not
@@ -56,6 +56,24 @@ by hand.
   - Mailing list: the newsletter's addresses, with the CRM's names.
   - Readers: from a topic to the customers who read it.
 
+- `Fleet.orm` and `Fleet.flow`, not Halpin's: a fleet's vans, their
+  drivers, fill-ups and services. They are ORMKit's running example for
+  forms and flows ([FORMS.md](../docs/FORMS.md)), after the problems
+  Logbook has, but whole in themselves. One list, four forms, each showing
+  something a form does:
+  - Vehicles: a list, each van with its plate.
+  - RecordFillUp: a fill-up of a van given to it (`= ?`), its moment,
+    litres (above 0), fuel (a value list), station, cost (money: an amount
+    and a currency) and driver entered (✎). The driver's choices are the
+    van's drivers (`+ drives Vehicle1`). "filled the tank" is a flag.
+  - NewStation, NewVehicle: a new object made, its name or plate entered.
+  - RecordService: a service of a van given to it, its day, and its lines,
+    each a part and a count (a repeat).
+
+  `Fleet.flow` goes from the vans to a fill-up or a service of the one
+  chosen, and back on saving or Cancel. A new van is made over the list,
+  and a new station over the fill-up, which is given the station made.
+
 ## Populations
 
 Each sample has a sample population to run its queries on, kept in the file
@@ -107,6 +125,14 @@ only the identifiers. That makes a row easy to check against the data.
   - Mailing list finds Ann and Cy;
   - Readers finds Ann under news, and Cy under news and deals.
 
+- **Fleet:** two vans, KZ 101 AAA and KZ 202 BBB. Ann drives both, Bob
+  the second. Two stations, the two fuels, KZT and EUR, three parts, and
+  one fill-up already made. The fill-up form's drivers for the first van
+  are Ann alone; for the second, Ann and Bob.
+  `ormtool flow Samples/Fleet.orm Samples/Fleet.flow walk` walks the flow
+  over it: each form refused first, in its constraints' words, as it opens
+  empty.
+
 To try a query on the population, open the Queries window's **Results**
 tab, or run `ormtool query Samples/Company.orm Q4`, which prints every stage
 from the outline to the rows. **Make Up a Population** replaces the population with one generated
@@ -133,6 +159,19 @@ The menu also lists StockMate, a warehouse stock model that NORMA wrote
 (`ORMKitTests/Fixtures/StockMate.orm`), bundled with its author's leave.
 Clifford Heath's ActiveFacts models (MIT licensed) are under **File ▸ Open
 Sample ▸ ActiveFacts**.
+
+## Trying the forms and the flow
+
+1. In ORMDesigner, open `Samples/Fleet.flow` (or open it in UDCode with the
+   ORM2 extension). Its model, `Fleet.orm`, is read from beside it.
+2. The canvas shows each screen with its form's outline. Choose a screen or
+   a transition to see it in the inspector.
+3. Click **Play**. Choose a van and take RowChosen: the fill-up form opens,
+   given that van. Submit it empty to see what it refuses, type values in,
+   and submit again. Take newStation to make a station over it; saving that
+   returns the station to the fill-up.
+4. `ormtool xforms Samples/Fleet.orm /tmp/fleet --flow Samples/Fleet.flow`
+   writes each form as XForms, the flow's ways on in its actions.
 
 ## Not included
 

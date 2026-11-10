@@ -58,7 +58,7 @@
 
 /* Walked on its own from the entry, each way taken once: a list's first
  * row chosen, a form submitted as it opens (each reference's first choice
- * taken where it is empty), its triggers and Cancel taken after, until no
+ * taken where it is empty), its triggers taken before its Cancel, until no
  * way is left from where it is. The log, or nil and why. */
 - (NSString *)walkFrom:(NSString *)entryName error:(NSError **)error;
 @end

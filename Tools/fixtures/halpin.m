@@ -4,9 +4,11 @@
 
 /* The schemas of Halpin's papers, our own models of them, with the papers'
  * queries: what Samples/Company.orm, University.orm and UMLandORM.orm are
- * made by (Samples/README.md says which figures); and Customers.orm, a
- * customer kept in three tables, which is not Halpin's. Each is built through
- * ORMEditor and its diagrams laid out by arrangeDiagram:.
+ * made by (Samples/README.md says which figures); Customers.orm, a
+ * customer kept in three tables, which is not Halpin's; and Fleet.orm with
+ * Fleet.flow, forms and a flow of a fleet's fill-ups and services, ours too.
+ * Each is built through ORMEditor and its diagrams laid out by
+ * arrangeDiagram:.
  *
  *   xcodebuild -workspace ORMKit.xcworkspace -scheme ORMKit -derivedDataPath /tmp/ormkit build
  *   P=/tmp/ormkit/Build/Products/Debug
@@ -946,6 +948,285 @@ check(BOOL ok, const char *what)
 	}
 }
 
+#pragma mark Fleet
+
+/* Not Halpin's: a fleet's vehicles, their drivers, fill-ups and services,
+ * for forms and flows (docs/FORMS.md). The model, its lists and its forms,
+ * as a modeller writes them (ORMSentenceEditor's text): each form shows one
+ * thing forms do -- a given vehicle, entered values, a value list, a
+ * compound (money), a reference's choices conditioned (the vehicle's
+ * drivers), a flag, a repeat (a service's lines), a new object made
+ * (a station, a vehicle). */
+static NSString *const FleetText =
+	@"Vehicle is an entity type.\n"
+	@"Reference Mode: .id\n"
+	@"Portable data type: Other: Object ID\n"
+	@"Plate is a value type.\n"
+	@"Portable data type: Text: Variable Length(12)\n"
+	@"Vehicle has Plate\n"
+	@"Each Vehicle has exactly one Plate.\n"
+	@"For each Plate, at most one Vehicle has that Plate.\n"
+	@"Driver is an entity type.\n"
+	@"Reference Mode: .email\n"
+	@"Driver drives Vehicle\n"
+	@"In each population of Driver drives Vehicle, each Driver, Vehicle combination occurs at most once.\n"
+	@"Station is an entity type.\n"
+	@"Reference Mode: .id\n"
+	@"Portable data type: Other: Object ID\n"
+	@"StationName is a value type.\n"
+	@"Portable data type: Text: Variable Length(40)\n"
+	@"Station is called StationName\n"
+	@"Each Station is called exactly one StationName.\n"
+	@"Fuel is an entity type.\n"
+	@"Reference Mode: .name\n"
+	@"The possible values of Fuel are 'Diesel', 'Petrol'.\n"
+	@"Moment is a value type.\n"
+	@"Portable data type: Temporal: Date & Time\n"
+	@"Day is a value type.\n"
+	@"Portable data type: Temporal: Date\n"
+	@"Litres is a value type.\n"
+	@"Portable data type: Numeric: Decimal(15, 3)\n"
+	@"The possible values of Litres are above 0.\n"
+	@"Amount is a value type.\n"
+	@"Portable data type: Numeric: Decimal(19, 4)\n"
+	@"The possible values of Amount are above 0.\n"
+	@"Currency is an entity type.\n"
+	@"Reference Mode: .code\n"
+	@"Portable data type: Text: Fixed Length(3)\n"
+	@"The possible values of Currency are 'EUR', 'KZT', 'USD'.\n"
+	@"Money is an entity type.\n"
+	@"Money has Amount\n"
+	@"Each Money has exactly one Amount.\n"
+	@"Money is in Currency\n"
+	@"Each Money is in exactly one Currency.\n"
+	@"For each Amount and Currency, at most one Money has that Amount and is in that Currency.\n"
+	@"This association with Amount and Currency provides the preferred identification scheme for Money.\n"
+	@"FillUp is an entity type.\n"
+	@"Reference Mode: .id\n"
+	@"Portable data type: Other: Object ID\n"
+	@"FillUp is of Vehicle\n"
+	@"Each FillUp is of exactly one Vehicle.\n"
+	@"FillUp was at Moment\n"
+	@"Each FillUp was at exactly one Moment.\n"
+	@"FillUp took Litres\n"
+	@"Each FillUp took exactly one Litres.\n"
+	@"FillUp was of Fuel\n"
+	@"Each FillUp was of exactly one Fuel.\n"
+	@"FillUp was at Station\n"
+	@"Each FillUp was at at most one Station.\n"
+	@"FillUp cost Money\n"
+	@"Each FillUp cost at most one Money.\n"
+	@"FillUp had driver Driver\n"
+	@"Each FillUp had driver exactly one Driver.\n"
+	@"FillUp filled the tank\n"
+	@"Part is an entity type.\n"
+	@"Reference Mode: .code\n"
+	@"Count is a value type.\n"
+	@"Portable data type: Numeric: Signed Integer\n"
+	@"The possible values of Count are at least 1.\n"
+	@"Service is an entity type.\n"
+	@"Reference Mode: .id\n"
+	@"Portable data type: Other: Object ID\n"
+	@"Service is of Vehicle\n"
+	@"Each Service is of exactly one Vehicle.\n"
+	@"Service was on Day\n"
+	@"Each Service was on exactly one Day.\n"
+	@"ServiceLine is an entity type.\n"
+	@"Reference Mode: .id\n"
+	@"Portable data type: Other: Object ID\n"
+	@"ServiceLine is in Service\n"
+	@"Each ServiceLine is in exactly one Service.\n"
+	@"ServiceLine used Part\n"
+	@"Each ServiceLine used exactly one Part.\n"
+	@"ServiceLine used Count\n"
+	@"Each ServiceLine used exactly one Count.\n"
+	@"\n"
+	@"Query Vehicles:\n"
+	@"✓Vehicle\n"
+	@"  + has ✓Plate\n"
+	@"\n"
+	@"Query RecordFillUp:\n"
+	@"Form RecordFillUp:\n"
+	@"FillUp\n"
+	@"  + is of Vehicle1 = ?\n"
+	@"  + was at ✎Moment\n"
+	@"  + took ✎Litres\n"
+	@"  + was of ✎Fuel\n"
+	@"  + was at ✎Station\n"
+	@"  + cost ✎Money\n"
+	@"  + had driver ✎Driver\n"
+	@"    + drives Vehicle1\n"
+	@"  + filled the tank ✎\n"
+	@"\n"
+	@"Query NewStation:\n"
+	@"Form NewStation:\n"
+	@"Station\n"
+	@"  + is called ✎StationName\n"
+	@"\n"
+	@"Query NewVehicle:\n"
+	@"Form NewVehicle:\n"
+	@"Vehicle\n"
+	@"  + has ✎Plate\n"
+	@"\n"
+	@"Query RecordService:\n"
+	@"Form RecordService:\n"
+	@"Service\n"
+	@"  + is of Vehicle = ?\n"
+	@"  + was on ✎Day\n"
+	@"  + ServiceLine is in that Service\n"
+	@"    + used ✎Part\n"
+	@"    + used ✎Count\n";
+
+- (void)fleet
+{
+	NSArray *failures = nil;
+	CHECK([[[ORMSentenceEditor alloc] initWithEditor:_editor] addFromText:FleetText failures:&failures], "Fleet's text");
+	for (NSString *failure in failures) {
+		check(NO, [failure UTF8String]);
+	}
+	for (ORMObjectType *type in [_editor.model visibleObjectTypes]) {
+		[_editor.diagramEditor placeElement:type.identifier onDiagram:_diagram at:ORMAutomaticPlacement];
+	}
+	for (ORMFactType *fact in [_editor.model ordinaryFactTypes]) {
+		[_editor.diagramEditor placeElement:fact.identifier onDiagram:_diagram at:ORMAutomaticPlacement];
+	}
+}
+
+/* The fact type read so, its players in its reading's order: a fact of it. */
+- (NSString *)fact:(NSString *)reading players:(NSArray<NSString *> *)players in:(ORMSamplePopulation *)population
+{
+	for (ORMFactType *fact in [_editor.model ordinaryFactTypes]) {
+		if ([[[fact primaryReading] expandedText] isEqualToString:reading]) {
+			NSArray *roles = [fact visibleRoles];
+			NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
+			for (NSUInteger i = 0; i < [players count] && i < [roles count]; i++) {
+				[byRole setObject:[players objectAtIndex:i] forKey:[[roles objectAtIndex:i] identifier]];
+			}
+			return [population factOf:fact.identifier players:byRole];
+		}
+	}
+	check(NO, [[@"no fact type " stringByAppendingString:reading] UTF8String]);
+	return nil;
+}
+
+/* Two vans, Ann driving both and Bob the second; two stations; what a
+ * fill-up and a service refer to; one fill-up already made. */
+- (void)fleetPopulation
+{
+	ORMSamplePopulation *p = [[ORMSamplePopulation alloc] init];
+	NSString *van1 = [self one:@"Vehicle" value:@"00000000-0000-4000-8000-0000000000a1" in:p];
+	NSString *van2 = [self one:@"Vehicle" value:@"00000000-0000-4000-8000-0000000000a2" in:p];
+	[self fact:@"Vehicle has Plate" players:@[ van1, [p value:@"KZ 101 AAA" of:[self typeId:@"Plate"]] ] in:p];
+	[self fact:@"Vehicle has Plate" players:@[ van2, [p value:@"KZ 202 BBB" of:[self typeId:@"Plate"]] ] in:p];
+	NSString *ann = [self one:@"Driver" value:@"ann@fleet.test" in:p];
+	NSString *bob = [self one:@"Driver" value:@"bob@fleet.test" in:p];
+	[self fact:@"Driver drives Vehicle" players:@[ ann, van1 ] in:p];
+	[self fact:@"Driver drives Vehicle" players:@[ ann, van2 ] in:p];
+	[self fact:@"Driver drives Vehicle" players:@[ bob, van2 ] in:p];
+	NSArray *stations = @[ @[ @"00000000-0000-4000-8000-0000000000b1", @"Shell Abay" ], @[ @"00000000-0000-4000-8000-0000000000b2", @"Helios Ring" ] ];
+	for (NSArray *station in stations) {
+		NSString *one = [self one:@"Station" value:station[0] in:p];
+		[self fact:@"Station is called StationName" players:@[ one, [p value:station[1] of:[self typeId:@"StationName"]] ] in:p];
+	}
+	for (NSString *fuel in @[ @"Diesel", @"Petrol" ]) {
+		[self one:@"Fuel" value:fuel in:p];
+	}
+	for (NSString *currency in @[ @"KZT", @"EUR" ]) {
+		[self one:@"Currency" value:currency in:p];
+	}
+	for (NSString *part in @[ @"oil-filter", @"wiper", @"brake-pad" ]) {
+		[self one:@"Part" value:part in:p];
+	}
+	NSString *fillUp = [self one:@"FillUp" value:@"00000000-0000-4000-8000-0000000000c1" in:p];
+	[self fact:@"FillUp is of Vehicle" players:@[ fillUp, van1 ] in:p];
+	[self fact:@"FillUp was at Moment" players:@[ fillUp, [p value:@"2026-11-09T08:30:00" of:[self typeId:@"Moment"]] ] in:p];
+	[self fact:@"FillUp took Litres" players:@[ fillUp, [p value:@"42.5" of:[self typeId:@"Litres"]] ] in:p];
+	[self fact:@"FillUp was of Fuel" players:@[ fillUp, [self one:@"Fuel" value:@"Diesel" in:p] ] in:p];
+	[self fact:@"FillUp had driver Driver" players:@[ fillUp, ann ] in:p];
+	[self add:p];
+}
+
+- (ORMQuery *)queryNamed:(NSString *)name
+{
+	for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+		if ([query.name isEqualToString:name]) {
+			return query;
+		}
+	}
+	check(NO, [[@"no query " stringByAppendingString:name] UTF8String]);
+	return nil;
+}
+
+/* The node of the query whose type is so: the given one, where asked. */
+- (NSString *)node:(NSString *)typeName of:(NSString *)queryName given:(BOOL)given
+{
+	for (ORMQueryNode *node in [[self queryNamed:queryName] nodes]) {
+		if ([node.objectType.name isEqualToString:typeName] && (!given || node.isGiven)) {
+			return node.identifier;
+		}
+	}
+	check(NO, [[NSString stringWithFormat:@"no %@ in %@", typeName, queryName] UTF8String]);
+	return @"";
+}
+
+/* Fleet.flow: from the vans, a fill-up or a service of the one chosen; a
+ * new van over the list; a new station over the fill-up, returned to it. */
+- (void)fleetFlowAt:(NSString *)path
+{
+	NSString *(^screen)(NSString *, NSString *, BOOL) = ^NSString *(NSString *name, NSString *queryName, BOOL form) {
+		return [NSString stringWithFormat:@"  <flow:Screen id=\"%@\" %@=\"%@\" Name=\"%@\"/>\n", name, form ? @"Form" : @"Query",
+		                                  [self queryNamed:queryName].identifier, name];
+	};
+	NSMutableString *xml = [NSMutableString stringWithString:
+		@"<flow:Flow xmlns:flow=\"http://schemas.ormkit.org/2026-10/Flows\" Name=\"Fleet\" Model=\"Fleet.orm\">\n"
+		@"  <flow:Entry Name=\"Start\" Screen=\"Vehicles\"/>\n"];
+	[xml appendString:screen(@"Vehicles", @"Vehicles", NO)];
+	[xml appendString:screen(@"RecordFillUp", @"RecordFillUp", YES)];
+	[xml appendString:screen(@"NewStation", @"NewStation", YES)];
+	[xml appendString:screen(@"RecordService", @"RecordService", YES)];
+	[xml appendString:screen(@"NewVehicle", @"NewVehicle", YES)];
+	NSString *fillUpVehicle = [self node:@"Vehicle" of:@"RecordFillUp" given:YES];
+	NSString *serviceVehicle = [self node:@"Vehicle" of:@"RecordService" given:YES];
+	NSString *station = [self node:@"Station" of:@"RecordFillUp" given:NO];
+	[xml appendFormat:@"  <flow:Transition From=\"Vehicles\" On=\"RowChosen\" To=\"RecordFillUp\"><flow:Give Node=\"%@\" From=\"row\"/></flow:Transition>\n",
+	                  fillUpVehicle];
+	[xml appendFormat:@"  <flow:Transition From=\"Vehicles\" On=\"Trigger\" Control=\"service\" To=\"RecordService\"><flow:Give Node=\"%@\" From=\"row\"/></flow:Transition>\n",
+	                  serviceVehicle];
+	[xml appendString:@"  <flow:Transition From=\"Vehicles\" On=\"Trigger\" Control=\"newVehicle\" To=\"NewVehicle\" Kind=\"Overlay\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"NewVehicle\" On=\"SubmitDone\" Kind=\"Close\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"NewVehicle\" On=\"Cancel\" Kind=\"Close\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"RecordFillUp\" On=\"SubmitDone\" Kind=\"Back\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"RecordFillUp\" On=\"Cancel\" Kind=\"Back\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"RecordFillUp\" On=\"Trigger\" Control=\"newStation\" To=\"NewStation\" Kind=\"Overlay\"/>\n"];
+	[xml appendFormat:@"  <flow:Transition From=\"NewStation\" On=\"SubmitDone\" Kind=\"Close\"><flow:Give Node=\"%@\" From=\"result\"/></flow:Transition>\n",
+	                  station];
+	[xml appendString:@"  <flow:Transition From=\"NewStation\" On=\"Cancel\" Kind=\"Close\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"RecordService\" On=\"SubmitDone\" Kind=\"Back\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"RecordService\" On=\"Cancel\" Kind=\"Back\"/>\n"];
+	[xml appendString:@"</flow:Flow>\n"];
+	NSError *error = nil;
+	ORMFlow *flow = [ORMFlow flowWithData:[xml dataUsingEncoding:NSUTF8StringEncoding] error:&error];
+	CHECK(flow != nil, "Fleet.flow reads");
+	for (NSString *problem in [flow problemsInModel:_editor.model]) {
+		check(NO, [problem UTF8String]);
+	}
+	/* Laid out left to right, a column a step: the list, its forms, their overlays. */
+	NSDictionary *places = @{ @"Vehicles" : @[ @0, @0 ], @"RecordFillUp" : @[ @480, @0 ], @"RecordService" : @[ @480, @900 ],
+	                          @"NewVehicle" : @[ @0, @900 ], @"NewStation" : @[ @960, @0 ] };
+	for (ORMFlowScreen *each in flow.screens) {
+		NSArray *at = [places objectForKey:each.identifier];
+		each.x = [at[0] doubleValue];
+		each.y = [at[1] doubleValue];
+		each.width = 390;
+		each.height = 844;
+	}
+	CHECK([[flow XMLData] writeToFile:path atomically:YES], "Fleet.flow written");
+	ORMFlowWalk *walk = [[ORMFlowWalk alloc] initWithFlow:flow model:_editor.model mapping:nil];
+	NSString *walked = [walk walkFrom:nil error:&error];
+	CHECK(walked != nil, "Fleet.flow walks");
+	NSLog(@"walked %@:\n%@", [path lastPathComponent], walked);
+}
+
 @end
 
 int main(int argc, char **argv)
@@ -974,6 +1255,11 @@ int main(int argc, char **argv)
 		[customers customersPopulation];
 		[customers customersMapping];
 		[customers save:[out stringByAppendingPathComponent:@"Customers.orm"]];
+		Builder *fleet = [[Builder alloc] initNamed:@"Fleet"];
+		[fleet fleet];
+		[fleet fleetPopulation];
+		[fleet save:[out stringByAppendingPathComponent:@"Fleet.orm"]];
+		[fleet fleetFlowAt:[out stringByAppendingPathComponent:@"Fleet.flow"]];
 	}
 	return failures > 0;
 }

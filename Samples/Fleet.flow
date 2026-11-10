@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<flow:Flow xmlns:flow="http://schemas.ormkit.org/2026-10/Flows" Name="Fleet" Model="Fleet.orm">
+    <flow:Entry Name="Start" Screen="Vehicles"></flow:Entry>
+    <flow:Screen id="Vehicles" Query="_4D52D7FB-7DB8-43DB-88CE-3B9FCC64A5AF" Name="Vehicles" X="0" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="RecordFillUp" Form="_FAC2DABB-46D3-4D0C-8CC5-900451DEFD59" Name="RecordFillUp" X="480" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="NewStation" Form="_6AEC7B6E-527B-47BD-A7F6-0F8FF1BA1BD0" Name="NewStation" X="960" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="RecordService" Form="_9BFA89D4-14D0-4323-8D94-B9DE79044227" Name="RecordService" X="480" Y="900" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="NewVehicle" Form="_88F59DCF-7D0F-4CF6-9736-3749852435DC" Name="NewVehicle" X="0" Y="900" Width="390" Height="844"></flow:Screen>
+    <flow:Transition From="Vehicles" On="RowChosen" To="RecordFillUp">
+        <flow:Give Node="_F8C8090B-9E46-41B4-9261-0463C3FA0165" From="row"></flow:Give>
+    </flow:Transition>
+    <flow:Transition From="Vehicles" On="Trigger" Control="service" To="RecordService">
+        <flow:Give Node="_37B52238-4FBA-4DEE-84AA-013791FE6C4E" From="row"></flow:Give>
+    </flow:Transition>
+    <flow:Transition From="Vehicles" On="Trigger" Control="newVehicle" To="NewVehicle" Kind="Overlay"></flow:Transition>
+    <flow:Transition From="NewVehicle" On="SubmitDone" Kind="Close"></flow:Transition>
+    <flow:Transition From="NewVehicle" On="Cancel" Kind="Close"></flow:Transition>
+    <flow:Transition From="RecordFillUp" On="SubmitDone" Kind="Back"></flow:Transition>
+    <flow:Transition From="RecordFillUp" On="Cancel" Kind="Back"></flow:Transition>
+    <flow:Transition From="RecordFillUp" On="Trigger" Control="newStation" To="NewStation" Kind="Overlay"></flow:Transition>
+    <flow:Transition From="NewStation" On="SubmitDone" Kind="Close">
+        <flow:Give Node="_4DEB144B-32E6-4392-8522-DF199E02579E" From="result"></flow:Give>
+    </flow:Transition>
+    <flow:Transition From="NewStation" On="Cancel" Kind="Close"></flow:Transition>
+    <flow:Transition From="RecordService" On="SubmitDone" Kind="Back"></flow:Transition>
+    <flow:Transition From="RecordService" On="Cancel" Kind="Back"></flow:Transition>
+</flow:Flow>

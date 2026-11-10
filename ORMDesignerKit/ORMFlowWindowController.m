@@ -54,6 +54,18 @@ ORMFlowKinds(void)
 	}
 }
 
+- (NSView *)hostedView
+{
+	NSWindow *window = [self window];
+	/* Never shown: the XIB's window is visible at launch. */
+	[window orderOut:nil];
+	NSView *content = [window contentView];
+	if (content != nil && [content window] == window) {
+		[window setContentView:[[NSView alloc] initWithFrame:[content frame]]];
+	}
+	return content;
+}
+
 - (void)editorDidChange:(NSNotification *)notification
 {
 	[self flowDidChange];

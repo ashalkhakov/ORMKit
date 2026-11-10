@@ -219,6 +219,10 @@
 			isa = PBXBuildFile;
 			fileRef = 6217E0B483913657B5CBF649 /* ORMLogicTests.m */;
 		};
+		2B2EBBB1FEA7D79D641706F9 /* ORMFlowWalk.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 0997072A5A8EA20FA14E01E7 /* ORMFlowWalk.m */;
+		};
 		2B5A25C785E3BEF49FE1AD66 /* ORMQuery.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 6C7864A2189FC1598056F4F4 /* ORMQuery.m */;
@@ -315,11 +319,6 @@
 		38D7B5114CAA9CF313FF9F9B /* ORMFlowWindowController.h */ = {
 			isa = PBXBuildFile;
 			fileRef = E142C3B94041E4942D96FFDA /* ORMFlowWindowController.h */;
-			settings = {ATTRIBUTES = (Public, ); };
-		};
-		851E0B31B560DEDC2D249612 /* ORMFlowPlayController.h */ = {
-			isa = PBXBuildFile;
-			fileRef = B11299EE30C00D034AF0E4FE /* ORMFlowPlayController.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
 		3A9781E342C2DAA4E77B3379 /* ORMSVGTests.m */ = {
@@ -460,6 +459,10 @@
 			isa = PBXBuildFile;
 			fileRef = A226F180B916E14617BB198E /* ORMPopulationView.xib */;
 		};
+		50F0CF9044A0FCD8597E47CF /* ORM2FlowEditor.xib */ = {
+			isa = PBXBuildFile;
+			fileRef = A713728B5C87BA20FD293B3E /* ORM2FlowEditor.xib */;
+		};
 		518DBCC667DC9D78EB92CD85 /* DMTabBar.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 2FC2C0A0EFE39A814D4DF328 /* DMTabBar.m */;
@@ -554,6 +557,11 @@
 			isa = PBXBuildFile;
 			fileRef = DB13E6FA0B15A741EC37DB5D /* ORMPopulationChecker.m */;
 		};
+		63A329E1A3695A780B4C4FE0 /* ORMFlowPlayController.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 77BFB5B730ED26326733CC5A /* ORMFlowPlayController.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		664C6BB881CCD39856F02CFE /* ORMUpdater.m */ = {
 			isa = PBXBuildFile;
 			fileRef = F2640C902A01E8F349D6784A /* ORMUpdater.m */;
@@ -574,6 +582,11 @@
 		673B3854105E6790B94C5312 /* ORMPath.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 22A37A39197D392DDE6DCA1D /* ORMPath.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
+		676970ED5F08F9D5CF11B68F /* ORMFlowWalk.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 9F5E1B0F905F9C48662290B8 /* ORMFlowWalk.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
 		68410A638A00CD90D0C41DBE /* UDCodeKit.xcframework */ = {
@@ -769,6 +782,10 @@
 			isa = PBXBuildFile;
 			fileRef = FDA2783CB7634D75F7062662 /* ORMRuntime.framework */;
 		};
+		8EC6B69E2D2491282EBC20CE /* ORM2FlowEditorViewController.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 700F7A54C8A1F6A92C5E7120 /* ORM2FlowEditorViewController.m */;
+		};
 		8F56173DC5D95CFE010CFA79 /* ORMConstraintEditor.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 1D82E43D1955CDE932B8AEA7 /* ORMConstraintEditor.h */;
@@ -785,6 +802,10 @@
 		94E12E858B17F06F677A2D4F /* ORMCanvasView.m */ = {
 			isa = PBXBuildFile;
 			fileRef = E83BAB19E8CE0BFCC217BB02 /* ORMCanvasView.m */;
+		};
+		950D4459F9629F338DF208C1 /* ORMFlowPlayWindow.xib */ = {
+			isa = PBXBuildFile;
+			fileRef = 15B5F249C38CEF07FB88DA6F /* ORMFlowPlayWindow.xib */;
 		};
 		96622D14E4FB02D94F8A4634 /* DiagramKitUI.xcframework */ = {
 			isa = PBXBuildFile;
@@ -831,10 +852,6 @@
 		A05E1431C7F8FF48C35C0C2E /* ORMFlowWindowController.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 03D06CD7F2AA37871F741E1D /* ORMFlowWindowController.m */;
-		};
-		8032BC55E01EDF6ECE0A6334 /* ORMFlowPlayController.m */ = {
-			isa = PBXBuildFile;
-			fileRef = 0AFF68F036A8567581BBAD4F /* ORMFlowPlayController.m */;
 		};
 		A19CD50F6899B561D4090A71 /* ODataKit.xcframework */ = {
 			isa = PBXBuildFile;
@@ -940,10 +957,6 @@
 			isa = PBXBuildFile;
 			fileRef = FA847BFD8BE459630E83C00B /* ORMFlowEditor.m */;
 		};
-		BA50A8A1B56E26863231F0A7 /* ORMFlowWalk.m */ = {
-			isa = PBXBuildFile;
-			fileRef = E6714C9BBDC21E264E716431 /* ORMFlowWalk.m */;
-		};
 		B6FFFA8EA22F166CC93BF97F /* AppKit.framework */ = {
 			isa = PBXBuildFile;
 			fileRef = D9440F138977C55F58D15995 /* AppKit.framework */;
@@ -955,6 +968,14 @@
 		B7407CB19F4A990D60A4AB93 /* ORMDeriver.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 853CDFE162911CF3914E657A /* ORMDeriver.m */;
+		};
+		B740BE1E4C57DBB5211CC9D5 /* ORM2FlowEditorViewController.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 700F7A54C8A1F6A92C5E7120 /* ORM2FlowEditorViewController.m */;
+		};
+		B7B2D4CD93CF11CFCFCB743A /* ORM2FlowEditor.xib */ = {
+			isa = PBXBuildFile;
+			fileRef = A713728B5C87BA20FD293B3E /* ORM2FlowEditor.xib */;
 		};
 		B7C62818326B8846C7BEAB2D /* ORMConstraintSentence.m */ = {
 			isa = PBXBuildFile;
@@ -971,11 +992,6 @@
 		B901F4189F892AD4433535C0 /* ORMFlowEditor.h */ = {
 			isa = PBXBuildFile;
 			fileRef = C790E99B54C24DF69E00338E /* ORMFlowEditor.h */;
-			settings = {ATTRIBUTES = (Public, ); };
-		};
-		07CC9389A7A8337DA071C7CB /* ORMFlowWalk.h */ = {
-			isa = PBXBuildFile;
-			fileRef = CF68A565993C9A2DDCB7D981 /* ORMFlowWalk.h */;
 			settings = {ATTRIBUTES = (Public, ); };
 		};
 		BA5CC1CB90014A2EFE9DB267 /* ORMQueryExpressionTests.m */ = {
@@ -1169,10 +1185,6 @@
 			isa = PBXBuildFile;
 			fileRef = 9C5FB7CB0A118D2E4E7B2CC1 /* ORMFlowWindow.xib */;
 		};
-		5CE8588D3C283543B72BEF76 /* ORMFlowPlayWindow.xib */ = {
-			isa = PBXBuildFile;
-			fileRef = 90C7470E92E18A825A5EF933 /* ORMFlowPlayWindow.xib */;
-		};
 		DF8782A47B9F56621AD798B8 /* ORMVerbalizer+Logic.m */ = {
 			isa = PBXBuildFile;
 			fileRef = AE6D64430985BCA827E2F4AB /* ORMVerbalizer+Logic.m */;
@@ -1277,6 +1289,10 @@
 			isa = PBXBuildFile;
 			fileRef = 192758C383915D30DA938A9A /* DiagramKitUI.xcframework */;
 			settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); };
+		};
+		F216FEDA7B71EE0E5AB569BD /* ORMFlowPlayController.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 4A053C6D74063F2D29935806 /* ORMFlowPlayController.m */;
 		};
 		F4EE50B51BE7FD21B550261E /* ORMWindowTests.m */ = {
 			isa = PBXBuildFile;
@@ -1472,12 +1488,6 @@
 			path = ORMFlowWindowController.m;
 			sourceTree = "<group>";
 		};
-		0AFF68F036A8567581BBAD4F /* ORMFlowPlayController.m */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.objc;
-			path = ORMFlowPlayController.m;
-			sourceTree = "<group>";
-		};
 		062FF68896E2CA759A15C8DC /* ORMQueryPlanner.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -1488,6 +1498,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMVerbalizer.h;
+			sourceTree = "<group>";
+		};
+		0997072A5A8EA20FA14E01E7 /* ORMFlowWalk.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMFlowWalk.m;
 			sourceTree = "<group>";
 		};
 		0C5509B6431ED94D12A49D31 /* ORMJoinedFacade.m */ = {
@@ -1556,6 +1572,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMPopulationStore.h;
+			sourceTree = "<group>";
+		};
+		15B5F249C38CEF07FB88DA6F /* ORMFlowPlayWindow.xib */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = file.xib;
+			path = ORMFlowPlayWindow.xib;
 			sourceTree = "<group>";
 		};
 		16CC7F92E855BE4273340FC3 /* ORMFormSession.h */ = {
@@ -1926,6 +1948,12 @@
 			path = ORMFormDocument.m;
 			sourceTree = "<group>";
 		};
+		4A053C6D74063F2D29935806 /* ORMFlowPlayController.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMFlowPlayController.m;
+			sourceTree = "<group>";
+		};
 		4A6590013F5CBB78C577F92F /* ORMPath.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -2031,6 +2059,12 @@
 			path = ORMDesigner.png;
 			sourceTree = "<group>";
 		};
+		5FD82A7E4FCCFBFBE3874114 /* ORM2FlowEditorViewController.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORM2FlowEditorViewController.h;
+			sourceTree = "<group>";
+		};
 		610261A1F6255374E308383E /* ORMSearchNavigator.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -2108,6 +2142,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMConstraintSentence.m;
+			sourceTree = "<group>";
+		};
+		700F7A54C8A1F6A92C5E7120 /* ORM2FlowEditorViewController.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORM2FlowEditorViewController.m;
 			sourceTree = "<group>";
 		};
 		704F1A56EEFD639911B4F1A6 /* ORMUpdater.h */ = {
@@ -2196,6 +2236,12 @@
 			includeInIndex = 0;
 			path = ORM2.bundle;
 			sourceTree = BUILT_PRODUCTS_DIR;
+		};
+		77BFB5B730ED26326733CC5A /* ORMFlowPlayController.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMFlowPlayController.h;
+			sourceTree = "<group>";
 		};
 		78DB031FB26F8A2A056B0E59 /* ORMDerivationPathWriter.h */ = {
 			isa = PBXFileReference;
@@ -2372,16 +2418,16 @@
 			path = ORMFlowWindow.xib;
 			sourceTree = "<group>";
 		};
-		90C7470E92E18A825A5EF933 /* ORMFlowPlayWindow.xib */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = file.xib;
-			path = ORMFlowPlayWindow.xib;
-			sourceTree = "<group>";
-		};
 		9E54ECAF663C48174377D7F2 /* ORMQuery.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMQuery.h;
+			sourceTree = "<group>";
+		};
+		9F5E1B0F905F9C48662290B8 /* ORMFlowWalk.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMFlowWalk.h;
 			sourceTree = "<group>";
 		};
 		9FA340DFF056E1D2F343E1A5 /* ORMPane.h */ = {
@@ -2436,6 +2482,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMWindowController.m;
+			sourceTree = "<group>";
+		};
+		A713728B5C87BA20FD293B3E /* ORM2FlowEditor.xib */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = file.xib;
+			path = ORM2FlowEditor.xib;
 			sourceTree = "<group>";
 		};
 		A723EAAAFCAB087278A51924 /* ORMModelView.xib */ = {
@@ -2631,12 +2683,6 @@
 			path = ORMFlowEditor.h;
 			sourceTree = "<group>";
 		};
-		CF68A565993C9A2DDCB7D981 /* ORMFlowWalk.h */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.h;
-			path = ORMFlowWalk.h;
-			sourceTree = "<group>";
-		};
 		C91E469645715A73955E1812 /* ORMConstraintSentence.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -2830,12 +2876,6 @@
 			path = ORMFlowWindowController.h;
 			sourceTree = "<group>";
 		};
-		B11299EE30C00D034AF0E4FE /* ORMFlowPlayController.h */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.h;
-			path = ORMFlowPlayController.h;
-			sourceTree = "<group>";
-		};
 		E2D526D14FE91AC1A28EEFC6 /* ORMQueryController.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -3016,12 +3056,6 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMFlowEditor.m;
-			sourceTree = "<group>";
-		};
-		E6714C9BBDC21E264E716431 /* ORMFlowWalk.m */ = {
-			isa = PBXFileReference;
-			lastKnownFileType = sourcecode.c.objc;
-			path = ORMFlowWalk.m;
 			sourceTree = "<group>";
 		};
 		FAD63F6AF7A3FFAA18E05EEE /* UDCodeKit.xcframework */ = {
@@ -3216,10 +3250,10 @@
 				3360CC2C73905A4176A5B4A8 /* ORMFlowCanvasView.m */,
 				741FAA956D9E4DB2588348AC /* ORMFlowDocument.h */,
 				84D149204DBB496046284948 /* ORMFlowDocument.m */,
+				77BFB5B730ED26326733CC5A /* ORMFlowPlayController.h */,
+				4A053C6D74063F2D29935806 /* ORMFlowPlayController.m */,
 				E142C3B94041E4942D96FFDA /* ORMFlowWindowController.h */,
-				B11299EE30C00D034AF0E4FE /* ORMFlowPlayController.h */,
 				03D06CD7F2AA37871F741E1D /* ORMFlowWindowController.m */,
-				0AFF68F036A8567581BBAD4F /* ORMFlowPlayController.m */,
 				13B0F996901527F806F9F9B0 /* ORMInsertPalette.h */,
 				8FE23D27F1D5EECFF5CE187F /* ORMInsertPalette.m */,
 				6B8686CB77B1584A2C4CB770 /* ORMInspectorView.h */,
@@ -3247,7 +3281,7 @@
 				75F119AC21369F9D1D276093 /* ORMDocumentWindow.xib */,
 				874FCA9E3F275A6569365695 /* ORMQueryWindow.xib */,
 				9C5FB7CB0A118D2E4E7B2CC1 /* ORMFlowWindow.xib */,
-				90C7470E92E18A825A5EF933 /* ORMFlowPlayWindow.xib */,
+				15B5F249C38CEF07FB88DA6F /* ORMFlowPlayWindow.xib */,
 				2266019FAA1FC3D078706893 /* ORMCoreDataWindow.xib */,
 				B1EBCDB7AE93B8202544BED8 /* ORMInsertPalette.xib */,
 				4F8F7B5021DF2C9A3B509806 /* ORMIssuesView.xib */,
@@ -3267,10 +3301,13 @@
 				F3B60357C05C8A9F48D4F03D /* ORM2EditorViewController.m */,
 				A1F5857FFC011FC851970678 /* ORM2Extension.h */,
 				D32AC0568492F06DA7DEC7AE /* ORM2Extension.m */,
+				5FD82A7E4FCCFBFBE3874114 /* ORM2FlowEditorViewController.h */,
+				700F7A54C8A1F6A92C5E7120 /* ORM2FlowEditorViewController.m */,
 				372CF7BB5C207206EAF5E5DF /* ORM2TextDiff.h */,
 				EDBB1ECC8239EB7B43ECFC4B /* ORM2TextDiff.m */,
 				4ECFA44188876ABF8AD66F95 /* LanguageInfo.plist */,
 				1FB4A5F009C568F629504E4C /* ORM2Editor.xib */,
+				A713728B5C87BA20FD293B3E /* ORM2FlowEditor.xib */,
 				E330EEBB009E22B269CF3D4F /* Info.plist */,
 				A00EFBA0280C1685B51B3502 /* package.json */,
 				63F801BCF97B146AA65BE7EA /* Tests */,
@@ -3446,9 +3483,9 @@
 				EFA7A60A29149C544C827980 /* ORMFlow.h */,
 				5470D9969A1B0C0555F6BAE4 /* ORMFlow.m */,
 				C790E99B54C24DF69E00338E /* ORMFlowEditor.h */,
-				CF68A565993C9A2DDCB7D981 /* ORMFlowWalk.h */,
 				FA847BFD8BE459630E83C00B /* ORMFlowEditor.m */,
-				E6714C9BBDC21E264E716431 /* ORMFlowWalk.m */,
+				9F5E1B0F905F9C48662290B8 /* ORMFlowWalk.h */,
+				0997072A5A8EA20FA14E01E7 /* ORMFlowWalk.m */,
 				F7EBD9F5B12679705F0FF40F /* ORMFormDocument.h */,
 				4943C1801CF3C06529600C78 /* ORMFormDocument.m */,
 				95FF8C6B38934A3200AD848A /* ORMIssueFinder.h */,
@@ -3571,7 +3608,7 @@
 				6F8DD50DD22535A2360C221B /* ORMQueryController.h */,
 				7A05E3000E630427073EB4A0 /* ORMFlowDocument.h */,
 				38D7B5114CAA9CF313FF9F9B /* ORMFlowWindowController.h */,
-				851E0B31B560DEDC2D249612 /* ORMFlowPlayController.h */,
+				63A329E1A3695A780B4C4FE0 /* ORMFlowPlayController.h */,
 				41729415D55E8E4C5C021EF8 /* ORMFlowCanvasView.h */,
 				79D3170482133211D534FAB4 /* ORMPane.h */,
 				F0D55FB02EBB510565A9379C /* ORMInsertPalette.h */,
@@ -3646,7 +3683,7 @@
 				2361D9C0A291E18660477028 /* ORMFormDocument.h */,
 				6B7C7B3C567C6751CCC8A01A /* ORMFlow.h */,
 				B901F4189F892AD4433535C0 /* ORMFlowEditor.h */,
-				07CC9389A7A8337DA071C7CB /* ORMFlowWalk.h */,
+				676970ED5F08F9D5CF11B68F /* ORMFlowWalk.h */,
 				5F4738DAFEF78C3AD0ED4886 /* ORMQueryOData+ORMKit.h */,
 				C7A010EF163E795053DA2D55 /* ORMRuleChecker.h */,
 				9DF0F126C9A8ED042D1162D8 /* ORMIssueFinder.h */,
@@ -3876,6 +3913,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				12D6693686895E94B4B7F9B2 /* ORM2Editor.xib */,
+				B7B2D4CD93CF11CFCFCB743A /* ORM2FlowEditor.xib */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3888,7 +3926,7 @@
 				55F4C57FE24CDEE8A76DDD03 /* ORMDocumentWindow.xib */,
 				A6B69F0B01CDA948A9C675A3 /* ORMQueryWindow.xib */,
 				DECEC4505146213677717EF6 /* ORMFlowWindow.xib */,
-				5CE8588D3C283543B72BEF76 /* ORMFlowPlayWindow.xib */,
+				950D4459F9629F338DF208C1 /* ORMFlowPlayWindow.xib */,
 				1B6CED7F224998DB745AED02 /* ORMCoreDataWindow.xib */,
 				A459DEE70303677CCBD8929A /* ORMInsertPalette.xib */,
 				069ECA863168B9318B729A55 /* ORMIssuesView.xib */,
@@ -3904,6 +3942,7 @@
 			files = (
 				FE9D0E330689DD0666823F23 /* LanguageInfo.plist */,
 				11E31E30A4CA4D51798DC416 /* ORM2Editor.xib */,
+				50F0CF9044A0FCD8597E47CF /* ORM2FlowEditor.xib */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -3969,7 +4008,7 @@
 				F9C9187EBEB990263534F63B /* ORMFormDocument.m */,
 				26165FE098F912A51E73EAF0 /* ORMFlow.m */,
 				B6E97937C096F1C5BCDD707A /* ORMFlowEditor.m */,
-				BA50A8A1B56E26863231F0A7 /* ORMFlowWalk.m */,
+				2B2EBBB1FEA7D79D641706F9 /* ORMFlowWalk.m */,
 				70DD29657B0D9D37324033F6 /* ORMRuleChecker.m */,
 				613DAD7D9AF4639FD1E2BF8B /* ORMIssueFinder.m */,
 				B7407CB19F4A990D60A4AB93 /* ORMDeriver.m */,
@@ -3987,6 +4026,7 @@
 			files = (
 				C17D68052DDED1D708CE2813 /* ORM2Extension.m */,
 				D52489AFF8D5A48B71F93023 /* ORM2EditorViewController.m */,
+				B740BE1E4C57DBB5211CC9D5 /* ORM2FlowEditorViewController.m */,
 				3C86C9C86F44E2330A83EACE /* ORM2TextDiff.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -4044,7 +4084,7 @@
 				8295F814BE6D0AA3A41CA575 /* ORMQueryController.m */,
 				1E37B92EBF52BF569E9F56F9 /* ORMFlowDocument.m */,
 				A05E1431C7F8FF48C35C0C2E /* ORMFlowWindowController.m */,
-				8032BC55E01EDF6ECE0A6334 /* ORMFlowPlayController.m */,
+				F216FEDA7B71EE0E5AB569BD /* ORMFlowPlayController.m */,
 				19087E3F7F4BBE8416689D7E /* ORMFlowCanvasView.m */,
 				98D34FA596DD61B69D35996E /* ORMPane.m */,
 				D712F6DCD33C5546FE0BB8E8 /* ORMInsertPalette.m */,
@@ -4074,6 +4114,7 @@
 				379005D92590CC0874617298 /* ORM2Tests.m */,
 				776A21360DC7CAE06C073A84 /* ORM2Extension.m */,
 				4557B76BE1465A66EEBAA7FD /* ORM2EditorViewController.m */,
+				8EC6B69E2D2491282EBC20CE /* ORM2FlowEditorViewController.m */,
 				B2DEB2B16EBFFA7BF0CE9EAA /* ORM2TextDiff.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

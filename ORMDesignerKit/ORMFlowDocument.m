@@ -12,8 +12,7 @@ ORMFlowDocumentError(NSString *description, NSString *suggestion)
 	                                   NSLocalizedRecoverySuggestionErrorKey : suggestion ?: @"" }];
 }
 
-/* The model at the URL, read as ORMDesigner reads one. */
-static ORMModel *
+ORMModel *
 ORMFlowModelAt(NSURL *url, NSString **reason)
 {
 	NSData *data = url != nil ? [NSData dataWithContentsOfURL:url] : nil;

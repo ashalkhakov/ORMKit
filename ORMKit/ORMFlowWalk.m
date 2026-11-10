@@ -277,16 +277,30 @@ ORMFlowWalkName(ORMFlowScreen *screen)
 	return frame;
 }
 
+/* A list's row as a reader knows it: the first value it shows other than
+ * its anchor's key (a van's plate), else the key. */
+- (NSString *)labelOf:(ORMFlowWalkFrame *)frame row:(NSUInteger)row
+{
+	ORMQuery *query = [_flow queryOf:frame.screen inModel:_model];
+	NSDictionary *values = [frame.rowsByNode objectAtIndex:row];
+	for (ORMQueryNode *node in [query nodes]) {
+		NSString *value = node != query.root && node.identifier != nil ? [values objectForKey:node.identifier] : nil;
+		if ([value length] > 0) {
+			return value;
+		}
+	}
+	NSString *key = row < [frame.rowKeys count] ? [frame.rowKeys objectAtIndex:row] : nil;
+	return [key length] > 0 ? key : @"?";
+}
+
 /* A screen as the log says it: a list's rows, a form's given values. */
 - (NSString *)said:(ORMFlowWalkFrame *)frame
 {
 	NSString *name = ORMFlowWalkName(frame.screen);
 	if (frame.session == nil) {
 		NSMutableArray *labels = [NSMutableArray array];
-		for (NSDictionary *row in frame.rowsByNode) {
-			ORMQuery *query = [_flow queryOf:frame.screen inModel:_model];
-			NSString *label = [row objectForKey:query.root.identifier ?: @""];
-			[labels addObject:[label length] > 0 ? label : @"?"];
+		for (NSUInteger i = 0; i < [frame.rows count]; i++) {
+			[labels addObject:[self labelOf:frame row:i]];
 		}
 		return [NSString stringWithFormat:@"%@, %lu row%@%@%@", name, (unsigned long)[frame.rows count],
 		                                  [frame.rows count] == 1 ? @"" : @"s", [labels count] > 0 ? @": " : @"",
@@ -366,8 +380,7 @@ ORMFlowWalkName(ORMFlowScreen *screen)
 	NSDictionary *given = [self givenBy:transition row:row];
 	NSString *how = transition.on ?: @"?";
 	if (rowChosen) {
-		NSString *label = [[frame.rowsByNode objectAtIndex:row] objectForKey:[_flow queryOf:frame.screen inModel:_model].root.identifier ?: @""];
-		how = [NSString stringWithFormat:@"%@ (%@)", how, [label length] > 0 ? label : [frame.rowKeys objectAtIndex:row]];
+		how = [NSString stringWithFormat:@"%@ (%@)", how, [self labelOf:frame row:row]];
 	} else if (transition.control != nil) {
 		how = [NSString stringWithFormat:@"%@ %@", how, transition.control];
 	}
@@ -488,11 +501,11 @@ ORMFlowWalkName(ORMFlowScreen *screen)
 			} error:NULL];
 			continue;
 		}
+		/* Deeper first: a row chosen or a trigger before Cancel. */
 		ORMFlowTransition *next = nil;
 		for (ORMFlowTransition *way in [self transitions]) {
-			if (![way.on hasPrefix:@"Submit"] && untaken(way)) {
+			if (![way.on hasPrefix:@"Submit"] && untaken(way) && (next == nil || [next.on isEqualToString:ORMFlowOnCancel])) {
 				next = way;
-				break;
 			}
 		}
 		if (next == nil) {
