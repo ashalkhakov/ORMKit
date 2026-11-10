@@ -27,6 +27,9 @@ ORMFormError(NSString *text)
 @property (nonatomic, readwrite, copy) NSString *role;
 @property (nonatomic, readwrite) BOOL given;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *items;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *path;
+@property (nonatomic, readwrite, copy) NSString *group;
+@property (nonatomic, readwrite, copy) NSString *subtype;
 @property (nonatomic, readwrite, copy) NSString *label;
 @end
 
@@ -163,6 +166,8 @@ ORMFormValue(NSString *text, NSAttributeDescription *attribute, NSString **probl
 	}
 }
 
+static NSManagedObject *ORMFormFind(NSEntityDescription *entity, NSString *key, id value, NSManagedObjectContext *context);
+
 /* What an error says of a property, for the user (below). */
 static NSString *ORMFormMessage(NSError *error);
 
@@ -223,6 +228,9 @@ static NSString *ORMFormMessage(NSError *error);
 		element.given = [[item objectForKey:@"given"] boolValue];
 		element.label = [item objectForKey:@"label"] ?: element.name;
 		element.items = [[item objectForKey:@"items"] isKindOfClass:[NSArray class]] ? [item objectForKey:@"items"] : nil;
+		element.path = [[item objectForKey:@"path"] isKindOfClass:[NSArray class]] ? [item objectForKey:@"path"] : nil;
+		element.group = [[item objectForKey:@"group"] isKindOfClass:[NSString class]] ? [item objectForKey:@"group"] : nil;
+		element.subtype = [[item objectForKey:@"subtype"] isKindOfClass:[NSString class]] ? [item objectForKey:@"subtype"] : nil;
 		/* A table from before roles: what it writes entered, the rest shown. */
 		element.role = [item objectForKey:@"role"]
 		    ?: ([element.name isEqualToString:_keyElement ?: @""] ? @"key"
@@ -446,6 +454,15 @@ ORMRegisteredForms(void)
 		return nil;
 	}
 	NSMutableDictionary *instance = [[self instanceOfRow:[result.rows firstObject]] mutableCopy];
+	ORMFormElement *kind = [self subtypeElement];
+	if (kind != nil) {
+		NSEntityDescription *entity = [NSEntityDescription entityForName:_entityName inManagedObjectContext:context];
+		NSAttributeDescription *keyAttribute = [[entity attributesByName] objectForKey:_keyElement ?: @""];
+		NSString *problem = nil;
+		id typed = ORMFormValue(key ?: @"", keyAttribute, &problem);
+		NSString *name = [[(typed != nil ? ORMFormFind(entity, _keyElement, typed, context) : nil) entity] name];
+		[instance setObject:[kind.items containsObject:name ?: @""] ? name : @"" forKey:kind.name];
+	}
 	for (NSString *name in _repeats) {
 		NSArray *rows = [[_repeats objectForKey:name] rowsLinkedTo:key inContext:context error:error];
 		if (rows == nil) {
@@ -510,6 +527,27 @@ ORMFormFind(NSEntityDescription *entity, NSString *key, id value, NSManagedObjec
 	return [[context executeFetchRequest:request error:NULL] firstObject];
 }
 
+- (NSDictionary<NSString *, NSString *> *)throughValuesOf:(NSDictionary<NSString *, id> *)instance
+                                                inContext:(NSManagedObjectContext *)context
+{
+	NSEntityDescription *entity = [NSEntityDescription entityForName:_entityName inManagedObjectContext:context];
+	NSMutableDictionary *values = [NSMutableDictionary dictionary];
+	for (ORMFormElement *element in _elements) {
+		ORMFormElement *reference = element.group == nil && [element.path count] > 1 ? [self elementNamed:[element.path firstObject]] : nil;
+		if (![reference.kind isEqualToString:@"reference"]) {
+			continue;
+		}
+		NSEntityDescription *destination = [[[entity relationshipsByName] objectForKey:reference.name] destinationEntity];
+		NSAttributeDescription *key = [[destination attributesByName] objectForKey:reference.keyName ?: @""];
+		NSString *problem = nil;
+		id typed = ORMFormValue([[instance objectForKey:reference.name] description] ?: @"", key, &problem);
+		NSManagedObject *object = typed != nil ? ORMFormFind(destination, reference.keyName, typed, context) : nil;
+		NSString *rest = [[element.path subarrayWithRange:NSMakeRange(1, [element.path count] - 1)] componentsJoinedByString:@"."];
+		[values setObject:ORMFormText([object valueForKeyPath:rest], element.schemaType, element.keyName) forKey:element.name];
+	}
+	return values;
+}
+
 /* A new object's key, where it has none: a UUID's text, or one more than
  * the greatest whole number there is, as a service makes one. */
 static id
@@ -555,6 +593,7 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
                     prefix:(NSString *)prefix
                     before:(NSMutableDictionary *)before
                       made:(BOOL *)made
+                     owned:(NSMutableArray<NSDictionary *> *)owned
                      error:(NSError **)error
 {
 	NSEntityDescription *entity = [NSEntityDescription entityForName:_entityName inManagedObjectContext:context];
@@ -568,43 +607,181 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 	NSString *problem = nil;
 	id key = ORMFormValue([instance objectForKey:_keyElement] ?: @"", keyAttribute, &problem);
 	NSManagedObject *object = key != nil ? ORMFormFind(entity, _keyElement, key, context) : nil;
+	/* Of the subtype chosen, a subentity of the anchor's; one read stays
+	 * what it is. */
+	ORMFormElement *kind = [self subtypeElement];
+	NSString *chosen = kind != nil ? [[instance objectForKey:kind.name] description] : nil;
+	NSEntityDescription *subentity = [chosen length] > 0 ? [NSEntityDescription entityForName:chosen inManagedObjectContext:context] : nil;
+	if ([chosen length] > 0 && (subentity == nil || ![subentity isKindOfEntity:entity] || ![kind.items containsObject:chosen])) {
+		[problems setObject:[NSString stringWithFormat:@"%@ is no kind of %@ here.", chosen, _entityName]
+		             forKey:[prefix stringByAppendingString:kind.name]];
+		subentity = nil;
+	}
+	if (object != nil && kind != nil && [chosen length] > 0 && ![[[object entity] name] isEqualToString:chosen]) {
+		[problems setObject:[NSString stringWithFormat:@"A %@ stays what it is.", [[object entity] name]]
+		             forKey:[prefix stringByAppendingString:kind.name]];
+	}
 	*made = object == nil;
 	if (*made) {
-		object = [NSEntityDescription insertNewObjectForEntityForName:_entityName inManagedObjectContext:context];
+		object = [NSEntityDescription insertNewObjectForEntityForName:[subentity name] ?: _entityName inManagedObjectContext:context];
 		if (keyAttribute != nil) {
 			[object setValue:key ?: ORMFormNewKey(entity, keyAttribute, context) forKey:_keyElement];
 		}
 	}
 	for (ORMFormElement *element in _elements) {
-		/* A repeat's link is written by the form it is in. */
-		if (!element.written && ![element.name isEqualToString:_linkElement ?: @""]) {
+		/* A repeat's link is written by the form it is in; an owned
+		 * object's elements into it, below; a subtype's only where the
+		 * object is one; the kind is the object's entity. */
+		if ((!element.written && ![element.name isEqualToString:_linkElement ?: @""]) || element.group != nil
+		    || element == kind || ![self object:object isOf:element.subtype]) {
 			continue;
 		}
-		NSString *text = [instance objectForKey:element.name] ?: @"";
-		id value = nil;
-		problem = nil;
-		if ([element.kind isEqualToString:@"reference"]) {
-			NSRelationshipDescription *relationship = [[entity relationshipsByName] objectForKey:element.name];
-			NSEntityDescription *destination = [relationship destinationEntity];
-			NSAttributeDescription *destinationKey = [[destination attributesByName] objectForKey:element.keyName ?: @""];
-			id typed = ORMFormValue(text, destinationKey, &problem);
-			value = typed != nil ? ORMFormFind(destination, element.keyName, typed, context) : nil;
-			if (relationship == nil || (typed != nil && value == nil)) {
-				problem = problem ?: [NSString stringWithFormat:@"There is no %@ %@.", [destination name] ?: element.entityName, text];
-			}
-		} else {
-			NSAttributeDescription *attribute = [[entity attributesByName] objectForKey:element.name];
-			value = attribute != nil ? ORMFormValue(text, attribute, &problem) : nil;
-			problem = attribute == nil ? [NSString stringWithFormat:@"%@ has no %@.", _entityName, element.name] : problem;
+		NSString *refused = [self write:element text:[instance objectForKey:element.name] ?: @"" into:object
+		                       property:[element.path lastObject] ?: element.name before:before context:context];
+		if (refused != nil) {
+			[problems setObject:refused forKey:[prefix stringByAppendingString:element.name]];
 		}
-		if (problem != nil) {
-			[problems setObject:problem forKey:[prefix stringByAppendingString:element.name]];
-			continue;
-		}
-		[before setObject:[object valueForKey:element.name] ?: [NSNull null] forKey:element.name];
-		[object setValue:value forKey:element.name];
 	}
+	[self writeGroupsOf:object instance:instance context:context problems:problems prefix:prefix owned:owned];
 	return object;
+}
+
+/* The element's text set as the object's property: a reference's object
+ * found by its key. What it had kept in before; why not, where it cannot. */
+- (NSString *)write:(ORMFormElement *)element
+               text:(NSString *)text
+               into:(NSManagedObject *)object
+           property:(NSString *)property
+             before:(NSMutableDictionary *)before
+            context:(NSManagedObjectContext *)context
+{
+	NSEntityDescription *entity = [object entity];
+	NSString *problem = nil;
+	id value = nil;
+	if ([element.kind isEqualToString:@"reference"]) {
+		NSRelationshipDescription *relationship = [[entity relationshipsByName] objectForKey:property];
+		NSEntityDescription *destination = [relationship destinationEntity];
+		NSAttributeDescription *destinationKey = [[destination attributesByName] objectForKey:element.keyName ?: @""];
+		id typed = ORMFormValue(text, destinationKey, &problem);
+		value = typed != nil ? ORMFormFind(destination, element.keyName, typed, context) : nil;
+		if (relationship == nil || (typed != nil && value == nil)) {
+			problem = problem ?: [NSString stringWithFormat:@"There is no %@ %@.", [destination name] ?: element.entityName, text];
+		}
+	} else {
+		NSAttributeDescription *attribute = [[entity attributesByName] objectForKey:property];
+		value = attribute != nil ? ORMFormValue(text, attribute, &problem) : nil;
+		problem = attribute == nil ? [NSString stringWithFormat:@"%@ has no %@.", [entity name], property] : problem;
+	}
+	if (problem != nil) {
+		return problem;
+	}
+	[before setObject:[object valueForKey:property] ?: [NSNull null] forKey:property];
+	[object setValue:value forKey:property];
+	return nil;
+}
+
+/* The element that says which of its subtypes the object is; nil for a
+ * form with no subtype parts. */
+- (ORMFormElement *)subtypeElement
+{
+	for (ORMFormElement *element in _elements) {
+		if ([element.kind isEqualToString:@"subtype"]) {
+			return element;
+		}
+	}
+	return nil;
+}
+
+/* Whether the object is of the subentity (nil: the anchor's own). */
+- (BOOL)object:(NSManagedObject *)object isOf:(NSString *)subentity
+{
+	if (subentity == nil) {
+		return YES;
+	}
+	NSEntityDescription *entity = [[[[object entity] managedObjectModel] entitiesByName] objectForKey:subentity];
+	return entity != nil && [[object entity] isKindOfEntity:entity];
+}
+
+- (NSArray<NSDictionary *> *)groups
+{
+	NSArray *groups = [_list objectForKey:@"groups"];
+	return [groups isKindOfClass:[NSArray class]] ? groups : @[];
+}
+
+/* Whether anything of the owned object is entered: its elements' or an
+ * object's it owns in turn. */
+- (BOOL)isEntered:(NSString *)group in:(NSDictionary *)instance
+{
+	NSString *within = [group stringByAppendingString:@"/"];
+	for (ORMFormElement *element in _elements) {
+		if (element.written && ([element.group isEqualToString:group] || [element.group hasPrefix:within])
+		    && [[[instance objectForKey:element.name] description] length] > 0) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* The objects the form owns written (a customer's contact, its address),
+ * outer ones first: each the one the object above has, else made where it
+ * is needed or anything of it is entered (its key given it) and set there;
+ * its elements written into it. Each one changed or made, and what it
+ * had, kept in owned to put back. */
+- (void)writeGroupsOf:(NSManagedObject *)anchor
+             instance:(NSDictionary *)instance
+              context:(NSManagedObjectContext *)context
+             problems:(NSMutableDictionary<NSString *, NSString *> *)problems
+               prefix:(NSString *)prefix
+                owned:(NSMutableArray<NSDictionary *> *)owned
+{
+	NSMutableDictionary<NSString *, NSManagedObject *> *objects = [NSMutableDictionary dictionary];
+	for (NSDictionary *group in [self groups]) {
+		NSString *name = [group objectForKey:@"name"];
+		NSArray *path = [group objectForKey:@"path"];
+		if (![name isKindOfClass:[NSString class]] || ![path isKindOfClass:[NSArray class]] || [path count] == 0) {
+			continue;
+		}
+		NSString *aboveName = [path count] > 1 ? [[path subarrayWithRange:NSMakeRange(0, [path count] - 1)] componentsJoinedByString:@"/"] : nil;
+		NSManagedObject *above = aboveName != nil ? [objects objectForKey:aboveName] : anchor;
+		NSString *link = [path lastObject];
+		NSRelationshipDescription *relationship = [[[above entity] relationshipsByName] objectForKey:link];
+		if (above == nil) {
+			continue;
+		}
+		if (relationship == nil || [relationship isToMany]) {
+			[problems setObject:[NSString stringWithFormat:@"%@ has no %@.", [[above entity] name], link]
+			             forKey:[prefix stringByAppendingString:name]];
+			continue;
+		}
+		NSManagedObject *object = [above valueForKey:link];
+		if (object == nil && ![[group objectForKey:@"needed"] boolValue] && ![self isEntered:name in:instance]) {
+			continue;
+		}
+		BOOL made = object == nil;
+		if (made) {
+			NSEntityDescription *entity = [relationship destinationEntity];
+			object = [NSEntityDescription insertNewObjectForEntityForName:[entity name] inManagedObjectContext:context];
+			NSAttributeDescription *key = [[entity attributesByName] objectForKey:[group objectForKey:@"key"] ?: @""];
+			if (key != nil) {
+				[object setValue:ORMFormNewKey(entity, key, context) forKey:[key name]];
+			}
+			[owned addObject:@{ @"object" : above, @"made" : @NO, @"before" : @{ link : [NSNull null] } }];
+			[above setValue:object forKey:link];
+		}
+		NSMutableDictionary *before = [NSMutableDictionary dictionary];
+		for (ORMFormElement *element in _elements) {
+			if (!element.written || ![element.group isEqualToString:name]) {
+				continue;
+			}
+			NSString *problem = [self write:element text:[instance objectForKey:element.name] ?: @"" into:object
+			                       property:[element.path lastObject] before:before context:context];
+			if (problem != nil) {
+				[problems setObject:problem forKey:[prefix stringByAppendingString:element.name]];
+			}
+		}
+		[owned addObject:@{ @"object" : object, @"made" : @(made), @"before" : before, @"group" : name }];
+		[objects setObject:object forKey:name];
+	}
 }
 
 /* The object as it was, where its save was refused: one made, gone. */
@@ -633,7 +810,9 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 	NSMutableDictionary *problems = [NSMutableDictionary dictionary];
 	NSMutableDictionary *before = [NSMutableDictionary dictionary];
 	BOOL made = NO;
-	NSManagedObject *object = [self write:instance inContext:context problems:problems prefix:@"" before:before made:&made error:error];
+	NSMutableArray<NSDictionary *> *owned = [NSMutableArray array];
+	NSManagedObject *object = [self write:instance inContext:context problems:problems prefix:@"" before:before made:&made
+	                                owned:owned error:error];
 	if (object == nil) {
 		return nil;
 	}
@@ -657,7 +836,7 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 			NSMutableDictionary *was = [NSMutableDictionary dictionary];
 			BOOL rowWasMade = NO;
 			NSManagedObject *rowObject = [repeat write:row inContext:context problems:problems prefix:prefix before:was
-			                                     made:&rowWasMade error:error];
+			                                     made:&rowWasMade owned:owned error:error];
 			if (rowObject == nil) {
 				return nil;
 			}
@@ -684,6 +863,20 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 		for (NSError *one in each) {
 			id about = [[one userInfo] objectForKey:NSValidationObjectErrorKey];
 			NSString *prefix = about != nil ? [rowPrefixes objectForKey:[NSValue valueWithNonretainedObject:about]] : nil;
+			/* An owned object's, at its group's element of the property. */
+			NSString *group = nil;
+			for (NSDictionary *each in owned) {
+				group = [each objectForKey:@"object"] == about ? [each objectForKey:@"group"] ?: group : group;
+			}
+			if (prefix == nil && group != nil) {
+				NSString *key = [[one userInfo] objectForKey:NSValidationKeyErrorKey];
+				NSString *element = key != nil ? [NSString stringWithFormat:@"%@/%@", group, key] : @"";
+				element = [self elementNamed:element] != nil ? element : @"";
+				NSString *said = [problems objectForKey:element];
+				NSString *message = ORMFormMessage(one);
+				[problems setObject:said != nil ? [NSString stringWithFormat:@"%@ %@", said, message] : message forKey:element];
+				continue;
+			}
 			if (prefix == nil) {
 				[self addErrorsOf:one to:problems];
 				continue;
@@ -704,6 +897,10 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 	/* Refused: the objects as they were. */
 	for (NSUInteger i = [rowObjects count]; i > 0; i--) {
 		ORMFormPutBack([rowObjects objectAtIndex:i - 1], [[rowMade objectAtIndex:i - 1] boolValue], [rowBefores objectAtIndex:i - 1], context);
+	}
+	for (NSUInteger i = [owned count]; i > 0; i--) {
+		NSDictionary *each = [owned objectAtIndex:i - 1];
+		ORMFormPutBack([each objectForKey:@"object"], [[each objectForKey:@"made"] boolValue], [each objectForKey:@"before"], context);
 	}
 	ORMFormPutBack(object, made, before, context);
 	if (errors != NULL) {
@@ -819,43 +1016,80 @@ ORMFormMessage(NSError *error)
 	if (isNew && key != nil) {
 		[body setObject:[coder JSONForCoreDataValue:key attribute:keyAttribute] forKey:[mapper propertyForAttribute:keyAttribute]];
 	}
+	/* Of the subtype chosen (a Trip among the events): its properties. */
+	ORMFormElement *kind = [self subtypeElement];
+	NSString *chosen = kind != nil ? [[instance objectForKey:kind.name] description] : nil;
+	NSEntityDescription *subentity = [chosen length] > 0 ? [[model entitiesByName] objectForKey:chosen] : nil;
+	NSEntityDescription *objectEntity = subentity != nil && [subentity isKindOfEntity:entity] ? subentity : entity;
 	/* One type of several in its set (a FillUp among the Records): named, so
 	 * that the service knows whose properties these are. */
-	NSString *type = [mapper entityIsDerivedInItsSet:entity] ? [mapper qualifiedTypeForEntity:entity] : nil;
+	NSString *type = [mapper entityIsDerivedInItsSet:objectEntity] ? [mapper qualifiedTypeForEntity:objectEntity] : nil;
 	if (type != nil) {
 		[body setObject:[@"#" stringByAppendingString:type] forKey:@"@odata.type"];
+	}
+	/* The anchor's own; an owned object's nested in it (a deep insert, a
+	 * deep update), outer ones first, each where anything of it is sent. */
+	NSMutableDictionary<NSString *, NSMutableDictionary *> *bodies = [NSMutableDictionary dictionaryWithObject:body forKey:@""];
+	NSMutableDictionary<NSString *, NSEntityDescription *> *entities = [NSMutableDictionary dictionaryWithObject:objectEntity forKey:@""];
+	for (NSDictionary *group in [self groups]) {
+		NSArray *path = [group objectForKey:@"path"];
+		NSString *above = [path count] > 1 ? [[path subarrayWithRange:NSMakeRange(0, [path count] - 1)] componentsJoinedByString:@"/"] : @"";
+		NSRelationshipDescription *relationship = [[[entities objectForKey:above] relationshipsByName] objectForKey:[path lastObject]];
+		if (relationship != nil && [group objectForKey:@"name"] != nil) {
+			[bodies setObject:[NSMutableDictionary dictionary] forKey:[group objectForKey:@"name"]];
+			[entities setObject:[relationship destinationEntity] forKey:[group objectForKey:@"name"]];
+		}
 	}
 	for (ORMFormElement *element in _elements) {
 		NSString *text = [instance objectForKey:element.name] ?: @"";
 		/* New: what it has; changed: what differs, an emptied one as null. */
-		if (!element.written || (isNew && [text length] == 0)
-		    || (!isNew && [text isEqualToString:[original objectForKey:element.name] ?: @""])) {
+		NSEntityDescription *part = element.subtype != nil ? [[model entitiesByName] objectForKey:element.subtype] : nil;
+		if (!element.written || element == kind || (element.subtype != nil && (part == nil || ![objectEntity isKindOfEntity:part]))
+		    || (isNew && [text length] == 0) || (!isNew && [text isEqualToString:[original objectForKey:element.name] ?: @""])) {
 			continue;
 		}
+		NSMutableDictionary *into = [bodies objectForKey:element.group ?: @""];
+		NSEntityDescription *of = [entities objectForKey:element.group ?: @""];
+		NSString *property = [element.path lastObject] ?: element.name;
+		if (into == nil) {
+			problem = [NSString stringWithFormat:@"%@ has no %@.", _entityName, element.group];
+			break;
+		}
 		if ([element.kind isEqualToString:@"reference"]) {
-			NSRelationshipDescription *relationship = [[entity relationshipsByName] objectForKey:element.name];
+			NSRelationshipDescription *relationship = [[of relationshipsByName] objectForKey:property];
 			NSEntityDescription *destination = [relationship destinationEntity];
 			NSAttributeDescription *destinationKey = [[destination attributesByName] objectForKey:element.keyName ?: @""];
 			id typed = ORMFormValue(text, destinationKey, &problem);
 			if (relationship == nil || problem != nil) {
-				problem = problem ?: [NSString stringWithFormat:@"%@ has no %@.", _entityName, element.name];
+				problem = problem ?: [NSString stringWithFormat:@"%@ has no %@.", [of name], property];
 				break;
 			}
 			NSString *bind = [[mapper propertyForRelationship:relationship] stringByAppendingString:@"@odata.bind"];
-			[body setObject:typed != nil ? [NSString stringWithFormat:@"%@(%@)", [mapper entitySetForEntity:destination],
+			[into setObject:typed != nil ? [NSString stringWithFormat:@"%@(%@)", [mapper entitySetForEntity:destination],
 			                                                         [coder literalForValue:typed attribute:destinationKey]]
 			                             : [NSNull null]
 			         forKey:bind];
 			continue;
 		}
-		NSAttributeDescription *attribute = [[entity attributesByName] objectForKey:element.name];
+		NSAttributeDescription *attribute = [[of attributesByName] objectForKey:property];
 		id typed = ORMFormValue(text, attribute, &problem);
 		if (attribute == nil || problem != nil) {
-			problem = problem ?: [NSString stringWithFormat:@"%@ has no %@.", _entityName, element.name];
+			problem = problem ?: [NSString stringWithFormat:@"%@ has no %@.", [of name], property];
 			break;
 		}
-		[body setObject:typed != nil ? [coder JSONForCoreDataValue:typed attribute:attribute] : [NSNull null]
+		[into setObject:typed != nil ? [coder JSONForCoreDataValue:typed attribute:attribute] : [NSNull null]
 		         forKey:[mapper propertyForAttribute:attribute]];
+	}
+	/* Inner ones into outer ones, the innermost first. */
+	for (NSDictionary *group in [[self groups] reverseObjectEnumerator]) {
+		NSString *name = [group objectForKey:@"name"];
+		NSArray *path = [group objectForKey:@"path"];
+		NSString *above = [path count] > 1 ? [[path subarrayWithRange:NSMakeRange(0, [path count] - 1)] componentsJoinedByString:@"/"] : @"";
+		NSMutableDictionary *inner = name != nil ? [bodies objectForKey:name] : nil;
+		NSRelationshipDescription *relationship = [[[entities objectForKey:above] relationshipsByName] objectForKey:[path lastObject]];
+		if ([inner count] > 0 && relationship != nil) {
+			[[bodies objectForKey:above] setObject:inner forKey:[mapper propertyForRelationship:relationship]];
+		}
 	}
 	if (problem != nil) {
 		if (error != NULL) {

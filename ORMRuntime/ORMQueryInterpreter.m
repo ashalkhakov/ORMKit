@@ -871,6 +871,26 @@ ORMBagKey(ORMPlanValue *value)
 }
 
 /* The value at the path, from the object read or a variable bound. */
+/* The object if it is of the entity, the members that are; nil else. */
+static id
+ORMAsEntity(id at, NSString *entityName)
+{
+	if ([at isKindOfClass:[NSManagedObject class]]) {
+		NSEntityDescription *entity = [[[[at entity] managedObjectModel] entitiesByName] objectForKey:entityName ?: @""];
+		return entity == nil || [[at entity] isKindOfEntity:entity] ? at : nil;
+	}
+	if (![at conformsToProtocol:@protocol(NSFastEnumeration)]) {
+		return at;
+	}
+	NSMutableArray *members = [NSMutableArray array];
+	for (id member in at) {
+		if (ORMAsEntity(member, entityName) != nil) {
+			[members addObject:member];
+		}
+	}
+	return members;
+}
+
 - (id)valueOf:(ORMPlanPath *)path object:(id)object bindings:(NSDictionary *)bindings
 {
 	id base = path.variable != nil ? [bindings objectForKey:path.variable] : object;
@@ -879,15 +899,16 @@ ORMBagKey(ORMPlanValue *value)
 		return base;
 	}
 	/* Step by step, as a key path, but past no deleted object: a to-one
-	 * to one is nothing, a to-many is its members not deleted. */
+	 * to one is nothing, a to-many is its members not deleted. As a
+	 * subentity, what is not one is nothing (a fill-up's trip's end). */
 	id at = base;
-	for (NSString *key in keys) {
+	for (ORMPlanStep *step in path.steps) {
 		if (at == nil || ORMIsDeleted(at)) {
 			return nil;
 		}
 		BOOL many = [at isKindOfClass:[NSSet class]] || [at isKindOfClass:[NSOrderedSet class]]
 		            || [at isKindOfClass:[NSArray class]];
-		at = [many ? ORMLive(at) : at valueForKey:key];
+		at = step.key != nil ? [many ? ORMLive(at) : at valueForKey:step.key] : ORMAsEntity(many ? ORMLive(at) : at, step.entityName);
 	}
 	if (ORMIsDeleted(at)) {
 		return nil;

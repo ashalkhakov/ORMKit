@@ -315,8 +315,8 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	XCTAssertEqualObjects([queries valueForKey:@"queryId"], formId, @"the form chosen in it");
 	[[queries window] close];
 	XCTAssertFalse([[designer window] isVisible], @"its own window never shown");
-	XCTAssertEqual([designer.editor.flow.screens count], 5u);
-	XCTAssertEqual([designer.palette numberOfRows], 5, @"the model's four forms and its list");
+	XCTAssertEqual([designer.editor.flow.screens count], 6u);
+	XCTAssertEqual([designer.palette numberOfRows], 6, @"the model's five forms and its list");
 	XCTAssertEqual([designer.problems numberOfRows], 0);
 
 	[designer.editor renameScreen:@"Vehicles" to:@"Vans"];

@@ -69,6 +69,19 @@ extern NSString * const ORMFormErrorDomain;
 /* The values it may have, where the model lists them (a fuel, a
  * currency): its choices, whatever the store holds; nil for others. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *items;
+/* Beyond the anchor's own properties, the keys to it from the anchor
+ * (purchaseOrder, supplier, contact, contactName); nil for its own, but
+ * one named for another (a trip's moment, "tripMoment": moment). In an
+ * object the form owns, the group of it (its keys: "contact"); through
+ * one it refers to, none: shown as read, and as the reference's object
+ * has it once that is chosen. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *path;
+@property (nonatomic, readonly, copy) NSString *group;
+/* In a subtype's part (+ is Trip), its subentity: written, and relevant,
+ * where the object is one. The form's kind element ("isA", kind
+ * "subtype") says which the object is, its items the subentities; a new
+ * one is made of it, one read is of it, and stays so. */
+@property (nonatomic, readonly, copy) NSString *subtype;
 @end
 
 /* What to send the service to save the form: the method, the path under
@@ -101,6 +114,12 @@ extern NSString * const ORMFormErrorDomain;
 @property (nonatomic, readonly, strong) ORMQueryPlan *readPlan;
 /* The form's inputs: the elements given as it opens, by name. */
 - (NSArray<NSString *> *)inputNames;
+/* The objects it owns (docs/FORMS.md: a customer's contact, the
+ * contact's address), made and changed with the anchor, outer ones first:
+ * each {name, path, entity, label, needed}, its elements those of the
+ * group of its name. One not needed is made only where something of it is
+ * entered. */
+- (NSArray<NSDictionary *> *)groups;
 /* Its repeats (docs/FORMS.md: a step from the anchor to many, an order's
  * lines), by the element each is: a form of its own each, over the objects
  * linked to this one by its link element (the line's order). In an
@@ -144,6 +163,11 @@ extern NSString * const ORMFormErrorDomain;
                                values:(NSDictionary<NSString *, id> *)values
                             inContext:(NSManagedObjectContext *)context
                                 error:(NSError **)error;
+/* Each element through a reference of the instance's (an order's
+ * supplier's name), as the object the reference is to has it, in the
+ * context: "" where it has none, or the reference none. */
+- (NSDictionary<NSString *, NSString *> *)throughValuesOf:(NSDictionary<NSString *, id> *)instance
+                                                inContext:(NSManagedObjectContext *)context;
 /* The instance written into its object, found by its key or made (a key
  * given it where it has none), each reference found by its key, each
  * repeat's rows written into their objects linked to it (those it had and

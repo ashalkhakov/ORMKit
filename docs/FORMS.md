@@ -563,8 +563,32 @@ never edited, as the validation code is. Customizations are documents of their o
    them as ODataKit's `ODataPropertyMapper` does (step 5). A unary
    entered or shown is its attribute's element, an `xsd:boolean`
    (`filledTheTank`), read as a column of its own rather than asked for. A node past a
-   to-many (owned groups, repeats) and one through another object's
-   properties are noted and left out for now, as are subtype parts.
+   to-many is a repeat's (below).
+   *Done beyond the anchor's own:*
+   - **Through an object it refers to** (Logbook's receipt, its order's
+     supplier's contact's name): shown, never written, its element named
+     by its keys (`purchaseOrderSupplierContactContactName`), its `path`
+     in the table; read with the anchor, and as the object of the
+     reference chosen has it (ORMFormSession reads it again on a store
+     when the reference changes). Entered there, it is noted and shown.
+   - **An object the form owns** (a customer's contact, the contact's
+     shipping address): an object reached by a step that is not entered,
+     shown or given, with something entered beneath it. Its elements are
+     a group's (`contact/contactName`), nested in the instance and in an
+     `xf:group` of the controls; the table lists its `groups`, outer
+     ones first, each its keys, entity, key and whether every anchor has
+     one (`needed`). It is made with the anchor where needed or where
+     anything of it is entered, changed with it, and put back with it
+     when the save is refused; to the service, nested in the body (a deep
+     insert, a deep update). Its mandatory roles are required where the
+     object is needed, else once anything of it is entered (`../* != ''`).
+   - **Subtype parts** (Logbook's events: `+ is Trip`, `+ is FillUp`): its
+     nodes the subentity's properties (`tripMoment` where another part
+     has a `moment`), each relevant where the object is of it; an element
+     `isA` (kind `subtype`, its items the subentities) says which the
+     object is: a new one is made of it, one read is of it and stays so,
+     and the service is told its type. The read reads every object,
+     each subtype's properties nothing where it is not one.
 3. **Binds.** From the constraints whose roles are all in the form, with
    the verbalization as each alert; rules and derivations over the form's
    facts in XPath; the rest listed as checked where it is submitted.

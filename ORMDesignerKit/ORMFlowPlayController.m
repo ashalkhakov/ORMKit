@@ -123,7 +123,7 @@
 	if (tableView == self.log) {
 		return (NSInteger)[[self lines] count];
 	}
-	return (NSInteger)(_walk.session != nil ? [_walk.session.form.elements count] : [_walk.rows count]);
+	return (NSInteger)(_walk.session != nil ? [[self elementsShown] count] : [_walk.rows count]);
 }
 
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
@@ -139,7 +139,7 @@
 		return [NSString stringWithFormat:@"%@ → %@%@", on, where, [way.kind isEqualToString:ORMFlowKindOverlay] ? @" (over it)" : @""];
 	}
 	if (_walk.session != nil) {
-		ORMFormElement *element = [_walk.session.form.elements objectAtIndex:(NSUInteger)row];
+		ORMFormElement *element = [self elementOfRow:row];
 		if ([[column identifier] isEqualToString:@"value"]) {
 			return [self shownValueOfRow:row];
 		}
@@ -224,9 +224,28 @@
 
 #pragma mark Values
 
+/* The form's elements, a subtype's only where the object is of it (a
+ * fill-up's litres once it is one). */
+- (NSArray<ORMFormElement *> *)elementsShown
+{
+	NSString *kind = nil;
+	for (ORMFormElement *element in _walk.session.form.elements) {
+		if ([element.kind isEqualToString:@"subtype"]) {
+			kind = [_walk.session valueForElement:element.name] ?: @"";
+		}
+	}
+	NSMutableArray *shown = [NSMutableArray array];
+	for (ORMFormElement *element in _walk.session.form.elements) {
+		if (element.subtype == nil || [element.subtype isEqualToString:kind]) {
+			[shown addObject:element];
+		}
+	}
+	return shown;
+}
+
 - (ORMFormElement *)elementOfRow:(NSInteger)row
 {
-	NSArray *elements = _walk.session.form.elements;
+	NSArray *elements = [self elementsShown];
 	return row >= 0 && row < (NSInteger)[elements count] ? [elements objectAtIndex:(NSUInteger)row] : nil;
 }
 
@@ -322,9 +341,16 @@ ORMFlowPlayFormatter(NSString *format)
 		return;
 	}
 	[_walk.session setValue:value ?: @"" forElement:element.name];
+	/* A kind chosen shows its part; a reference chosen, what is shown
+	 * through it. */
+	if ([element.kind isEqualToString:@"subtype"] || [element.kind isEqualToString:@"reference"]) {
+		[self.values reloadData];
+		[self.values selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row] byExtendingSelection:NO];
+		return;
+	}
 	/* Choices that depend on it chosen again; the row shown as it is now. */
 	NSMutableIndexSet *rows = [NSMutableIndexSet indexSetWithIndex:(NSUInteger)row];
-	for (NSUInteger i = 0; i < [_walk.session.form.elements count]; i++) {
+	for (NSUInteger i = 0; i < [[self elementsShown] count]; i++) {
 		if ([[self editorOfRow:(NSInteger)i] isEqualToString:@"choice"]) {
 			[rows addIndex:i];
 		}

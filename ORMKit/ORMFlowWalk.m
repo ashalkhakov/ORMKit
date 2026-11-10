@@ -167,6 +167,41 @@ ORMFlowWalkName(ORMFlowScreen *screen)
 	return YES;
 }
 
+/* Whether the form's owned object of the group is wanted: needed (a
+ * customer's contact), or anything of it entered. */
+static BOOL
+ORMFlowWalkWanted(ORMForm *form, NSString *group, NSDictionary *values)
+{
+	for (NSDictionary *each in [form groups]) {
+		if ([[each objectForKey:@"name"] isEqualToString:group] && [[each objectForKey:@"needed"] boolValue]) {
+			return YES;
+		}
+	}
+	NSString *within = [group stringByAppendingString:@"/"];
+	for (ORMFormElement *element in form.elements) {
+		if (element.written && ([element.group isEqualToString:group] || [element.group hasPrefix:within])
+		    && [[[values objectForKey:element.name] description] length] > 0) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* Whether the object is of the subtype, as the form's kind says. */
+static BOOL
+ORMFlowWalkIsKind(ORMForm *form, NSString *subtype, NSDictionary *values, NSManagedObjectContext *context)
+{
+	for (ORMFormElement *element in form.elements) {
+		if ([element.kind isEqualToString:@"subtype"]) {
+			NSDictionary *entities = [[[context persistentStoreCoordinator] managedObjectModel] entitiesByName];
+			NSEntityDescription *chosen = [entities objectForKey:[[values objectForKey:element.name] description] ?: @""];
+			NSEntityDescription *part = [entities objectForKey:subtype];
+			return chosen != nil && part != nil && [chosen isKindOfEntity:part];
+		}
+	}
+	return YES;
+}
+
 /* A screen as it opens: a list's rows read, a form's session opened with
  * what it is given (its given nodes' values, by id). */
 - (ORMFlowWalkFrame *)open:(ORMFlowScreen *)screen given:(NSDictionary<NSString *, NSString *> *)given error:(NSError **)error
@@ -237,27 +272,23 @@ ORMFlowWalkName(ORMFlowScreen *screen)
 	/* The population's store asks for nothing (a sample need not be
 	 * whole), so what the form asks of each value is asked here, said in
 	 * the constraint's own words at its element, as the form would say it
-	 * before it submits; then saved. */
+	 * before it submits; then saved. An owned object's only where it is
+	 * needed or anything of it is entered. */
 	NSDictionary *required = [document requiredElements];
-	NSString *entityName = document.entityName;
+	__weak ORMFormSession *weakSession = session;
 	[session useContext:_context saving:^BOOL(NSManagedObjectContext *context, NSError **error) {
+		NSDictionary *values = weakSession.values;
 		NSMutableArray *missing = [NSMutableArray array];
-		NSSet *changed = [[context insertedObjects] setByAddingObjectsFromSet:[context updatedObjects]];
-		for (NSManagedObject *object in changed) {
-			if (![[[object entity] name] isEqualToString:entityName]) {
+		for (NSString *name in [[required allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+			ORMFormElement *element = [form elementNamed:name];
+			if (element == nil || (element.group != nil && !ORMFlowWalkWanted(form, element.group, values))
+			    || (element.subtype != nil && !ORMFlowWalkIsKind(form, element.subtype, values, context))) {
 				continue;
 			}
-			for (NSString *element in [[required allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
-				if ([[[object entity] propertiesByName] objectForKey:element] == nil) {
-					continue;
-				}
-				id value = [object valueForKey:element];
-				if (value == nil || ([value isKindOfClass:[NSString class]] && [value length] == 0)) {
-					[missing addObject:[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError userInfo:@{
-						NSLocalizedDescriptionKey : [required objectForKey:element], NSValidationObjectErrorKey : object,
-						NSValidationKeyErrorKey : element,
-					}]];
-				}
+			if ([[[values objectForKey:name] description] length] == 0) {
+				[missing addObject:[NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError userInfo:@{
+					NSLocalizedDescriptionKey : [required objectForKey:name], NSValidationKeyErrorKey : name,
+				}]];
 			}
 		}
 		if ([missing count] > 0) {

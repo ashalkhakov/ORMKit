@@ -28,6 +28,10 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 @property (nonatomic) BOOL isPart;
 /* Listed only for a value node to compute with: no control. */
 @property (nonatomic) BOOL isHidden;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *keys;
+@property (nonatomic, readwrite, copy) NSString *groupName;
+@property (nonatomic, readwrite) BOOL isThrough;
+@property (nonatomic, readwrite, copy) NSString *subtypeEntity;
 @end
 
 @implementation ORMFormField
@@ -120,6 +124,10 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	/* While the read is planned by the link's value, not the key's. */
 	BOOL _linkValue;
 	ORMCoreDataMapping *_mapping;
+	/* The objects it owns, by group ("contact", "contact/shippingAddress"),
+	 * each its node; their names in outline order. */
+	NSMutableDictionary<NSString *, ORMQueryNode *> *_groupNodes;
+	NSMutableArray<NSString *> *_groupNames;
 	/* The flow's screen it is shown as: its transitions, its actions. */
 	ORMFlow *_flow;
 	ORMFlowScreen *_screen;
@@ -280,6 +288,8 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_binds = [NSMutableDictionary dictionary];
 	_warnings = [NSMutableArray array];
 	_conditionSteps = [NSMutableSet set];
+	_groupNodes = [NSMutableDictionary dictionary];
+	_groupNames = [NSMutableArray array];
 	_elementOfNode = [NSMutableDictionary dictionary];
 	_unarySteps = [NSMutableDictionary dictionary];
 	for (ORMQueryStep *step in form.root.steps) {
@@ -401,6 +411,26 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	return listed;
 }
 
+/* Whether a node the read lists is beneath the part. */
+static BOOL
+ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
+{
+	for (ORMQueryPart *each in part.parts) {
+		if ((!each.isStep && [listed containsObject:each.identifier]) || ORMListsBeneath(each, listed)) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+/* Whether the step leads on, from an object neither entered nor given (an
+ * owned one, one passed through, a subtype's), to something listed. */
+- (BOOL)passesOn:(ORMQueryPart *)step listed:(NSSet<NSString *> *)listed
+{
+	ORMQueryNode *from = [self nodeWithId:step.parent.identifier];
+	return from != nil && from.formPart == ORMFormPartNone && !from.isGiven && ORMListsBeneath(step, listed);
+}
+
 - (ORMQueryPlan *)readPlanForKey:(NSString *)key
 {
 	ORMStoredQuery *copy = [_stored copy];
@@ -415,9 +445,11 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 			if ([_conditionSteps containsObject:part.identifier] || [_unarySteps objectForKey:part.identifier] != nil
 			    || [_repeatSteps objectForKey:part.identifier] != nil) {
 				[conditions addObject:part];
-			} else if (part.operatorName == nil && part.parent == copy.root
+			} else if (part.operatorName == nil && (part.parent == copy.root || [self passesOn:part listed:listed])
 			           && !(_linkNodeId != nil && [[[part nodes] firstObject].identifier isEqualToString:_linkNodeId])) {
-				/* What is not given yet leaves no object out. */
+				/* What is not given yet leaves no object out: the anchor's
+				 * own, and what is listed further on (a contact's name, an
+				 * order's supplier's). */
 				part.operatorName = @"Maybe";
 			}
 			continue;
@@ -542,10 +574,12 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 			}
 			NSArray *parts = ORMPartsOf(node);
 			NSUInteger index = 0;
+			NSString *subtype = [self subtypeEntityOf:node];
 			for (NSArray<NSString *> *partKeys in column.identifierParts) {
 				ORMRole *partRole = index < [parts count] ? [parts objectAtIndex:index] : nil;
-				ORMFormField *field = [self fieldFor:node keys:partKeys key:[partKeys count] == 2 ? [partKeys lastObject] : nil
-				                               type:partRole.player];
+				ORMFormField *field = [self fieldFor:node entity:subtype ?: _entityName property:[partKeys firstObject]
+				                                name:[self nameOf:[partKeys firstObject] subtype:subtype]
+				                                 key:[partKeys count] == 2 ? [partKeys lastObject] : nil type:partRole.player];
 				if (![field.nodeId isEqualToString:node.identifier]) {
 					index++;
 					continue;
@@ -554,18 +588,245 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 				field.partIndex = index++;
 				field.role = partRole;
 				field.isHidden = hidden;
+				field.subtypeEntity = subtype;
 			}
+			continue;
+		}
+		if ([keys count] > 1) {
+			[self placeFarNode:node keys:keys key:column.identifierKey hidden:hidden];
 			continue;
 		}
 		if ([keys count] != 1) {
 			[_notes addObject:[NSString stringWithFormat:@"%@: not one of the anchor's own properties.", name]];
 			continue;
 		}
-		ORMFormField *field = [self fieldFor:node keys:keys key:column.identifierKey type:node.objectType];
+		NSString *subtype = [self subtypeEntityOf:node];
+		ORMFormField *field = [self fieldFor:node entity:subtype ?: _entityName property:[keys firstObject]
+		                                name:[self nameOf:[keys firstObject] subtype:subtype] key:column.identifierKey
+		                                type:node.objectType];
 		if ([field.nodeId isEqualToString:node.identifier]) {
 			field.isHidden = hidden;
+			field.subtypeEntity = subtype;
 		}
 	}
+	[self placeSubtypeChoice];
+}
+
+/* A subtype's property's element: its name, unless the anchor's or
+ * another subtype's has it (a trip's moment, "tripMoment"). */
+- (NSString *)nameOf:(NSString *)property subtype:(NSString *)subtype
+{
+	ORMFormField *same = [self fieldNamed:property];
+	if (subtype == nil || same == nil || [same.subtypeEntity isEqualToString:subtype]) {
+		return property;
+	}
+	return [[[subtype substringToIndex:1] lowercaseString] stringByAppendingFormat:@"%@%@", [subtype substringFromIndex:1],
+	                                                                                 [[[property substringToIndex:1] uppercaseString]
+	                                                                                     stringByAppendingString:[property substringFromIndex:1]]];
+}
+
+/* The subtypes of its parts (+ is Trip, + is FillUp), in outline order. */
+- (NSArray<NSString *> *)subtypeEntities
+{
+	NSMutableArray *subtypes = [NSMutableArray array];
+	for (ORMFormField *field in _fields) {
+		if (field.subtypeEntity != nil && ![subtypes containsObject:field.subtypeEntity]) {
+			[subtypes addObject:field.subtypeEntity];
+		}
+	}
+	return subtypes;
+}
+
+/* Where the form has subtype parts: which of them the object is, an
+ * element after the key ("isA": "Trip"), entered. */
+- (void)placeSubtypeChoice
+{
+	if ([[self subtypeEntities] count] == 0) {
+		return;
+	}
+	NSString *name = [self fieldNamed:@"isA"] == nil ? @"isA" : @"isA_";
+	ORMFormField *field = [[ORMFormField alloc] init];
+	field.nodeId = [_form.root.identifier stringByAppendingString:@"-isA"];
+	field.elementName = name;
+	field.kind = ORMFormFieldSubtype;
+	field.schemaType = @"xsd:string";
+	[_fields insertObject:field atIndex:MIN((NSUInteger)1, [_fields count])];
+}
+
+- (ORMFormField *)subtypeField
+{
+	for (ORMFormField *field in _fields) {
+		if (field.kind == ORMFormFieldSubtype) {
+			return field;
+		}
+	}
+	return nil;
+}
+
+/* Whether the form makes or changes the node's object along with the
+ * anchor (a customer's contact, its address): an object reached by a step
+ * that is no subtype's, neither entered, shown nor given (none to choose
+ * it from), with something entered beneath it. */
+- (BOOL)ownsNode:(ORMQueryNode *)node
+{
+	if (node == _form.root || node.isValue || node.isGiven || node.formPart != ORMFormPartNone || ORMPartsOf(node) != nil
+	    || node.step == nil || [node.step isSubtyping] || !node.objectType.isEntity) {
+		return NO;
+	}
+	return ORMEntersBeneath(node);
+}
+
+/* Something entered beneath the node, not under a reference entered. */
+static BOOL
+ORMEntersBeneath(ORMQueryNode *node)
+{
+	for (ORMQueryStep *step in node.steps) {
+		for (ORMQueryNode *each in step.nodes) {
+			if (each.formPart == ORMFormPartEntered
+			    || (each.formPart == ORMFormPartNone && !each.isGiven && ORMEntersBeneath(each))) {
+				return YES;
+			}
+		}
+	}
+	return NO;
+}
+
+/* The subentity of the subtype part the node is in (+ is Trip: Trip),
+ * its steps down from the anchor all a subtype's; nil for the anchor's
+ * own, and a subtype the mapping keeps in the anchor's entity. */
+- (NSString *)subtypeEntityOf:(ORMQueryNode *)node
+{
+	NSMutableArray *chain = [NSMutableArray array];
+	for (ORMQueryNode *each = node.step.parent; each != nil && each != _form.root; each = each.step.parent) {
+		[chain insertObject:each atIndex:0];
+	}
+	NSString *found = nil;
+	for (ORMQueryNode *each in chain) {
+		if (![each.step isSubtyping]) {
+			break;
+		}
+		NSString *entity = [_planner entityNameOfType:each.objectType];
+		if (entity != nil && ![entity isEqualToString:_entityName]) {
+			found = entity;
+		}
+	}
+	return found;
+}
+
+/* Whether the node's facts are the anchor's own: it, or a subtype of it
+ * the anchor is reached as (+ is Trip). */
+- (BOOL)isAnchorsOwn:(ORMQueryNode *)node
+{
+	for (ORMQueryNode *each = node; each != nil; each = each.step.parent) {
+		if (each == _form.root) {
+			return YES;
+		}
+		if (![each.step isSubtyping]) {
+			return NO;
+		}
+	}
+	return NO;
+}
+
+/* The objects between the anchor and the node, the anchor's side first:
+ * one a key each, a subtype's step none (the same object). */
+- (NSArray<ORMQueryNode *> *)objectsAbove:(ORMQueryNode *)node
+{
+	NSMutableArray *above = [NSMutableArray array];
+	for (ORMQueryNode *each = node.step.parent; each != nil && each != _form.root; each = each.step.parent) {
+		if (![each.step isSubtyping]) {
+			[above insertObject:each atIndex:0];
+		}
+	}
+	return above;
+}
+
+/* The entity at the end of the keys from the anchor's. */
+- (NSString *)entityAtKeys:(NSArray<NSString *> *)keys
+{
+	return [self entityAtKeys:keys from:_entityName];
+}
+
+- (NSString *)entityAtKeys:(NSArray<NSString *> *)keys from:(NSString *)base
+{
+	NSString *entity = base;
+	for (NSString *key in keys) {
+		ORMCDRelationship *relationship = (ORMCDRelationship *)ORMPropertyOf(_planner.coreData, entity, key);
+		if (![relationship isKindOfClass:[ORMCDRelationship class]]) {
+			return nil;
+		}
+		entity = relationship.destination;
+	}
+	return entity;
+}
+
+/* A node past the anchor's own properties, each step to one: in objects
+ * the form owns (its contact's name), an element of their group, written
+ * with the anchor; through an object it refers to (its order's supplier's
+ * name), shown as it is read, never written. */
+- (void)placeFarNode:(ORMQueryNode *)node keys:(NSArray<NSString *> *)keys key:(NSString *)key hidden:(BOOL)hidden
+{
+	NSArray *above = [self objectsAbove:node];
+	NSArray *toObject = [keys subarrayWithRange:NSMakeRange(0, [keys count] - 1)];
+	NSString *subtype = [self subtypeEntityOf:node];
+	NSString *entity = [self entityAtKeys:toObject from:subtype ?: _entityName];
+	if ([above count] != [toObject count] || entity == nil) {
+		[_notes addObject:[NSString stringWithFormat:@"%@: not reached from the anchor alone.", [node designation]]];
+		return;
+	}
+	BOOL owned = YES;
+	for (ORMQueryNode *each in above) {
+		owned = owned && [self ownsNode:each];
+	}
+	NSMutableString *name = [NSMutableString stringWithString:[keys firstObject]];
+	for (NSString *each in [keys subarrayWithRange:NSMakeRange(1, [keys count] - 1)]) {
+		if (owned) {
+			[name appendFormat:@"/%@", each];
+		} else {
+			[name appendString:[[[each substringToIndex:1] uppercaseString] stringByAppendingString:[each substringFromIndex:1]]];
+		}
+	}
+	if (!owned && node.formPart == ORMFormPartEntered) {
+		[_notes addObject:[NSString stringWithFormat:@"%@: entered on an object the form refers to, not one it makes: shown.",
+		                                             [node designation]]];
+	}
+	ORMFormField *field = [self fieldFor:node entity:entity property:[keys lastObject] name:name key:key type:node.objectType];
+	if (![field.nodeId isEqualToString:node.identifier]) {
+		return;
+	}
+	field.keys = keys;
+	field.isHidden = hidden;
+	field.isThrough = !owned;
+	field.subtypeEntity = subtype;
+	field.groupName = owned ? [toObject componentsJoinedByString:@"/"] : nil;
+	for (NSUInteger i = 0; owned && i < [above count]; i++) {
+		NSString *group = [[toObject subarrayWithRange:NSMakeRange(0, i + 1)] componentsJoinedByString:@"/"];
+		if ([_groupNodes objectForKey:group] == nil) {
+			[_groupNodes setObject:[above objectAtIndex:i] forKey:group];
+			[_groupNames addObject:group];
+		}
+	}
+}
+
+/* Whether every object of the anchor's has the owned node's: each step
+ * from the anchor to it a simple mandatory (a customer's contact). */
+- (BOOL)needsObjectOf:(ORMQueryNode *)owned
+{
+	for (ORMQueryNode *each = owned; each != nil && each != _form.root; each = each.step.parent) {
+		BOOL mandatory = NO;
+		for (ORMConstraint *constraint in each.step.entryRole.constraints) {
+			mandatory = mandatory || (constraint.kind == ORMMandatoryConstraint && constraint.isSimple && constraint.modality == ORMAlethic);
+		}
+		if (!mandatory && ![each.step isSubtyping]) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
+- (NSArray<NSString *> *)groupNames
+{
+	return [_groupNames copy];
 }
 
 /* Each unary's flag: an element of its attribute's, a boolean. */
@@ -598,19 +859,31 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
  * reference holding the key of the object at the path. */
 - (ORMFormField *)fieldFor:(ORMQueryNode *)node keys:(NSArray<NSString *> *)keys key:(NSString *)key type:(ORMObjectType *)type
 {
+	return [self fieldFor:node entity:_entityName property:[keys firstObject] name:[keys firstObject] key:key type:type];
+}
+
+/* The element of the name for the entity's property: a value, or (with a
+ * key) a reference holding the key of the object it refers to. */
+- (ORMFormField *)fieldFor:(ORMQueryNode *)node
+                    entity:(NSString *)entityName
+                  property:(NSString *)property
+                      name:(NSString *)name
+                       key:(NSString *)key
+                      type:(ORMObjectType *)type
+{
 	ORMCDModel *coreData = _planner.coreData;
-	NSString *name = [keys firstObject];
 	if (key == nil) {
-		ORMCDAttribute *attribute = (ORMCDAttribute *)ORMPropertyOf(coreData, _entityName, name);
+		ORMCDAttribute *attribute = (ORMCDAttribute *)ORMPropertyOf(coreData, entityName, property);
 		NSString *schemaType = [attribute isKindOfClass:[ORMCDAttribute class]] ? ORMSchemaTypeOf(attribute, [type valueType])
 		                                                                        : @"xsd:string";
 		ORMFormField *field = [self addField:node.identifier name:name kind:ORMFormFieldValue type:schemaType];
 		if ([field.nodeId isEqualToString:node.identifier]) {
 			field.role = node.role;
+			field.keys = [name isEqualToString:property] ? nil : @[ property ];
 		}
 		return field;
 	}
-	ORMCDRelationship *relationship = (ORMCDRelationship *)ORMPropertyOf(coreData, _entityName, name);
+	ORMCDRelationship *relationship = (ORMCDRelationship *)ORMPropertyOf(coreData, entityName, property);
 	NSString *destination = [relationship isKindOfClass:[ORMCDRelationship class]] ? relationship.destination : nil;
 	ORMCDAttribute *keyAttribute = (ORMCDAttribute *)ORMPropertyOf(coreData, destination, key);
 	NSString *schemaType = [keyAttribute isKindOfClass:[ORMCDAttribute class]] ? ORMSchemaTypeOf(keyAttribute, nil)
@@ -623,6 +896,7 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	field.keyName = key;
 	field.referredType = type;
 	field.role = node.role;
+	field.keys = [name isEqualToString:property] ? nil : @[ property ];
 	return field;
 }
 
@@ -835,6 +1109,17 @@ ORMItemsOf(ORMValueConstraint *values)
 		ORMQueryNode *node = [self nodeWithId:field.nodeId];
 		ORMFormBind *bind = [self bindOf:field];
 		ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
+		if (field.kind == ORMFormFieldSubtype) {
+			/* One of them, where the anchor's own entity has no objects of
+			 * its own. */
+			if ([_planner.coreData entityNamed:_entityName].isAbstract) {
+				[bind.required addObject:@"true()"];
+			}
+			continue;
+		}
+		if (field.subtypeEntity != nil) {
+			[bind.relevant addObject:[self kindTestOf:field]];
+		}
 		if (unary != nil) {
 			bind.readonly = unary.formPart == ORMFormPartShown;
 			continue;
@@ -865,12 +1150,17 @@ ORMItemsOf(ORMValueConstraint *values)
 			bind.readonly = YES;
 		}
 		ORMRole *entry = node.step.entryRole;
-		if (node.formPart == ORMFormPartEntered && entry.isMandatory && node.step.parent == _form.root) {
+		/* An owned object's: needed where the object is (a customer's
+		 * contact), else once it has anything (an address entered at all
+		 * has its lines). */
+		BOOL owned = field.groupName != nil && [self ownsNode:node.step.parent] && ![self needsObjectOf:node.step.parent];
+		if (node.formPart == ORMFormPartEntered && entry.isMandatory
+		    && ([self isAnchorsOwn:node.step.parent] || (field.groupName != nil && [self ownsNode:node.step.parent]))) {
 			for (ORMConstraint *constraint in entry.constraints) {
 				if (constraint.kind == ORMMandatoryConstraint && constraint.isSimple) {
 					[self apply:constraint to:field];
 					if (constraint.modality == ORMAlethic) {
-						[bind.required addObject:@"true()"];
+						[bind.required addObject:owned ? @"../* != ''" : @"true()"];
 					} else {
 						[self warn:constraint at:field test:@". != ''"];
 					}
@@ -932,6 +1222,28 @@ ORMItemsOf(ORMValueConstraint *values)
 			                                               ORMLabelOf(field.role, valueType), valueType.valuePattern]];
 		}
 	}
+}
+
+/* "../isA = 'Trip'": the object is of the field's subtype, or one of the
+ * form's subtypes of it, from where the field is. */
+- (NSString *)kindTestOf:(ORMFormField *)field
+{
+	NSMutableString *up = [NSMutableString string];
+	for (NSUInteger i = [[field.elementName componentsSeparatedByString:@"/"] count]; i > 0; i--) {
+		[up appendString:@"../"];
+	}
+	NSMutableArray *tests = [NSMutableArray array];
+	for (NSString *subtype in [self subtypeEntities]) {
+		BOOL kind = NO;
+		for (ORMCDEntity *each = [_planner.coreData entityNamed:subtype]; each != nil && !kind;
+		     each = [_planner.coreData entityNamed:each.parentName ?: @""]) {
+			kind = [each.name isEqualToString:field.subtypeEntity];
+		}
+		if (kind) {
+			[tests addObject:[NSString stringWithFormat:@"%@%@ = '%@'", up, [self subtypeField].elementName, subtype]];
+		}
+	}
+	return [tests count] > 0 ? [tests componentsJoinedByString:@" or "] : @"false()";
 }
 
 /* The steps every object of the anchor's type has by the definitions of
@@ -1382,7 +1694,8 @@ ORMPlanWithParameters(ORMQueryPlan *plan, NSDictionary<NSString *, NSString *> *
 static NSString *
 ORMFieldKindName(ORMFormFieldKind kind)
 {
-	return kind == ORMFormFieldReference ? @"reference" : kind == ORMFormFieldCalculated ? @"calculated" : @"value";
+	return kind == ORMFormFieldReference ? @"reference" : kind == ORMFormFieldCalculated ? @"calculated"
+	     : kind == ORMFormFieldSubtype ? @"subtype" : @"value";
 }
 
 - (id)tablePropertyList
@@ -1408,6 +1721,15 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		if (field.isPart) {
 			[element setObject:@(field.partIndex) forKey:@"part"];
 		}
+		if (field.keys != nil) {
+			[element setObject:field.keys forKey:@"path"];
+		}
+		if (field.groupName != nil) {
+			[element setObject:field.groupName forKey:@"group"];
+		}
+		if (field.subtypeEntity != nil) {
+			[element setObject:field.subtypeEntity forKey:@"subtype"];
+		}
 		if (field.kind == ORMFormFieldReference) {
 			[element setObject:field.entityName ?: @"" forKey:@"entity"];
 			[element setObject:field.keyName ?: @"" forKey:@"key"];
@@ -1415,8 +1737,9 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		/* What a save writes: what the user enters, and what the form is
 		 * given; never what it shows or computes. */
 		ORMQueryFormPart part = unary != nil ? unary.formPart : node.formPart;
-		BOOL written = node != _form.root && field.kind != ORMFormFieldCalculated && !field.isHidden
-		               && (part == ORMFormPartEntered || (node.isGiven && part != ORMFormPartShown));
+		BOOL written = (node != _form.root && field.kind != ORMFormFieldCalculated && !field.isHidden && !field.isThrough
+		                && (part == ORMFormPartEntered || (node.isGiven && part != ORMFormPartShown)))
+		               || field.kind == ORMFormFieldSubtype;
 		[element setObject:@(written) forKey:@"written"];
 		/* What it is to whoever opens the form, and what it is called. */
 		[element setObject:[self roleOfField:field] forKey:@"role"];
@@ -1427,7 +1750,8 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		 * XForms document's items: what a view offers to choose from. */
 		ORMValueConstraint *values = field.role.valueConstraint ?: [field.role.player valueType].valueConstraint;
 		NSArray *items = field.kind == ORMFormFieldValue ? ORMItemsOf(values)
-		               : field.kind == ORMFormFieldReference ? ORMItemsOf(field.referredType.valueConstraint) : nil;
+		               : field.kind == ORMFormFieldReference ? ORMItemsOf(field.referredType.valueConstraint)
+		               : field.kind == ORMFormFieldSubtype ? [self subtypeEntities] : nil;
 		if (items != nil) {
 			[element setObject:items forKey:@"items"];
 		}
@@ -1456,6 +1780,21 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		[list setObject:[read propertyList] forKey:@"read"];
 	}
 	[list setObject:choices forKey:@"choices"];
+	/* The objects it owns, made and changed with the anchor: each its keys
+	 * from the anchor and its entity, outer ones first. */
+	NSMutableArray *groups = [NSMutableArray array];
+	for (NSString *name in _groupNames) {
+		NSArray *keys = [name componentsSeparatedByString:@"/"];
+		ORMQueryNode *node = [_groupNodes objectForKey:name];
+		[groups addObject:@{
+			@"name" : name, @"path" : keys, @"entity" : [self entityAtKeys:keys] ?: @"",
+			@"label" : ORMLabelOf(node.role, node.objectType), @"needed" : @([self needsObjectOf:node]),
+			@"key" : [_planner identifierKeyOfType:node.objectType] ?: @"",
+		}];
+	}
+	if ([groups count] > 0) {
+		[list setObject:groups forKey:@"groups"];
+	}
 	[list setObject:[self checkedWhereSubmitted] forKey:@"checkedWhereSubmitted"];
 	/* A repeat's link; the repeats, each a table of its own. */
 	if ([self linkElement] != nil) {
@@ -1478,7 +1817,18 @@ ORMFieldKindName(ORMFormFieldKind kind)
 	NSXMLElement *instance = [NSXMLElement elementWithName:_entityName];
 	[instance addNamespace:[NSXMLNode namespaceWithName:@"" stringValue:@""]];
 	for (ORMFormField *field in _fields) {
-		[instance addChild:[NSXMLElement elementWithName:field.elementName stringValue:[values objectForKey:field.elementName] ?: @""]];
+		/* An owned object's elements under its own ("contact/contactName"). */
+		NSArray *path = [field.elementName componentsSeparatedByString:@"/"];
+		NSXMLElement *parent = instance;
+		for (NSString *step in [path subarrayWithRange:NSMakeRange(0, [path count] - 1)]) {
+			NSXMLElement *child = [[parent elementsForName:step] firstObject];
+			if (child == nil) {
+				child = [NSXMLElement elementWithName:step];
+				[parent addChild:child];
+			}
+			parent = child;
+		}
+		[parent addChild:[NSXMLElement elementWithName:[path lastObject] stringValue:[values objectForKey:field.elementName] ?: @""]];
 	}
 	return instance;
 }
@@ -1634,6 +1984,9 @@ ORMXText(NSString *name, NSString *text)
  * reference's role or its type. */
 - (NSString *)labelOfField:(ORMFormField *)field
 {
+	if (field.kind == ORMFormFieldSubtype) {
+		return @"Kind";
+	}
 	ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
 	if (unary != nil) {
 		NSString *reading = [[ORMQuery readingOfStep:unary] stringByReplacingOccurrencesOfString:@"{0}" withString:@""];
@@ -1651,6 +2004,9 @@ ORMXText(NSString *name, NSString *text)
  * "hidden" (kept only to compute with). */
 - (NSString *)roleOfField:(ORMFormField *)field
 {
+	if (field.kind == ORMFormFieldSubtype) {
+		return @"entered";
+	}
 	ORMQueryNode *node = [self nodeWithId:field.nodeId];
 	ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
 	ORMQueryFormPart part = unary != nil ? unary.formPart : node.formPart;
@@ -1660,8 +2016,11 @@ ORMXText(NSString *name, NSString *text)
 	if (field.kind == ORMFormFieldCalculated) {
 		return @"calculated";
 	}
-	if (part == ORMFormPartEntered) {
+	if (part == ORMFormPartEntered && !field.isThrough) {
 		return @"entered";
+	}
+	if (part == ORMFormPartEntered) {
+		return @"shown";
 	}
 	if (part == ORMFormPartShown) {
 		return @"shown";
@@ -1669,32 +2028,85 @@ ORMXText(NSString *name, NSString *text)
 	return node.isGiven ? @"given" : @"hidden";
 }
 
+/* The field's control: a compound's group of its parts' (once); nil for
+ * one with none (the anchor's key, what is only computed with). */
+- (NSXMLElement *)controlOfField:(ORMFormField *)field done:(NSMutableSet *)done
+{
+	ORMQueryNode *node = [self nodeWithId:field.nodeId];
+	ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
+	if (unary != nil) {
+		return [self controlOf:field node:nil label:[self labelOfField:field]];
+	}
+	if (field.kind == ORMFormFieldSubtype) {
+		NSXMLElement *control = ORMXElement(@"xf:select1", @{
+			@"id" : [@"control-" stringByAppendingString:[field fieldId]], @"bind" : [@"bind-" stringByAppendingString:[field fieldId]],
+		});
+		[control addChild:ORMXText(@"xf:label", [self labelOfField:field])];
+		for (NSString *subtype in [self subtypeEntities]) {
+			NSXMLElement *item = [NSXMLElement elementWithName:@"xf:item"];
+			[item addChild:ORMXText(@"xf:label", subtype)];
+			[item addChild:ORMXText(@"xf:value", subtype)];
+			[control addChild:item];
+		}
+		return control;
+	}
+	if (field.isHidden || node == _form.root || [done containsObject:field.nodeId]
+	    || (node.formPart == ORMFormPartNone && field.kind != ORMFormFieldCalculated)) {
+		return nil;
+	}
+	if (field.isPart) {
+		[done addObject:field.nodeId];
+		NSXMLElement *group = ORMXElement(@"xf:group", @{ @"id" : [@"control-" stringByAppendingString:field.nodeId] });
+		[group addChild:ORMXText(@"xf:label", ORMLabelOf(node.role, node.objectType))];
+		for (ORMFormField *part in [self fieldsOfNode:field.nodeId]) {
+			[group addChild:[self controlOf:part node:node label:[self labelOfField:part]]];
+		}
+		return group;
+	}
+	return [self controlOf:field node:node label:[self labelOfField:field]];
+}
+
+/* An owned object's controls, in a group labelled as the form names it
+ * (Contact; its Shipping Address within). */
+- (NSXMLElement *)controlOfGroup:(NSString *)name done:(NSMutableSet *)done
+{
+	[done addObject:[@"group:" stringByAppendingString:name]];
+	ORMQueryNode *owned = [_groupNodes objectForKey:name];
+	NSXMLElement *group = ORMXElement(@"xf:group", @{
+		@"id" : [@"control-" stringByAppendingString:[name stringByReplacingOccurrencesOfString:@"/" withString:@"-"]],
+	});
+	[group addChild:ORMXText(@"xf:label", ORMLabelOf(owned.role, owned.objectType))];
+	NSString *within = [name stringByAppendingString:@"/"];
+	for (ORMFormField *field in _fields) {
+		NSXMLElement *control = nil;
+		if ([field.groupName isEqualToString:name]) {
+			control = [self controlOfField:field done:done];
+		} else if ([field.groupName hasPrefix:within]) {
+			NSString *inner = [within stringByAppendingString:[[[field.groupName substringFromIndex:[within length]]
+			                                                       componentsSeparatedByString:@"/"] firstObject]];
+			control = [done containsObject:[@"group:" stringByAppendingString:inner]] ? nil : [self controlOfGroup:inner done:done];
+		}
+		if (control != nil) {
+			[group addChild:control];
+		}
+	}
+	return group;
+}
+
 - (void)addControlsTo:(NSXMLElement *)body
 {
 	NSMutableSet *done = [NSMutableSet set];
 	for (ORMFormField *field in _fields) {
-		ORMQueryNode *node = [self nodeWithId:field.nodeId];
-		ORMQueryStep *unary = [_unarySteps objectForKey:field.nodeId];
-		if (unary != nil) {
-			[body addChild:[self controlOf:field node:nil label:[self labelOfField:field]]];
-			continue;
+		NSXMLElement *control = nil;
+		if (field.groupName != nil) {
+			NSString *outer = [[field.groupName componentsSeparatedByString:@"/"] firstObject];
+			control = [done containsObject:[@"group:" stringByAppendingString:outer]] ? nil : [self controlOfGroup:outer done:done];
+		} else {
+			control = [self controlOfField:field done:done];
 		}
-		if (field.isHidden || node == _form.root || [done containsObject:field.nodeId]
-		    || (node.formPart == ORMFormPartNone && field.kind != ORMFormFieldCalculated)) {
-			continue;
+		if (control != nil) {
+			[body addChild:control];
 		}
-		NSArray *fields = [self fieldsOfNode:field.nodeId];
-		if (field.isPart) {
-			[done addObject:field.nodeId];
-			NSXMLElement *group = ORMXElement(@"xf:group", @{ @"id" : [@"control-" stringByAppendingString:field.nodeId] });
-			[group addChild:ORMXText(@"xf:label", ORMLabelOf(node.role, node.objectType))];
-			for (ORMFormField *part in fields) {
-				[group addChild:[self controlOf:part node:node label:[self labelOfField:part]]];
-			}
-			[body addChild:group];
-			continue;
-		}
-		[body addChild:[self controlOf:field node:node label:[self labelOfField:field]]];
 	}
 	NSXMLElement *submit = ORMXElement(@"xf:submit", @{ @"id" : @"control-save", @"submission" : @"save" });
 	[submit addChild:ORMXText(@"xf:label", @"Save")];
@@ -1724,7 +2136,7 @@ ORMXText(NSString *name, NSString *text)
 {
 	NSMutableDictionary *required = [NSMutableDictionary dictionary];
 	for (ORMFormBind *bind in [_binds allValues]) {
-		if ([bind.required containsObject:@"true()"] && bind.field.elementName != nil) {
+		if (([bind.required containsObject:@"true()"] || [bind.required containsObject:@"../* != ''"]) && bind.field.elementName != nil) {
 			NSString *said = [bind.alerts componentsJoinedByString:@" "];
 			[required setObject:[said length] > 0 ? said : @"A value is required." forKey:bind.field.elementName];
 		}

@@ -977,6 +977,20 @@ static NSString *const FleetText =
 	@"Portable data type: Text: Variable Length(40)\n"
 	@"Station is called StationName\n"
 	@"Each Station is called exactly one StationName.\n"
+	@"Address is an entity type.\n"
+	@"Reference Mode: .id\n"
+	@"Portable data type: Other: Object ID\n"
+	@"AddressLines is a value type.\n"
+	@"Portable data type: Text: Variable Length(200)\n"
+	@"City is a value type.\n"
+	@"Portable data type: Text: Variable Length(60)\n"
+	@"Address has AddressLines\n"
+	@"Each Address has exactly one AddressLines.\n"
+	@"Address is in City\n"
+	@"Each Address is in at most one City.\n"
+	@"Station is at Address\n"
+	@"Each Station is at at most one Address.\n"
+	@"For each Address, at most one Station is at that Address.\n"
 	@"Fuel is an entity type.\n"
 	@"Reference Mode: .name\n"
 	@"The possible values of Fuel are 'Diesel', 'Petrol'.\n"
@@ -1001,11 +1015,13 @@ static NSString *const FleetText =
 	@"Each Money is in exactly one Currency.\n"
 	@"For each Amount and Currency, at most one Money has that Amount and is in that Currency.\n"
 	@"This association with Amount and Currency provides the preferred identification scheme for Money.\n"
-	@"FillUp is an entity type.\n"
+	@"Record is an entity type.\n"
 	@"Reference Mode: .id\n"
 	@"Portable data type: Other: Object ID\n"
-	@"FillUp is of Vehicle\n"
-	@"Each FillUp is of exactly one Vehicle.\n"
+	@"Record is of Vehicle\n"
+	@"Each Record is of exactly one Vehicle.\n"
+	@"FillUp is an entity type.\n"
+	@"Each FillUp is a Record.\n"
 	@"FillUp was at Moment\n"
 	@"Each FillUp was at exactly one Moment.\n"
 	@"FillUp took Litres\n"
@@ -1025,10 +1041,7 @@ static NSString *const FleetText =
 	@"Portable data type: Numeric: Signed Integer\n"
 	@"The possible values of Count are at least 1.\n"
 	@"Service is an entity type.\n"
-	@"Reference Mode: .id\n"
-	@"Portable data type: Other: Object ID\n"
-	@"Service is of Vehicle\n"
-	@"Each Service is of exactly one Vehicle.\n"
+	@"Each Service is a Record.\n"
 	@"Service was on Day\n"
 	@"Each Service was on exactly one Day.\n"
 	@"ServiceLine is an entity type.\n"
@@ -1049,6 +1062,7 @@ static NSString *const FleetText =
 	@"Form RecordFillUp:\n"
 	@"FillUp\n"
 	@"  + is of Vehicle1 = ?\n"
+	@"    + has ✓Plate\n"
 	@"  + was at ✎Moment\n"
 	@"  + took ✎Litres\n"
 	@"  + was of ✎Fuel\n"
@@ -1062,6 +1076,9 @@ static NSString *const FleetText =
 	@"Form NewStation:\n"
 	@"Station\n"
 	@"  + is called ✎StationName\n"
+	@"  + is at Address\n"
+	@"    + has ✎AddressLines\n"
+	@"    + is in ✎City\n"
 	@"\n"
 	@"Query NewVehicle:\n"
 	@"Form NewVehicle:\n"
@@ -1075,7 +1092,18 @@ static NSString *const FleetText =
 	@"  + was on ✎Day\n"
 	@"  + ServiceLine is in that Service\n"
 	@"    + used ✎Part\n"
-	@"    + used ✎Count\n";
+	@"    + used ✎Count\n"
+	@"\n"
+	@"Query NewRecord:\n"
+	@"Form NewRecord:\n"
+	@"Record\n"
+	@"  + is of Vehicle = ?\n"
+	@"  + is FillUp\n"
+	@"    + was at ✎Moment\n"
+	@"    + took ✎Litres\n"
+	@"    + was of ✎Fuel\n"
+	@"  + is Service\n"
+	@"    + was on ✎Day\n";
 
 - (void)fleet
 {
@@ -1128,6 +1156,10 @@ static NSString *const FleetText =
 		NSString *one = [self one:@"Station" value:station[0] in:p];
 		[self fact:@"Station is called StationName" players:@[ one, [p value:station[1] of:[self typeId:@"StationName"]] ] in:p];
 	}
+	NSString *address = [self one:@"Address" value:@"00000000-0000-4000-8000-0000000000d1" in:p];
+	[self fact:@"Address has AddressLines" players:@[ address, [p value:@"12 Abay Ave" of:[self typeId:@"AddressLines"]] ] in:p];
+	[self fact:@"Address is in City" players:@[ address, [p value:@"Almaty" of:[self typeId:@"City"]] ] in:p];
+	[self fact:@"Station is at Address" players:@[ [self one:@"Station" value:stations[0][0] in:p], address ] in:p];
 	for (NSString *fuel in @[ @"Diesel", @"Petrol" ]) {
 		[self one:@"Fuel" value:fuel in:p];
 	}
@@ -1137,8 +1169,9 @@ static NSString *const FleetText =
 	for (NSString *part in @[ @"oil-filter", @"wiper", @"brake-pad" ]) {
 		[self one:@"Part" value:part in:p];
 	}
-	NSString *fillUp = [self one:@"FillUp" value:@"00000000-0000-4000-8000-0000000000c1" in:p];
-	[self fact:@"FillUp is of Vehicle" players:@[ fillUp, van1 ] in:p];
+	NSString *record = [self one:@"Record" value:@"00000000-0000-4000-8000-0000000000c1" in:p];
+	[self fact:@"Record is of Vehicle" players:@[ record, van1 ] in:p];
+	NSString *fillUp = [p instanceOf:[self typeId:@"FillUp"] supertypeInstance:record];
 	[self fact:@"FillUp was at Moment" players:@[ fillUp, [p value:@"2026-11-09T08:30:00" of:[self typeId:@"Moment"]] ] in:p];
 	[self fact:@"FillUp took Litres" players:@[ fillUp, [p value:@"42.5" of:[self typeId:@"Litres"]] ] in:p];
 	[self fact:@"FillUp was of Fuel" players:@[ fillUp, [self one:@"Fuel" value:@"Diesel" in:p] ] in:p];
@@ -1169,8 +1202,9 @@ static NSString *const FleetText =
 	return @"";
 }
 
-/* Fleet.flow: from the vans, a fill-up or a service of the one chosen; a
- * new van over the list; a new station over the fill-up, returned to it. */
+/* Fleet.flow: from the vans, a fill-up or a service of the one chosen, or a
+ * record of either kind; a new van over the list; a new station over the
+ * fill-up, returned to it. */
 - (void)fleetFlowAt:(NSString *)path
 {
 	NSString *(^screen)(NSString *, NSString *, BOOL) = ^NSString *(NSString *name, NSString *queryName, BOOL form) {
@@ -1185,13 +1219,17 @@ static NSString *const FleetText =
 	[xml appendString:screen(@"NewStation", @"NewStation", YES)];
 	[xml appendString:screen(@"RecordService", @"RecordService", YES)];
 	[xml appendString:screen(@"NewVehicle", @"NewVehicle", YES)];
+	[xml appendString:screen(@"NewRecord", @"NewRecord", YES)];
 	NSString *fillUpVehicle = [self node:@"Vehicle" of:@"RecordFillUp" given:YES];
 	NSString *serviceVehicle = [self node:@"Vehicle" of:@"RecordService" given:YES];
 	NSString *station = [self node:@"Station" of:@"RecordFillUp" given:NO];
+	NSString *recordVehicle = [self node:@"Vehicle" of:@"NewRecord" given:YES];
 	[xml appendFormat:@"  <flow:Transition From=\"Vehicles\" On=\"RowChosen\" To=\"RecordFillUp\"><flow:Give Node=\"%@\" From=\"row\"/></flow:Transition>\n",
 	                  fillUpVehicle];
 	[xml appendFormat:@"  <flow:Transition From=\"Vehicles\" On=\"Trigger\" Control=\"service\" To=\"RecordService\"><flow:Give Node=\"%@\" From=\"row\"/></flow:Transition>\n",
 	                  serviceVehicle];
+	[xml appendFormat:@"  <flow:Transition From=\"Vehicles\" On=\"Trigger\" Control=\"record\" To=\"NewRecord\"><flow:Give Node=\"%@\" From=\"row\"/></flow:Transition>\n",
+	                  recordVehicle];
 	[xml appendString:@"  <flow:Transition From=\"Vehicles\" On=\"Trigger\" Control=\"newVehicle\" To=\"NewVehicle\" Kind=\"Overlay\"/>\n"];
 	[xml appendString:@"  <flow:Transition From=\"NewVehicle\" On=\"SubmitDone\" Kind=\"Close\"/>\n"];
 	[xml appendString:@"  <flow:Transition From=\"NewVehicle\" On=\"Cancel\" Kind=\"Close\"/>\n"];
@@ -1203,6 +1241,8 @@ static NSString *const FleetText =
 	[xml appendString:@"  <flow:Transition From=\"NewStation\" On=\"Cancel\" Kind=\"Close\"/>\n"];
 	[xml appendString:@"  <flow:Transition From=\"RecordService\" On=\"SubmitDone\" Kind=\"Back\"/>\n"];
 	[xml appendString:@"  <flow:Transition From=\"RecordService\" On=\"Cancel\" Kind=\"Back\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"NewRecord\" On=\"SubmitDone\" Kind=\"Back\"/>\n"];
+	[xml appendString:@"  <flow:Transition From=\"NewRecord\" On=\"Cancel\" Kind=\"Back\"/>\n"];
 	[xml appendString:@"</flow:Flow>\n"];
 	NSError *error = nil;
 	ORMFlow *flow = [ORMFlow flowWithData:[xml dataUsingEncoding:NSUTF8StringEncoding] error:&error];
@@ -1212,7 +1252,7 @@ static NSString *const FleetText =
 	}
 	/* Laid out left to right, a column a step: the list, its forms, their overlays. */
 	NSDictionary *places = @{ @"Vehicles" : @[ @0, @0 ], @"RecordFillUp" : @[ @480, @0 ], @"RecordService" : @[ @480, @900 ],
-	                          @"NewVehicle" : @[ @0, @900 ], @"NewStation" : @[ @960, @0 ] };
+	                          @"NewVehicle" : @[ @0, @900 ], @"NewStation" : @[ @960, @0 ], @"NewRecord" : @[ @480, @1800 ] };
 	for (ORMFlowScreen *each in flow.screens) {
 		NSArray *at = [places objectForKey:each.identifier];
 		each.x = [at[0] doubleValue];

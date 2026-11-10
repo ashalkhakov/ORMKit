@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <flow:Flow xmlns:flow="http://schemas.ormkit.org/2026-10/Flows" Name="Fleet" Model="Fleet.orm">
     <flow:Entry Name="Start" Screen="Vehicles"></flow:Entry>
-    <flow:Screen id="Vehicles" Query="_4D52D7FB-7DB8-43DB-88CE-3B9FCC64A5AF" Name="Vehicles" X="0" Y="0" Width="390" Height="844"></flow:Screen>
-    <flow:Screen id="RecordFillUp" Form="_FAC2DABB-46D3-4D0C-8CC5-900451DEFD59" Name="RecordFillUp" X="480" Y="0" Width="390" Height="844"></flow:Screen>
-    <flow:Screen id="NewStation" Form="_6AEC7B6E-527B-47BD-A7F6-0F8FF1BA1BD0" Name="NewStation" X="960" Y="0" Width="390" Height="844"></flow:Screen>
-    <flow:Screen id="RecordService" Form="_9BFA89D4-14D0-4323-8D94-B9DE79044227" Name="RecordService" X="480" Y="900" Width="390" Height="844"></flow:Screen>
-    <flow:Screen id="NewVehicle" Form="_88F59DCF-7D0F-4CF6-9736-3749852435DC" Name="NewVehicle" X="0" Y="900" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="Vehicles" Query="_4A78A6F0-EF0D-45EA-8BB3-143E70059476" Name="Vehicles" X="0" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="RecordFillUp" Form="_6BAB1717-31F2-4923-B5B1-D13E91082EF5" Name="RecordFillUp" X="480" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="NewStation" Form="_249B01FB-7A59-48F3-A68D-A95DC96AA72B" Name="NewStation" X="960" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="RecordService" Form="_A84E018A-60E5-4639-88F9-4A69E884A238" Name="RecordService" X="480" Y="900" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="NewVehicle" Form="_D76E2622-5740-4488-8D6F-97E2AD252D1F" Name="NewVehicle" X="0" Y="900" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="NewRecord" Form="_45FAC81D-5ABD-4921-B770-7A45A1B1E53A" Name="NewRecord" X="480" Y="1800" Width="390" Height="844"></flow:Screen>
     <flow:Transition From="Vehicles" On="RowChosen" To="RecordFillUp">
-        <flow:Give Node="_F8C8090B-9E46-41B4-9261-0463C3FA0165" From="row"></flow:Give>
+        <flow:Give Node="_EF0A7503-8FDE-47D5-8DE0-BF7B3CDC2356" From="row"></flow:Give>
     </flow:Transition>
     <flow:Transition From="Vehicles" On="Trigger" Control="service" To="RecordService">
-        <flow:Give Node="_37B52238-4FBA-4DEE-84AA-013791FE6C4E" From="row"></flow:Give>
+        <flow:Give Node="_F305EECE-A8D6-4866-9E7F-4938A2E82AC0" From="row"></flow:Give>
+    </flow:Transition>
+    <flow:Transition From="Vehicles" On="Trigger" Control="record" To="NewRecord">
+        <flow:Give Node="_4FD4CAEF-EDB6-42D6-B893-CC7E248AA204" From="row"></flow:Give>
     </flow:Transition>
     <flow:Transition From="Vehicles" On="Trigger" Control="newVehicle" To="NewVehicle" Kind="Overlay"></flow:Transition>
     <flow:Transition From="NewVehicle" On="SubmitDone" Kind="Close"></flow:Transition>
@@ -19,9 +23,11 @@
     <flow:Transition From="RecordFillUp" On="Cancel" Kind="Back"></flow:Transition>
     <flow:Transition From="RecordFillUp" On="Trigger" Control="newStation" To="NewStation" Kind="Overlay"></flow:Transition>
     <flow:Transition From="NewStation" On="SubmitDone" Kind="Close">
-        <flow:Give Node="_4DEB144B-32E6-4392-8522-DF199E02579E" From="result"></flow:Give>
+        <flow:Give Node="_689DBB1A-91D8-4CDE-9E34-C1A6CB604321" From="result"></flow:Give>
     </flow:Transition>
     <flow:Transition From="NewStation" On="Cancel" Kind="Close"></flow:Transition>
     <flow:Transition From="RecordService" On="SubmitDone" Kind="Back"></flow:Transition>
     <flow:Transition From="RecordService" On="Cancel" Kind="Back"></flow:Transition>
+    <flow:Transition From="NewRecord" On="SubmitDone" Kind="Back"></flow:Transition>
+    <flow:Transition From="NewRecord" On="Cancel" Kind="Back"></flow:Transition>
 </flow:Flow>

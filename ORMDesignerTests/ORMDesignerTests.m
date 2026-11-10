@@ -1863,6 +1863,73 @@
 	[[NSFileManager defaultManager] removeItemAtPath:folder error:NULL];
 }
 
+/* The Fleet sample played where a form goes beyond the anchor's own: the
+ * van's plate shown through the van given; a station's address entered
+ * with it; a record chosen as a fill-up, its part then shown. */
+- (void)testFleetsFormsArePlayedBeyondTheirAnchors
+{
+	NSString *here = [[NSString stringWithUTF8String:__FILE__] stringByDeletingLastPathComponent];
+	if (![here isAbsolutePath]) {
+		here = [[[NSFileManager defaultManager] currentDirectoryPath] stringByAppendingPathComponent:here];
+	}
+	NSString *samples = [[here stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Samples"];
+	NSString *reason = nil;
+	ORMModel *model = ORMFlowModelAt([NSURL fileURLWithPath:[samples stringByAppendingPathComponent:@"Fleet.orm"]], &reason);
+	XCTAssertNotNil(model, @"%@", reason);
+	NSError *error = nil;
+	ORMFlow *flow = [ORMFlow flowWithData:[NSData dataWithContentsOfFile:[samples stringByAppendingPathComponent:@"Fleet.flow"]] error:&error];
+	XCTAssertNotNil(flow, @"%@", error);
+	ORMFlowPlayController *player = [[ORMFlowPlayController alloc] initWithFlow:flow model:model];
+	XCTAssertNotNil([player window]);
+	NSInteger (^rowOf)(NSString *) = ^NSInteger(NSString *name) {
+		for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+			if ([[player tableView:player.values objectValueForTableColumn:[player.values tableColumnWithIdentifier:@"name"] row:row]
+			        hasPrefix:name]) {
+				return row;
+			}
+		}
+		return -1;
+	};
+	ORMFlowTransition *(^way)(NSString *) = ^ORMFlowTransition *(NSString *control) {
+		for (ORMFlowTransition *each in [player.walk transitions]) {
+			if ([each.control isEqualToString:control] || (control == nil && [each.on isEqualToString:ORMFlowOnRowChosen])) {
+				return each;
+			}
+		}
+		return nil;
+	};
+
+	/* The van's plate, through it. */
+	XCTAssertTrue([player.walk take:way(nil) row:0 error:&error], @"%@", error);
+	[player.values reloadData];
+	NSInteger plate = rowOf(@"Plate");
+	XCTAssertTrue(plate >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
+	XCTAssertEqualObjects([player editorOfRow:plate], @"shown");
+	XCTAssertEqualObjects([player shownValueOfRow:plate], @"KZ 101 AAA");
+
+	/* A station and its address, made together. */
+	XCTAssertTrue([player.walk take:way(@"newStation") row:0 error:&error], @"%@", error);
+	[player.values reloadData];
+	NSInteger lines = rowOf(@"AddressLines"), name = rowOf(@"StationName");
+	XCTAssertTrue(lines >= 0 && name >= 0);
+	XCTAssertEqualObjects([player editorOfRow:lines], @"text");
+	[player setValue:@"Ring Road 5" ofRow:lines];
+	XCTAssertFalse([player.walk submit:&error], @"no name yet");
+	[player setValue:@"Qazaq Oil" ofRow:name];
+	XCTAssertTrue([player.walk submit:&error], @"%@ %@", player.walk.session.errors, error);
+
+	/* A record: a fill-up, its own part shown once it is one. */
+	[player startOver:nil];
+	XCTAssertTrue([player.walk take:way(@"record") row:0 error:&error], @"%@", error);
+	[player.values reloadData];
+	NSInteger kind = rowOf(@"Kind");
+	XCTAssertEqualObjects([player editorOfRow:kind], @"choice");
+	XCTAssertEqual(rowOf(@"Litres"), -1, @"no kind yet: no part");
+	[player setValue:@"FillUp" ofRow:kind];
+	XCTAssertTrue(rowOf(@"Litres") >= 0, @"a fill-up's");
+	XCTAssertEqual(rowOf(@"Day"), -1, @"not a service's");
+}
+
 /* Played from its window: Play's window, from its XIB, connected; the cars
  * listed over the sample, the second chosen, its fill-up's form opened
  * given it; litres typed and saved, or refused in the rule's words; then

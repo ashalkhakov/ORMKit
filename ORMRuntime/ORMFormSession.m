@@ -104,6 +104,19 @@ ORMFormSessionError(NSString *text)
 - (void)setValue:(NSString *)value forElement:(NSString *)name
 {
 	[_values setObject:value ?: @"" forKey:name];
+	if ([[_form elementNamed:name].kind isEqualToString:@"reference"]) {
+		[self readThrough];
+	}
+}
+
+/* What is shown through the references (an order's supplier's name), as
+ * their objects have it now; against the service, as it was read. */
+- (void)readThrough
+{
+	if (_context == nil) {
+		return;
+	}
+	[_values addEntriesFromDictionary:[_form throughValuesOf:_values inContext:_context]];
 }
 
 - (void)setValues:(NSDictionary<NSString *, id> *)values
@@ -127,6 +140,7 @@ ORMFormSessionError(NSString *text)
 	_etag = nil;
 	if ([_key length] == 0) {
 		_values = [[_form instanceGiven:_given] mutableCopy];
+		[self readThrough];
 		return YES;
 	}
 	NSDictionary *read = _context != nil ? [_form readKey:_key inContext:_context error:error] : [self readFromService:_key error:error];

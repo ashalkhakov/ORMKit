@@ -52,6 +52,8 @@
  * (xsd's lexical forms: "2026-11-10T08:30:00Z", "true", "40.5"). */
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, id> *values;
 - (NSString *)valueForElement:(NSString *)name;
+/* A reference set, what is shown through it (an order's supplier's name)
+ * is read again from its object, on a store; as it opens too. */
 - (void)setValue:(NSString *)value forElement:(NSString *)name;
 /* All of them, as a view (XForms' instance) has them after its own edits. */
 - (void)setValues:(NSDictionary<NSString *, id> *)values;

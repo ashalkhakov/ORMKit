@@ -41,6 +41,9 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 	ORMFormFieldReference,
 	/* A value node's, calculated. */
 	ORMFormFieldCalculated,
+	/* Which of the form's subtypes the object is (+ is Trip, + is FillUp):
+	 * its subentity's name, "" for none of them. */
+	ORMFormFieldSubtype,
 };
 
 @interface ORMFormField : NSObject
@@ -57,6 +60,20 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
  * role it is the value of: the part's, or the node's. */
 @property (nonatomic, readonly) NSUInteger partIndex;
 @property (nonatomic, readonly, weak) ORMRole *role;
+/* Beyond the anchor's own properties: the keys from the anchor to it
+ * (contact, contactName); nil for the anchor's own, but one named for
+ * another (a trip's moment, "tripMoment": moment). In an object the form
+ * owns (a customer's contact, made and changed with it), its group, the
+ * keys to the object ("contact", "contact/shippingAddress"), and its
+ * element under it ("contact/contactName"); through an object it refers
+ * to (an order's supplier's name), none, read and shown, never written
+ * ("purchaseOrderSupplierContactContactName"). */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *keys;
+@property (nonatomic, readonly, copy) NSString *groupName;
+@property (nonatomic, readonly) BOOL isThrough;
+/* In a subtype's part of the form (+ is Trip), the subentity it is a
+ * property of: relevant where the object is one; nil for the anchor's. */
+@property (nonatomic, readonly, copy) NSString *subtypeEntity;
 /* Its id in the document: the node's, a part's index after it. */
 - (NSString *)fieldId;
 @end
@@ -116,7 +133,9 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 - (NSString *)elementOfNode:(NSString *)nodeId;
 /* The elements the form asks a value of before it is submitted, whatever
  * else is entered (its binds' required "true()"), each with what the
- * constraints it comes from say: "Each FillUp was at some Moment." */
+ * constraints it comes from say: "Each FillUp was at some Moment." An
+ * owned object's (its group's, "contact/contactName") only once anything
+ * of that object is entered. */
 - (NSDictionary<NSString *, NSString *> *)requiredElements;
 
 /* The screen of a flow the document is shown as (docs/FORMS.md, Flows),

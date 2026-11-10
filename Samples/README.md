@@ -59,20 +59,27 @@ by hand.
 - `Fleet.orm` and `Fleet.flow`, not Halpin's: a fleet's vans, their
   drivers, fill-ups and services. They are ORMKit's running example for
   forms and flows ([FORMS.md](../docs/FORMS.md)), after the problems
-  Logbook has, but whole in themselves. One list, four forms, each showing
+  Logbook has, but whole in themselves. One list, five forms, each showing
   something a form does:
   - Vehicles: a list, each van with its plate.
-  - RecordFillUp: a fill-up of a van given to it (`= ?`), its moment,
-    litres (above 0), fuel (a value list), station, cost (money: an amount
-    and a currency) and driver entered (✎). The driver's choices are the
-    van's drivers (`+ drives Vehicle1`). "filled the tank" is a flag.
-  - NewStation, NewVehicle: a new object made, its name or plate entered.
+  - RecordFillUp: a fill-up of a van given to it (`= ?`), the van's plate
+    shown through it (✓, read from the van), its moment, litres (above 0),
+    fuel (a value list), station, cost (money: an amount and a currency)
+    and driver entered (✎). The driver's choices are the van's drivers
+    (`+ drives Vehicle1`). "filled the tank" is a flag.
+  - NewStation: a station and its address, an object the form owns: made
+    with the station, where anything of it is entered, its lines then
+    needed. NewVehicle: a van, its plate entered.
   - RecordService: a service of a van given to it, its day, and its lines,
     each a part and a count (a repeat).
+  - NewRecord: a record of a van, which kind it is chosen (fill-ups and
+    services are records, as Logbook's are events), and that kind's part
+    entered (`+ is FillUp`, `+ is Service`).
 
-  `Fleet.flow` goes from the vans to a fill-up or a service of the one
-  chosen, and back on saving or Cancel. A new van is made over the list,
-  and a new station over the fill-up, which is given the station made.
+  `Fleet.flow` goes from the vans to a fill-up, a service or a record of
+  the one chosen, and back on saving or Cancel. A new van is made over the
+  list, and a new station over the fill-up, which is given the station
+  made.
 
 ## Populations
 
@@ -126,8 +133,8 @@ only the identifiers. That makes a row easy to check against the data.
   - Readers finds Ann under news, and Cy under news and deals.
 
 - **Fleet:** two vans, KZ 101 AAA and KZ 202 BBB. Ann drives both, Bob
-  the second. Two stations, the two fuels, KZT and EUR, three parts, and
-  one fill-up already made. The fill-up form's drivers for the first van
+  the second. Two stations, Shell Abay at 12 Abay Ave, Almaty; the two
+  fuels, KZT and EUR, three parts, and one fill-up already made. The fill-up form's drivers for the first van
   are Ann alone; for the second, Ann and Bob.
   `ormtool flow Samples/Fleet.orm Samples/Fleet.flow walk` walks the flow
   over it: each form refused first, in its constraints' words, as it opens

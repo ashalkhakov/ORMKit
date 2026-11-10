@@ -1292,4 +1292,318 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 	                      @{ @"" : @"No." });
 }
 
+#pragma mark Beyond the anchor's own (Logbook's stock and records)
+
+/* Logbook's shapes: a receipt of an order from a supplier known by its
+ * contact; a customer whose contact, and the contact's address, are made
+ * with it; an event that is a trip or a fill-up. */
+static NSString *const ORMBeyond = @"Catalog is an entity type.\n"
+                                   @"Reference Mode: .code\n"
+                                   @"Contact is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"Address is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"Customer is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"Supplier is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"PurchaseOrder is an entity type.\n"
+                                   @"Reference Mode: .number\n"
+                                   @"Receipt is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"ContactName is a value type.\n"
+                                   @"Portable data type: Text: Variable Length(200)\n"
+                                   @"AddressLines is a value type.\n"
+                                   @"Portable data type: Text: Variable Length\n"
+                                   @"City is a value type.\n"
+                                   @"Portable data type: Text: Variable Length\n"
+                                   @"Day is a value type.\n"
+                                   @"Portable data type: Temporal: Date\n"
+                                   @"Contact has ContactName\n"
+                                   @"Each Contact has exactly one ContactName.\n"
+                                   @"Address has AddressLines\n"
+                                   @"Each Address has exactly one AddressLines.\n"
+                                   @"Address is in City\n"
+                                   @"Each Address is in at most one City.\n"
+                                   @"Contact ships to Address (as ShippingAddress)\n"
+                                   @"Each Contact ships to at most one Address.\n"
+                                   @"Customer is of Catalog\n"
+                                   @"Each Customer is of exactly one Catalog.\n"
+                                   @"Customer is of Contact\n"
+                                   @"Each Customer is of exactly one Contact.\n"
+                                   @"For each Contact, at most one Customer is of that Contact.\n"
+                                   @"Supplier is of Contact\n"
+                                   @"Each Supplier is of exactly one Contact.\n"
+                                   @"PurchaseOrder is from Supplier\n"
+                                   @"Each PurchaseOrder is from exactly one Supplier.\n"
+                                   @"Receipt is of PurchaseOrder\n"
+                                   @"Each Receipt is of exactly one PurchaseOrder.\n"
+                                   @"Receipt was received on Day\n"
+                                   @"Each Receipt was received on at most one Day.\n"
+                                   @"\n"
+                                   @"Query ReceiveFromSupplier:\n"
+                                   @"Form ReceiveFromSupplier:\n"
+                                   @"Receipt\n"
+                                   @"  + is of PurchaseOrder = ?\n"
+                                   @"    + is from Supplier\n"
+                                   @"      + is of Contact\n"
+                                   @"        + has ✓ContactName\n"
+                                   @"  + was received on ✎Day\n"
+                                   @"\n"
+                                   @"Query NewCustomer:\n"
+                                   @"Form NewCustomer:\n"
+                                   @"Customer\n"
+                                   @"  + is of Catalog = ?\n"
+                                   @"  + is of Contact\n"
+                                   @"    + has ✎ContactName\n"
+                                   @"    + ships to Address\n"
+                                   @"      + has ✎AddressLines\n"
+                                   @"      + is in ✎City\n";
+
+static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"Event is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"Trip is an entity type.\n"
+                                   @"FillUp is an entity type.\n"
+                                   @"Each Trip is an Event.\n"
+                                   @"Each FillUp is an Event.\n"
+                                   @"Moment is a value type.\n"
+                                   @"Portable data type: Temporal: Date & Time\n"
+                                   @"Place is a value type.\n"
+                                   @"Portable data type: Text: Variable Length\n"
+                                   @"Litres is a value type.\n"
+                                   @"Portable data type: Numeric: Decimal(10, 2)\n"
+                                   @"Event is of Vehicle\n"
+                                   @"Each Event is of exactly one Vehicle.\n"
+                                   @"Event was at Moment\n"
+                                   @"Each Event was at exactly one Moment.\n"
+                                   @"Trip went to Place\n"
+                                   @"Each Trip went to exactly one Place.\n"
+                                   @"FillUp took Litres\n"
+                                   @"Each FillUp took exactly one Litres.\n"
+                                   @"\n"
+                                   @"Query RecordEvent:\n"
+                                   @"Form RecordEvent:\n"
+                                   @"Event\n"
+                                   @"  + is of Vehicle = ?\n"
+                                   @"  + was at ✎Moment\n"
+                                   @"  + is Trip\n"
+                                   @"    + went to ✎Place\n"
+                                   @"  + is FillUp\n"
+                                   @"    + took ✎Litres\n";
+
+- (ORMEditor *)editorOf:(NSString *)text
+{
+	ORMEditor *editor = [self newEditor];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	return editor;
+}
+
+- (ORMFormDocument *)form:(NSString *)name of:(ORMEditor *)editor
+{
+	NSString *reason = nil;
+	ORMFormDocument *document = [ORMFormDocument documentForForm:[self query:name in:editor.model] model:editor.model mapping:nil
+	                                                      reason:&reason];
+	XCTAssertNotNil(document, @"%@", reason);
+	return document;
+}
+
+- (NSManagedObjectContext *)contextOf:(ORMEditor *)editor
+{
+	NSManagedObjectModel *model = [[[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:nil] map] managedObjectModel];
+	NSPersistentStoreCoordinator *coordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel:model];
+	NSError *error = nil;
+	XCTAssertNotNil([coordinator addPersistentStoreWithType:NSInMemoryStoreType configuration:nil URL:nil options:nil error:&error]);
+	NSManagedObjectContext *context = [[NSManagedObjectContext alloc] init];
+	[context setPersistentStoreCoordinator:coordinator];
+	return context;
+}
+
+- (NSManagedObject *)insert:(NSString *)entity values:(NSDictionary *)values in:(NSManagedObjectContext *)context
+{
+	NSManagedObject *object = [NSEntityDescription insertNewObjectForEntityForName:entity inManagedObjectContext:context];
+	for (NSString *key in values) {
+		[object setValue:[values objectForKey:key] forKey:key];
+	}
+	return object;
+}
+
+/* Through an object it refers to (the order's supplier's contact's name):
+ * shown, read with the receipt, and as the order chosen has it; never
+ * written. */
+- (void)testAValueThroughAReferenceIsShown
+{
+	ORMEditor *editor = [self editorOf:ORMBeyond];
+	ORMFormDocument *document = [self form:@"ReceiveFromSupplier" of:editor];
+	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"],
+	                      (@[ @"id", @"purchaseOrder", @"purchaseOrderSupplierContactContactName", @"day" ]), @"%@", document.notes);
+	ORMFormField *name = [document fieldNamed:@"purchaseOrderSupplierContactContactName"];
+	XCTAssertTrue(name.isThrough);
+	XCTAssertEqualObjects(name.keys, (@[ @"purchaseOrder", @"supplier", @"contact", @"contactName" ]));
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	ORMFormElement *element = [form elementNamed:name.elementName];
+	XCTAssertEqualObjects(element.role, @"shown");
+	XCTAssertFalse(element.written);
+	XCTAssertNil(element.group);
+	NSXMLDocument *xforms = [document document];
+	NSString *output = [NSString stringWithFormat:@"//*[local-name()='output'][@bind='bind-%@']", [name fieldId]];
+	XCTAssertEqual([[self nodes:output in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='form']/*/*[local-name()='purchaseOrderSupplierContactContactName']" in:xforms] count], 1u);
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *contact = [self insert:@"Contact" values:@{ @"id" : [NSUUID UUID], @"contactName" : @"Acme Parts" } in:context];
+	NSManagedObject *supplier = [self insert:@"Supplier" values:@{ @"id" : [NSUUID UUID], @"contact" : contact } in:context];
+	[self insert:@"PurchaseOrder" values:@{ @"number" : @7, @"supplier" : supplier } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	XCTAssertEqualObjects([form throughValuesOf:@{ @"purchaseOrder" : @"7" } inContext:context],
+	                      (@{ name.elementName : @"Acme Parts" }));
+	XCTAssertEqualObjects([form throughValuesOf:@{ @"purchaseOrder" : @"" } inContext:context], (@{ name.elementName : @"" }));
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{ @"purchaseOrder" : @"7" }];
+	[session useContext:context saving:nil];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	XCTAssertEqualObjects([session valueForElement:name.elementName], @"Acme Parts", @"shown as it opens");
+	[session setValue:@"2026-11-11" forElement:@"day"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqualObjects([contact valueForKey:@"contactName"], @"Acme Parts", @"never written");
+	NSDictionary *read = [form readKey:session.savedKey inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:name.elementName], @"Acme Parts", @"read with the receipt: %@", error);
+}
+
+/* Owned (a customer's contact, the contact's address): its elements in a
+ * group of their own, nested in the instance; made with the customer,
+ * changed with it, and put back where its save is refused. */
+- (void)testAnOwnedObjectIsMadeWithTheAnchor
+{
+	ORMEditor *editor = [self editorOf:ORMBeyond];
+	ORMFormDocument *document = [self form:@"NewCustomer" of:editor];
+	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"],
+	                      (@[ @"id", @"catalog", @"contact/contactName", @"contact/shippingAddress/addressLines",
+	                          @"contact/shippingAddress/city" ]), @"%@", document.notes);
+	XCTAssertEqualObjects([document fieldNamed:@"contact/shippingAddress/city"].groupName, @"contact/shippingAddress");
+	NSXMLDocument *xforms = [document document];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='form']/*/*[local-name()='contact']/*[local-name()='shippingAddress']/*[local-name()='city']"
+	                         in:xforms] count], 1u, @"nested: %@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='group'][@id='control-contact']//*[local-name()='group'][@id='control-contact-shippingAddress']"
+	                         in:xforms] count], 1u);
+	NSDictionary *required = [document requiredElements];
+	XCTAssertNotNil([required objectForKey:@"contact/contactName"], @"the contact is the customer's: %@", required);
+	NSXMLNode *lines = [[self nodes:@"//*[local-name()='bind'][@ref='contact/shippingAddress/addressLines']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"required" of:lines], @"(../* != '')", @"an address entered at all has its lines");
+
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([[form groups] valueForKey:@"name"], (@[ @"contact", @"contact/shippingAddress" ]));
+	XCTAssertEqualObjects([[form groups] valueForKey:@"needed"], (@[ @YES, @NO ]));
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Catalog" values:@{ @"code" : @"GAR" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+
+	/* No address entered: none made. */
+	NSMutableDictionary *instance = [[form instanceGiven:@{ @"catalog" : @"GAR" }] mutableCopy];
+	[instance setObject:@"Ann's Garage" forKey:@"contact/contactName"];
+	NSDictionary *errors = nil;
+	NSManagedObject *customer = [form save:instance inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(customer, @"%@ %@", errors, error);
+	NSManagedObject *contact = [customer valueForKey:@"contact"];
+	XCTAssertEqualObjects([contact valueForKey:@"contactName"], @"Ann's Garage");
+	XCTAssertNotNil([contact valueForKey:@"id"], @"given a key");
+	XCTAssertNil([contact valueForKey:@"shippingAddress"]);
+
+	/* Read again, its address entered: made, the contact the same. */
+	NSString *key = [[customer valueForKey:@"id"] UUIDString];
+	NSMutableDictionary *read = [[form readKey:key inContext:context error:&error] mutableCopy];
+	XCTAssertEqualObjects([read objectForKey:@"contact/contactName"], @"Ann's Garage", @"%@", error);
+	[read setObject:@"1 Abay Ave" forKey:@"contact/shippingAddress/addressLines"];
+	[read setObject:@"Almaty" forKey:@"contact/shippingAddress/city"];
+	XCTAssertNotNil([form save:read inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
+	XCTAssertEqual([customer valueForKey:@"contact"], contact);
+	XCTAssertEqualObjects([[contact valueForKey:@"shippingAddress"] valueForKey:@"city"], @"Almaty");
+
+	/* A new customer's, refused (no name): nothing of it left. */
+	NSUInteger contacts = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Contact"] error:NULL] count];
+	NSMutableDictionary *nameless = [[form instanceGiven:@{ @"catalog" : @"GAR" }] mutableCopy];
+	[nameless setObject:@"Almaty" forKey:@"contact/shippingAddress/city"];
+	XCTAssertNil([form save:nameless inContext:context errors:&errors error:&error]);
+	XCTAssertTrue([[errors allKeys] count] > 0, @"%@", error);
+	XCTAssertEqual([[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Contact"] error:NULL] count], contacts,
+	               @"put back: %@", errors);
+	XCTAssertEqual([[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Address"] error:NULL] count], 1u);
+
+	/* To the service: nested, a deep insert. */
+	NSManagedObjectModel *model = [[context persistentStoreCoordinator] managedObjectModel];
+	ORMFormRequest *post = [form saveRequestFor:instance original:nil etag:nil model:model error:&error];
+	XCTAssertEqualObjects(post.method, @"POST", @"%@", error);
+	NSDictionary *nested = nil;
+	for (id value in [post.body allValues]) {
+		nested = [value isKindOfClass:[NSDictionary class]] ? value : nested;
+	}
+	XCTAssertTrue([[nested allValues] containsObject:@"Ann's Garage"], @"%@", post.body);
+}
+
+/* Subtype parts (+ is Trip, + is FillUp): the kind the object is chosen,
+ * each part relevant where it is that; made of it, read as it, and stays
+ * it. */
+- (void)testASubtypesPartIsTheObjectsWhereItIsOne
+{
+	ORMEditor *editor = [self editorOf:ORMEvents];
+	ORMFormDocument *document = [self form:@"RecordEvent" of:editor];
+	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"],
+	                      (@[ @"id", @"isA", @"vehicle", @"moment", @"place", @"litres" ]), @"%@", document.notes);
+	XCTAssertEqualObjects([document fieldNamed:@"place"].subtypeEntity, @"Trip");
+	XCTAssertEqualObjects([document fieldNamed:@"litres"].schemaType, @"xsd:decimal", @"the fill-up's own attribute");
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *place = [[self nodes:@"//*[local-name()='bind'][@ref='place']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"relevant" of:place], @"(../isA = 'Trip')");
+	XCTAssertEqualObjects([self attribute:@"required" of:place], @"true()", @"a trip's, where it is one");
+	XCTAssertEqual([[self nodes:@"//*[local-name()='select1'][*[local-name()='label']='Kind']/*[local-name()='item']" in:xforms] count], 2u);
+
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	ORMFormElement *kind = [form elementNamed:@"isA"];
+	XCTAssertEqualObjects(kind.kind, @"subtype");
+	XCTAssertEqualObjects(kind.items, (@[ @"Trip", @"FillUp" ]));
+	XCTAssertEqualObjects([form elementNamed:@"litres"].subtype, @"FillUp");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *van = [self insert:@"Vehicle" values:@{ @"id" : [NSUUID UUID] } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSString *vanKey = [[van valueForKey:@"id"] UUIDString];
+
+	/* A trip: its place, not the fill-up's litres. */
+	NSMutableDictionary *trip = [[form instanceGiven:@{ @"vehicle" : vanKey }] mutableCopy];
+	[trip addEntriesFromDictionary:@{ @"isA" : @"Trip", @"moment" : @"2026-11-11T08:00:00Z", @"place" : @"Almaty", @"litres" : @"40" }];
+	NSDictionary *errors = nil;
+	NSManagedObject *made = [form save:trip inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(made, @"%@ %@", errors, error);
+	XCTAssertEqualObjects([[made entity] name], @"Trip");
+	XCTAssertEqualObjects([made valueForKey:@"place"], @"Almaty");
+	NSDictionary *read = [form readKey:[[made valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"isA"], @"Trip", @"%@", error);
+	XCTAssertEqualObjects([read objectForKey:@"place"], @"Almaty");
+	XCTAssertEqualObjects([read objectForKey:@"litres"], @"", @"a trip has none");
+
+	/* It stays a trip. */
+	NSMutableDictionary *changed = [read mutableCopy];
+	[changed setObject:@"FillUp" forKey:@"isA"];
+	XCTAssertNil([form save:changed inContext:context errors:&errors error:&error]);
+	XCTAssertNotNil([errors objectForKey:@"isA"], @"%@", errors);
+
+	/* To the service: a fill-up, named so. */
+	NSMutableDictionary *fillUp = [[form instanceGiven:@{ @"vehicle" : vanKey }] mutableCopy];
+	[fillUp addEntriesFromDictionary:@{ @"isA" : @"FillUp", @"moment" : @"2026-11-11T09:00:00Z", @"place" : @"Almaty", @"litres" : @"40" }];
+	ORMFormRequest *post = [form saveRequestFor:fillUp original:nil etag:nil model:[[context persistentStoreCoordinator] managedObjectModel]
+	                                     error:&error];
+	XCTAssertTrue([[post.body objectForKey:@"@odata.type"] hasSuffix:@"FillUp"], @"%@ %@", post.body, error);
+	XCTAssertFalse([[post.body allValues] containsObject:@"Almaty"], @"a fill-up's own only: %@", post.body);
+}
+
 @end
