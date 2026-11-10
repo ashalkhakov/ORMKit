@@ -6,6 +6,10 @@
 #import "ORMFlowDocument.h"
 #import "ORMFlowWindowController.h"
 #import "ORM2TextDiff.h"
+#import "ORMFlowCanvasView.h"
+
+/* What is wrong of the flow, among the document's diagnostics. */
+static UDDiagnosticSource const ORM2FlowIssueSource = @"ormflow";
 
 /* The tab's view (ORM2FlowEditor.xib): its controller after it in the
  * chain, wherever UDCode puts it, as ORM2EditorView's is. */
@@ -45,6 +49,8 @@
 	 * editor's own). */
 	BOOL _reading;
 	BOOL _writing;
+	/* Each problem's screen, by its diagnostic's line and message. */
+	NSMutableDictionary<NSString *, NSString *> *_issueScreens;
 }
 
 - (instancetype)initWithDocument:(UDCodeDocument *)document workbench:(id<UDWorkbench>)workbench
@@ -106,6 +112,7 @@
 	}
 	_reading = NO;
 	[self show];
+	[self findIssues];
 }
 
 /* The designer over the editor, its view the tab's, each change of its
@@ -144,6 +151,52 @@
 {
 	(void)notification;
 	[self write];
+	[self findIssues];
+}
+
+#pragma mark Issues
+
+/* What is wrong of the flow as the document's diagnostics: each at the
+ * line of the screen it names (its id's), the flow's first line when it
+ * names none; none while the text is no flow. */
+- (void)findIssues
+{
+	ORMFlowEditor *editor = _flowController.editor;
+	NSMutableArray *items = [NSMutableArray array];
+	_issueScreens = [NSMutableDictionary dictionary];
+	if (editor != nil && self.problem == nil) {
+		NSString *text = [_document.textModel getValue];
+		for (NSString *message in [editor problems]) {
+			NSInteger line = 1;
+			NSString *screenId = nil;
+			for (ORMFlowScreen *screen in editor.flow.screens) {
+				NSString *name = screen.name ?: screen.identifier;
+				if ([name length] > 0 && [message rangeOfString:name].location != NSNotFound) {
+					screenId = screen.identifier;
+					break;
+				}
+			}
+			if (screenId != nil) {
+				NSRange at = [text rangeOfString:[NSString stringWithFormat:@"id=\"%@\"", screenId]];
+				if (at.location != NSNotFound) {
+					line = [_document.textModel getPositionAt:(NSInteger)at.location].line;
+				}
+				[_issueScreens setObject:screenId forKey:[NSString stringWithFormat:@"%ld %@", (long)line, message]];
+			}
+			[items addObject:[[UDDiagnosticItem alloc] initWithLine:line column:0 message:message severity:UDDiagnosticSeverityError
+			                                                 source:ORM2FlowIssueSource]];
+		}
+	}
+	[_document.diagnosticStore setDiagnostics:items forSource:ORM2FlowIssueSource];
+}
+
+/* A problem chosen in the Issues navigator: its screen chosen. */
+- (void)revealDiagnostic:(UDDiagnosticItem *)diagnostic
+{
+	NSString *screen = [_issueScreens objectForKey:[NSString stringWithFormat:@"%ld %@", (long)diagnostic.line, diagnostic.message]];
+	if (screen != nil) {
+		[_flowController.canvas selectScreen:screen];
+	}
 }
 
 /* The flow written as the text: an edit for each run of lines that

@@ -16,7 +16,9 @@
 - (instancetype)initWithEditor:(ORMFlowEditor *)editor;
 /* The window's content, out of it, for a host to show where it will (a
  * UDCode tab, ORM2FlowEditorViewController): its controls still this
- * controller's, the window never shown. */
+ * controller's, the window never shown. What is wrong of the flow is the
+ * host's to show then (the editor's -problems): under the canvas, only its
+ * zoom. */
 - (NSView *)hostedView;
 @property (nonatomic, readonly, strong) ORMFlowEditor *editor;
 

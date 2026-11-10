@@ -63,6 +63,15 @@ ORMFlowKinds(void)
 	if (content != nil && [content window] == window) {
 		[window setContentView:[[NSView alloc] initWithFrame:[content frame]]];
 	}
+	/* What is wrong of the flow is the host's to show (UDCode's Issues
+	 * navigator): under the canvas, only its zoom. */
+	NSScrollView *problems = [self.problems enclosingScrollView];
+	NSView *pane = [problems superview];
+	NSSplitView *split = (NSSplitView *)[pane superview];
+	[problems setHidden:YES];
+	if ([split isKindOfClass:[NSSplitView class]]) {
+		[split setPosition:NSHeight([split bounds]) - 32 - [split dividerThickness] ofDividerAtIndex:0];
+	}
 	return content;
 }
 

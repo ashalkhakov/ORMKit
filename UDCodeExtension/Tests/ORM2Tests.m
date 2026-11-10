@@ -288,6 +288,30 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	XCTAssertEqualObjects([document.textModel getValue], text, @"undone as the text");
 	XCTAssertEqualObjects([designer.editor.flow screenWithId:@"Vehicles"].name, @"Vehicles", @"and read again");
 
+	/* What is wrong of it: the document's diagnostics, at its screen's
+	 * line, not a table in the tab; choosing one chooses its screen. */
+	XCTAssertTrue([[designer.problems enclosingScrollView] isHidden], @"the Issues navigator's, not the tab's");
+	NSUInteger flowIssues = 0;
+	for (UDDiagnosticItem *item in document.diagnosticStore.allDiagnostics) {
+		flowIssues += [item.source isEqualToString:@"ormflow"] ? 1 : 0;
+	}
+	XCTAssertEqual(flowIssues, 0u, @"the sample holds");
+	NSUInteger index = [designer.editor.flow.transitions count];
+	XCTAssertNotNil([designer.editor addTransitionFrom:@"RecordFillUp" to:@"Vehicles"]);
+	[designer.editor setOn:ORMFlowOnRowChosen control:nil ofTransition:index];
+	UDDiagnosticItem *rowless = nil;
+	for (UDDiagnosticItem *item in document.diagnosticStore.allDiagnostics) {
+		if ([item.message rangeOfString:@"a form has no rows to choose"].location != NSNotFound) {
+			rowless = item;
+		}
+	}
+	XCTAssertNotNil(rowless, @"%@", [document.diagnosticStore.allDiagnostics valueForKey:@"message"]);
+	XCTAssertTrue([[document.textModel getLineContent:rowless.line] rangeOfString:@"id=\"RecordFillUp\""].location != NSNotFound,
+	              @"at its screen's line");
+	designer.canvas.selection = [NSSet set];
+	[tab revealDiagnostic:rowless];
+	XCTAssertEqualObjects(designer.canvas.selection, [NSSet setWithObject:[ORMFlowCanvasView itemOfScreen:@"RecordFillUp"]]);
+
 	UDCodeDocument *broken = [[UDCodeDocument alloc] initWithText:@"<nothing" fileURL:nil languageMode:nil];
 	ORM2FlowEditorViewController *none = [[ORM2FlowEditorViewController alloc] initWithDocument:broken workbench:nil];
 	XCTAssertTrue([none.problem hasPrefix:@"This is not a flow that can be shown"], @"%@", none.problem);
