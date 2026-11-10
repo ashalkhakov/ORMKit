@@ -1943,6 +1943,14 @@
 		NSTableCellView *view = (NSTableCellView *)[player tableView:player.values viewForTableColumn:value row:row];
 		XCTAssertEqualObjects([view identifier], editor, @"%@'s prototype in the XIB", element.name);
 		XCTAssertTrue([[view subviews] count] > 0, @"%@", element.name);
+		if ([editor hasPrefix:@"date"]) {
+			NSDatePicker *picker = [[view subviews] firstObject];
+			XCTAssertTrue([picker isKindOfClass:[NSDatePicker class]], @"%@", element.name);
+			/* Its calendar, where AppKit has one (the XIB says so). */
+			if ([picker respondsToSelector:NSSelectorFromString(@"presentsCalendarOverlay")]) {
+				XCTAssertTrue([[picker valueForKey:@"presentsCalendarOverlay"] boolValue], @"%@'s calendar", element.name);
+			}
+		}
 		if ([editor isEqualToString:@"choice"]) {
 			NSPopUpButton *popUp = [[view subviews] firstObject];
 			XCTAssertTrue([popUp numberOfItems] > 1, @"%@'s choices", element.name);

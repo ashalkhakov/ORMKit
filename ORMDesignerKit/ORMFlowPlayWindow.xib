@@ -132,7 +132,7 @@
 <rect key="frame" x="1" y="1" width="300" height="24"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
 <subviews>
-<datePicker verticalHuggingPriority="750" id="datePicker">
+<datePicker verticalHuggingPriority="750" presentsCalendarOverlay="YES" id="datePicker">
 <rect key="frame" x="2" y="1" width="110" height="22"/>
 <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
 <datePickerCell key="cell" controlSize="small" borderStyle="bezel" alignment="left" id="datePickerCell">
@@ -158,7 +158,7 @@
 <rect key="frame" x="1" y="1" width="300" height="24"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES"/>
 <subviews>
-<datePicker verticalHuggingPriority="750" id="dateTimePicker">
+<datePicker verticalHuggingPriority="750" presentsCalendarOverlay="YES" id="dateTimePicker">
 <rect key="frame" x="2" y="1" width="160" height="22"/>
 <autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
 <datePickerCell key="cell" controlSize="small" borderStyle="bezel" alignment="left" id="dateTimePickerCell">

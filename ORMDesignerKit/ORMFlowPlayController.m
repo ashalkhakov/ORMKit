@@ -194,9 +194,6 @@
 		}
 		/* A day is the same day everywhere; a moment is shown where the user is. */
 		[picker setTimeZone:[editor isEqualToString:@"date"] ? [NSTimeZone timeZoneForSecondsFromGMT:0] : [NSTimeZone localTimeZone]];
-		if ([picker respondsToSelector:@selector(setPresentsCalendarOverlay:)]) {
-			[(id)picker setPresentsCalendarOverlay:YES];
-		}
 		NSDate *date = [self dateOf:value];
 		[picker setDateValue:date ?: [NSDate date]];
 		/* Empty: today offered, faint, until one is chosen. */
