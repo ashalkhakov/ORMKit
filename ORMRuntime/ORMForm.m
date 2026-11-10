@@ -784,10 +784,15 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 	}
 }
 
-/* The object as it was, where its save was refused: one made, gone. */
+/* The object as it was, where its save was refused: one made, gone. One
+ * gone already (a new customer, with the new contact it cascades from) is
+ * left so: it is no longer the context's to change. */
 static void
 ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManagedObjectContext *context)
 {
+	if ([object managedObjectContext] == nil || [object isDeleted]) {
+		return;
+	}
 	if (made) {
 		[context deleteObject:object];
 		/* Gone now, its relationships' other ends too, before anything else
