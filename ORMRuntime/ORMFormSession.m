@@ -228,6 +228,21 @@ ORMFormSessionError(NSString *text)
 	id object = [objects firstObject];
 	_etag = [object isKindOfClass:[NSDictionary class]] ? [object objectForKey:@"@odata.etag"] : nil;
 	NSMutableDictionary *instance = [[_form instanceOfRow:[rows firstObject]] mutableCopy];
+	/* What is read on its own, by the key. */
+	NSMutableDictionary *own = [NSMutableDictionary dictionary];
+	for (ORMFormElement *element in _form.elements) {
+		if (element.read == nil) {
+			continue;
+		}
+		ORMQueryPlan *plan = [element.read planBinding:@{ _form.keyElement ?: @"" : key ?: @"" } error:error];
+		ORMQueryOData *ownRequest = plan != nil ? [ORMQueryOData requestForPlan:plan model:_model error:error] : nil;
+		NSArray *ownRows = ownRequest != nil ? [self rowsOf:ownRequest objects:NULL error:error] : nil;
+		if (ownRows == nil) {
+			return nil;
+		}
+		[own setObject:ownRows forKey:element.name];
+	}
+	instance = [[_form instance:instance withOwnReads:own] mutableCopy];
 	/* Each repeat's rows, linked to the anchor or to what the form reads
 	 * the key of. */
 	for (NSString *name in [_form repeatNames]) {

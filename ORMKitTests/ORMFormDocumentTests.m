@@ -2334,4 +2334,130 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	               @"submitted, not saved: the action's to do");
 }
 
+#pragma mark Rules and derivations as binds
+
+/* The fill-up model with a rule (no fill-up of more than 200) and a
+ * derivation (a fill-up's unit price, its cost by its volume), and a form
+ * of each outline after. */
+- (ORMEditor *)fillUpsRuledWith:(NSString *)forms
+{
+	NSString *facts = @"UnitPrice is a value type.\n"
+	                  @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                  @"FillUp has UnitPrice\n"
+	                  @"Each FillUp has at most one UnitPrice.\n";
+	NSString *queries = @"Query TooMuch:\n"
+	                    @"It is impossible that:\n"
+	                    @"FillUp\n"
+	                    @"  + was of Volume\n"
+	                    @"    + has Quantity > 200\n"
+	                    @"\n"
+	                    @"Query UnitPriceOf:\n"
+	                    @"Derivation of \"FillUp has UnitPrice\":\n"
+	                    @"FillUp (shown)\n"
+	                    @"  + cost Money\n"
+	                    @"    + has Amount\n"
+	                    @"  + was of Volume\n"
+	                    @"    + has Quantity\n"
+	                    @"  Price: UnitPrice = Amount / Quantity (shown)\n"
+	                    @"\n";
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"\n\nQuery RecordFillUp:"
+	                                                       withString:[NSString stringWithFormat:@"\n%@\n%@Query RecordFillUp:", facts, queries]];
+	return [self editorOf:[text stringByAppendingFormat:@"\n%@", forms]];
+}
+
+/* A rule over the form's own values, a bind: the volume entered is checked
+ * as it is entered, said in the rule's words, and no longer left to where
+ * the form is submitted. */
+- (void)testARuleOverTheFormsValuesIsABind
+{
+	ORMEditor *editor = [self fillUpsRuledWith:@""];
+	ORMFormDocument *document = [self documentOf:editor];
+	XCTAssertFalse([[document.checkedWhereSubmitted componentsJoinedByString:@"\n"] rangeOfString:@"200"].location != NSNotFound,
+	               @"%@", document.checkedWhereSubmitted);
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *quantity = [[self nodes:@"//*[local-name()='bind'][@ref='volumeQuantity']" in:xforms] firstObject];
+	XCTAssertTrue([[self attribute:@"constraint" of:quantity] rangeOfString:@"not(../volumeQuantity != '' and number(../volumeQuantity) > 200)"].location != NSNotFound,
+	              @"%@", [self attribute:@"constraint" of:quantity]);
+	NSXMLNode *alert = [[self nodes:@"//*[@bind=//*[local-name()='bind'][@ref='volumeQuantity']/@id]/*[local-name()='alert']" in:xforms] firstObject];
+	XCTAssertTrue([[alert stringValue] rangeOfString:@"200"].location != NSNotFound, @"said in the rule's words: %@", [alert stringValue]);
+}
+
+/* A derived fact type shown, calculated from the form's values as its
+ * derivation says (the unit price, the cost by the volume). */
+- (void)testADerivedValueShownIsCalculated
+{
+	ORMEditor *editor = [self fillUpsRuledWith:@"Query PricedFillUp:\n"
+	                                           @"Form PricedFillUp:\n"
+	                                           @"FillUp\n"
+	                                           @"  + is of Vehicle = ?\n"
+	                                           @"  + cost Money (entered)\n"
+	                                           @"  + was of Volume (entered)\n"
+	                                           @"  + has UnitPrice (shown)\n"];
+	ORMFormDocument *document = [self form:@"PricedFillUp" of:editor];
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *price = [[self nodes:@"//*[local-name()='bind'][@ref='unitPrice']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"calculate" of:price],
+	                      @"choose(../totalAmount != '' and ../volumeQuantity != '', (number(../totalAmount) div number(../volumeQuantity)), '')",
+	                      @"%@ %@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint], document.notes);
+	/* Read on its own, by the key: the read of the fill-up cannot take it. */
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertNotNil([form elementNamed:@"unitPrice"].read);
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *fill = [self insertWhole:@"FillUp" values:@{ @"totalAmount" : [NSDecimalNumber decimalNumberWithString:@"20000"],
+	                                                              @"volumeQuantity" : [NSDecimalNumber decimalNumberWithString:@"40"] }
+	                                       in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *read = [form readKey:[[fill valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"unitPrice"], @"500", @"%@ %@", read, error);
+}
+
+/* An object of the entity with the values, every other property the store
+ * requires given one: an empty text, zero, now, no, a new key, a related
+ * object made so in turn. */
+- (NSManagedObject *)insertWhole:(NSString *)entity values:(NSDictionary *)values in:(NSManagedObjectContext *)context
+{
+	NSManagedObject *object = [self insert:entity values:values in:context];
+	for (NSPropertyDescription *property in [[object entity] properties]) {
+		if ([property isOptional] || [values objectForKey:[property name]] != nil || [property isTransient]) {
+			continue;
+		}
+		if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+			NSRelationshipDescription *relationship = (NSRelationshipDescription *)property;
+			if (![relationship isToMany]) {
+				[object setValue:[self insertWhole:[[relationship destinationEntity] name] values:@{} in:context] forKey:[property name]];
+			}
+			continue;
+		}
+		NSAttributeType type = [(NSAttributeDescription *)property attributeType];
+		id value = type == NSUUIDAttributeType ? [NSUUID UUID]
+		         : type == NSStringAttributeType ? [[NSUUID UUID] UUIDString]
+		         : type == NSDateAttributeType ? [NSDate date]
+		         : type == NSBooleanAttributeType ? @NO
+		         : type == NSDecimalAttributeType ? [NSDecimalNumber one]
+		         : @1;
+		[object setValue:value forKey:[property name]];
+	}
+	return object;
+}
+
+/* The app's words for a rule, by its name: in the document's alerts, and
+ * where the store refuses it. */
+- (void)testARuleIsSaidInTheAppsWords
+{
+	ORMEditor *editor = [self fillUpsRuledWith:@""];
+	ORMFormDocument *document = [self documentOf:editor];
+	document.messages = @{ @"TooMuch" : @"No tank holds that much." };
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *alert = [[self nodes:@"//*[@bind=//*[local-name()='bind'][@ref='volumeQuantity']/@id]/*[local-name()='alert']" in:xforms] firstObject];
+	XCTAssertTrue([[alert stringValue] rangeOfString:@"No tank holds that much."].location != NSNotFound, @"%@", [alert stringValue]);
+	XCTAssertFalse([[alert stringValue] rangeOfString:@"impossible"].location != NSNotFound, @"%@", [alert stringValue]);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSError *refused = [NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError
+	                                   userInfo:@{ NSLocalizedDescriptionKey : @"It is impossible that some FillUp ...",
+	                                               NSValidationKeyErrorKey : @"volumeQuantity", @"ORMConstraint" : @"TooMuch",
+	                                               @"ORMKeys" : @[ @"volumeQuantity" ] }];
+	XCTAssertEqualObjects([form elementErrorsOf:refused], (@{ @"volumeQuantity" : @"No tank holds that much." }));
+}
+
 @end

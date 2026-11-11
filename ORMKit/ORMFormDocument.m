@@ -58,6 +58,8 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 /* The constraints it comes from, by id, and what they say. */
 @property (nonatomic, strong) NSMutableArray<NSString *> *sources;
 @property (nonatomic, strong) NSMutableArray<NSString *> *alerts;
+/* Each alert's source, by the text: what the app's words replace. */
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *sourceOfAlert;
 @end
 
 @implementation ORMFormBind
@@ -70,6 +72,7 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 		_constraint = [NSMutableArray array];
 		_sources = [NSMutableArray array];
 		_alerts = [NSMutableArray array];
+		_sourceOfAlert = [NSMutableDictionary dictionary];
 	}
 	return self;
 }
@@ -153,6 +156,12 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	BOOL _isList;
 	NSString *_from;
 	NSString *_fromGroup;
+	/* What each text of _checked is of, by the text. */
+	NSMutableDictionary<NSString *, NSString *> *_sourceOfCheck;
+	/* The steps through a derived fact type whose derivation branches (a
+	 * unit price, of a cost and a volume), by id: a maybe the planner
+	 * cannot take, so each read of its own, by the key. */
+	NSMutableSet<NSString *> *_ownReads;
 }
 
 #pragma mark The form's parts
@@ -341,6 +350,20 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_groupNodes = [NSMutableDictionary dictionary];
 	_groupNames = [NSMutableArray array];
 	_elementOfNode = [NSMutableDictionary dictionary];
+	_sourceOfCheck = [NSMutableDictionary dictionary];
+	_ownReads = [NSMutableSet set];
+	for (ORMQueryNode *node in [form nodes]) {
+		for (ORMQueryStep *step in node.steps) {
+			ORMQuery *derivation = [ORMQuery derivationOf:step.factType inModel:model];
+			BOOL branches = NO;
+			for (ORMQueryNode *each in [derivation nodes]) {
+				branches = branches || [each.steps count] > 1;
+			}
+			if (branches && node == form.root && ![step.factType isUnary]) {
+				[_ownReads addObject:step.identifier];
+			}
+		}
+	}
 	_aggregateNodes = [NSMutableSet set];
 	_aggregateOf = [NSMutableDictionary dictionary];
 	for (ORMQueryNode *node in [form nodes]) {
@@ -367,7 +390,8 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	}
 	ORMQueryPlan *plan = [self readPlanForKey:nil];
 	if (plan.entityName == nil) {
-		return [NSString stringWithFormat:@"The mapping places no entity for %@.", form.root.objectType.name];
+		return [plan.notes count] > 0 ? [NSString stringWithFormat:@"The form's read cannot be planned: %@", [plan.notes componentsJoinedByString:@" "]]
+		                              : [NSString stringWithFormat:@"The mapping places no entity for %@.", form.root.objectType.name];
 	}
 	_entityName = [plan.entityName copy];
 	[_notes addObjectsFromArray:plan.notes];
@@ -745,7 +769,7 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 			/* A unary entered or shown is read, not asked for. */
 			/* A repeat's step is read by the repeat, row by row. */
 			if ([_conditionSteps containsObject:part.identifier] || [_unarySteps objectForKey:part.identifier] != nil
-			    || [_repeatSteps objectForKey:part.identifier] != nil) {
+			    || [_repeatSteps objectForKey:part.identifier] != nil || [_ownReads containsObject:part.identifier]) {
 				[conditions addObject:part];
 			} else if (part.operatorName == nil && (part.parent == copy.root || [self passesOn:part listed:listed])
 			           && !(_linkNodeId != nil && [[[part nodes] firstObject].identifier isEqualToString:_linkNodeId])) {
@@ -814,6 +838,37 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 	return flagged;
 }
 
+/* What reads a derived value on its own (a unit price): the anchor of the
+ * key, the one step to it, the node listed; nil for none such. */
+- (ORMQueryPlan *)ownReadOf:(NSString *)nodeId key:(NSString *)key
+{
+	ORMQueryNode *node = [self nodeWithId:nodeId];
+	if (node.step == nil || ![_ownReads containsObject:node.step.identifier]) {
+		return nil;
+	}
+	ORMStoredQuery *copy = [_stored copy];
+	copy.identifier = [NSString stringWithFormat:@"%@-read-%@", _stored.identifier, nodeId];
+	copy.kind = nil;
+	NSMutableArray *off = [NSMutableArray array];
+	for (ORMQueryPart *part in [copy.root tree]) {
+		if (part.isStep && part.parent == copy.root && ![part.identifier isEqualToString:node.step.identifier]) {
+			[off addObject:part];
+		}
+		if (part.isValue && part.parent == copy.root) {
+			[off addObject:part];
+		}
+		part.projected = !part.isStep && ([part.identifier isEqualToString:nodeId] || part == copy.root) ? @"true" : nil;
+		part.part = nil;
+		part.given = nil;
+	}
+	for (ORMQueryPart *part in off) {
+		[part detach];
+	}
+	copy.root.comparison = @"=";
+	copy.root.value = key;
+	return [self plan:copy];
+}
+
 /* A query not in the model, planned as the planner plans one that is: each
  * step through a derived fact type expanded first. */
 - (ORMQueryPlan *)plan:(ORMStoredQuery *)stored
@@ -840,6 +895,12 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 		NSString *name = [node designation];
 		if ([_aggregateNodes containsObject:node.identifier]) {
 			[self addField:node.identifier name:[self elementNameOfValue:node] kind:ORMFormFieldCalculated type:@"xsd:decimal"];
+			continue;
+		}
+		/* A derived value read on its own: calculated, its own read. */
+		if (node.step != nil && [_ownReads containsObject:node.step.identifier]) {
+			[self addField:node.identifier name:[self elementNameOfValue:node] kind:ORMFormFieldCalculated
+			          type:[node isNumeric] ? @"xsd:decimal" : @"xsd:string"];
 			continue;
 		}
 		if (column == nil) {
@@ -1422,6 +1483,68 @@ ORMEntersBeneath(ORMQueryNode *node)
 	return [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
 }
 
+#pragma mark What it says
+
+/* An alert of a constraint's or rule's at the bind, its source kept: what
+ * the app's words replace. */
+- (void)alert:(NSString *)text of:(NSString *)source at:(ORMFormBind *)bind
+{
+	if (text == nil || [bind.alerts containsObject:text]) {
+		return;
+	}
+	[bind.alerts addObject:text];
+	if (source != nil) {
+		[bind.sourceOfAlert setObject:source forKey:text];
+	}
+}
+
+/* What the form cannot check, said, its source kept. */
+- (void)check:(NSString *)text of:(NSString *)source
+{
+	if (text == nil || [_checked containsObject:text]) {
+		return;
+	}
+	[_checked addObject:text];
+	if (source != nil) {
+		[_sourceOfCheck setObject:source forKey:text];
+	}
+}
+
+/* The app's words for a constraint or rule, by its id or its name; nil for
+ * none. */
+- (NSString *)messageFor:(NSString *)source
+{
+	if (source == nil || [_messages count] == 0) {
+		return nil;
+	}
+	NSString *said = [_messages objectForKey:source];
+	if (said != nil) {
+		return said;
+	}
+	id element = [_model elementWithId:source];
+	NSString *name = [element respondsToSelector:@selector(name)] ? [element name] : nil;
+	name = name ?: [ORMQuery queryWithId:source inModel:_model].name;
+	return name != nil ? [_messages objectForKey:name] : nil;
+}
+
+/* A text as the app would say it: its source's message, else as it is. */
+- (NSString *)say:(NSString *)text of:(NSString *)source
+{
+	return [self messageFor:source] ?: text;
+}
+
+- (NSString *)alertTextOf:(ORMFormBind *)bind
+{
+	NSMutableArray *said = [NSMutableArray array];
+	for (NSString *alert in bind.alerts) {
+		NSString *text = [self say:alert of:[bind.sourceOfAlert objectForKey:alert]];
+		if (![said containsObject:text]) {
+			[said addObject:text];
+		}
+	}
+	return [said componentsJoinedByString:@" "];
+}
+
 #pragma mark Binds
 
 /* "../totalAmount": an element from a sibling's context. */
@@ -1444,15 +1567,15 @@ ORMPathFrom(NSString *from, NSString *to)
 	return path;
 }
 
-/* The expression in XPath over the elements its nodes are at; nil where it
- * uses what XPath cannot say (a function of moments, an aggregate). */
+/* The expression in XPath over the paths to its nodes' elements; nil where
+ * it uses what XPath cannot say (a function of moments, an aggregate). */
 static NSString *
-ORMXPathOf(ORMQueryExpression *expression, NSDictionary<NSString *, NSString *> *elements)
+ORMXPathOfPaths(ORMQueryExpression *expression, NSDictionary<NSString *, NSString *> *paths)
 {
 	switch (expression.kind) {
 	case ORMQueryExpressionNode: {
-		NSString *element = [elements objectForKey:expression.nodeId];
-		return element != nil ? [NSString stringWithFormat:@"number(%@)", ORMSibling(element)] : nil;
+		NSString *path = [paths objectForKey:expression.nodeId];
+		return path != nil ? [NSString stringWithFormat:@"number(%@)", path] : nil;
 	}
 	case ORMQueryExpressionConstant:
 		return [expression.constant rangeOfString:@"''"].location == NSNotFound ? expression.constant : nil;
@@ -1463,7 +1586,7 @@ ORMXPathOf(ORMQueryExpression *expression, NSDictionary<NSString *, NSString *> 
 	}
 	NSMutableArray *arguments = [NSMutableArray array];
 	for (ORMQueryExpression *argument in expression.arguments) {
-		NSString *said = ORMXPathOf(argument, elements);
+		NSString *said = ORMXPathOfPaths(argument, paths);
 		if (said == nil) {
 			return nil;
 		}
@@ -1499,6 +1622,17 @@ ORMXPathOf(ORMQueryExpression *expression, NSDictionary<NSString *, NSString *> 
 		return [NSString stringWithFormat:@"choose(string(%@) != 'NaN', %@, %@)", a, a, b];
 	}
 	return nil;
+}
+
+/* The same over the elements, from a sibling's context. */
+static NSString *
+ORMXPathOf(ORMQueryExpression *expression, NSDictionary<NSString *, NSString *> *elements)
+{
+	NSMutableDictionary *paths = [NSMutableDictionary dictionary];
+	for (NSString *nodeId in elements) {
+		[paths setObject:ORMSibling([elements objectForKey:nodeId]) forKey:nodeId];
+	}
+	return ORMXPathOfPaths(expression, paths);
 }
 
 /* "number(.) >= 0 and number(.) <= 100", ". = 'M' or . = 'F'": a value
@@ -1586,6 +1720,13 @@ ORMItemsOf(ORMValueConstraint *values)
 		}
 		if (field.kind == ORMFormFieldCalculated) {
 			bind.calculate = ORMXPathOf(node.expression, elements);
+			/* A derived fact type's: as its derivation says, over the form's
+			 * values. */
+			ORMQuery *derivation = node.expression == nil && node.step != nil ? [ORMQuery derivationOf:node.step.factType inModel:_model]
+			                                                                 : nil;
+			if (derivation != nil) {
+				bind.calculate = [self calculateOfDerivation:derivation at:field];
+			}
 			bind.readonly = YES;
 			if (bind.calculate == nil) {
 				[_notes addObject:[NSString stringWithFormat:@"%@: computed where it is read, not in the form.",
@@ -1638,7 +1779,8 @@ ORMItemsOf(ORMValueConstraint *values)
 				    && ![bind.sources containsObject:rule.identifier]) {
 					[bind.sources addObject:rule.identifier];
 					NSString *text = [ORMVerbalizer plainTextOfSentences:[_verbalizer sentencesForQuery:rule]];
-					[bind.alerts addObject:[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]];
+					[self alert:[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]] of:rule.identifier
+					         at:bind];
 					[bind.required addObject:@"true()"];
 				}
 			}
@@ -1664,9 +1806,10 @@ ORMItemsOf(ORMValueConstraint *values)
 					[bind.constraint addObject:[NSString stringWithFormat:@". = '' or %@", test]];
 				}
 				[bind.sources addObject:values.identifier ?: @""];
-				[bind.alerts addObject:[NSString stringWithFormat:@"The possible values of %@ are %@.",
-				                                                  ORMLabelOf(field.role, field.role.player),
-				                                                  [values displayText]]];
+				[self alert:[NSString stringWithFormat:@"The possible values of %@ are %@.", ORMLabelOf(field.role, field.role.player),
+				                                       [values displayText]]
+				         of:values.identifier
+				         at:bind];
 			} else {
 				[_checked addObject:[NSString stringWithFormat:@"The possible values of %@ are %@.",
 				                                               ORMLabelOf(field.role, field.role.player), [values displayText]]];
@@ -1750,7 +1893,7 @@ ORMItemsOf(ORMValueConstraint *values)
 		}
 		for (NSString *alert in of.alerts) {
 			if (![bind.alerts containsObject:alert]) {
-				[bind.alerts addObject:alert];
+				[self alert:alert of:[of.sourceOfAlert objectForKey:alert] at:bind];
 			}
 		}
 	}
@@ -1829,7 +1972,7 @@ ORMItemsOf(ORMValueConstraint *values)
 	}
 	[bind.sources addObject:constraint.identifier];
 	if (constraint.modality == ORMAlethic) {
-		[bind.alerts addObject:[self sayElement:constraint.identifier]];
+		[self alert:[self sayElement:constraint.identifier] of:constraint.identifier at:bind];
 	}
 }
 
@@ -1961,7 +2104,7 @@ ORMNoneGiven(ORMFormField *from, NSArray<ORMFormField *> *fields)
 			[sequences addObject:fields];
 		}
 		if (sequences == nil || ![self bind:constraint sequences:sequences]) {
-			[_checked addObject:[self sayElement:constraint.identifier]];
+			[self check:[self sayElement:constraint.identifier] of:constraint.identifier];
 		}
 	}
 	/* The rules through the form's facts: their violations found where it
@@ -1975,9 +2118,226 @@ ORMNoneGiven(ORMFormField *from, NSArray<ORMFormField *> *fields)
 		NSSet *through = [NSSet setWithArray:[ruleFacts valueForKey:@"identifier"]];
 		if ([through intersectsSet:facts] && [self concernsTheAnchor:ruleFacts]) {
 			NSString *text = [ORMVerbalizer plainTextOfSentences:[_verbalizer sentencesForQuery:rule]];
-			[_checked addObject:[text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]];
+			text = [text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+			/* Over the form's own values: a bind, checked as it is filled in;
+			 * else where it is submitted. */
+			if (![self bindRule:rule text:text]) {
+				[self check:text of:rule.identifier];
+			}
 		}
 	}
+}
+
+#pragma mark Rules and derivations
+
+/* Whether the rule's root is of the anchor's type, or one it is a kind of. */
+- (BOOL)isOfTheAnchor:(ORMQueryNode *)root
+{
+	ORMObjectType *anchor = _form.root.objectType;
+	return root.objectType != nil && (root.objectType == anchor || [anchor isSubtypeOf:root.objectType]);
+}
+
+/* What the node's condition says of its value at the path ("number(p) >
+ * 200", "(p = 'a' or p = 'b')"); "" for none; nil for one XPath cannot say
+ * here. */
+- (NSString *)conditionOf:(ORMQueryNode *)node at:(NSString *)path paths:(NSDictionary *)paths
+{
+	if (node.comparison == nil) {
+		return @"";
+	}
+	NSDictionary *operators = @{ @"=" : @"=", @"<>" : @"!=", @"<" : @"<", @"<=" : @"<=", @">" : @">", @">=" : @">=" };
+	BOOL numeric = [node isNumeric];
+	NSString *subject = numeric ? [NSString stringWithFormat:@"number(%@)", path] : path;
+	if (node.comparedNode != nil) {
+		NSString *other = [paths objectForKey:node.comparedNode.identifier];
+		NSString *operator = [operators objectForKey:node.comparison];
+		return other != nil && operator != nil
+			? [NSString stringWithFormat:@"%@ %@ %@", subject, operator, numeric ? [NSString stringWithFormat:@"number(%@)", other] : other]
+			: nil;
+	}
+	NSArray *values = [node.comparison isEqualToString:@"in"] ? [node comparedValues] : @[ node.value ?: @"" ];
+	NSString *operator = [node.comparison isEqualToString:@"in"] ? @"=" : [operators objectForKey:node.comparison];
+	NSMutableArray *each = [NSMutableArray array];
+	for (NSString *value in values) {
+		if (operator == nil || [value rangeOfString:@"'"].location != NSNotFound) {
+			return nil;
+		}
+		[each addObject:[NSString stringWithFormat:@"%@ %@ %@", subject, operator, numeric ? value : [NSString stringWithFormat:@"'%@'", value]]];
+	}
+	return [each count] == 1 ? [each firstObject] : [NSString stringWithFormat:@"(%@)", [each componentsJoinedByString:@" or "]];
+}
+
+/* The rule's node onto the form's: each of the rule's steps from it one of
+ * the form's from that, through the same fact type and role, a compound's
+ * part one of the form's compound's parts. The path of each node reached,
+ * from the context's element, put in paths (by the rule's node), the
+ * elements it is at in elements, and what each step and condition says in
+ * tests. NO where any of it is not in the form. */
+- (BOOL)mapRuleNode:(ORMQueryNode *)rule
+              onto:(ORMQueryNode *)form
+              from:(ORMFormField *)context
+             paths:(NSMutableDictionary *)paths
+             tests:(NSMutableArray *)tests
+          elements:(NSMutableArray *)elements
+{
+	if (rule.combinesWithOr) {
+		return NO;
+	}
+	for (ORMQueryStep *step in rule.steps) {
+		if (step.countComparison != nil || [step.nodes count] > 1 || [step isSubtyping]) {
+			return NO;
+		}
+		BOOL negated = step.operatorKind == ORMQueryNot, maybe = step.operatorKind == ORMQueryMaybe;
+		ORMQueryStep *same = nil;
+		for (ORMQueryStep *each in form.steps) {
+			same = each.factType == step.factType && each.entryRole == step.entryRole ? each : same;
+		}
+		if ([step.factType isUnary]) {
+			NSString *flag = same != nil ? [self elementOfNode:same.identifier] : nil;
+			if (flag == nil) {
+				return NO;
+			}
+			[elements addObject:flag];
+			NSString *path = context != nil ? ORMPathFrom(context.elementName, flag) : flag;
+			if (!maybe) {
+				[tests addObject:[NSString stringWithFormat:negated ? @"%@ != 'true'" : @"%@ = 'true'", path]];
+			}
+			continue;
+		}
+		ORMQueryNode *reached = [step.nodes firstObject], *formReached = [same.nodes firstObject];
+		NSString *element = formReached != nil ? [self elementOfNode:formReached.identifier] : nil;
+		if (same == nil) {
+			/* A compound's part the outline does not list (a cost's amount). */
+			for (ORMFormField *field in [self fieldsOfNode:form.identifier]) {
+				element = field.isPart && field.role == reached.role ? field.elementName : element;
+			}
+			if (element == nil) {
+				return NO;
+			}
+		}
+		NSString *path = element != nil ? (context != nil ? ORMPathFrom(context.elementName, element) : element) : nil;
+		if (path != nil) {
+			[paths setObject:path forKey:reached.identifier];
+		}
+		if ([reached.steps count] == 0 || negated) {
+			if (path == nil) {
+				return NO;
+			}
+			[elements addObject:element];
+			if (!maybe) {
+				[tests addObject:[NSString stringWithFormat:negated ? @"%@ = ''" : @"%@ != ''", path]];
+			}
+			NSString *condition = negated ? @"" : [self conditionOf:reached at:path paths:paths];
+			if (condition == nil) {
+				return NO;
+			}
+			if ([condition length] > 0) {
+				[tests addObject:condition];
+			}
+			continue;
+		}
+		if (formReached == nil || reached.comparison != nil
+		    || ![self mapRuleNode:reached onto:formReached from:context paths:paths tests:tests elements:elements]) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
+/* The query onto the form, its root the anchor: its paths and tests; its
+ * value nodes' conditions tests too. NO where any of it is not in the form. */
+- (BOOL)mapQuery:(ORMQuery *)query
+            from:(ORMFormField *)context
+           paths:(NSMutableDictionary *)paths
+           tests:(NSMutableArray *)tests
+        elements:(NSMutableArray *)elements
+{
+	if (![self isOfTheAnchor:query.root] || query.root.comparison != nil
+	    || ![self mapRuleNode:query.root onto:_form.root from:context paths:paths tests:tests elements:elements]) {
+		return NO;
+	}
+	for (ORMQueryNode *value in [query nodes]) {
+		if (!value.isValue) {
+			continue;
+		}
+		NSString *said = ORMXPathOfPaths(value.expression, paths);
+		if (said == nil) {
+			return NO;
+		}
+		[paths setObject:said forKey:value.identifier];
+		NSString *condition = [self conditionOf:value at:said paths:paths];
+		if (condition == nil) {
+			return NO;
+		}
+		if ([condition length] > 0) {
+			[tests addObject:condition];
+		}
+	}
+	return YES;
+}
+
+/* A rule over the form's own values, at the first of them the user enters:
+ * what it forbids, a constraint ("not(...)"), said in its words; a deontic
+ * one a warning. NO where any of it is not in the form, or nothing of it
+ * is entered: checked where the form is submitted. */
+- (BOOL)bindRule:(ORMQuery *)rule text:(NSString *)text
+{
+	NSMutableArray *elements = [NSMutableArray array];
+	if (![self mapQuery:rule from:nil paths:[NSMutableDictionary dictionary] tests:[NSMutableArray array] elements:elements]) {
+		return NO;
+	}
+	ORMFormField *context = nil;
+	for (ORMFormField *field in _fields) {
+		if (context == nil && [elements containsObject:field.elementName] && [[self roleOfField:field] isEqualToString:@"entered"]) {
+			context = field;
+		}
+	}
+	NSMutableArray *tests = [NSMutableArray array];
+	if (context == nil || ![self mapQuery:rule from:context paths:[NSMutableDictionary dictionary] tests:tests elements:elements]
+	    || [tests count] == 0) {
+		return NO;
+	}
+	NSString *violation = [tests componentsJoinedByString:@" and "];
+	ORMFormBind *bind = [self bindOf:context];
+	if (rule.isDeontic) {
+		ORMFormWarning *warning = [[ORMFormWarning alloc] init];
+		warning.constraintId = rule.identifier;
+		warning.elementName = context.elementName;
+		warning.test = [NSString stringWithFormat:@"not(%@)", violation];
+		warning.text = text;
+		[_warnings addObject:warning];
+		return YES;
+	}
+	[bind.sources addObject:rule.identifier];
+	[bind.constraint addObject:[NSString stringWithFormat:@"not(%@)", violation]];
+	[self alert:text of:rule.identifier at:bind];
+	return YES;
+}
+
+/* A derived fact type's value at the field, as its derivation says, over
+ * the form's values: where its path holds, its value node's expression or
+ * the node it gives (a unary's "true"), else none ("" or "false"); nil
+ * where any of it is not in the form. */
+- (NSString *)calculateOfDerivation:(ORMQuery *)derivation at:(ORMFormField *)field
+{
+	NSMutableDictionary *paths = [NSMutableDictionary dictionary];
+	NSMutableArray *tests = [NSMutableArray array];
+	if (![self mapQuery:derivation from:field paths:paths tests:tests elements:[NSMutableArray array]]) {
+		return nil;
+	}
+	ORMQueryNode *given = nil;
+	for (ORMQueryNode *column in [derivation derivedColumns]) {
+		given = column != derivation.root ? column : given;
+	}
+	BOOL unary = given == nil;
+	NSString *value = unary ? @"'true'" : [paths objectForKey:given.identifier];
+	if (value == nil) {
+		return nil;
+	}
+	if ([tests count] == 0) {
+		return unary ? @"'true'" : value;
+	}
+	return [NSString stringWithFormat:@"choose(%@, %@, %@)", [tests componentsJoinedByString:@" and "], value, unary ? @"'false'" : @"''"];
 }
 
 /* The constraint over the fields of each of its sequences, as binds (a
@@ -2367,6 +2727,20 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		if ([_aggregateOf objectForKey:field.elementName] != nil) {
 			[element setObject:[_aggregateOf objectForKey:field.elementName] forKey:@"aggregate"];
 		}
+		/* Read on its own, by the key: the plan, and its column. */
+		NSString *keyName = [self keyField].elementName;
+		ORMQueryPlan *own = keyName != nil ? [self ownReadOf:field.nodeId key:ORMParameterSentinel(keyName)] : nil;
+		if (own != nil) {
+			own = ORMPlanWithParameters(own, @{ ORMParameterSentinel(keyName) : keyName });
+			NSUInteger index = 0;
+			for (ORMPlanColumn *each in own.columns) {
+				if ([each.nodeId isEqualToString:field.nodeId]) {
+					[element setObject:[own propertyList] forKey:@"read"];
+					[element setObject:@(index) forKey:@"readColumn"];
+				}
+				index++;
+			}
+		}
 		[element setObject:@(written) forKey:@"written"];
 		/* What it is to whoever opens the form, and what it is called. */
 		[element setObject:[self roleOfField:field] forKey:@"role"];
@@ -2441,6 +2815,9 @@ ORMFieldKindName(ORMFormFieldKind kind)
 	if (_action != nil) {
 		[list setObject:_action forKey:@"action"];
 	}
+	if ([_messages count] > 0) {
+		[list setObject:_messages forKey:@"messages"];
+	}
 	/* A repeat's link; the repeats, each a table of its own. */
 	if (_linkNodeId != nil) {
 		[list setObject:[self linkElement] ?: @"link" forKey:@"link"];
@@ -2457,6 +2834,7 @@ ORMFieldKindName(ORMFormFieldKind kind)
 	if ([_repeats count] > 0) {
 		NSMutableDictionary *repeats = [NSMutableDictionary dictionary];
 		[_repeats enumerateKeysAndObjectsUsingBlock:^(NSString *name, ORMFormDocument *repeat, BOOL *stop) {
+			repeat.messages = self.messages;
 			[repeats setObject:[repeat tablePropertyList] forKey:name];
 		}];
 		[list setObject:repeats forKey:@"repeats"];
@@ -2522,7 +2900,7 @@ ORMXText(NSString *name, NSString *text)
 	[head addChild:[self model]];
 	if ([_checked count] > 0) {
 		NSXMLElement *checks = ORMXElement(@"ormf:checks", @{});
-		for (NSString *text in _checked) {
+		for (NSString *text in [self checkedWhereSubmitted]) {
 			[checks addChild:ORMXText(@"ormf:checkedWhereSubmitted", text)];
 		}
 		[head addChild:checks];
@@ -2562,7 +2940,7 @@ ORMXText(NSString *name, NSString *text)
 		NSXMLElement *element = ORMXElement(@"xfk:warning", @{
 			@"ref" : warning.elementName, @"test" : warning.test, @"ormf:constraint" : warning.constraintId,
 		});
-		[element setStringValue:warning.text];
+		[element setStringValue:[self say:warning.text of:warning.constraintId]];
 		[model addChild:element];
 	}
 	/* Reads are not validated: a new form's required fields are empty
@@ -2901,7 +3279,7 @@ ORMXText(NSString *name, NSString *text)
 	NSMutableDictionary *required = [NSMutableDictionary dictionary];
 	for (ORMFormBind *bind in [_binds allValues]) {
 		if (([bind.required containsObject:@"true()"] || [bind.required containsObject:@"../* != ''"]) && bind.field.elementName != nil) {
-			NSString *said = [bind.alerts componentsJoinedByString:@" "];
+			NSString *said = [self alertTextOf:bind];
 			[required setObject:[said length] > 0 ? said : @"A value is required." forKey:bind.field.elementName];
 		}
 	}
@@ -3037,7 +3415,7 @@ ORMXPathLiteral(NSString *text)
 	}
 	ORMFormBind *formBind = [self bindOf:field];
 	if ([formBind.alerts count] > 0 && !shown) {
-		[control addChild:ORMXText(@"xf:alert", [formBind.alerts componentsJoinedByString:@" "])];
+		[control addChild:ORMXText(@"xf:alert", [self alertTextOf:formBind])];
 	}
 	/* A reference whose choices depend on this one: read again as it
 	 * changes. */
@@ -3055,7 +3433,11 @@ ORMXPathLiteral(NSString *text)
 
 - (NSArray<NSString *> *)checkedWhereSubmitted
 {
-	return [_checked copy];
+	NSMutableArray *said = [NSMutableArray array];
+	for (NSString *text in _checked) {
+		[said addObject:[self say:text of:[_sourceOfCheck objectForKey:text]]];
+	}
+	return said;
 }
 
 - (NSArray<NSString *> *)notes

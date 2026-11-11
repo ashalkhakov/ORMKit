@@ -95,6 +95,10 @@ extern NSString * const ORMFormErrorDomain;
  * ("count", "total", "avg", "max", "min") and the path to the values
  * (purchaseLines, quantity); nil for others. */
 @property (nonatomic, readonly, copy) NSDictionary *aggregate;
+/* A value read on its own, by the anchor's key (a derived one the form's
+ * read cannot take): the plan, and the column its value is in. */
+@property (nonatomic, readonly, strong) ORMQueryPlan *read;
+@property (nonatomic, readonly) NSUInteger readColumn;
 @end
 
 /* What to send the service to save the form: the method, the path under
@@ -167,6 +171,9 @@ extern NSString * const ORMFormErrorDomain;
 /* The service's action the form is submitted to (docs/FORMS.md); nil for
  * a form that is saved. */
 @property (nonatomic, readonly, copy) NSString *action;
+/* The app's words for the rules a save may be refused by, by name: said
+ * instead of the rule's own. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSString *> *messages;
 /* The rules the form cannot check, said: the store or the service does. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 
@@ -174,6 +181,9 @@ extern NSString * const ORMFormErrorDomain;
  * the values given (the vehicle it is for), a flag entered "false", and
  * each repeat no rows. */
 - (NSDictionary<NSString *, id> *)instanceGiven:(NSDictionary<NSString *, id> *)values;
+/* The instance with each element read on its own read so, from its rows
+ * (one row each, of the key). */
+- (NSDictionary<NSString *, id> *)instance:(NSDictionary<NSString *, id> *)instance withOwnReads:(NSDictionary<NSString *, NSArray *> *)rows;
 /* The instance with each aggregate worked out over its rows as they are:
  * a total and a count "0" over none, the others "". */
 - (NSDictionary<NSString *, id> *)instanceWithAggregates:(NSDictionary<NSString *, id> *)instance;

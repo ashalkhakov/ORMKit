@@ -45,7 +45,7 @@
  *                                            population (ORMFlowWalk): each list's first row
  *                                            chosen, each form submitted as it opens, each way
  *                                            taken once; what happened, a line a step
- *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]...
+ *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]
  *                                            each form (or the named one) as an XForms document,
  *                                            <Form>.xhtml in dir/ (docs/FORMS.md): generated, never
  *                                            edited; beside it <Form>.ormform, what an app runs it
@@ -94,7 +94,7 @@ ORMUsage(void)
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
 	      "       ormtool flow model.orm file.flow [walk [entry name]]\n"
-	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]...\n"
+	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
 	      "       ormtool forml model.orm [out.forml]\n"
 	      "       ormtool apply model.orm changes.forml [out.orm]\n"
@@ -635,6 +635,21 @@ main(int argc, const char *argv[])
 				[rest removeObjectsInRange:NSMakeRange(at, 2)];
 				args = rest;
 			}
+			/* The app's words for its rules: --messages file.plist, a
+			 * dictionary of texts by constraint or rule name or id. */
+			NSDictionary *messages = nil;
+			NSUInteger messagesAt = [args indexOfObject:@"--messages"];
+			if (messagesAt != NSNotFound) {
+				NSData *data = messagesAt + 1 < [args count] ? [NSData dataWithContentsOfFile:[args objectAtIndex:messagesAt + 1]] : nil;
+				messages = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+				if (![messages isKindOfClass:[NSDictionary class]]) {
+					fprintf(stderr, "ormtool: --messages: give a property list of texts by name\n");
+					return 1;
+				}
+				NSMutableArray *rest = [args mutableCopy];
+				[rest removeObjectsInRange:NSMakeRange(messagesAt, 2)];
+				args = rest;
+			}
 			ORMCoreDataMapping *mapping = nil;
 			for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
 				if ([args count] < 5 || [each.name isEqualToString:[args objectAtIndex:4]]) {
@@ -678,6 +693,7 @@ main(int argc, const char *argv[])
 					}
 				}
 				form.action = [actions objectForKey:query.name];
+				form.messages = messages;
 				NSString *path = [directory stringByAppendingPathComponent:[query.name stringByAppendingPathExtension:@"xhtml"]];
 				NSData *data = [[form document] XMLDataWithOptions:NSXMLNodePrettyPrint];
 				if (![data writeToFile:path atomically:YES]) {

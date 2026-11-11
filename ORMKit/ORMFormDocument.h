@@ -179,4 +179,9 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
  * -document: its save "form:submit/<Action>", and the table says it, so
  * that ORMFormSession calls it. nil to save. */
 @property (nonatomic, copy) NSString *action;
+/* The app's words for its constraints and rules, by id or name ("TooMuch":
+ * "No tank holds that much."): said in the document's alerts and what it
+ * checks where submitted instead of their verbalizations, and in the
+ * table, for what the store refuses. */
+@property (nonatomic, copy) NSDictionary<NSString *, NSString *> *messages;
 @end

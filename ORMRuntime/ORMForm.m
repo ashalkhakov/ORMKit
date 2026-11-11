@@ -33,6 +33,8 @@ ORMFormError(NSString *text)
 @property (nonatomic, readwrite, copy) NSString *subtype;
 @property (nonatomic, readwrite, copy) NSString *identifies;
 @property (nonatomic, readwrite, copy) NSDictionary *aggregate;
+@property (nonatomic, readwrite, strong) ORMQueryPlan *read;
+@property (nonatomic, readwrite) NSUInteger readColumn;
 @property (nonatomic, readwrite, copy) NSString *label;
 @end
 
@@ -251,6 +253,13 @@ static NSString *ORMFormMessage(NSError *error);
 		element.subtype = [[item objectForKey:@"subtype"] isKindOfClass:[NSString class]] ? [item objectForKey:@"subtype"] : nil;
 		element.identifies = [[item objectForKey:@"identifies"] isKindOfClass:[NSString class]] ? [item objectForKey:@"identifies"] : nil;
 		element.aggregate = [[item objectForKey:@"aggregate"] isKindOfClass:[NSDictionary class]] ? [item objectForKey:@"aggregate"] : nil;
+		if ([[item objectForKey:@"read"] isKindOfClass:[NSDictionary class]]) {
+			element.read = [ORMQueryPlan planWithPropertyList:[item objectForKey:@"read"] error:error];
+			if (element.read == nil) {
+				return NO;
+			}
+			element.readColumn = [[item objectForKey:@"readColumn"] unsignedIntegerValue];
+		}
 		/* A table from before roles: what it writes entered, the rest shown. */
 		element.role = [item objectForKey:@"role"]
 		    ?: ([element.name isEqualToString:_keyElement ?: @""] ? @"key"
@@ -302,6 +311,7 @@ static NSString *ORMFormMessage(NSError *error);
 	_dependsOn = dependsOn;
 	_checkedWhereSubmitted = [[list objectForKey:@"checkedWhereSubmitted"] copy] ?: @[];
 	_action = [[list objectForKey:@"action"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"action"] copy] : nil;
+	_messages = [[list objectForKey:@"messages"] isKindOfClass:[NSDictionary class]] ? [[list objectForKey:@"messages"] copy] : nil;
 	_linkElement = [[list objectForKey:@"link"] copy];
 	_isList = [[list objectForKey:@"list"] boolValue];
 	_from = [[list objectForKey:@"from"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"from"] copy] : nil;
@@ -515,6 +525,20 @@ ORMRegisteredForms(void)
 	return [self instanceWithAggregates:instance];
 }
 
+- (NSDictionary<NSString *, id> *)instance:(NSDictionary<NSString *, id> *)instance withOwnReads:(NSDictionary<NSString *, NSArray *> *)rows
+{
+	NSMutableDictionary *read = [instance mutableCopy];
+	for (ORMFormElement *element in _elements) {
+		NSArray *row = [[rows objectForKey:element.name] firstObject];
+		if (element.read == nil) {
+			continue;
+		}
+		id value = element.readColumn < [row count] ? [row objectAtIndex:element.readColumn] : nil;
+		[read setObject:ORMFormText(value, element.schemaType, element.keyName) forKey:element.name];
+	}
+	return read;
+}
+
 /* The texts at the path through rows: each row's, each of its rows' in
  * turn. */
 static void
@@ -608,6 +632,19 @@ ORMFormCollect(id value, NSArray<NSString *> *path, NSMutableArray<NSString *> *
 		return nil;
 	}
 	NSMutableDictionary *instance = [[self instanceOfRow:[result.rows firstObject]] mutableCopy];
+	/* What is read on its own, by the key. */
+	NSMutableDictionary *own = [NSMutableDictionary dictionary];
+	for (ORMFormElement *element in _elements) {
+		ORMQueryPlan *plan = element.read != nil ? [element.read planBinding:@{ _keyElement ?: @"" : key ?: @"" } error:error] : nil;
+		ORMQueryResult *read = plan != nil ? [interpreter executePlan:plan inContext:context error:error] : nil;
+		if (element.read != nil && read == nil) {
+			return nil;
+		}
+		if (read != nil) {
+			[own setObject:read.rows forKey:element.name];
+		}
+	}
+	instance = [[self instance:instance withOwnReads:own] mutableCopy];
 	ORMFormElement *kind = [self subtypeElement];
 	if (kind != nil) {
 		NSEntityDescription *entity = [NSEntityDescription entityForName:_entityName inManagedObjectContext:context];
@@ -1102,7 +1139,7 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 				NSString *element = key != nil ? [NSString stringWithFormat:@"%@/%@", group, key] : @"";
 				element = [self elementNamed:element] != nil ? element : @"";
 				NSString *said = [problems objectForKey:element];
-				NSString *message = ORMFormMessage(one);
+				NSString *message = [self messageOf:one];
 				[problems setObject:said != nil ? [NSString stringWithFormat:@"%@ %@", said, message] : message forKey:element];
 				continue;
 			}
@@ -1119,7 +1156,7 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 			NSString *element = [repeat elementOfError:one];
 			NSString *at = [element length] > 0 ? [prefix stringByAppendingString:element] : @"";
 			NSString *said = [problems objectForKey:at];
-			NSString *message = ORMFormMessage(one);
+			NSString *message = [self messageOf:one];
 			[problems setObject:said != nil ? [NSString stringWithFormat:@"%@ %@", said, message] : message forKey:at];
 		}
 	}
@@ -1149,6 +1186,13 @@ ORMFormMessage(NSError *error)
 		return @"A value is required.";
 	}
 	return [error localizedDescription] ?: @"";
+}
+
+/* What the error says, in the app's words where it is of a rule they say. */
+- (NSString *)messageOf:(NSError *)error
+{
+	NSString *rule = [[error userInfo] objectForKey:@"ORMConstraint"];
+	return ([rule isKindOfClass:[NSString class]] ? [_messages objectForKey:rule] : nil) ?: ORMFormMessage(error);
 }
 
 /* Whether the entity, or one it is a kind of, is the form's anchor's. */
@@ -1200,7 +1244,7 @@ ORMFormMessage(NSError *error)
 {
 	NSString *name = [self elementOfError:one];
 	NSString *said = [errors objectForKey:name];
-	NSString *message = ORMFormMessage(one);
+	NSString *message = [self messageOf:one];
 	[errors setObject:said != nil ? [NSString stringWithFormat:@"%@ %@", said, message] : message forKey:name];
 }
 

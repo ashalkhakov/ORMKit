@@ -331,6 +331,8 @@ constraint's own statement; the bind names it in `ormf:constraints`.
 | value comparison | `constraint`, compared when both are given |
 | a value node's expression | `calculate` (`number(../totalAmount) div number(../volumeQuantity)`), empty until its operands are given |
 | deontic | XFormsKit's `xfk:warning`: shown at its element, never invalid, never in the way of a submission |
+| a rule over the form's own values ("It is impossible that: FillUp + was of Volume + has Quantity > 200") | `constraint` at the first of them entered: `not(../volumeQuantity != '' and number(../volumeQuantity) > 200)`; deontic, a warning |
+| a derived fact type shown (a unit price, its derivation over the cost and the volume) | `calculate`, as the derivation says over the form's elements; where the read cannot take it (its derivation branches), read on its own by the key |
 
 An owned object's and a subtype part's constraints are bound as the
 anchor's are, each path from the element's own place
@@ -338,11 +340,17 @@ anchor's are, each path from the element's own place
 supertype's roles about another of its subtypes (a trip's, in a fill-up's
 form) are left out.
 
-What a form cannot check alone (a join, a pattern, uniqueness across
+A rule is a bind where each of its steps is one of the form's, through
+the same fact type and role, from the anchor (a compound's parts, which
+the outline need not list, among them), its conditions comparisons of
+them. What a form cannot check alone (a join, a pattern, uniqueness across
 objects, a rule through facts it does not hold: the driver who drives the
 vehicle, the meter going up) is listed under `ormf:checks` as
 `ormf:checkedWhereSubmitted`, in words, and checked where it is saved.
-Either way a constraint is met as an error said in the model's words.
+Either way a constraint is met as an error said in the model's words, or
+the app's: `ormtool xforms ... --messages file.plist` (texts by constraint
+or rule name or id, `ORMFormDocument.messages`) says them in its alerts and
+checks, and `ORMForm` where the store refuses one.
 
 ### Controls
 
@@ -575,8 +583,6 @@ committing what is typed. XFormsKit still needs decimal arithmetic for
 
 - A form with several anchors: objects made or changed together that
   neither reaches through the other, submitted as one change set.
-- Rules and derivations over the form's facts said as binds; messages in
-  the app's words rather than the rule's verbalization.
 - Figma import and export.
 - A BPMN user task performed with a form or a flow.
 - Forms seeding the model: a form, or a sample filled in, its provisional
