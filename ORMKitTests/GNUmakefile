@@ -31,6 +31,7 @@ ORMKitTests_OBJC_FILES = \
   ORMCoreDataImportTests.m \
   ORMCoreDataValidationTests.m \
   ORMQueryTests.m \
+  ORMFormDocumentTests.m \
   ORMPopulationTests.m \
   ORMJoinedEntityTests.m
 ORMKitTests_OBJCFLAGS += -fobjc-arc -Wall -Werror=logical-not-parentheses

@@ -15,9 +15,10 @@
  * outline writes it, after "or", "not" or "maybe". Under a step, "+ count(X)
  * for Y > n" (or total, avg, max, min, compared with a value or another
  * aggregate) is its aggregate, and "X:" turns to the steps of its node of
- * X (the first node's need none). A constraint's or calculation's first
- * line ("It is impossible that:", "Total of each Branch is total(Salary)
- * of:") says what the query is for. */
+ * X (the first node's need none). A constraint's, calculation's or form's
+ * first line ("It is impossible that:", "Total of each Branch is
+ * total(Salary) of:", "Form RecordFillUp:") says what the query is for; in
+ * a form ✎ enters a node, ✓ shows it and "= ?" gives it. */
 @interface ORMOutlineReader : NSObject
 - (instancetype)initWithEditor:(ORMEditor *)editor;
 @property (nonatomic, readonly, strong) ORMEditor *editor;

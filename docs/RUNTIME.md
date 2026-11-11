@@ -116,6 +116,51 @@ The tables are made when the code is: by Synchronize, `ormtool coredata`
 and `ormtool validation`. Planning stays in ORMKit, and the driver never
 plans.
 
+## Forms
+
+A form ([FORMS.md](FORMS.md)) is a table of its own, `<Form>.ormform`,
+which `ormtool xforms` writes beside the form's XForms document. It is
+what the document's abstract names stand for, read by ORMRuntime's
+`ORMForm` (`+formNamed:error:` finds it as `+[ORMTables tablesNamed:]`
+finds tables):
+
+```
+{
+  format = 1;
+  form = RecordFillUp;
+  entity = FillUp;
+  key = id;                                  // the anchor's key's element
+  elements = ( { name = mileageQuantity; kind = value; type = "xsd:decimal";
+                 column = 3; part = 0; written = YES; },
+               { name = driver; kind = reference; entity = User; key = email; ... }, ... );
+  read = { ... };                            // form:read, its parameter $id
+  choices = { driver = { all = {...}; plan = {...}; dependsOn = ( vehicle ); }; };
+  checkedWhereSubmitted = ( "If some Event had driver some User ... then that User drives that Vehicle." );
+}
+```
+
+- **Parameters.** A plan's constant may be a parameter (`{ parameter =
+  vehicle; type = UUID; }`, printed `$vehicle`), its value given where
+  the plan runs: `-[ORMQueryPlan planBinding:error:]` puts each in its
+  place, and the interpreter refuses a plan whose parameters have none.
+  ORMKit plans a form's read and choices with a stand-in for each value
+  and makes it a parameter after, so the planner itself has none.
+- **An element** is where the read has its value (a column, a compound's
+  part of the column's list), what it holds, and whether a save writes
+  it (what is entered or given; never what is shown or computed).
+- **The instance** is a dictionary of texts by element, in xsd's lexical
+  forms: the XForms instance's XML is the host's.
+- **The store:** the read and the choices run by the interpreter; a save
+  writes the instance into the anchor's object (found by its key, or
+  made and given one), references found by their keys, and saves the
+  context. A refusal is said by element, from each error's
+  `NSValidationKeyErrorKey`, and the object is put back as it was.
+- **The service:** the read and the choices as `ORMQueryOData` requests,
+  the save as an `ORMFormRequest`: a POST, or a PATCH of what changed with
+  the ETag; a reference bound (`Vehicle@odata.bind`), every name the
+  service's. An error body's details come back by element, by their
+  targets. Sending them is the host's.
+
 ## The generated code
 
 Declarations, and calls into the driver:

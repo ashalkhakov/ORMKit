@@ -207,8 +207,10 @@
 			continue;
 		}
 		NSString *reason = nil;
-		NSString *read = [reader addQueryNamed:query.kind == ORMQueryCalculation ? nil : @"Read back" outline:outline
-		                               reason:&reason];
+		/* A calculation's and a form's name are in their first line. */
+		NSString *read = [reader addQueryNamed:query.kind == ORMQueryCalculation || query.kind == ORMQueryForm ? nil : @"Read back"
+		                               outline:outline
+		                                reason:&reason];
 		XCTAssertNotNil(read, @"%@\n%@", reason, outline);
 		ORMQuery *again = read != nil ? [ORMQuery queryWithId:read inModel:_editor.model] : nil;
 		if (again != nil) {
@@ -3097,6 +3099,172 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	XCTAssertNil([reader addQueryNamed:nil outline:@"Martian\n" reason:&reason]);
 	XCTAssertEqualObjects(reason, @"Line 1, \"Martian\": no object type of the model is named so.");
 	XCTAssertEqual([[ORMQuery queriesInModel:_editor.model] count], queries, @"nothing made");
+}
+
+#pragma mark Forms
+
+/* A form hiring an employee (docs/FORMS.md): the branch given, the name
+ * and salary entered, the city shown. */
+static NSString *const ORMHireForm = @"Form HireEmployee:\n"
+                                     @"Employee\n"
+                                     @"  + has ✎EmployeeName\n"
+                                     @"  + works for Branch = ?\n"
+                                     @"  + earns ✎Salary\n"
+                                     @"  + lives in ✓City\n";
+
+- (NSString *)hireForm
+{
+	NSString *reason = nil;
+	NSString *q = [[[ORMOutlineReader alloc] initWithEditor:_editor] addQueryNamed:nil outline:ORMHireForm reason:&reason];
+	XCTAssertNotNil(q, @"%@", reason);
+	return q;
+}
+
+- (ORMQueryNode *)node:(NSString *)typeName of:(NSString *)queryId
+{
+	for (ORMQueryNode *node in [[self query:queryId] nodes]) {
+		if ([node.objectType.name isEqualToString:typeName]) {
+			return node;
+		}
+	}
+	return nil;
+}
+
+/* A form's nodes are entered, shown or given; its read lists what is
+ * entered and shown; its outline reads back the same. */
+- (void)testAFormIsAnOutlineOfWhatIsEnteredShownAndGiven
+{
+	NSString *q = [self hireForm];
+	ORMQuery *form = [self query:q];
+	XCTAssertEqual(form.kind, ORMQueryForm);
+	XCTAssertEqualObjects(form.name, @"HireEmployee");
+	XCTAssertEqualObjects([form outlineText], ORMHireForm);
+	XCTAssertEqual([self node:@"EmployeeName" of:q].formPart, ORMFormPartEntered);
+	XCTAssertEqual([self node:@"City" of:q].formPart, ORMFormPartShown);
+	XCTAssertEqual([self node:@"Branch" of:q].formPart, ORMFormPartNone);
+	XCTAssertTrue([self node:@"Branch" of:q].isGiven);
+	XCTAssertNil([self node:@"Branch" of:q].comparison, @"given, not compared");
+	XCTAssertFalse([self node:@"Employee" of:q].isGiven);
+	XCTAssertEqualObjects([[form projectedNodes] valueForKeyPath:@"objectType.name"],
+	                      (@[ @"EmployeeName", @"Salary", @"City" ]));
+	/* As the file keeps it. */
+	NSString *saved = [[NSString alloc] initWithData:[_editor dataForSaving] encoding:NSUTF8StringEncoding];
+	XCTAssertTrue([saved rangeOfString:@"Kind=\"Form\""].location != NSNotFound);
+	XCTAssertTrue([saved rangeOfString:@"Part=\"Entered\""].location != NSNotFound);
+	XCTAssertTrue([saved rangeOfString:@"Part=\"Shown\""].location != NSNotFound);
+	XCTAssertTrue([saved rangeOfString:@"Given=\"true\""].location != NSNotFound);
+	ORMModel *reread = [ORMModel modelOfDocument:ORMParseDocument([_editor dataForSaving], NULL) reason:NULL];
+	XCTAssertEqualObjects([[ORMQuery queryWithId:q inModel:reread] outlineText], ORMHireForm);
+	XCTAssertEqualObjects([self english:q],
+	                      @"The form HireEmployee enters EmployeeName and Salary and shows City where some Employee "
+	                      @"has that EmployeeName and works for some Branch and earns that Salary and lives in that "
+	                      @"City; it is given Branch.");
+}
+
+/* What a form is about: its fact types, its object types, and the
+ * constraints all of whose roles are in them. */
+- (void)testAFormIsReadAsItsSubschema
+{
+	ORMQuerySubschema *subschema = [[self query:[self hireForm]] subschemaInModel:_editor.model];
+	NSArray *facts = @[ @"hasName", @"worksFor", @"earns", @"livesIn" ];
+	NSMutableSet *expected = [NSMutableSet set];
+	for (NSString *fact in facts) {
+		[expected addObject:[[_editor.model elementWithId:[self role:fact at:0]] factType]];
+	}
+	XCTAssertEqualObjects([NSSet setWithArray:subschema.factTypes], expected);
+	XCTAssertEqualObjects([NSSet setWithArray:[subschema.objectTypes valueForKey:@"name"]],
+	                      ([NSSet setWithArray:@[ @"Employee", @"EmployeeName", @"Branch", @"Salary", @"City" ]]));
+	XCTAssertGreaterThan([subschema.constraints count], 0u);
+	for (ORMConstraint *constraint in subschema.constraints) {
+		XCTAssertTrue([[NSSet setWithArray:[constraint factTypes]] isSubsetOfSet:expected], @"%@", constraint.name);
+	}
+	/* The phones' exclusion is about fact types the form does not have. */
+	ORMRole *mandatoryName = [_editor.model elementWithId:[self role:@"hasName" at:0]];
+	XCTAssertTrue([subschema.constraints containsObject:[[mandatoryName constraints] firstObject]]);
+	for (ORMConstraint *constraint in _editor.model.constraints) {
+		if (constraint.kind == ORMExclusionConstraint) {
+			XCTAssertFalse([subschema.constraints containsObject:constraint]);
+		}
+	}
+}
+
+/* A list made a form shows what it listed; a form made a list lists what
+ * it entered and showed, and gives nothing; each undone. */
+- (void)testAQueryBecomesAFormAndBack
+{
+	NSString *q = [self q1];
+	NSString *list = [[self query:q] outlineText];
+	XCTAssertTrue([[self queries] setKind:ORMQueryForm ofQuery:q reason:NULL]);
+	XCTAssertEqualObjects([[self query:q] outlineText], [@"Form Q1:\n" stringByAppendingString:list]);
+	XCTAssertEqual([self root:q].formPart, ORMFormPartShown);
+	[self.undoManager undo];
+	XCTAssertEqualObjects([[self query:q] outlineText], list);
+
+	NSString *f = [self hireForm];
+	XCTAssertTrue([[self queries] setKind:ORMQueryList ofQuery:f reason:NULL]);
+	XCTAssertEqualObjects([[self query:f] outlineText], @"Employee\n"
+	                                                    @"  + has ✓EmployeeName\n"
+	                                                    @"  + works for Branch\n"
+	                                                    @"  + earns ✓Salary\n"
+	                                                    @"  + lives in ✓City\n");
+	XCTAssertFalse([self node:@"Branch" of:f].isGiven);
+	[self.undoManager undo];
+	XCTAssertEqualObjects([[self query:f] outlineText], ORMHireForm);
+}
+
+/* A form's node entered, shown or given through the editor, each undone;
+ * refused for a query that is no form. */
+- (void)testAFormsNodesAreEnteredShownAndGiven
+{
+	NSString *f = [self hireForm];
+	NSString *city = [self node:@"City" of:f].identifier;
+	NSString *reason = nil;
+	XCTAssertTrue([[self queries] setFormPart:ORMFormPartEntered ofNode:city reason:&reason], @"%@", reason);
+	XCTAssertEqual([self node:@"City" of:f].formPart, ORMFormPartEntered);
+	XCTAssertTrue([[self queries] setGiven:YES ofNode:city reason:&reason], @"%@", reason);
+	XCTAssertTrue([[[self query:f] outlineText] rangeOfString:@"lives in ✎City = ?"].location != NSNotFound);
+	[self.undoManager undo];
+	XCTAssertFalse([self node:@"City" of:f].isGiven);
+	[self.undoManager undo];
+	XCTAssertEqual([self node:@"City" of:f].formPart, ORMFormPartShown);
+	XCTAssertTrue([[self queries] setFormPart:ORMFormPartNone ofNode:city reason:NULL]);
+	XCTAssertFalse([self node:@"City" of:f].isProjected);
+
+	NSString *q = [self q1];
+	XCTAssertFalse([[self queries] setFormPart:ORMFormPartEntered ofNode:[self root:q].identifier reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Only a form's nodes are entered, shown or given.");
+	XCTAssertFalse([[self queries] setGiven:YES ofNode:[self root:q].identifier reason:&reason]);
+	XCTAssertEqual([self root:q].formPart, ORMFormPartNone);
+	/* Nor does an outline enter or give what is no form's. */
+	XCTAssertNil([[[ORMOutlineReader alloc] initWithEditor:_editor] addQueryNamed:nil
+	                                                                      outline:@"Employee\n  + has ✎EmployeeName\n"
+	                                                                       reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 2, \"+ has ✎EmployeeName\": only a form's nodes are entered (✎) or given (= ?)");
+}
+
+/* A value a form computes is shown, as FORMS.md's price per unit is. */
+- (void)testAFormShowsTheValuesItComputes
+{
+	NSString *outline = @"Form Pay:\n"
+	                    @"Employee = ?\n"
+	                    @"  + earns ✎Salary\n"
+	                    @"  ✓Yearly = Salary * 12\n";
+	NSString *reason = nil;
+	NSString *q = [[[ORMOutlineReader alloc] initWithEditor:_editor] addQueryNamed:nil outline:outline reason:&reason];
+	XCTAssertNotNil(q, @"%@", reason);
+	XCTAssertEqualObjects([[self query:q] outlineText], outline);
+	ORMQueryNode *yearly = [[[self query:q].root values] firstObject];
+	XCTAssertEqual(yearly.formPart, ORMFormPartShown);
+	XCTAssertTrue([self root:q].isGiven);
+}
+
+/* Forms are queries: left out of what is written for NORMA. */
+- (void)testFormsAreLeftOutForNORMA
+{
+	[self hireForm];
+	NSXMLDocument *forNorma = [_editor documentForNorma];
+	XCTAssertEqual([[ORMQuery queriesInModel:[ORMModel modelOfDocument:forNorma reason:NULL]] count], 0u);
+	XCTAssertTrue([[forNorma XMLString] rangeOfString:@"Kind=\"Form\""].location == NSNotFound);
 }
 
 @end

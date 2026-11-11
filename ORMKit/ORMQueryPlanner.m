@@ -1212,6 +1212,22 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		&& [self propertyOfNode:node above:NULL] == nil;
 }
 
+- (NSString *)entityNameOfType:(ORMObjectType *)type
+{
+	return type != nil ? [_places entityOf:type].name : nil;
+}
+
+- (NSString *)identifierKeyOfType:(ORMObjectType *)type
+{
+	ORMCDEntity *entity = type != nil ? [_places entityOf:type] : nil;
+	return entity != nil ? [_places identifierOf:type on:entity].name : nil;
+}
+
+- (NSString *)attributeOfUnaryStep:(ORMQueryStep *)step
+{
+	return [self unaryOfStep:step].name;
+}
+
 /* A unary step's attribute, of the entity it is from; nil for another. */
 - (ORMCDAttribute *)unaryOfStep:(ORMQueryStep *)step
 {
@@ -2257,6 +2273,12 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	ORMPlannerPlace *place = at;
 	if (step.entryRole.isSupertypeMetaRole && [at isRead] && target != nil && [_places entity:_read inherits:target]) {
 		/* What is read is one. */
+	} else if (step.entryRole.isSupertypeMetaRole && step.operatorKind == ORMQueryMaybe) {
+		/* Maybe one: read as one, its properties nothing where it is not
+		 * (a form's subtype part: a trip's end, of an event that is one). */
+		if (target != nil && target != entity && [_places entity:target inherits:entity]) {
+			place = [at castTo:target];
+		}
 	} else if (step.entryRole.isSupertypeMetaRole) {
 		if (target == nil || target == entity || ![_places entity:target inherits:entity]) {
 			[self note:[NSString stringWithFormat:@"%@ is no entity of its own, so being one is not tested.",

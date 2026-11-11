@@ -18,6 +18,20 @@
 			<key>grammarOf</key>
 			<string>xml</string>
 		</dict>
+		<!-- ORMKit's flows (docs/FORMS.md): XML beside the model they name,
+		     opened in ORMDesignerKit's flow designer. -->
+		<dict>
+			<key>identifier</key>
+			<string>ormflow</string>
+			<key>displayName</key>
+			<string>ORM2 Flow</string>
+			<key>fileExtensions</key>
+			<array>
+				<string>flow</string>
+			</array>
+			<key>grammarOf</key>
+			<string>xml</string>
+		</dict>
 	</array>
 </dict>
 </plist>

@@ -26,6 +26,9 @@
 @interface ORM2EditorViewController : NSViewController <UDEditorPanes>
 
 - (instancetype)initWithDocument:(UDCodeDocument *)document workbench:(id<UDWorkbench>)workbench;
+/* The tab showing the model at the URL (a flow's, opening its form); nil
+ * while none does. */
++ (ORM2EditorViewController *)editorShowingURL:(NSURL *)url;
 
 @property (nonatomic, readonly, strong) UDCodeDocument *document;
 /* The editor, while the text is a model; nil, and why, while it is not. */

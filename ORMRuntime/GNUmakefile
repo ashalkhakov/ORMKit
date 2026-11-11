@@ -28,7 +28,9 @@ ORMRuntime_HEADER_FILES = \
   ORMTables.h \
   ORMSaveHook.h \
   ORMValidator.h \
-  ORMJoinedObject.h
+  ORMJoinedObject.h \
+  ORMForm.h \
+  ORMFormSession.h
 ORMRuntime_OBJC_FILES = \
   ORMQueryPlan.m \
   ORMQueryInterpreter.m \
@@ -39,7 +41,9 @@ ORMRuntime_OBJC_FILES = \
   ORMTables.m \
   ORMSaveHook.m \
   ORMValidator.m \
-  ORMJoinedObject.m
+  ORMJoinedObject.m \
+  ORMForm.m \
+  ORMFormSession.m
 
 # As ORMKit's: AddressSanitizer and undefined behaviour, for the tests.
 ifeq ($(SANITIZE),1)

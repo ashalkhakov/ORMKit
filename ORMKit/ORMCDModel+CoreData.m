@@ -53,6 +53,19 @@ ORMDerivationExpression(NSString *text)
 
 @implementation ORMCDModel (CoreData)
 
+/* The model's deletion rule, as Xcode spells it, as Core Data's: Nullify
+ * where it says none, as Xcode's default is. */
+static NSDeleteRule
+ORMCDDeleteRule(NSString *rule)
+{
+	NSDictionary *rules = @{
+		@"No Action" : @(NSNoActionDeleteRule), @"Nullify" : @(NSNullifyDeleteRule), @"Cascade" : @(NSCascadeDeleteRule),
+		@"Deny" : @(NSDenyDeleteRule),
+	};
+	NSNumber *found = [rules objectForKey:rule ?: @""];
+	return found != nil ? (NSDeleteRule)[found unsignedIntegerValue] : NSNullifyDeleteRule;
+}
+
 /* Each identifier a fetch index, as the source's: the store reads by it
  * (the runtime's pages seek on it), with an index of the table. */
 - (void)index:(NSEntityDescription *)described as:(ORMCDEntity *)entity
@@ -128,6 +141,7 @@ ORMDerivationExpression(NSString *text)
 			described.minCount = relationship.minCount;
 			described.maxCount = relationship.toMany ? relationship.maxCount : 1;
 			described.ordered = relationship.ordered;
+			described.deleteRule = ORMCDDeleteRule(relationship.deletionRule);
 			described.userInfo = relationship.userInfo ?: @{};
 			[properties addObject:described];
 			[relationships setObject:described forKey:[NSString stringWithFormat:@"%@.%@", entity.name, relationship.name]];

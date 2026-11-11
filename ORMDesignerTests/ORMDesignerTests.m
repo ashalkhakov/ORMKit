@@ -4,6 +4,9 @@
 #import "ORMCanvasView.h"
 #import "ORMCoreDataController.h"
 #import "ORMDocument.h"
+#import "ORMFlowDocument.h"
+#import "ORMFlowWindowController.h"
+#import "ORMFlowPlayController.h"
 #import "ORMQueryController.h"
 #import "ORMInsertPalette.h"
 #import "ORMIssuesView.h"
@@ -132,7 +135,7 @@
 	for (NSMenuItem *item in [menu itemArray]) {
 		[titles addObject:[item isSeparatorItem] ? @"-" : [item title]];
 	}
-	XCTAssertEqualObjects(titles, (@[ @"Company", @"Customers", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
+	XCTAssertEqualObjects(titles, (@[ @"Company", @"Customers", @"Fleet", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
 	XCTAssertEqual([[[menu itemWithTitle:@"ActiveFacts"] submenu] numberOfItems], (NSInteger)29);
 	NSMenuItem *company = [menu itemWithTitle:@"Company"];
 	XCTAssertEqual([company action], @selector(openSample:));
@@ -963,6 +966,100 @@
 	XCTAssertEqual([[ORMQuery queryWithId:query inModel:editor.model].root.steps count], 0u);
 }
 
+/* A query made a form in the Queries window: its nodes are entered, shown
+ * or given with the controls in the List check's place, which the XIB
+ * connects. */
+- (void)testAFormsNodesAreMarkedInTheQueryWindow
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	[[_document undoManager] setGroupsByEvent:NO];
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	[queries window];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Warehouse"] identifier]];
+	ORMRole *contains = nil;
+	for (ORMRole *role in [queries availableRoles]) {
+		for (ORMRole *other in role.factType.roles) {
+			if (other != role && [other.player.name isEqualToString:@"Location"]) {
+				contains = role;
+			}
+		}
+	}
+	XCTAssertNotNil([queries addStepThrough:contains]);
+	NSPopUpButton *part = [queries valueForKey:@"formPartPopUp"];
+	NSButton *given = [queries valueForKey:@"givenCheck"];
+	NSButton *list = [queries valueForKey:@"listCheck"];
+	XCTAssertNotNil(part);
+	XCTAssertNotNil(given);
+	XCTAssertTrue([part isHidden], @"a list's nodes are listed");
+	XCTAssertFalse([list isHidden]);
+
+	[[queries valueForKey:@"kindPopUp"] selectItemWithTitle:@"Form"];
+	[queries performSelector:@selector(kindChanged:) withObject:nil];
+	ORMQuery *form = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqual(form.kind, ORMQueryForm);
+	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:[form.name stringByAppendingString:@" (form)"]]);
+	ORMQueryNode *location = [[[form.root.steps firstObject] nodes] firstObject];
+	[queries selectElement:location.identifier];
+	XCTAssertFalse([part isHidden]);
+	XCTAssertFalse([given isHidden]);
+	XCTAssertTrue([list isHidden]);
+	[part selectItemAtIndex:ORMFormPartEntered];
+	[queries performSelector:@selector(formPartChanged:) withObject:part];
+	[given setState:NSControlStateValueOn];
+	[queries performSelector:@selector(givenChanged:) withObject:given];
+	location = [[[[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject] nodes] firstObject];
+	XCTAssertEqual(location.formPart, ORMFormPartEntered);
+	XCTAssertTrue(location.isGiven);
+	XCTAssertEqual([part indexOfSelectedItem], (NSInteger)ORMFormPartEntered, @"shown as it is");
+	XCTAssertTrue([[queries verbalizationText] hasPrefix:@"The form "], @"%@", [queries verbalizationText]);
+	/* Undone, given no more. */
+	[[_document undoManager] undo];
+	location = [[[[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject] nodes] firstObject];
+	XCTAssertFalse(location.isGiven);
+	XCTAssertEqual(location.formPart, ORMFormPartEntered);
+	[queries close];
+}
+
+/* A form's unary step, which has no node to mark, is entered with the same
+ * pop-up when the step is chosen. */
+- (void)testAFormsUnaryStepIsMarkedInTheQueryWindow
+{
+	[self open:@"StockMate.orm"];
+	ORMEditor *editor = _document.editor;
+	[[_document undoManager] setGroupsByEvent:NO];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:@"Warehouse is open\n" failures:&failures],
+	              @"%@", failures);
+	ORMQueryController *queries = [[ORMQueryController alloc] initWithEditor:editor];
+	[queries window];
+	editor.changed = ^{
+		[queries modelDidChange];
+	};
+	NSString *query = [queries addQueryFrom:[[editor.model objectTypeNamed:@"Warehouse"] identifier]];
+	ORMRole *open = nil;
+	for (ORMRole *role in [queries availableRoles]) {
+		open = [role.factType isUnary] ? role : open;
+	}
+	XCTAssertNotNil(open);
+	NSString *step = [queries addStepThrough:open];
+	XCTAssertNotNil(step);
+	[[queries valueForKey:@"kindPopUp"] selectItemWithTitle:@"Form"];
+	[queries performSelector:@selector(kindChanged:) withObject:nil];
+	[queries selectElement:step];
+	NSPopUpButton *part = [queries valueForKey:@"formPartPopUp"];
+	XCTAssertTrue([part isEnabled], @"a unary's step is marked itself");
+	[part selectItemAtIndex:ORMFormPartEntered];
+	[queries performSelector:@selector(formPartChanged:) withObject:part];
+	ORMQuery *form = [ORMQuery queryWithId:query inModel:editor.model];
+	XCTAssertEqual([form.root.steps.firstObject formPart], ORMFormPartEntered);
+	XCTAssertTrue([[form outlineText] rangeOfString:@"is open ✎"].location != NSNotFound, @"%@", [form outlineText]);
+	[queries close];
+}
+
 /* A sample's query run on its own population, then on a made-up one: the
  * Results tab shows the rows, and undoing brings the sample's back. */
 - (void)testAQueryRunsOnASamplePopulation
@@ -1309,8 +1406,10 @@
 {
 	[self open:@"StockMate.orm"];
 	NSMenu *menu = [ORMAppDelegate newMainMenu];
+	/* The window's controller is in its chain too (New Flow). */
 	NSArray *responders = @[ _controller, _controller.canvas, _document, [NSDocumentController sharedDocumentController],
-	                         NSApp, [[_controller view] window], [[ORMAppDelegate alloc] init] ];
+	                         NSApp, [[_controller view] window], [[[_controller view] window] windowController],
+	                         [[ORMAppDelegate alloc] init] ];
 	NSMutableArray *pending = [NSMutableArray arrayWithObject:menu];
 	NSArray *standard = @[ @"undo:", @"redo:", @"cut:", @"copy:", @"paste:", @"performMiniaturize:", @"arrangeInFront:",
 	                       @"orderFrontStandardAboutPanel:", @"hide:", @"terminate:" ];
@@ -1589,6 +1688,476 @@
 	population.elementId = entryId;
 	XCTAssertEqualObjects([population textAtRow:0 column:0], @"7");
 	XCTAssertGreaterThan([[population textAtRow:0 column:1] length], 0u);
+}
+
+#pragma mark Flows
+
+/* A model with a list of vehicles and a form for a fill-up, saved in a
+ * folder of its own; a flow of it. */
+- (ORMFlowDocument *)newFlowInFolder:(NSString **)folder
+{
+	ORMEditor *editor = [[ORMEditor alloc] initWithDocument:[ORMEditor newDocumentNamed:@"Fleet"] undoManager:nil];
+	NSArray *failures = nil;
+	NSString *text = @"Vehicle is an entity type.\n"
+	                 @"Reference Mode: .name\n"
+	                 @"FillUp is an entity type.\n"
+	                 @"Reference Mode: .number\n"
+	                 @"Litres is a value type.\n"
+	                 @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                 @"FillUp is of Vehicle\n"
+	                 @"Each FillUp is of exactly one Vehicle.\n"
+	                 @"FillUp took Litres\n"
+	                 @"Each FillUp took at most one Litres.\n"
+	                 @"\n"
+	                 @"Query Vehicles:\n"
+	                 @"✓Vehicle\n"
+	                 @"\n"
+	                 @"Query RecordFillUp:\n"
+	                 @"Form RecordFillUp:\n"
+	                 @"FillUp\n"
+	                 @"  + is of Vehicle = ?\n"
+	                 @"  + took ✎Litres\n";
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	/* Its sample: two cars, to play the flow over. */
+	NSString *reason = nil;
+	for (NSString *car in @[ @"Car 7", @"Car 8" ]) {
+		XCTAssertNotNil([editor.populationEditor addInstanceOf:[[editor.model objectTypeNamed:@"Vehicle"] identifier] named:car
+		                                               reason:&reason],
+		                @"%@", reason);
+	}
+	*folder = [NSTemporaryDirectory() stringByAppendingPathComponent:[[NSProcessInfo processInfo] globallyUniqueString]];
+	[[NSFileManager defaultManager] createDirectoryAtPath:*folder withIntermediateDirectories:YES attributes:nil error:NULL];
+	NSURL *modelURL = [NSURL fileURLWithPath:[*folder stringByAppendingPathComponent:@"Fleet.orm"]];
+	XCTAssertTrue([[editor dataForSaving] writeToURL:modelURL atomically:YES]);
+	return [ORMFlowDocument flowForModelAtURL:modelURL model:editor.model named:@"Records"];
+}
+
+/* The flow's window, from its XIB, connected; a flow designed in it as a
+ * modeller does: screens placed from the palette, a transition drawn from
+ * one's port to the other giving the form its vehicle, changed in the
+ * inspector, deleted and undone; saved, and opened again with its model. */
+- (void)testAFlowIsDesignedInItsWindow
+{
+	NSString *folder = nil;
+	ORMFlowDocument *document = [self newFlowInFolder:&folder];
+	[document makeWindowControllers];
+	ORMFlowWindowController *window = [[document windowControllers] firstObject];
+	XCTAssertNotNil([window window]);
+	for (NSString *outlet in @[ @"canvas", @"palette", @"problems", @"inspector", @"screenName", @"screenShows", @"screenEntry",
+	                            @"transitionFrom", @"transitionOn", @"transitionControl", @"transitionKind", @"transitionTo",
+	                            @"gives" ]) {
+		XCTAssertNotNil([window valueForKey:outlet], @"%@ connected", outlet);
+	}
+	XCTAssertTrue([window.canvas isKindOfClass:[ORMFlowCanvasView class]]);
+	XCTAssertEqual(window.canvas.editor, document.editor);
+	/* Zoomed by the buttons under the canvas, and by the Diagram menu's
+	 * items, which reach the window's controller whatever has the focus. */
+	NSButton *zoomIn = nil, *zoomOut = nil;
+	NSMutableArray *pending = [NSMutableArray arrayWithObject:[[window window] contentView]];
+	while ([pending count] > 0) {
+		NSView *view = [pending lastObject];
+		[pending removeLastObject];
+		[pending addObjectsFromArray:[view subviews]];
+		/* By name: GNUstep's selectors of one name need not be one pointer. */
+		NSString *action = [view isKindOfClass:[NSButton class]] ? NSStringFromSelector([(NSButton *)view action]) : nil;
+		if ([action isEqualToString:@"zoomCanvasIn:"]) {
+			zoomIn = (NSButton *)view;
+		}
+		if ([action isEqualToString:@"zoomCanvasOut:"]) {
+			zoomOut = (NSButton *)view;
+		}
+	}
+	XCTAssertNotNil(zoomIn);
+	XCTAssertNotNil(zoomOut);
+	XCTAssertEqual([zoomIn target], window);
+	double zoom = window.canvas.zoom;
+	[zoomIn performClick:nil];
+	XCTAssertTrue(window.canvas.zoom > zoom, @"%g after %g", window.canvas.zoom, zoom);
+	[zoomOut performClick:nil];
+	XCTAssertEqualWithAccuracy(window.canvas.zoom, zoom, 1e-9);
+	XCTAssertTrue([window respondsToSelector:@selector(zoomIn:)] && [window respondsToSelector:@selector(zoomToFit:)]);
+	[window zoomIn:nil];
+	XCTAssertTrue(window.canvas.zoom > zoom, @"the menu's Zoom In");
+	[window zoomToActualSize:nil];
+	XCTAssertEqualWithAccuracy(window.canvas.zoom, 1.0, 1e-9, @"Actual Size");
+	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"nothing");
+	XCTAssertEqual([window.palette numberOfRows], 2, @"the model's form and list");
+	XCTAssertEqualObjects([window tableView:window.palette objectValueForTableColumn:nil row:0], @"RecordFillUp (form)");
+
+	[window.palette selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+	[window addToFlow:nil];
+	[window.palette selectRowIndexes:[NSIndexSet indexSetWithIndex:0] byExtendingSelection:NO];
+	[window addToFlow:nil];
+	ORMFlow *flow = document.editor.flow;
+	XCTAssertEqualObjects([flow.screens valueForKey:@"identifier"], (@[ @"Vehicles", @"RecordFillUp" ]));
+	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"screen", @"the new screen chosen");
+	XCTAssertEqualObjects([window.screenName stringValue], @"RecordFillUp");
+	XCTAssertEqual([window.problems numberOfRows], 0);
+	ORMFlowScreen *vehicles = [flow screenWithId:@"Vehicles"], *form = [flow screenWithId:@"RecordFillUp"];
+	XCTAssertTrue(NSMinX([window.canvas frameOfScreen:form]) > NSMaxX([window.canvas frameOfScreen:vehicles]), @"placed right of it");
+
+	/* Drawn from the list's port to the form. */
+	NSPoint port = [window.canvas portOfScreen:vehicles];
+	NSRect target = [window.canvas frameOfScreen:form];
+	NSEvent *press = [NSEvent mouseEventWithType:NSEventTypeLeftMouseDown location:NSZeroPoint modifierFlags:0 timestamp:0
+	                                windowNumber:[[window window] windowNumber] context:nil eventNumber:0 clickCount:1 pressure:1];
+	XCTAssertTrue([window.canvas canvas:window.canvas mouseDown:press atPoint:port], @"the port takes the press");
+	[window.canvas canvas:window.canvas mouseDragged:press atPoint:NSMakePoint(NSMidX(target), NSMidY(target))];
+	[window.canvas canvas:window.canvas mouseUp:press atPoint:NSMakePoint(NSMidX(target), NSMidY(target))];
+	XCTAssertEqual([flow.transitions count], 1u);
+	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"transition");
+	XCTAssertEqualObjects([window.transitionOn titleOfSelectedItem], @"row chosen");
+	XCTAssertEqualObjects([window.transitionTo titleOfSelectedItem], @"RecordFillUp");
+	XCTAssertEqual([window.gives numberOfRows], 1, @"the form's one input");
+	XCTAssertEqualObjects([window tableView:window.gives objectValueForTableColumn:[window.gives tableColumnWithIdentifier:@"from"] row:0],
+	                      @"row", @"given the row chosen");
+	NSArray<NSValue *> *route = [window.canvas routeOfTransition:0];
+	XCTAssertTrue(NSEqualPoints([[route firstObject] pointValue], port));
+	XCTAssertEqualObjects([window.canvas canvas:window.canvas itemAtPoint:[[route objectAtIndex:1] pointValue]],
+	                      [ORMFlowCanvasView itemOfTransition:0], @"its line is picked");
+
+	/* Changed in the inspector: going over it, then back. */
+	[window.transitionKind selectItemAtIndex:1];
+	[window chooseTransitionKind:window.transitionKind];
+	XCTAssertEqualObjects([[flow.transitions firstObject] kind], ORMFlowKindOverlay);
+	[window.transitionKind selectItemAtIndex:0];
+	[window chooseTransitionKind:window.transitionKind];
+	[window.canvas selectScreen:@"RecordFillUp"];
+	[window addCancelBack:nil];
+	XCTAssertEqual([flow.transitions count], 2u);
+	/* A return drawn to the screen it comes back to: the one way in. */
+	NSArray<NSValue *> *back = [window.canvas routeOfTransition:1];
+	NSRect list = [window.canvas frameOfScreen:vehicles];
+	XCTAssertTrue([back count] > 2, @"%@", back);
+	NSPoint end = [[back lastObject] pointValue];
+	XCTAssertTrue(end.x >= NSMinX(list) && end.x <= NSMaxX(list) && fabs(end.y - NSMaxY(list)) < 1, @"into Vehicles: %@", back);
+	XCTAssertEqualObjects([window.canvas textOfTransition:1], @"cancelled → back");
+	XCTAssertEqual([window.problems numberOfRows], 0, @"%@", [document.editor problems]);
+
+	/* Deleted, and undone: one step (no event loop here groups them). */
+	NSUndoManager *undo = [document undoManager];
+	while ([undo groupingLevel] > 0) {
+		[undo endUndoGrouping];
+	}
+	[undo setGroupsByEvent:NO];
+	[window.canvas selectScreen:@"RecordFillUp"];
+	[undo beginUndoGrouping];
+	[window delete:nil];
+	[undo endUndoGrouping];
+	XCTAssertEqual([flow.screens count], 1u);
+	XCTAssertEqual([flow.transitions count], 0u);
+	[[document undoManager] undo];
+	XCTAssertEqual([flow.screens count], 2u);
+	XCTAssertEqual([flow.transitions count], 2u);
+	XCTAssertTrue([document isDocumentEdited]);
+
+	/* Saved beside its model, and opened again. */
+	NSURL *url = [NSURL fileURLWithPath:[folder stringByAppendingPathComponent:@"Records.flow"]];
+	NSError *error = nil;
+	XCTAssertTrue([[document dataOfType:ORMFlowDocumentType error:&error] writeToURL:url atomically:YES]);
+	ORMFlowDocument *again = [[ORMFlowDocument alloc] init];
+	XCTAssertTrue([again readFromURL:url ofType:ORMFlowDocumentType error:&error], @"%@", error);
+	XCTAssertEqualObjects([again.editor.flow.screens valueForKey:@"identifier"], (@[ @"Vehicles", @"RecordFillUp" ]));
+	XCTAssertEqualObjects([again.editor problems], @[], @"its model read from beside it");
+	[document close];
+	[[NSFileManager defaultManager] removeItemAtPath:folder error:NULL];
+}
+
+/* The Fleet sample played where a form goes beyond the anchor's own: the
+ * van's plate shown through the van given; a station's address entered
+ * with it; a record chosen as a fill-up, its part then shown. */
+- (void)testFleetsFormsArePlayedBeyondTheirAnchors
+{
+	NSString *here = [[NSString stringWithUTF8String:__FILE__] stringByDeletingLastPathComponent];
+	if (![here isAbsolutePath]) {
+		here = [[[NSFileManager defaultManager] currentDirectoryPath] stringByAppendingPathComponent:here];
+	}
+	NSString *samples = [[here stringByDeletingLastPathComponent] stringByAppendingPathComponent:@"Samples"];
+	NSString *reason = nil;
+	ORMModel *model = ORMFlowModelAt([NSURL fileURLWithPath:[samples stringByAppendingPathComponent:@"Fleet.orm"]], &reason);
+	XCTAssertNotNil(model, @"%@", reason);
+	NSError *error = nil;
+	ORMFlow *flow = [ORMFlow flowWithData:[NSData dataWithContentsOfFile:[samples stringByAppendingPathComponent:@"Fleet.flow"]] error:&error];
+	XCTAssertNotNil(flow, @"%@", error);
+	ORMFlowPlayController *player = [[ORMFlowPlayController alloc] initWithFlow:flow model:model];
+	XCTAssertNotNil([player window]);
+	NSInteger (^rowOf)(NSString *) = ^NSInteger(NSString *name) {
+		for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+			if ([[player tableView:player.values objectValueForTableColumn:[player.values tableColumnWithIdentifier:@"name"] row:row]
+			        hasPrefix:name]) {
+				return row;
+			}
+		}
+		return -1;
+	};
+	ORMFlowTransition *(^way)(NSString *) = ^ORMFlowTransition *(NSString *control) {
+		for (ORMFlowTransition *each in [player.walk transitions]) {
+			if ([each.control isEqualToString:control] || (control == nil && [each.on isEqualToString:ORMFlowOnRowChosen])) {
+				return each;
+			}
+		}
+		return nil;
+	};
+
+	/* The van's plate, through it: the van chosen by its plate, a list's
+	 * rows coming in the store's order. */
+	NSUInteger van = [player.walk.rows indexOfObjectPassingTest:^BOOL(NSDictionary<NSString *, NSString *> *row, NSUInteger i, BOOL *stop) {
+		return [[row allValues] containsObject:@"KZ 101 AAA"];
+	}];
+	XCTAssertNotEqual(van, (NSUInteger)NSNotFound, @"%@", player.walk.rows);
+	XCTAssertTrue([player.walk take:way(nil) row:(NSInteger)van error:&error], @"%@", error);
+	[player.values reloadData];
+	NSInteger plate = rowOf(@"Plate");
+	XCTAssertTrue(plate >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
+	XCTAssertEqualObjects([player editorOfRow:plate], @"shown");
+	XCTAssertEqualObjects([player shownValueOfRow:plate], @"KZ 101 AAA");
+
+	/* A station and its address, made together. */
+	XCTAssertTrue([player.walk take:way(@"newStation") row:0 error:&error], @"%@", error);
+	[player.values reloadData];
+	NSInteger lines = rowOf(@"AddressLines"), name = rowOf(@"StationName");
+	XCTAssertTrue(lines >= 0 && name >= 0);
+	XCTAssertEqualObjects([player editorOfRow:lines], @"text");
+	[player setValue:@"Ring Road 5" ofRow:lines];
+	XCTAssertFalse([player.walk submit:&error], @"no name yet");
+	[player setValue:@"Qazaq Oil" ofRow:name];
+	XCTAssertTrue([player.walk submit:&error], @"%@ %@", player.walk.session.errors, error);
+
+	/* A record: a fill-up, its own part shown once it is one. */
+	[player startOver:nil];
+	XCTAssertTrue([player.walk take:way(@"record") row:0 error:&error], @"%@", error);
+	[player.values reloadData];
+	NSInteger kind = rowOf(@"Kind");
+	XCTAssertEqualObjects([player editorOfRow:kind], @"choice");
+	XCTAssertEqual(rowOf(@"Litres"), -1, @"no kind yet: no part");
+	[player setValue:@"FillUp" ofRow:kind];
+	XCTAssertTrue(rowOf(@"Litres") >= 0, @"a fill-up's");
+	XCTAssertEqual(rowOf(@"Day"), -1, @"not a service's");
+	/* The kind said as a reader does; every fact of a fill-up there, its
+	 * flag among them; entered, it saves. */
+	NSPopUpButton *kinds = [[[player tableView:player.values viewForTableColumn:[player.values tableColumnWithIdentifier:@"value"] row:kind]
+	                           subviews] firstObject];
+	XCTAssertEqualObjects([kinds titleOfSelectedItem], @"Fill up");
+	XCTAssertEqualObjects([player tableView:player.values objectValueForTableColumn:[player.values tableColumnWithIdentifier:@"name"] row:kind],
+	                      @"Kind", @"its label alone: its control says it is entered");
+	NSView *kindName = [player tableView:player.values viewForTableColumn:[player.values tableColumnWithIdentifier:@"name"] row:kind];
+	XCTAssertEqualObjects([kindName toolTip], @"Kind (entered)");
+	NSInteger tank = rowOf(@"filled the tank");
+	XCTAssertTrue(tank >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
+	XCTAssertEqualObjects([player editorOfRow:tank], @"flag");
+	XCTAssertEqualObjects([player.walk.session.form elementNamed:@"filledTheTank"].subtype, @"FillUp");
+	for (NSString *each in @[ @"Moment", @"Litres", @"Fuel", @"Station", @"Amount", @"Currency", @"Driver" ]) {
+		XCTAssertTrue(rowOf(each) >= 0, @"%@ in a fill-up's part", each);
+	}
+	[player setValue:@"2026-11-11T08:00:00Z" ofRow:rowOf(@"Moment")];
+	[player setValue:@"40" ofRow:rowOf(@"Litres")];
+	[player setValue:@"5000" ofRow:rowOf(@"Amount")];
+	NSDictionary *chosen = @{ @"Fuel" : @"fuel", @"Station" : @"station", @"Currency" : @"moneyCurrency", @"Driver" : @"driver" };
+	for (NSString *each in chosen) {
+		NSArray *choices = [player.walk.session choicesNamed:[chosen objectForKey:each] error:NULL];
+		XCTAssertTrue([choices count] > 0, @"%@'s choices", each);
+		[player setValue:[choices firstObject] ofRow:rowOf(each)];
+		/* Named as a reader knows it, a part's as the anchor's are: a
+		 * station by its name, not its key. */
+		if ([each isEqualToString:@"Station"]) {
+			NSPopUpButton *popUp = [[[player tableView:player.values viewForTableColumn:[player.values tableColumnWithIdentifier:@"value"]
+			                                       row:rowOf(each)] subviews] firstObject];
+			XCTAssertNotEqualObjects([popUp titleOfSelectedItem], [choices firstObject]);
+			XCTAssertEqualObjects([popUp titleOfSelectedItem], [player.walk labelOfKey:[choices firstObject] element:@"station"]);
+		}
+	}
+	[player setValue:@"true" ofRow:tank];
+	XCTAssertTrue([player.walk submit:&error], @"%@ %@", player.walk.session.errors, error);
+	XCTAssertTrue([[player.walk.log componentsJoinedByString:@"\n"] rangeOfString:@"NewRecord saved"].location != NSNotFound, @"%@",
+	              player.walk.log);
+}
+
+/* Played from its window: Play's window, from its XIB, connected; the cars
+ * listed over the sample, the second chosen, its fill-up's form opened
+ * given it; litres typed and saved, or refused in the rule's words; then
+ * back to the cars; begun again. */
+- (void)testAFlowIsPlayedOverTheSample
+{
+	NSString *folder = nil;
+	ORMFlowDocument *document = [self newFlowInFolder:&folder];
+	[document makeWindowControllers];
+	ORMFlowWindowController *window = [[document windowControllers] firstObject];
+	XCTAssertNotNil([window window]);
+	ORMFlowEditor *editor = document.editor;
+	ORMFlowScreen *vehicles = [editor addScreenForQuery:[[editor lists] firstObject] at:NSMakePoint(0, 0)];
+	ORMFlowScreen *form = [editor addScreenForQuery:[[editor forms] firstObject] at:NSMakePoint(480, 0)];
+	XCTAssertNotNil([editor addTransitionFrom:vehicles.identifier to:form.identifier]);
+	XCTAssertNotNil([editor addReturnFrom:form.identifier on:ORMFlowOnSubmitDone kind:ORMFlowKindBack]);
+	[editor addEntryNamed:@"Start" toScreen:vehicles.identifier];
+	XCTAssertEqualObjects([editor problems], @[]);
+
+	/* Its form opened where the model has it: here, the host's way. */
+	__block NSString *opened = nil;
+	window.openQueryHandler = ^(NSString *queryId) {
+		opened = queryId;
+	};
+	[window.canvas selectScreen:form.identifier];
+	[window openScreen:nil];
+	XCTAssertEqualObjects(opened, form.formId, @"Open in the Model");
+
+	[window play:nil];
+	ORMFlowPlayController *player = window.player;
+	XCTAssertNotNil([player window], @"from its XIB");
+	for (NSString *outlet in @[ @"screenTitle", @"values", @"ways", @"log", @"takeButton", @"submitButton" ]) {
+		XCTAssertNotNil([player valueForKey:outlet], @"%@ connected", outlet);
+	}
+	XCTAssertEqualObjects([player.screenTitle stringValue], @"Vehicles (list)");
+	XCTAssertEqual([player.values numberOfRows], 2, @"the sample's cars");
+	XCTAssertFalse([player.submitButton isEnabled], @"a list is not submitted");
+	XCTAssertEqual([player.ways numberOfRows], 1);
+	XCTAssertEqualObjects([player tableView:player.ways objectValueForTableColumn:nil row:0], @"RowChosen → RecordFillUp");
+	NSTableCellView *way = (NSTableCellView *)[player tableView:player.ways viewForTableColumn:[[player.ways tableColumns] firstObject] row:0];
+	XCTAssertEqualObjects([way.textField stringValue], @"RowChosen → RecordFillUp", @"shown in its line");
+	/* Resized, the buttons keep to their corners and the log to the bottom. */
+	NSView *content = [[player window] contentView];
+	NSRect take = [player.takeButton frame];
+	CGFloat takeRight = NSWidth([content bounds]) - NSMaxX(take), logBottom = NSMinY([[player.log enclosingScrollView] frame]);
+	NSSize grown = NSMakeSize(NSWidth([content bounds]) + 200, NSHeight([content bounds]) + 150);
+	[[player window] setContentSize:grown];
+	XCTAssertEqualWithAccuracy(NSWidth([content bounds]) - NSMaxX([player.takeButton frame]), takeRight, 0.5, @"Take kept to the right");
+	XCTAssertEqualWithAccuracy(NSMinY([player.takeButton frame]), NSMinY(take), 0.5, @"Take kept above the log");
+	XCTAssertEqualWithAccuracy(NSMinY([[player.log enclosingScrollView] frame]), logBottom, 0.5, @"the log kept at the bottom");
+
+	[player.values selectRowIndexes:[NSIndexSet indexSetWithIndex:1] byExtendingSelection:NO];
+	[player takeWay:nil];
+	XCTAssertEqualObjects([player.screenTitle stringValue], @"RecordFillUp (form)", @"%@", player.walk.log);
+	XCTAssertTrue([player.submitButton isEnabled]);
+	XCTAssertEqualObjects([player.walk.session valueForElement:@"vehicle"], [player.walk.log count] > 0 ? [player.walk.session.given objectForKey:@"vehicle"] : nil);
+	XCTAssertTrue([[[player.walk.log lastObject] description] rangeOfString:@"given vehicle = Car "].location != NSNotFound, @"%@", player.walk.log);
+	NSInteger litres = -1;
+	for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+		if ([[player.walk.session.form.elements objectAtIndex:(NSUInteger)row].name isEqualToString:@"litres"]) {
+			litres = row;
+		}
+	}
+	XCTAssertTrue(litres >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
+	/* Each value entered with the control its type wants, from the XIB. */
+	NSTableColumn *value = [player.values tableColumnWithIdentifier:@"value"];
+	NSDictionary *wanted = @{ @"xsd:date" : @"date", @"xsd:dateTime" : @"dateTime", @"xsd:boolean" : @"flag", @"xsd:decimal" : @"number" };
+	for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+		ORMFormElement *element = [player.walk.session.form.elements objectAtIndex:(NSUInteger)row];
+		NSString *editor = [player editorOfRow:row];
+		if (![element.role isEqualToString:@"entered"]) {
+			XCTAssertEqualObjects(editor, @"shown", @"%@", element.name);
+		} else if ([element.kind isEqualToString:@"reference"]) {
+			XCTAssertEqualObjects(editor, @"choice", @"%@", element.name);
+		} else if ([wanted objectForKey:element.schemaType] != nil) {
+			XCTAssertEqualObjects(editor, [wanted objectForKey:element.schemaType], @"%@", element.name);
+		}
+		NSTableCellView *view = (NSTableCellView *)[player tableView:player.values viewForTableColumn:value row:row];
+		XCTAssertEqualObjects([view identifier], editor, @"%@'s prototype in the XIB", element.name);
+		XCTAssertTrue([[view subviews] count] > 0, @"%@", element.name);
+		if ([editor hasPrefix:@"date"]) {
+			NSDatePicker *picker = [[view subviews] firstObject];
+			XCTAssertTrue([picker isKindOfClass:[NSDatePicker class]], @"%@", element.name);
+			/* Its calendar, where AppKit has one (the XIB says so). */
+			if ([picker respondsToSelector:NSSelectorFromString(@"presentsCalendarOverlay")]) {
+				XCTAssertTrue([[picker valueForKey:@"presentsCalendarOverlay"] boolValue], @"%@'s calendar", element.name);
+			}
+		}
+		if ([editor isEqualToString:@"choice"]) {
+			NSPopUpButton *popUp = [[view subviews] firstObject];
+			XCTAssertTrue([popUp numberOfItems] > 1, @"%@'s choices", element.name);
+			XCTAssertNotNil([[popUp lastItem] representedObject], @"its key");
+		}
+	}
+	XCTAssertEqualObjects([player editorOfRow:litres], @"number");
+	/* Typed into at the first click, and kept when left without Return
+	 * (tabbed out of, or Submit pressed). */
+	XCTAssertTrue([player.values isKindOfClass:[ORMFlowPlayValuesTable class]], @"the XIB's class");
+	NSInteger valueColumn = [player.values columnWithIdentifier:@"value"];
+	NSTextField *typed = [(NSTableCellView *)[player.values viewAtColumn:valueColumn row:litres makeIfNecessary:YES] textField];
+	XCTAssertTrue([[typed cell] sendsActionOnEndEditing]);
+	XCTAssertTrue([(ORMFlowPlayValuesTable *)player.values validateProposedFirstResponder:typed forEvent:nil], @"its row not chosen");
+	XCTAssertTrue([[player window] makeFirstResponder:typed]);
+	[[typed currentEditor] setString:@"40"];
+	[[player window] makeFirstResponder:nil];
+	XCTAssertEqualObjects([player.walk.session valueForElement:[player.walk.session.form.elements objectAtIndex:(NSUInteger)litres].name], @"40");
+	/* An empty date shows Set alone; set, its picker (holding the value)
+	 * and Clear. */
+	for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+		if (![[player editorOfRow:row] hasPrefix:@"date"]) {
+			continue;
+		}
+		NSString *name = [player.walk.session.form.elements objectAtIndex:(NSUInteger)row].name;
+		[player setValue:@"" ofRow:row];
+		NSMutableDictionary<NSString *, NSView *> *parts = [NSMutableDictionary dictionary];
+		void (^look)(void) = ^{
+			[parts removeAllObjects];
+			for (NSView *each in [[player.values viewAtColumn:valueColumn row:row makeIfNecessary:YES] subviews]) {
+				NSString *part = [each isKindOfClass:[NSDatePicker class]] ? @"picker" : NSStringFromSelector([(NSButton *)each action]);
+				[parts setObject:each forKey:part];
+			}
+		};
+		look();
+		XCTAssertEqual([parts count], 3u, @"%@: %@", name, parts);
+		XCTAssertFalse([[parts objectForKey:@"setDate:"] isHidden], @"%@", name);
+		XCTAssertTrue([[parts objectForKey:@"picker"] isHidden] && [[parts objectForKey:@"clearValue:"] isHidden], @"%@", name);
+		[player setDate:[parts objectForKey:@"setDate:"]];
+		XCTAssertTrue([[player.walk.session valueForElement:name] length] > 0, @"%@ set", name);
+		look();
+		XCTAssertTrue([[parts objectForKey:@"setDate:"] isHidden], @"%@", name);
+		XCTAssertFalse([[parts objectForKey:@"picker"] isHidden] || [[parts objectForKey:@"clearValue:"] isHidden], @"%@", name);
+		/* Changed in the picker: kept, the picker left as it is. */
+		NSDatePicker *picker = (NSDatePicker *)[parts objectForKey:@"picker"];
+		[picker setDateValue:[NSDate dateWithTimeIntervalSinceReferenceDate:0]];
+		[player valueChanged:picker];
+		XCTAssertTrue([[player.walk.session valueForElement:name] hasPrefix:@"2001-01-01"], @"%@", [player.walk.session valueForElement:name]);
+		look();
+		XCTAssertEqual([parts objectForKey:@"picker"], picker, @"%@'s picker not made again", name);
+		[player clearValue:[parts objectForKey:@"clearValue:"]];
+		XCTAssertEqualObjects([player.walk.session valueForElement:name] ?: @"", @"", @"%@ cleared", name);
+		look();
+		[player setDate:[parts objectForKey:@"setDate:"]];
+	}
+	NSTextField *litresField = [(NSTableCellView *)[player tableView:player.values viewForTableColumn:value row:litres] textField];
+	XCTAssertNotNil([litresField formatter], @"a number's field takes numbers only");
+	XCTAssertEqualObjects([[litresField objectValue] description], @"40");
+	[player submit:nil];
+	NSString *said = [player.walk.log componentsJoinedByString:@"\n"];
+	XCTAssertTrue([said rangeOfString:@"RecordFillUp saved: "].location != NSNotFound || [said rangeOfString:@"RecordFillUp refused: "].location != NSNotFound,
+	              @"%@", said);
+	XCTAssertEqual([player.log numberOfRows], (NSInteger)[player.walk.log count], @"the log shown");
+	if ([said rangeOfString:@"RecordFillUp saved: "].location != NSNotFound) {
+		XCTAssertEqualObjects([player.screenTitle stringValue], @"Vehicles (list)", @"back: %@", said);
+	}
+	[player startOver:nil];
+	XCTAssertEqualObjects([player.screenTitle stringValue], @"Vehicles (list)");
+	XCTAssertEqual([player.walk.log count], 1u, @"begun again");
+	[[player window] close];
+
+	/* Its entry: a start dot left of Vehicles, chosen like the rest, its
+	 * page in the inspector; renamed, started elsewhere, deleted. */
+	ORMFlowCanvasView *canvas = window.canvas;
+	NSRect dot = [canvas dotOfEntry:0];
+	NSRect list = [canvas frameOfScreen:vehicles];
+	XCTAssertTrue(NSMaxX(dot) < NSMinX(list) && NSMidY(dot) > NSMinY(list) && NSMidY(dot) < NSMinY(list) + 30, @"%@ by %@",
+	              NSStringFromRect(dot), NSStringFromRect(list));
+	XCTAssertEqualObjects([canvas canvas:canvas itemAtPoint:NSMakePoint(NSMidX(dot), NSMidY(dot))], [ORMFlowCanvasView itemOfEntry:0]);
+	[canvas selectEntry:0];
+	XCTAssertEqualObjects([[window.inspector selectedTabViewItem] identifier], @"entry");
+	XCTAssertEqualObjects([window.entryName stringValue], @"Start");
+	XCTAssertEqualObjects([window.entryScreen titleOfSelectedItem], vehicles.name);
+	[window.entryName setStringValue:@"Begin"];
+	[window renameEntry:window.entryName];
+	XCTAssertEqualObjects([[editor.flow.entries firstObject] name], @"Begin");
+	[window.entryScreen selectItemAtIndex:[window.entryScreen indexOfItemWithRepresentedObject:form.identifier]];
+	[window chooseEntryScreen:window.entryScreen];
+	XCTAssertEqualObjects([[editor.flow.entries firstObject] screen], form.identifier, @"started at the form");
+	XCTAssertTrue(NSMaxX([canvas dotOfEntry:0]) < NSMinX([canvas frameOfScreen:form]), @"drawn by it");
+	[canvas selectEntry:0];
+	/* The new flow's own Start is still there: only the chosen one goes. */
+	NSUInteger entries = [editor.flow.entries count];
+	[canvas delete:nil];
+	XCTAssertEqual([editor.flow.entries count], entries - 1);
+	XCTAssertFalse([[editor.flow.entries valueForKey:@"name"] containsObject:@"Begin"]);
+	[document close];
+	[[NSFileManager defaultManager] removeItemAtPath:folder error:NULL];
 }
 
 @end

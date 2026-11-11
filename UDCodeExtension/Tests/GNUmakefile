@@ -12,8 +12,9 @@ ORM2Tests_OBJC_FILES = \
   ORM2Tests.m \
   ../ORM2Extension.m \
   ../ORM2EditorViewController.m \
+  ../ORM2FlowEditorViewController.m \
   ../ORM2TextDiff.m
-ORM2Tests_RESOURCE_FILES = ../ORM2Editor.xib
+ORM2Tests_RESOURCE_FILES = ../ORM2Editor.xib ../ORM2FlowEditor.xib
 ORM2Tests_OBJCFLAGS += -fobjc-arc -fblocks -Wall -include ../../ORMDesignerKit/ORMDesignerCompat.h
 include ../../odatakit.make
 DESIGNERKIT = $(call ORM_DESIGNERKIT,../..)

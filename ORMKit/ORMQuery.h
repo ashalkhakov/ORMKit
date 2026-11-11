@@ -58,6 +58,17 @@ typedef NS_ENUM(NSInteger, ORMQueryKind) {
 	ORMQueryCalculation,
 	/* Its rows are a fact type's facts (docs/DERIVATION.md). */
 	ORMQueryDerivation,
+	/* What a form asserts and shows (docs/FORMS.md): its nodes entered,
+	 * shown or given, its read the entered and shown ones listed. */
+	ORMQueryForm,
+};
+
+/* A node's part in a form: what the user gives its value, what is shown
+ * and not changed, or neither (the path to them, or a condition). */
+typedef NS_ENUM(NSInteger, ORMQueryFormPart) {
+	ORMFormPartNone,
+	ORMFormPartEntered,
+	ORMFormPartShown,
 };
 
 /* What a calculation computes of its node's values: the one value, or an
@@ -79,6 +90,13 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 
 @class ORMQueryStep;
 
+/* What -[ORMQuery subschemaInModel:] finds. */
+@interface ORMQuerySubschema : NSObject
+@property (nonatomic, readonly, copy) NSArray<ORMFactType *> *factTypes;
+@property (nonatomic, readonly, copy) NSArray<ORMObjectType *> *objectTypes;
+@property (nonatomic, readonly, copy) NSArray<ORMConstraint *> *constraints;
+@end
+
 /* An object type in the outline; or a value node (docs/EXPRESSIONS.md),
  * computed from other nodes rather than reached by a step: "Length =
  * Quantity2 - Quantity1", under the node it is computed for. */
@@ -88,8 +106,12 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* The role it plays in the step above it; nil for the root. */
 @property (nonatomic, readonly, strong) ORMRole *role;
 @property (nonatomic, readonly, weak) ORMQueryStep *step;
-/* Ticked: listed in the result. */
+/* Ticked: listed in the result. A form's entered and shown nodes are. */
 @property (nonatomic, readonly) BOOL isProjected;
+/* In a form: entered (✎), shown (✓) or neither; and given ("X = ?"), its
+ * value coming in with the form as it is opened. None and NO elsewhere. */
+@property (nonatomic, readonly) ORMQueryFormPart formPart;
+@property (nonatomic, readonly) BOOL isGiven;
 /* A derivation's column: the role of its fact type it is, where the query
  * says (a NORMA rule's projections are not in outline order); nil for the
  * role at its place. */
@@ -157,6 +179,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, weak) ORMQueryNode *comparedGroupNode;
 /* Through a subtype link: "is Professor". */
 - (BOOL)isSubtyping;
+/* In a form, a unary step entered (✎: whether it holds is the user's to
+ * say) or shown (✓); none elsewhere. A unary step has no node to mark. */
+@property (nonatomic, readonly) ORMQueryFormPart formPart;
 @end
 
 @interface ORMQuery : NSObject
@@ -230,6 +255,11 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 - (NSArray<ORMQueryNode *> *)projectedNodes;
 /* ConQuer's outline, as above. */
 - (NSString *)outlineText;
+/* The model's part the query is about, as a form is read (docs/FORMS.md):
+ * the fact types its steps go through, the object types its nodes are of
+ * (value nodes' not), and the model's constraints whose roles are all in
+ * those fact types, each in model order. */
+- (ORMQuerySubschema *)subschemaInModel:(ORMModel *)model;
 /* The query as a relation: its formula over a variable for each node (its
  * variables, by node id), its columns the ticked nodes', in outline order. */
 - (ORMRelation *)relation;
@@ -283,6 +313,13 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 - (NSString *)addStepTo:(NSString *)nodeId through:(NSString *)roleId reason:(NSString **)reason;
 - (void)removeStep:(NSString *)stepId;
 - (void)setProjected:(BOOL)projected ofNode:(NSString *)nodeId;
+/* A form's node entered, shown or neither; given or not. NO, and why,
+ * for a node of a query that is not a form. */
+- (BOOL)setFormPart:(ORMQueryFormPart)part ofNode:(NSString *)nodeId reason:(NSString **)reason;
+- (BOOL)setGiven:(BOOL)given ofNode:(NSString *)nodeId reason:(NSString **)reason;
+/* The same of a form's unary step: NO, and why, for one of a query that is
+ * not a form, or a step through a fact type that is not unary. */
+- (BOOL)setFormPart:(ORMQueryFormPart)part ofStep:(NSString *)stepId reason:(NSString **)reason;
 /* comparison nil clears the condition. */
 - (BOOL)setCondition:(NSString *)comparison value:(NSString *)value ofNode:(NSString *)nodeId reason:(NSString **)reason;
 /* A condition comparing the node with another of the query, of the same

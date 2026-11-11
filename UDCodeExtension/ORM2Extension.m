@@ -3,6 +3,7 @@
 #import <UDCodeKit/UDCodeDocument.h>
 #import <UDCodeKit/UDLanguageMode.h>
 #import "ORM2EditorViewController.h"
+#import "ORM2FlowEditorViewController.h"
 #import "ORMModelViewController.h"
 
 @implementation ORM2Extension
@@ -26,7 +27,11 @@
 
 - (NSViewController *)workbench:(id<UDWorkbench>)workbench editorForDocument:(UDCodeDocument *)document
 {
-	if (![document.languageMode.identifier isEqualToString:@"orm"]) {
+	NSString *mode = document.languageMode.identifier;
+	if ([mode isEqualToString:@"ormflow"]) {
+		return [[ORM2FlowEditorViewController alloc] initWithDocument:document workbench:workbench];
+	}
+	if (![mode isEqualToString:@"orm"]) {
 		return nil;
 	}
 	return [[ORM2EditorViewController alloc] initWithDocument:document workbench:workbench];

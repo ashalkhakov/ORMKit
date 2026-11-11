@@ -38,4 +38,14 @@
 - (instancetype)initWithModel:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping;
 @property (nonatomic, readonly, strong) ORMCDModel *coreData;
 - (ORMQueryPlan *)planForQuery:(ORMQuery *)query;
+/* The attribute a unary step's fact is kept in, of the entity its node
+ * maps to: "fullTank" for "FillUp filled the tank". nil for a step that is
+ * no unary's, or one the mapping keeps in no attribute. */
+- (NSString *)attributeOfUnaryStep:(ORMQueryStep *)step;
+/* The attribute that identifies the type's objects in its entity (its
+ * reference mode's, an id); nil where the mapping places it in none. */
+- (NSString *)identifierKeyOfType:(ORMObjectType *)type;
+/* The entity the type's objects are in; nil where the mapping places
+ * them in none. */
+- (NSString *)entityNameOfType:(ORMObjectType *)type;
 @end

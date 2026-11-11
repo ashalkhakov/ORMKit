@@ -1182,6 +1182,15 @@ ORMOneToOneValues(ORMObjectType *type)
 	return _queries;
 }
 
+- (void)showQuery:(NSString *)queryId
+{
+	ORMQueryController *queries = [self queryController];
+	[queries showWindow:self];
+	queries.queryId = queryId;
+	[queries modelDidChange];
+	[[queries window] makeKeyAndOrderFront:self];
+}
+
 - (IBAction)showQueries:(id)sender
 {
 	(void)sender;

@@ -52,6 +52,20 @@
       <key>NSDocumentClass</key>
       <string>ORMDocument</string>
     </dict>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Flow</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>org.ormkit.flow</string>
+      </array>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+      <key>NSDocumentClass</key>
+      <string>ORMFlowDocument</string>
+    </dict>
   </array>
   <key>UTExportedTypeDeclarations</key>
   <array>
@@ -69,6 +83,23 @@
         <key>public.filename-extension</key>
         <array>
           <string>orm</string>
+        </array>
+      </dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key>
+      <string>org.ormkit.flow</string>
+      <key>UTTypeDescription</key>
+      <string>Flow (ORMKit)</string>
+      <key>UTTypeConformsTo</key>
+      <array>
+        <string>public.xml</string>
+      </array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key>
+        <array>
+          <string>flow</string>
         </array>
       </dict>
     </dict>
@@ -114,6 +145,20 @@
       <string>Editor</string>
       <key>NSDocumentClass</key>
       <string>ORMDocument</string>
+    </dict>
+    <dict>
+      <key>NSName</key>
+      <string>org.ormkit.flow</string>
+      <key>NSHumanReadableName</key>
+      <string>Flow</string>
+      <key>NSUnixExtensions</key>
+      <array>
+        <string>flow</string>
+      </array>
+      <key>NSRole</key>
+      <string>Editor</string>
+      <key>NSDocumentClass</key>
+      <string>ORMFlowDocument</string>
     </dict>
   </array>
 </dict>

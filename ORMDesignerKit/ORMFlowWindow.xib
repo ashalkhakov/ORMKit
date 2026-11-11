@@ -1,0 +1,577 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<document type="com.apple.InterfaceBuilder3.Cocoa.XIB" version="3.0" toolsVersion="24127" targetRuntime="MacOSX.Cocoa" propertyAccessControl="none" customObjectInstantitationMethod="direct">
+<dependencies>
+<deployment identifier="macosx"/>
+<plugIn identifier="com.apple.InterfaceBuilder.CocoaPlugin" version="24127"/>
+</dependencies>
+<objects>
+<customObject id="-2" userLabel="File's Owner" customClass="ORMFlowWindowController">
+<connections>
+<outlet property="window" destination="flowWindow" id="flowWindowOutlet"/>
+<outlet property="canvas" destination="canvas" id="canvasOutlet"/>
+<outlet property="palette" destination="palette" id="paletteOutlet"/>
+<outlet property="problems" destination="problems" id="problemsOutlet"/>
+<outlet property="inspector" destination="inspector" id="inspectorOutlet"/>
+<outlet property="screenName" destination="screenName" id="screenNameOutlet"/>
+<outlet property="screenShows" destination="screenShows" id="screenShowsOutlet"/>
+<outlet property="screenEntry" destination="screenEntry" id="screenEntryOutlet"/>
+<outlet property="transitionFrom" destination="transitionFrom" id="transitionFromOutlet"/>
+<outlet property="transitionOn" destination="transitionOn" id="transitionOnOutlet"/>
+<outlet property="transitionControl" destination="transitionControl" id="transitionControlOutlet"/>
+<outlet property="transitionKind" destination="transitionKind" id="transitionKindOutlet"/>
+<outlet property="transitionTo" destination="transitionTo" id="transitionToOutlet"/>
+<outlet property="gives" destination="gives" id="givesOutlet"/>
+<outlet property="entryName" destination="entryName" id="entryNameOutlet"/>
+<outlet property="entryScreen" destination="entryScreen" id="entryScreenOutlet"/>
+</connections>
+</customObject>
+<customObject id="-1" userLabel="First Responder" customClass="FirstResponder"/>
+<customObject id="-3" userLabel="Application" customClass="NSObject"/>
+<window title="Flow" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" releasedWhenClosed="NO" frameAutosaveName="ORMFlowWindow" animationBehavior="default" identifier="flowWindow" id="flowWindow">
+<windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
+<rect key="contentRect" x="120" y="120" width="1200" height="760"/>
+<rect key="screenRect" x="0" y="0" width="1920" height="1080"/>
+<value key="minSize" type="size" width="800" height="480"/>
+<view key="contentView" id="flowContent">
+<rect key="frame" x="0" y="0" width="1200" height="760"/>
+<autoresizingMask key="autoresizingMask"/>
+<subviews>
+<splitView arrangesAllSubviews="NO" dividerStyle="thin" vertical="YES" id="columnsSplit">
+<rect key="frame" x="0" y="0" width="1200" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<customView id="leftPane">
+<rect key="frame" x="0" y="0" width="220" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="paletteTitle">
+<rect key="frame" x="12" y="730" width="196" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Forms and lists of the model" id="paletteTitleCell">
+<font key="font" metaFont="systemBold"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="paletteScroll">
+<rect key="frame" x="0" y="78" width="220" height="642"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<clipView key="contentView" copiesOnScroll="NO" id="paletteClip">
+<rect key="frame" x="1" y="1" width="218" height="640"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="paletteHeader" identifier="palette" id="palette">
+<rect key="frame" x="0" y="0" width="218" height="617"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<size key="intercellSpacing" width="3" height="2"/>
+<color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+<tableColumns>
+<tableColumn identifier="name" width="212" minWidth="40" maxWidth="4000" editable="NO" id="palettenameColumn">
+<tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Double-click, or Add, to place">
+<color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+</tableHeaderCell>
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="palettenameCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</tableColumn>
+</tableColumns>
+<connections>
+<outlet property="dataSource" destination="-2" id="paletteDataSource"/>
+<outlet property="delegate" destination="-2" id="paletteDelegate"/>
+<action selector="addToFlow:" target="-2" id="paletteDouble"/>
+</connections>
+</tableView>
+</subviews>
+</clipView>
+<scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="paletteHScroller">
+<rect key="frame" x="1" y="626" width="218" height="15"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+</scroller>
+<scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="paletteVScroller">
+<rect key="frame" x="204" y="1" width="15" height="640"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+</scroller>
+<tableHeaderView key="headerView" wantsLayer="YES" id="paletteHeader">
+<rect key="frame" x="0" y="0" width="218" height="23"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+</tableHeaderView>
+</scrollView>
+<button verticalHuggingPriority="750" identifier="addToFlow" id="addToFlow">
+<rect key="frame" x="6" y="37" width="208" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+<buttonCell key="cell" type="push" title="Add to Flow" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="addToFlowCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="addToFlow:" target="-2" id="addToFlowAction"/></connections>
+</button>
+<button verticalHuggingPriority="750" identifier="play" id="play">
+<rect key="frame" x="6" y="3" width="208" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMaxY="YES"/>
+<buttonCell key="cell" type="push" title="Play" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="playCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="play:" target="-2" id="playAction"/></connections>
+</button>
+</subviews>
+</customView>
+<customView id="middlePane">
+<rect key="frame" x="221" y="0" width="698" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<splitView arrangesAllSubviews="NO" dividerStyle="thin" id="middleSplit">
+<rect key="frame" x="0" y="0" width="698" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<scrollView borderType="none" horizontalLineScroll="10" horizontalPageScroll="10" verticalLineScroll="10" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="canvasScroll">
+<rect key="frame" x="0" y="0" width="698" height="600"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<clipView key="contentView" id="canvasClip">
+<rect key="frame" x="0" y="0" width="698" height="600"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<customView identifier="canvas" id="canvas" customClass="ORMFlowCanvasView">
+<rect key="frame" x="0" y="0" width="698" height="600"/>
+<autoresizingMask key="autoresizingMask"/>
+<connections><outlet property="flowDelegate" destination="-2" id="canvasFlowDelegate"/></connections>
+</customView>
+</subviews>
+</clipView>
+<scroller key="horizontalScroller" verticalHuggingPriority="750" horizontal="YES" id="canvasHScroller">
+<rect key="frame" x="0" y="584" width="698" height="16"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+</scroller>
+<scroller key="verticalScroller" verticalHuggingPriority="750" horizontal="NO" id="canvasVScroller">
+<rect key="frame" x="682" y="0" width="16" height="600"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+</scroller>
+</scrollView>
+<customView id="problemsPane">
+<rect key="frame" x="0" y="601" width="698" height="159"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="problemsScroll">
+<rect key="frame" x="0" y="0" width="698" height="129"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<clipView key="contentView" copiesOnScroll="NO" id="problemsClip">
+<rect key="frame" x="1" y="1" width="696" height="127"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="problemsHeader" identifier="problems" id="problems">
+<rect key="frame" x="0" y="0" width="696" height="104"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<size key="intercellSpacing" width="3" height="2"/>
+<color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+<tableColumns>
+<tableColumn identifier="problem" width="690" minWidth="40" maxWidth="4000" editable="NO" id="problemsproblemColumn">
+<tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="What is wrong of the flow">
+<color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+</tableHeaderCell>
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="problemsproblemCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</tableColumn>
+</tableColumns>
+<connections>
+<outlet property="dataSource" destination="-2" id="problemsDataSource"/>
+<outlet property="delegate" destination="-2" id="problemsDelegate"/>
+
+</connections>
+</tableView>
+</subviews>
+</clipView>
+<scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="problemsHScroller">
+<rect key="frame" x="1" y="113" width="696" height="15"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+</scroller>
+<scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="problemsVScroller">
+<rect key="frame" x="682" y="1" width="15" height="127"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+</scroller>
+<tableHeaderView key="headerView" wantsLayer="YES" id="problemsHeader">
+<rect key="frame" x="0" y="0" width="696" height="23"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+</tableHeaderView>
+</scrollView>
+<button toolTip="Zoom out" verticalHuggingPriority="750" identifier="zoomOut" id="zoomOut">
+<rect key="frame" x="502" y="131" width="30" height="24"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="−" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="zoomOutCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="zoomCanvasOut:" target="-2" id="zoomOutAction"/></connections>
+</button>
+<button toolTip="Zoom in" verticalHuggingPriority="750" identifier="zoomIn" id="zoomIn">
+<rect key="frame" x="534" y="131" width="30" height="24"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="+" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="zoomInCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="zoomCanvasIn:" target="-2" id="zoomInAction"/></connections>
+</button>
+<button toolTip="The whole flow in view" verticalHuggingPriority="750" identifier="zoomToFit" id="zoomToFit">
+<rect key="frame" x="566" y="131" width="56" height="24"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Fit" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="zoomToFitCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="zoomCanvasToFit:" target="-2" id="zoomToFitAction"/></connections>
+</button>
+<button toolTip="Actual size" verticalHuggingPriority="750" identifier="zoomToActualSize" id="zoomToActualSize">
+<rect key="frame" x="624" y="131" width="62" height="24"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="100%" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="zoomToActualSizeCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="zoomCanvasToActualSize:" target="-2" id="zoomToActualSizeAction"/></connections>
+</button>
+
+</subviews>
+</customView>
+</subviews>
+<holdingPriorities>
+<real value="250"/>
+<real value="260"/>
+</holdingPriorities>
+</splitView>
+</subviews>
+</customView>
+<customView id="rightPane">
+<rect key="frame" x="920" y="0" width="280" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<tabView type="noTabsNoBorder" identifier="inspector" id="inspector">
+<rect key="frame" x="0" y="0" width="280" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<font key="font" metaFont="system"/>
+<tabViewItems>
+<tabViewItem label="Nothing" identifier="nothing" id="nothingItem">
+<view key="view" id="nothingView">
+<rect key="frame" x="0" y="0" width="280" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="nothingTitle">
+<rect key="frame" x="12" y="720" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Nothing selected" id="nothingTitleCell">
+<font key="font" metaFont="systemBold"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="nothingHelp">
+<rect key="frame" x="12" y="610" width="256" height="90"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="wordWrapping" selectable="YES" alignment="left" title="Add the model's forms and lists from the left. Drag from a screen's dot to another screen to add a transition. Double-click a screen's title to rename it, below it to open its form. The filled dot with an arrow is where the flow starts." id="nothingHelpCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+</subviews>
+</view>
+</tabViewItem>
+<tabViewItem label="Screen" identifier="screen" id="screenItem">
+<view key="view" id="screenView">
+<rect key="frame" x="0" y="0" width="280" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="screenTitle">
+<rect key="frame" x="12" y="720" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Screen" id="screenTitleCell">
+<font key="font" metaFont="systemBold"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="screenNameLabel">
+<rect key="frame" x="12" y="692" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Name" id="screenNameLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField verticalHuggingPriority="750" identifier="screenName" id="screenName">
+<rect key="frame" x="12" y="672" width="256" height="22"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="screenNameCell">
+<font key="font" metaFont="system"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+<connections><action selector="renameScreen:" target="-2" id="screenNameAction"/></connections>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="screenShowsLabel">
+<rect key="frame" x="12" y="640" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Shows" id="screenShowsLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="screenShows">
+<rect key="frame" x="12" y="620" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="" id="screenShowsCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="screenEntryLabel">
+<rect key="frame" x="12" y="590" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Entry (empty: none)" id="screenEntryLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField verticalHuggingPriority="750" identifier="screenEntry" id="screenEntry">
+<rect key="frame" x="12" y="570" width="256" height="22"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="screenEntryCell">
+<font key="font" metaFont="system"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+<connections><action selector="setEntry:" target="-2" id="screenEntryAction"/></connections>
+</textField>
+<button verticalHuggingPriority="750" identifier="openScreen" id="openScreen">
+<rect key="frame" x="6" y="527" width="268" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Open in the Model" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="openScreenCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="openScreen:" target="-2" id="openScreenAction"/></connections>
+</button>
+<button verticalHuggingPriority="750" identifier="addCancel" id="addCancel">
+<rect key="frame" x="6" y="491" width="268" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Add Cancel → Back" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="addCancelCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="addCancelBack:" target="-2" id="addCancelAction"/></connections>
+</button>
+<button verticalHuggingPriority="750" identifier="deleteScreen" id="deleteScreen">
+<rect key="frame" x="6" y="455" width="268" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Delete Screen" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="deleteScreenCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="delete:" target="-2" id="deleteScreenAction"/></connections>
+</button>
+</subviews>
+</view>
+</tabViewItem>
+<tabViewItem label="Transition" identifier="transition" id="transitionItem">
+<view key="view" id="transitionView">
+<rect key="frame" x="0" y="0" width="280" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="transitionTitle">
+<rect key="frame" x="12" y="720" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Transition" id="transitionTitleCell">
+<font key="font" metaFont="systemBold"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="transitionFrom">
+<rect key="frame" x="12" y="692" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="" id="transitionFromCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="transitionOnLabel">
+<rect key="frame" x="12" y="666" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="On" id="transitionOnLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<popUpButton verticalHuggingPriority="750" identifier="transitionOn" id="transitionOn">
+<rect key="frame" x="9" y="644" width="262" height="26"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="transitionOnCell">
+<behavior key="behavior" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+<menu key="menu" id="transitionOnMenu"><items><menuItem title="saved" id="transitionOnItem0"/><menuItem title="refused" id="transitionOnItem1"/><menuItem title="cancelled" id="transitionOnItem2"/><menuItem title="row chosen" id="transitionOnItem3"/><menuItem title="pressed" id="transitionOnItem4"/></items></menu>
+</popUpButtonCell>
+<connections><action selector="chooseTransitionOn:" target="-2" id="transitionOnAction"/></connections>
+</popUpButton>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="transitionControlLabel">
+<rect key="frame" x="12" y="616" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Control (pressed)" id="transitionControlLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField verticalHuggingPriority="750" identifier="transitionControl" id="transitionControl">
+<rect key="frame" x="12" y="596" width="256" height="22"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="transitionControlCell">
+<font key="font" metaFont="system"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+<connections><action selector="chooseTransitionOn:" target="-2" id="transitionControlAction"/></connections>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="transitionKindLabel">
+<rect key="frame" x="12" y="566" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Goes" id="transitionKindLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<popUpButton verticalHuggingPriority="750" identifier="transitionKind" id="transitionKind">
+<rect key="frame" x="9" y="544" width="262" height="26"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="transitionKindCell">
+<behavior key="behavior" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+<menu key="menu" id="transitionKindMenu"><items><menuItem title="to the screen" id="transitionKindItem0"/><menuItem title="over it (modal)" id="transitionKindItem1"/><menuItem title="back" id="transitionKindItem2"/><menuItem title="closes the overlay" id="transitionKindItem3"/></items></menu>
+</popUpButtonCell>
+<connections><action selector="chooseTransitionKind:" target="-2" id="transitionKindAction"/></connections>
+</popUpButton>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="transitionToLabel">
+<rect key="frame" x="12" y="516" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="To" id="transitionToLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<popUpButton verticalHuggingPriority="750" identifier="transitionTo" id="transitionTo">
+<rect key="frame" x="9" y="494" width="262" height="26"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="transitionToCell">
+<behavior key="behavior" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+<menu key="menu" id="transitionToMenu"><items></items></menu>
+</popUpButtonCell>
+<connections><action selector="chooseTransitionTo:" target="-2" id="transitionToAction"/></connections>
+</popUpButton>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="givesLabel">
+<rect key="frame" x="12" y="466" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="What it gives the next form" id="givesLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<scrollView horizontalLineScroll="19" horizontalPageScroll="10" verticalLineScroll="19" verticalPageScroll="10" usesPredominantAxisScrolling="NO" id="givesScroll">
+<rect key="frame" x="12" y="216" width="256" height="130"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<clipView key="contentView" copiesOnScroll="NO" id="givesClip">
+<rect key="frame" x="1" y="1" width="254" height="128"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" headerView="givesHeader" identifier="gives" id="gives">
+<rect key="frame" x="0" y="0" width="254" height="105"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<size key="intercellSpacing" width="3" height="2"/>
+<color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/><color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
+<tableColumns>
+<tableColumn identifier="input" width="90" minWidth="40" maxWidth="4000" editable="NO" id="givesinputColumn">
+<tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="Input">
+<color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+</tableHeaderCell>
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES"  alignment="left" title="Text Cell" id="givesinputCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</tableColumn>
+<tableColumn identifier="from" width="156" minWidth="40" maxWidth="4000"  id="givesfromColumn">
+<tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" alignment="left" title="From">
+<color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
+</tableHeaderCell>
+<textFieldCell key="dataCell" lineBreakMode="truncatingTail" selectable="YES" editable="YES" alignment="left" title="Text Cell" id="givesfromCell">
+<font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</tableColumn>
+</tableColumns>
+<connections>
+<outlet property="dataSource" destination="-2" id="givesDataSource"/>
+<outlet property="delegate" destination="-2" id="givesDelegate"/>
+
+</connections>
+</tableView>
+</subviews>
+</clipView>
+<scroller key="horizontalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="YES" id="givesHScroller">
+<rect key="frame" x="1" y="114" width="254" height="15"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+</scroller>
+<scroller key="verticalScroller" hidden="YES" verticalHuggingPriority="750" horizontal="NO" id="givesVScroller">
+<rect key="frame" x="240" y="1" width="15" height="128"/>
+<autoresizingMask key="autoresizingMask" flexibleMinX="YES" heightSizable="YES"/>
+</scroller>
+<tableHeaderView key="headerView" wantsLayer="YES" id="givesHeader">
+<rect key="frame" x="0" y="0" width="254" height="23"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+</tableHeaderView>
+</scrollView>
+<button verticalHuggingPriority="750" identifier="deleteTransition" id="deleteTransition">
+<rect key="frame" x="6" y="33" width="268" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Delete Transition" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="deleteTransitionCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="delete:" target="-2" id="deleteTransitionAction"/></connections>
+</button>
+</subviews>
+</view>
+</tabViewItem>
+<tabViewItem label="Entry" identifier="entry" id="entryItem">
+<view key="view" id="entryView">
+<rect key="frame" x="0" y="0" width="280" height="760"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+<subviews>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="entryTitle">
+<rect key="frame" x="12" y="720" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Entry" id="entryTitleCell">
+<font key="font" metaFont="systemBold"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="entryHelp">
+<rect key="frame" x="12" y="692" width="256" height="30"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="wordWrapping" selectable="YES" alignment="left" title="Where the flow begins: an app, or a process's task." id="entryHelpCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="entryNameLabel">
+<rect key="frame" x="12" y="658" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Name" id="entryNameLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<textField verticalHuggingPriority="750" identifier="entryName" id="entryName">
+<rect key="frame" x="12" y="638" width="256" height="22"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" drawsBackground="YES" id="entryNameCell">
+<font key="font" metaFont="system"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+<connections><action selector="renameEntry:" target="-2" id="entryNameAction"/></connections>
+</textField>
+<textField horizontalHuggingPriority="251" verticalHuggingPriority="750" id="entryScreenLabel">
+<rect key="frame" x="12" y="606" width="256" height="17"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<textFieldCell key="cell" lineBreakMode="truncatingTail" selectable="YES" alignment="left" title="Starts at" id="entryScreenLabelCell">
+<font key="font" metaFont="system"/><color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
+</textFieldCell>
+</textField>
+<popUpButton verticalHuggingPriority="750" identifier="entryScreen" id="entryScreen">
+<rect key="frame" x="9" y="584" width="262" height="26"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="entryScreenCell">
+<behavior key="behavior" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+<menu key="menu" id="entryScreenMenu"><items></items></menu>
+</popUpButtonCell>
+<connections><action selector="chooseEntryScreen:" target="-2" id="entryScreenAction"/></connections>
+</popUpButton>
+<button verticalHuggingPriority="750" identifier="deleteEntry" id="deleteEntry">
+<rect key="frame" x="6" y="543" width="268" height="32"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Delete Entry" bezelStyle="rounded" alignment="center" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="deleteEntryCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="system"/>
+</buttonCell>
+<connections><action selector="delete:" target="-2" id="deleteEntryAction"/></connections>
+</button>
+</subviews>
+</view>
+</tabViewItem>
+</tabViewItems>
+</tabView>
+</subviews>
+</customView>
+</subviews>
+<holdingPriorities>
+<real value="260"/>
+<real value="250"/>
+<real value="260"/>
+</holdingPriorities>
+</splitView>
+</subviews>
+</view>
+</window>
+</objects>
+</document>

@@ -51,6 +51,11 @@
                                     <action selector="newDocument:" target="-1" id="newAction"/>
                                 </connections>
                             </menuItem>
+                            <menuItem title="New Flow" id="newFlow">
+                                <connections>
+                                    <action selector="newFlow:" target="-1" id="newFlowAction"/>
+                                </connections>
+                            </menuItem>
                             <menuItem title="Open…" keyEquivalent="o" id="open">
                                 <connections>
                                     <action selector="openDocument:" target="-1" id="openAction"/>

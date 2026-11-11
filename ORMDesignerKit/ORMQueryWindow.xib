@@ -13,6 +13,8 @@
                 <outlet property="outline" destination="outline" id="outlineOutlet3"/>
                 <outlet property="roles" destination="roles" id="rolesOutlet4"/>
                 <outlet property="listCheck" destination="listCheck" id="listCheckOutlet5"/>
+                <outlet property="formPartPopUp" destination="formPartPopUp" id="formPartPopUpOutlet"/>
+                <outlet property="givenCheck" destination="givenCheck" id="givenCheckOutlet"/>
                 <outlet property="comparisonPopUp" destination="comparisonPopUp" id="comparisonPopUpOutlet6"/>
                 <outlet property="valueField" destination="valueField" id="valueFieldOutlet7"/>
                 <outlet property="alternativesCheck" destination="alternativesCheck" id="alternativesCheckOutlet8"/>
@@ -136,7 +138,7 @@
                             <color key="backgroundColor" name="controlColor" catalog="System" colorSpace="catalog"/>
                         </textFieldCell>
                     </textField>
-                    <popUpButton toolTip="What the query is for: listing, a rule its rows break, a value of each object, or the facts of a derived fact type" verticalHuggingPriority="750" id="kindPopUp">
+                    <popUpButton toolTip="What the query is for: listing, a rule its rows break, a value of each object, the facts of a derived fact type, or a form" verticalHuggingPriority="750" id="kindPopUp">
                         <rect key="frame" x="52" y="588" width="120" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMinY="YES"/>
                         <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="kindPopUpCell">
@@ -148,6 +150,7 @@
                                 <menuItem title="Constraint" id="kindPopUpItem1"/>
                                 <menuItem title="Calculation" id="kindPopUpItem2"/>
                                 <menuItem title="Derivation" id="kindPopUpItem3"/>
+                                <menuItem title="Form" id="kindPopUpItem4"/>
                                 </items>
                             </menu>
                         </popUpButtonCell>
@@ -348,6 +351,24 @@
                             <action selector="listChanged:" target="-2" id="listCheckAction"/>
                         </connections>
                     </button>
+                    <popUpButton toolTip="In the form: entered (✎), shown (✓), or neither" verticalHuggingPriority="750" hidden="YES" id="formPartPopUp">
+                        <rect key="frame" x="8" y="254" width="68" height="24"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="formPartPopUpCell">
+                            <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                            <menu key="menu" id="formPartPopUpMenu">
+                                <items>
+                                    <menuItem title="—" id="formPartPopUpItem0"/>
+                                    <menuItem title="✎" id="formPartPopUpItem1"/>
+                                    <menuItem title="✓" id="formPartPopUpItem2"/>
+                                </items>
+                            </menu>
+                        </popUpButtonCell>
+                        <connections>
+                            <action selector="formPartChanged:" target="-2" id="formPartPopUpAction"/>
+                        </connections>
+                    </popUpButton>
                     <textField focusRingType="none" verticalHuggingPriority="750" id="conditionLabel">
                         <rect key="frame" x="80" y="258" width="64" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
@@ -450,6 +471,17 @@
                             <action selector="sortChanged:" target="-2" id="sortPopUpAction"/>
                         </connections>
                     </popUpButton>
+                    <button toolTip="Its value comes in with the form, as it is opened" hidden="YES" id="givenCheck">
+                        <rect key="frame" x="864" y="256" width="52" height="20"/>
+                        <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
+                        <buttonCell key="cell" type="check" title="Given" bezelStyle="regularSquare" imagePosition="left" alignment="left" inset="2" id="givenCheckCell">
+                            <behavior key="behavior" changeContents="YES" doesNotDimImage="YES" lightByContents="YES"/>
+                            <font key="font" metaFont="smallSystem"/>
+                        </buttonCell>
+                        <connections>
+                            <action selector="givenChanged:" target="-2" id="givenCheckAction"/>
+                        </connections>
+                    </button>
                     <textField focusRingType="none" verticalHuggingPriority="750" id="stepLabel">
                         <rect key="frame" x="12" y="228" width="40" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>

@@ -6,11 +6,32 @@
 #import <UDCodeKit/UDCodeDocument.h>
 #import <UDPieceTable/UDTextModel.h>
 #import "ORM2EditorViewController.h"
+#import "ORM2FlowEditorViewController.h"
+#import "ORMFlowWindowController.h"
+#import "ORMFlowCanvasView.h"
 #import "ORM2Extension.h"
 #import "ORM2TextDiff.h"
 #import "ORMModelViewController.h"
 
 @interface ORM2Tests : XCTestCase
+@end
+
+/* A workbench that shows a model's URL in a tab of its own, as UDCode
+ * does: a flow's screen opened in the model. */
+@interface ORM2ShowingWorkbench : NSObject
+@property (nonatomic, strong) ORM2EditorViewController *shown;
+@end
+
+@implementation ORM2ShowingWorkbench
+
+- (void)showURL:(NSURL *)url
+{
+	NSString *text = [NSString stringWithContentsOfURL:url encoding:NSUTF8StringEncoding error:NULL];
+	UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:text fileURL:url languageMode:nil];
+	self.shown = [[ORM2EditorViewController alloc] initWithDocument:document workbench:nil];
+	[self.shown view];
+}
+
 @end
 
 @implementation ORM2Tests
@@ -243,6 +264,96 @@ ORM2Applied(NSString *old, NSArray<ORM2TextChange *> *changes)
 	[_tab.modelController.canvas clearSelection];
 	[_tab revealDiagnostic:orphan];
 	XCTAssertEqualObjects(_tab.modelController.inspector.elementId, added);
+}
+
+/* A flow's tab (ORM2FlowEditor.xib): the Fleet sample's flow, its model
+ * read from beside it, in the flow designer's view, connected; a screen
+ * renamed there is one edit of the text, which its undo takes back; a text
+ * that is no flow says why. */
+- (void)testAFlowOpensInItsTab
+{
+	NSString *here = [[NSString stringWithUTF8String:__FILE__] stringByDeletingLastPathComponent];
+	if (![here isAbsolutePath]) {
+		here = [[[NSFileManager defaultManager] currentDirectoryPath] stringByAppendingPathComponent:here];
+	}
+	NSString *path = [[[here stringByDeletingLastPathComponent] stringByDeletingLastPathComponent]
+		stringByAppendingPathComponent:@"Samples/Fleet.flow"];
+	NSString *text = [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:NULL];
+	XCTAssertNotNil(text, @"%@", path);
+	UDCodeDocument *document = [[UDCodeDocument alloc] initWithText:text fileURL:[NSURL fileURLWithPath:path] languageMode:nil];
+	ORM2FlowEditorViewController *tab = [[ORM2FlowEditorViewController alloc] initWithDocument:document workbench:nil];
+	XCTAssertNil(tab.problem, @"%@", tab.problem);
+	NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 1200, 760)
+	                                               styleMask:NSWindowStyleMaskTitled backing:NSBackingStoreBuffered defer:YES];
+	[window setReleasedWhenClosed:NO];
+	[[tab view] setFrame:[[window contentView] bounds]];
+	[[window contentView] addSubview:[tab view]];
+	ORMFlowWindowController *designer = tab.flowController;
+	XCTAssertNotNil(designer);
+	for (NSString *outlet in @[ @"canvas", @"palette", @"problems", @"inspector", @"gives" ]) {
+		XCTAssertNotNil([designer valueForKey:outlet], @"%@ connected", outlet);
+	}
+	XCTAssertTrue([designer.canvas isDescendantOf:[tab view]], @"the designer's view is the tab's");
+	/* Its inspector a tab of the window's inspector, not a pane of the tab. */
+	NSArray *inspectors = [tab inspectorViewControllers];
+	XCTAssertEqual([inspectors count], 1u);
+	XCTAssertTrue([designer.inspector isDescendantOf:[[inspectors firstObject] view]]);
+	XCTAssertFalse([designer.inspector isDescendantOf:[tab view]]);
+	XCTAssertNotNil([tab imageForInspectorViewController:[inspectors firstObject]]);
+	XCTAssertNotNil(designer.openQueryHandler, @"a screen's form opens in the model's tab");
+	/* Opened: the model's tab, its Conceptual Queries window, the form chosen. */
+	ORM2ShowingWorkbench *workbench = [[ORM2ShowingWorkbench alloc] init];
+	ORM2FlowEditorViewController *opening = [[ORM2FlowEditorViewController alloc] initWithDocument:document
+	                                                                                      workbench:(id<UDWorkbench>)workbench];
+	[opening view];
+	NSString *formId = [opening.flowController.editor.flow screenWithId:@"RecordFillUp"].formId;
+	[opening.flowController.canvas selectScreen:@"RecordFillUp"];
+	[opening.flowController openScreen:nil];
+	XCTAssertNotNil(workbench.shown, @"the model shown");
+	NSWindowController *queries = [workbench.shown.modelController valueForKey:@"queryController"];
+	XCTAssertTrue([[queries window] isVisible], @"its Conceptual Queries window");
+	XCTAssertEqualObjects([queries valueForKey:@"queryId"], formId, @"the form chosen in it");
+	[[queries window] close];
+	XCTAssertFalse([[designer window] isVisible], @"its own window never shown");
+	XCTAssertEqual([designer.editor.flow.screens count], 6u);
+	XCTAssertEqual([designer.palette numberOfRows], 6, @"the model's five forms and its list");
+	XCTAssertEqual([designer.problems numberOfRows], 0);
+
+	[designer.editor renameScreen:@"Vehicles" to:@"Vans"];
+	XCTAssertTrue([[document.textModel getValue] rangeOfString:@"Name=\"Vans\""].location != NSNotFound, @"written to the text");
+	XCTAssertTrue(document.textModel.undoManager.canUndo);
+	[document.textModel.undoManager undo];
+	XCTAssertEqualObjects([document.textModel getValue], text, @"undone as the text");
+	XCTAssertEqualObjects([designer.editor.flow screenWithId:@"Vehicles"].name, @"Vehicles", @"and read again");
+
+	/* What is wrong of it: the document's diagnostics, at its screen's
+	 * line, not a table in the tab; choosing one chooses its screen. */
+	XCTAssertTrue([[designer.problems enclosingScrollView] isHidden], @"the Issues navigator's, not the tab's");
+	NSUInteger flowIssues = 0;
+	for (UDDiagnosticItem *item in document.diagnosticStore.allDiagnostics) {
+		flowIssues += [item.source isEqualToString:@"ormflow"] ? 1 : 0;
+	}
+	XCTAssertEqual(flowIssues, 0u, @"the sample holds");
+	NSUInteger index = [designer.editor.flow.transitions count];
+	XCTAssertNotNil([designer.editor addTransitionFrom:@"RecordFillUp" to:@"Vehicles"]);
+	[designer.editor setOn:ORMFlowOnRowChosen control:nil ofTransition:index];
+	UDDiagnosticItem *rowless = nil;
+	for (UDDiagnosticItem *item in document.diagnosticStore.allDiagnostics) {
+		if ([item.message rangeOfString:@"a form has no rows to choose"].location != NSNotFound) {
+			rowless = item;
+		}
+	}
+	XCTAssertNotNil(rowless, @"%@", [document.diagnosticStore.allDiagnostics valueForKey:@"message"]);
+	XCTAssertTrue([[document.textModel getLineContent:rowless.line] rangeOfString:@"id=\"RecordFillUp\""].location != NSNotFound,
+	              @"at its screen's line");
+	designer.canvas.selection = [NSSet set];
+	[tab revealDiagnostic:rowless];
+	XCTAssertEqualObjects(designer.canvas.selection, [NSSet setWithObject:[ORMFlowCanvasView itemOfScreen:@"RecordFillUp"]]);
+
+	UDCodeDocument *broken = [[UDCodeDocument alloc] initWithText:@"<nothing" fileURL:nil languageMode:nil];
+	ORM2FlowEditorViewController *none = [[ORM2FlowEditorViewController alloc] initWithDocument:broken workbench:nil];
+	XCTAssertTrue([none.problem hasPrefix:@"This is not a flow that can be shown"], @"%@", none.problem);
+	[window close];
 }
 
 /* The Editor menu's items and Undo reach the tab, and its editor, from

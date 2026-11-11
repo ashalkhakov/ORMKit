@@ -12,3 +12,5 @@
 #import "ORMSaveHook.h"
 #import "ORMValidator.h"
 #import "ORMJoinedObject.h"
+#import "ORMForm.h"
+#import "ORMFormSession.h"

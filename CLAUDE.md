@@ -11,7 +11,7 @@ queries; [docs/CURSORS.md](docs/CURSORS.md) how a plan is read, as a tree of cur
 [docs/RUNTIME.md](docs/RUNTIME.md) what apps run: plans as tables in resources, read by a small
 driver library, with generated code kept to declarations;
 [docs/POPULATIONS.md](docs/POPULATIONS.md) the sample populations they run on;
-[docs/FORMS.md](docs/FORMS.md) forms: fact selections generated as XForms (a design);
+[docs/FORMS.md](docs/FORMS.md) forms and flows: the vocabulary, how it relates to ORM, what each gives;
 [docs/MODEL.md](docs/MODEL.md) the model as objects, and the XML as NORMA's;
 [docs/UDCODE.md](docs/UDCODE.md) the ORM2 extension: ORMDesignerKit's editor in UDCode.
 

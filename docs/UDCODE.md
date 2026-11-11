@@ -66,6 +66,17 @@ for text files work here too:
 A file that is not a model (broken XML, say) opens with a message
 explaining why, and offers to show it as text.
 
+### Flows
+
+A `.flow` file ([FORMS.md](FORMS.md), Flows) opens in a tab of its own,
+with ORMDesigner's flow designer: the model's forms and lists to place,
+the canvas with each screen drawn with its form's outline, what is wrong of
+the flow, the inspector, and Play, which walks the flow over the model's
+sample population. The model is the one the flow names, read from beside
+the file. As with a model, the text is the flow: each change is one edit
+of it, so undo, saving and source control are the document's, and the text
+changed elsewhere is read again. `Samples/Fleet.flow` is one to try.
+
 ## How it is built
 
 `UDCodeExtension/` contains the extension:
@@ -88,6 +99,11 @@ explaining why, and offers to show it as text.
   undoes as a single step. When the text changes from outside the editor,
   the tab reads it again: immediately if the tab is showing, otherwise
   after a short delay.
+- **`ORM2FlowEditorViewController`**, a `.flow` file's tab (the `ormflow`
+  mode), loaded from `ORM2FlowEditor.xib`. It reads the flow from the text
+  and the model it names from beside the file, and shows
+  `ORMFlowWindowController`'s view (`-hostedView`) in the tab, writing each
+  change of the flow's editor back as edits of the text.
 - **`ORM2TextDiff`**, a Myers line diff. It produces the runs of lines that
   differ, each starting and ending on a line boundary, so an edit never
   splits a CRLF.
