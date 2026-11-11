@@ -1928,6 +1928,31 @@
 	[player setValue:@"FillUp" ofRow:kind];
 	XCTAssertTrue(rowOf(@"Litres") >= 0, @"a fill-up's");
 	XCTAssertEqual(rowOf(@"Day"), -1, @"not a service's");
+	/* The kind said as a reader does; every fact of a fill-up there, its
+	 * flag among them; entered, it saves. */
+	NSPopUpButton *kinds = [[[player tableView:player.values viewForTableColumn:[player.values tableColumnWithIdentifier:@"value"] row:kind]
+	                           subviews] firstObject];
+	XCTAssertEqualObjects([kinds titleOfSelectedItem], @"Fill up");
+	NSInteger tank = rowOf(@"filled the tank");
+	XCTAssertTrue(tank >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
+	XCTAssertEqualObjects([player editorOfRow:tank], @"flag");
+	XCTAssertEqualObjects([player.walk.session.form elementNamed:@"filledTheTank"].subtype, @"FillUp");
+	for (NSString *each in @[ @"Moment", @"Litres", @"Fuel", @"Station", @"Amount", @"Currency", @"Driver" ]) {
+		XCTAssertTrue(rowOf(each) >= 0, @"%@ in a fill-up's part", each);
+	}
+	[player setValue:@"2026-11-11T08:00:00Z" ofRow:rowOf(@"Moment")];
+	[player setValue:@"40" ofRow:rowOf(@"Litres")];
+	[player setValue:@"5000" ofRow:rowOf(@"Amount")];
+	NSDictionary *chosen = @{ @"Fuel" : @"fuel", @"Station" : @"station", @"Currency" : @"moneyCurrency", @"Driver" : @"driver" };
+	for (NSString *each in chosen) {
+		NSArray *choices = [player.walk.session choicesNamed:[chosen objectForKey:each] error:NULL];
+		XCTAssertTrue([choices count] > 0, @"%@'s choices", each);
+		[player setValue:[choices firstObject] ofRow:rowOf(each)];
+	}
+	[player setValue:@"true" ofRow:tank];
+	XCTAssertTrue([player.walk submit:&error], @"%@ %@", player.walk.session.errors, error);
+	XCTAssertTrue([[player.walk.log componentsJoinedByString:@"\n"] rangeOfString:@"NewRecord saved"].location != NSNotFound, @"%@",
+	              player.walk.log);
 }
 
 /* Played from its window: Play's window, from its XIB, connected; the cars

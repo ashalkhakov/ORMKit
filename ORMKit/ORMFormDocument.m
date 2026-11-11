@@ -205,6 +205,25 @@ ORMSchemaTypeOf(ORMCDAttribute *attribute, ORMObjectType *valueType)
 }
 
 /* A node's label: its role's name, else its type's. */
+/* The anchor's own steps: its, and its subtype parts' (+ is FillUp). */
+static NSArray<ORMQueryStep *> *
+ORMAnchorsOwnSteps(ORMQuery *form)
+{
+	NSMutableArray *steps = [NSMutableArray array];
+	NSMutableArray *nodes = [NSMutableArray arrayWithObject:form.root];
+	while ([nodes count] > 0) {
+		ORMQueryNode *node = [nodes firstObject];
+		[nodes removeObjectAtIndex:0];
+		for (ORMQueryStep *step in node.steps) {
+			[steps addObject:step];
+			if ([step isSubtyping]) {
+				[nodes addObjectsFromArray:step.nodes];
+			}
+		}
+	}
+	return steps;
+}
+
 static NSString *
 ORMLabelOf(ORMRole *role, ORMObjectType *type)
 {
@@ -292,7 +311,7 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_groupNames = [NSMutableArray array];
 	_elementOfNode = [NSMutableDictionary dictionary];
 	_unarySteps = [NSMutableDictionary dictionary];
-	for (ORMQueryStep *step in form.root.steps) {
+	for (ORMQueryStep *step in ORMAnchorsOwnSteps(form)) {
 		if (step.formPart != ORMFormPartNone && [step.factType isUnary]) {
 			[_unarySteps setObject:step forKey:step.identifier];
 		}
@@ -473,12 +492,17 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 	ORMQueryPlan *plan = [self plan:copy];
 	/* Each unary's flag, a column of its own. */
 	NSMutableArray *columns = [NSMutableArray array];
-	for (ORMQueryStep *step in [_form.root.steps copy]) {
+	for (ORMQueryStep *step in ORMAnchorsOwnSteps(_form)) {
 		NSString *attribute = [_unarySteps objectForKey:step.identifier] != nil ? [_planner attributeOfUnaryStep:step] : nil;
 		if (attribute != nil) {
+			/* A subtype part's (a fill-up's "filled the tank" in a record's
+			 * form): read as that subtype, nothing where it is not one. */
+			NSString *subtype = [self subtypeEntityOfStep:step];
+			ORMPlanPath *path = subtype != nil ? [ORMPlanPath pathFrom:nil steps:@[ [ORMPlanStep stepAsEntity:subtype], [ORMPlanStep stepWithKey:attribute] ]]
+			                                   : [ORMPlanPath pathFrom:nil keys:@[ attribute ]];
 			[columns addObject:[ORMPlanColumn columnTitled:[step.factType displayText]
 			                                          node:step.identifier
-			                                          path:[ORMPlanPath pathFrom:nil keys:@[ attribute ]]
+			                                          path:path
 			                                    identifier:nil]];
 		}
 	}
@@ -873,7 +897,7 @@ ORMEntersBeneath(ORMQueryNode *node)
 /* Each unary's flag: an element of its attribute's, a boolean. */
 - (void)placeUnariesIn:(ORMQueryPlan *)plan
 {
-	for (ORMQueryStep *step in _form.root.steps) {
+	for (ORMQueryStep *step in ORMAnchorsOwnSteps(_form)) {
 		if ([_unarySteps objectForKey:step.identifier] == nil) {
 			continue;
 		}
@@ -884,8 +908,20 @@ ORMEntersBeneath(ORMQueryNode *node)
 			                                             [step.factType displayText]]];
 			continue;
 		}
-		[self addField:step.identifier name:name kind:ORMFormFieldValue type:@"xsd:boolean"];
+		ORMFormField *field = [self addField:step.identifier name:name kind:ORMFormFieldValue type:@"xsd:boolean"];
+		field.subtypeEntity = [self subtypeEntityOfStep:step];
 	}
+}
+
+/* The subentity a step of a subtype part is from (+ is FillUp, + filled
+ * the tank: FillUp); nil for the anchor's own. */
+- (NSString *)subtypeEntityOfStep:(ORMQueryStep *)step
+{
+	if (step.parent == _form.root || step.parent == nil) {
+		return nil;
+	}
+	NSString *entity = [_planner entityNameOfType:step.parent.objectType];
+	return [entity isEqualToString:_entityName] ? nil : entity;
 }
 
 /* A value node's element: its name, as a property's is. */

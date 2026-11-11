@@ -74,7 +74,8 @@ by hand.
     each a part and a count (a repeat).
   - NewRecord: a record of a van, which kind it is chosen (fill-ups and
     services are records, as Logbook's are events), and that kind's part
-    entered (`+ is FillUp`, `+ is Service`).
+    entered (`+ is FillUp`, `+ is Service`): a fill-up's facts as
+    RecordFillUp has them, a service's day (its lines are RecordService's).
 
   `Fleet.flow` goes from the vans to a fill-up, a service or a record of
   the one chosen, and back on saving or Cancel. A new van is made over the

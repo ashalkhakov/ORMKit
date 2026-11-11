@@ -1102,6 +1102,10 @@ static NSString *const FleetText =
 	@"    + was at ✎Moment\n"
 	@"    + took ✎Litres\n"
 	@"    + was of ✎Fuel\n"
+	@"    + was at ✎Station\n"
+	@"    + cost ✎Money\n"
+	@"    + had driver ✎Driver\n"
+	@"    + filled the tank ✎\n"
 	@"  + is Service\n"
 	@"    + was on ✎Day\n";
 
