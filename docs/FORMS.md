@@ -232,6 +232,18 @@ never a form without it:
 - A list read through a reference (D9, the driver's vehicles) is read as
   the form opens and with its object; a session does not read it again
   when the reference changes, as it does a value shown through it.
+- In the XForms document, what is shown through a reference, a choice's
+  key's object (D6) and its reads are the app's to fill in (its answers to
+  `form:read` and `form:save`): the document does not read them again as
+  the reference changes.
+- A form under construction is said so (`ormtool contract`); nothing at
+  run time refuses to open it, the copy being the app's own.
+- A form's further anchors are set by its outline's header (`, with ...`)
+  or `-setWithForms:ofQuery:reason:`; the Queries window has no control of
+  its own for them.
+- A task done with a flow's entry (`ormkit:flow:`) is given the task's
+  variables for the application's view; WorkflowKit does not open the
+  entry's first form itself.
 
 ### Sources
 
