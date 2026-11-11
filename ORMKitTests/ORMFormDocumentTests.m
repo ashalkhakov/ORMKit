@@ -1900,6 +1900,9 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	XCTAssertEqualObjects([form identifiedNames], @[ @"customer" ]);
 	XCTAssertEqualObjects([[document identifyPlanNamed:@"customer"] text], @"read Customer\nwhere email = $customerEmail\nlist self (id)");
 	NSXMLDocument *xforms = [document document];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@ref='customerEmail'][@*[local-name()='role']='entered']" in:xforms] count], 1u,
+	               @"each element's role, on its bind");
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@ref='customer'][@*[local-name()='role']='identified']" in:xforms] count], 1u);
 	XCTAssertEqual([[self nodes:@"//*[local-name()='select1'][@bind='bind-customer']" in:xforms] count], 0u);
 	XCTAssertEqual([[self nodes:@"//*[local-name()='input'][contains(@bind, 'bind-')]/*[local-name()='label'][.='Email']" in:xforms] count], 1u,
 	               @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);

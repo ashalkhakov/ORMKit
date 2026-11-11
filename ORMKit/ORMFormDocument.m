@@ -3216,6 +3216,9 @@ ORMXText(NSString *name, NSString *text)
 	if ([bind.sources count] > 0) {
 		[attributes setObject:[bind.sources componentsJoinedByString:@" "] forKey:@"ormf:constraints"];
 	}
+	/* What the element is to whoever opens the form, as its table says:
+	 * "given" its inputs (a process's task fills them from its variables). */
+	[attributes setObject:[self roleOfField:field] forKey:@"ormf:role"];
 	return ORMXElement(@"xf:bind", attributes);
 }
 
