@@ -443,11 +443,14 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 }
 
 /* Whether the step leads on, from an object neither entered nor given (an
- * owned one, one passed through, a subtype's), to something listed. */
+ * owned one, one passed through, a subtype's), to something listed. Not
+ * from one absorbed into the row above it (a volume's quantity): no object
+ * of its own to be missing. */
 - (BOOL)passesOn:(ORMQueryPart *)step listed:(NSSet<NSString *> *)listed
 {
 	ORMQueryNode *from = [self nodeWithId:step.parent.identifier];
-	return from != nil && from.formPart == ORMFormPartNone && !from.isGiven && ORMListsBeneath(step, listed);
+	return from != nil && from.formPart == ORMFormPartNone && !from.isGiven && ORMListsBeneath(step, listed)
+	       && (from == _form.root || [_planner entityNameOfType:from.objectType] != nil);
 }
 
 - (ORMQueryPlan *)readPlanForKey:(NSString *)key

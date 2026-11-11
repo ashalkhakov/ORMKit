@@ -538,6 +538,31 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertTrue([[error localizedDescription] rangeOfString:@"bind them first"].location != NSNotFound, @"%@", error);
 }
 
+/* What is computed with read through a second step to an object absorbed
+ * into the anchor's row (Logbook's price per unit: the volume entered, its
+ * quantity reached again): read with the row, no maybe of its own. */
+- (void)testAValueComputedThroughAnAbsorbedObjectAgainIsRead
+{
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  + was of ✎Volume\n    + has Quantity\n"
+	                                                       withString:@"  + was of ✎Volume1\n"];
+	text = [text stringByReplacingOccurrencesOfString:@"  ✓PricePerUnit"
+	                                       withString:@"  + was of Volume2\n    + has Quantity\n  ✓PricePerUnit"];
+	XCTAssertNotEqualObjects(text, ORMFillUps);
+	ORMEditor *editor = [self newEditor];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMFormDocument *document = [self documentOf:editor];
+	XCTAssertFalse([[document.notes componentsJoinedByString:@"\n"] containsString:@"places it nowhere"], @"%@", document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSManagedObjectContext *context = [self storeOf:editor];
+	NSDictionary *errors = nil;
+	NSError *error = nil;
+	NSManagedObject *saved = [form save:[self fillUpIn:form] inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(saved, @"%@ %@", errors, error);
+	NSDictionary *read = [form readKey:[[saved valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertTrue([[read objectForKey:@"pricePerUnit"] hasPrefix:@"500"], @"%@ %@", read, error);
+}
+
 /* Refused: said at the element, and the object as it was. */
 - (void)testARefusalIsSaidAtItsElement
 {
