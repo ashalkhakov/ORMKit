@@ -1,271 +1,342 @@
-# Forms: fact selections as XForms
+# Forms and flows
 
-A form is a part of the model that a user fills in or reads: some facts about
-one object, what must hold of them, and where they come from and go to. Here
-a form is said in the model's terms, as a conceptual query is
-([QUERIES.md](QUERIES.md)), and generated as an XForms document: an instance,
-its binds, its controls, and its submissions. It runs against a service or,
-offline, against the app's own Core Data store. How it looks, and how it is
-laid out, is not the model's business; any XForms processor can run it, a
-native UI can be laid out over it, and its developers can customize it without
-losing what they did when it is generated again.
+Two words added to ORM's vocabulary:
 
-This is a design, built a step at a time: [Steps](#steps) says in what
-order, and which are done, and [Open questions](#open-questions) what is
-not settled.
+- **A form** is the part of the model a user fills in or reads: some facts
+  about one object, what must hold of them, and where they come from and
+  go to. It is written in the model, in the model's terms, as a
+  conceptual query is ([QUERIES.md](QUERIES.md)), and generated: an XForms
+  document, and a table an app runs it with.
+- **A flow** is an actor's way through forms and lists: which screen leads
+  to which, on what action, giving what. It lives in a `.flow` file beside
+  the model, and can be played over the model's sample population before
+  any app exists.
 
-## Why
+How either looks, and how it is laid out, is not the model's business. Any
+XForms processor runs a generated form, a native view can be laid over it,
+and its developers can customize it without losing what they did when it
+is generated again.
 
-Halpin and Weber, "Form-and-Fact Based Modeling" (EMMSAD 2012, LNBIP 113,
-pp. 285–299), propose joining the two ways of agreeing on a system with its
-users: fact-based modelling (ORM, its verbalizations, the CSDP) and
-form-based modelling (Weber's form-oriented analysis). We have not read the
-full text; from its abstract and the summaries of it:
-- **Prototype forms seed the model.** A form, on paper or on screen, is
-  verbalized into elementary facts, as the CSDP's first step does with any
-  information example.
-- **A conceptual form is an ORM subschema:** the fact types a form is about,
-  with their constraints, without its layout. A form filled in is a
-  population of that subschema.
-- **The model generates the final user interface.** Fact types are anchored
-  to a major object type, candidate forms are generated and then
-  customized, and the constraints are enforced in the form (a drop-down
-  that depends on another).
-- **Constraints a form does not show are met as errors,** each said in
-  words: the rule's verbalization.
-- **Screen transition diagrams** show the dialogue of a submit-and-response
-  interface: a page changes on an atomic action (a submission), and what
-  happens within a page is apart from it. They validate the dynamic
-  process: what comes after what, what is modal, where an error leads.
+## How it relates to ORM
 
-What is ours: the form as a kind of conceptual query, its mapping to an
-XForms document, the binds from the constraints, the OData requests in and
-out, and the bridge to BPMN.
+The vocabulary follows Halpin and Weber, "Form-and-Fact Based Modeling"
+(EMMSAD 2012, LNBIP 113, pp. 285–299), which joins fact-based modelling
+(ORM, its verbalizations, the CSDP) with Weber's form-oriented analysis.
+We have read its abstract and summaries, not the full text:
+
+| The paper | Here |
+| --- | --- |
+| a conceptual form is an ORM subschema: the fact types it is about, with their constraints, without its layout | a form is a query of kind Form; read as its subschema (`-[ORMQuery subschemaInModel:]`): the fact types its steps go through, the object types they reach, the constraints whose roles are all among them |
+| a form filled in is a population of that subschema | the form's instance is that population for one object, named as the mapping names its properties; saving it adds those facts to the store |
+| fact types are anchored to a major object type | a form's outline is anchored at an object type: the object made or changed |
+| the model generates the user interface, then it is customized | the XForms document and its table are generated; a customized copy, or a view of the app's own, is checked against the form as a contract |
+| constraints are enforced in the form | each constraint whose roles are all in the form is a bind, its alert the constraint's verbalization |
+| constraints a form does not show are met as errors, in words | the rest are checked where the form is saved, and the refusal says the rule's verbalization at the element it is about |
+| prototype forms seed the model (the CSDP's first step) | planned: a form, or a sample filled in, proposes fact types |
+| screen transition diagrams: pages, changed on an atomic action | flows: screens, transitions on a submission, a choice, a cancel, a trigger |
+
+So nothing in a form is new to the model: every element is a role of a
+fact type the model has, every check a constraint or rule it has, every
+label a role's name or reading. What a form adds is a selection (which
+facts, about which object) and a part for each (entered, shown, given).
+What is ours beyond the paper: the form as a kind of conceptual query, its
+mapping to XForms, the binds from the constraints, the store and OData
+requests in and out, flows, and the bridge to BPMN.
+
+A flow is about screens, which the model is not, so it is not in the
+model: it refers to the model's forms and lists by id, and what a
+transition gives the next form is facts of the one before (the vehicle
+chosen).
 
 Why XForms: it is the standard for exactly this split. A form's model
 (instances, binds: type, required, relevant, readonly, constraint,
 calculate), its intent-level controls (input, select1, output, repeat,
 group), and its submissions, with nothing about layout. XFormsKit
 (`../XFormsKit`) runs XForms 1.1 natively on macOS, iOS and GNUstep, and
-passes the W3C suite; a browser can run the same document with XSLTForms.
-And a form is a process's data contract: a BPMN user task's inputs and
-outputs.
+passes the W3C suite; a browser runs the same document with XSLTForms.
 
-## What a form is
+## The form vocabulary
 
-**A form is a query of its own kind** (`Kind="Form"`): an outline anchored
-at an object type, each node one of:
-- **entered** (`✎X`): the user gives its value; a role whose fact the form
-  asserts;
-- **shown** (`✓X`): read, not changed; a derived fact, or one the form
-  only reads;
-- **neither**: the path to something entered or shown, or a condition.
+A form is an outline, as a query is, anchored at an object type and
+starting `Form <Name>:`. Each line is a step from the line above it, by a
+fact type's reading, to an object type. What a node is to the form is
+marked:
 
-A node may be **given** (`X = ?`): its value comes in with the form, as the
-form is opened, a parameter. The anchor is given when the form edits an
-object that exists, and new when it makes one.
+| Mark | The node | Example |
+| --- | --- | --- |
+| `✎X` | entered: the user gives its value; the form asserts the fact | `+ took ✎Litres` |
+| `✓X` | shown: read, not changed | `+ has ✓Plate` |
+| `X = ?` | given: its value comes in as the form opens, a parameter; may be entered or shown too (`✎City = ?`) | `+ is of Vehicle = ?` |
+| none | the way to something entered or shown, or a condition | `+ is at Address` |
+| `+ <reading> ✎` | a unary fact entered (a flag) | `+ filled the tank ✎` |
+| `✓X = <expr>` | a value node: computed from the form's values and shown ([EXPRESSIONS.md](EXPRESSIONS.md)) | `✓PricePerUnit = Money / Volume` |
+
+The anchor is given when the form changes an object that exists, and new
+when it makes one. Where a node sits in the outline says the rest:
+
+- **A step under an entered reference is a condition on its choices**, a
+  drop-down that depends on another: `+ had driver ✎Driver` /
+  `+ drives Vehicle1` offers only the vehicle's drivers.
+- **A value through an object the form refers to is shown**, never
+  written: `+ is of Vehicle1 = ?` / `+ has ✓Plate` shows the given van's
+  plate, and changes when another is chosen.
+- **An object reached by a plain step, with something entered beneath it,
+  is owned:** made or changed with the anchor (a station's address).
+- **A subtype step is a part**, relevant when the object is of that
+  subtype; a form with parts asks which kind the object is (`+ is FillUp`,
+  `+ is Service` in a record's form).
+- **A step to many is a repeat**, a form of its own for each item (a
+  service's lines: `+ ServiceLine is in that Service`).
+
+Fleet's forms ([Samples/Fleet.orm](../Samples/Fleet.orm)) show each:
 
 ```
 Form RecordFillUp:
 FillUp
-  + is of Vehicle = ?
+  + is of Vehicle1 = ?
+    + has ✓Plate
   + was at ✎Moment
-  + has mileage ✎Distance
-  + has volume ✎Volume
-  + is of ✎Fuel
-  + was bought at ✎Station
-  + filled the tank ✎
+  + took ✎Litres
+  + was of ✎Fuel
+  + was at ✎Station
   + cost ✎Money
-  + charged ✎Money
-  + was driven by ✎User
-    + drives that Vehicle
-  ✓PricePerUnit = Money / Volume
+  + had driver ✎Driver
+    + drives Vehicle1
+  + filled the tank ✎
+
+Form NewStation:
+Station
+  + is called ✎StationName
+  + is at Address
+    + has ✎AddressLines
+    + is in ✎City
+
+Form NewRecord:
+Record
+  + is of Vehicle = ?
+  + is FillUp
+    + was at ✎Moment
+    + took ✎Litres
+    + was of ✎Fuel
+    + was at ✎Station
+    + cost ✎Money
+    + had driver ✎Driver
+    + filled the tank ✎
+  + is Service
+    + was on ✎Day
 ```
 
-- The vehicle is given: the form is opened for one.
-- The driver is chosen from those who drive that vehicle: the step under it
-  is a condition on the choices, a drop-down that depends on another, as
-  the paper has it.
-- `PricePerUnit` is a value node ([EXPRESSIONS.md](EXPRESSIONS.md)),
-  computed in the form and shown.
+A form is verbalized as a query is. In the `.orm` it is a query with
+`Kind="Form"`, a node's part `Part="Entered"` or `"Shown"`, a given one
+`Given="true"`, a unary's part on its step. **Save a Copy for NORMA**
+leaves them out.
 
-**A form may have several anchors:** objects made or changed together that
-neither reaches through the other (a car sale and the vehicle's last
-odometer reading). Each anchor is an outline of its own in the form, an
-instance of its own, and they are submitted together, one change set (or
-one save).
+## What a form gives
 
-A form is verbalized as a query is, and read as its subschema: the fact
-types its steps go through, the object types they reach, and the
-constraints whose roles are all among them.
-
-## The instance: the form as a document
+### The instance
 
 The form's tree is mapped to an XML instance, as Rmap maps a schema to
-tables ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)), but to one tree. Call
-it Fmap:
+tables ([COREDATA-MAPPING.md](COREDATA-MAPPING.md)), but to one tree. The
+names are the mapping's properties (Core Data's; the service's as
+ODataKit's `ODataPropertyMapper` says them), so the instance is the
+entity's own representation, the same whether a store or the service
+holds it.
 
 | In the form | In the instance |
 | --- | --- |
-| the anchor | the document element, named as its entity |
-| a step to a value type, functional (at most one) | a child element, named as the property the mapping made of the role (`mileageQuantity`), typed: `xsd:decimal`, `xsd:date`, `xsd:dateTime`, `xsd:boolean`, `xsd:string` (its bind XForms' own `xf:decimal` and the rest, which take empty as a value, as an optional field is until entered) |
-| a compound value absorbed by the mapping (Money, Distance) | its properties, as the mapping absorbed them (`totalAmount`, `totalCurrency`) |
-| a step to an entity the form refers to, functional | an element holding its key (`driver` = the user's email); its choices in an instance of their own |
-| a step to an entity the form owns (an item of a service) | a child element, its own steps beneath it |
-| a step that is not functional (a service's items) | a repeated element; a repeat in the controls |
-| a subtype step (`+ is Service`) | its elements, relevant when the object is of it |
-| a given node | an element filled as the form is opened |
-| a value node | an element calculated (a bind's `calculate`) |
+| the anchor | the document element, named as its entity; its key the first element |
+| a value, functional | an element named as the attribute (`litres`), typed: `xsd:decimal`, `xsd:date`, `xsd:dateTime`, `xsd:boolean`, `xsd:string` |
+| a compound value the mapping absorbs (Money, Distance) | its parts as absorbed (`moneyAmount`, `moneyCurrency`): whole or not given |
+| a unary | a flag, `xsd:boolean` (`filledTheTank`) |
+| a reference | an element holding the key of the object chosen (`driver`), its choices an instance of their own |
+| a value through a reference | an element named by its keys (`purchaseOrderSupplierContactContactName`), read with the anchor and again when the reference changes |
+| an owned object | a group of elements, nested (`contact/shippingAddress/city`) |
+| a subtype part | its elements (`tripMoment` where another part has a `moment`), and an element `isA` saying the kind |
+| a step to many | a repeat: each item a row of a form of its own |
+| a given node | an element filled as the form opens |
+| a value node | an element calculated |
 
-The names are the OData properties' (the mapping's), so that the instance
-is the entity's own representation, read and written as the service has it,
-and the same whether a store or the service holds it.
+**Owned objects** (a customer's contact, the contact's shipping address)
+are made with the anchor where every anchor has one (`needed`) or where
+anything of them is entered, changed with it, and put back with it when
+the save is refused; to a service they are nested in the body (a deep
+insert, a deep update).
 
-**A repeat is a form of its own.** A step from the anchor to many (an
-order's lines: `+ PurchaseLine is in that PurchaseOrder`, its own steps
-under it) is generated as a form anchored on what the step reaches, given
-the anchor by the same fact type the other way round: its elements the
-line's, its link the element holding the order's key, its read every line
-linked to the order. The form's table keeps it under `repeats`, by the
-relationship's name (`purchaseLines`); `ORMForm` reads an order's lines as
-rows, and saves them in the order's one save -- each row written into its
-line, found or made and linked to the order, a line the rows no longer have
-deleted -- a row's refusal said at `purchaseLines[1].quantity`; the
-order's own read leaves them out. A repeat in the generated document
-(`xf:repeat`) and through the service are still to come.
+**Subtype parts:** a new object is made of the kind chosen, one read is of
+its kind and stays so, and the service is told its type (`@odata.type`).
+The kind's choices are labelled as a reader says the subtype's name ("Fill
+up" for FillUp).
 
-**Submitted, not saved.** A process's task is done with a form whose values
-a procedure takes (goods received: a receipt and its moves, made by the
-procedure, not written as they stand). `ORMFormSession`'s `submitting`
-hands the values to whoever submits them -- a task's form handler -- and
-takes back what it refuses, by element and by row, and what it made.
+**Repeats:** a step from the anchor to many (an order's lines) is a form
+anchored on what it reaches, given the anchor by the same fact type the
+other way round. The anchor's save writes each row into its item, found or
+made and linked; an item the rows no longer have is deleted; a row's
+refusal is said at `purchaseLines[1].quantity`.
 
-## Binds: the constraints that apply
+**Submitted, not saved:** a process's task may be done with a form whose
+values a procedure takes (goods received: a receipt and its moves).
+`ORMFormSession`'s `submitting` hands the values to whoever submits them
+and takes back what it refuses and what it made.
 
-A constraint is a bind when all its roles are in the form. Each says its
-verbalization as the bind's alert, the words a user reads.
+### Binds: the constraints that apply
+
+A constraint is a bind when all its roles are in the form, its alert the
+constraint's own statement; the bind names it in `ormf:constraints`.
 
 | ORM | Bind |
 | --- | --- |
-| mandatory role (simple) | `required="true()"` |
-| inclusive-or | `required` on each: required while all the others are empty |
-| value constraint | `type`, and a `constraint` for a range or a list; a list of values is also the choices of a `select1` |
-| uniqueness (internal) on a repeated group | `constraint`: no two items alike (`count(../item[x = current()/x]) = 1`) |
-| exclusion, exclusive-or | `relevant`: an alternative is not relevant once another is given; or one `select1` of the alternatives |
-| subset | `relevant` (or `required`): the second given only where the first is |
-| equality; a compound value that is whole | `required` each where the other is given (a quantity and its unit) |
-| value comparison | `constraint`: compared when both are given |
-| a rule ([RULES.md](RULES.md)) over the form's facts alone | `constraint`: the rule's condition, said in XPath |
-| a derivation over the form's facts alone | `calculate`, `readonly` |
-| deontic | a warning: shown at its node, never invalid, never in the way of a submission (XForms has none: an extension) |
+| mandatory role (simple) | `required="true()"`; in an owned object that need not be, once anything of it is entered (`../* != ''`) |
+| the definition of a subtype the anchor is of ("Each MeteredEvent is by definition an Event that was at some Distance") | `required`, the definition its alert |
+| inclusive-or | `required` on each while the others are empty |
+| value range, text length | `constraint` |
+| a list of values | the `select1`'s items |
+| exclusion, exclusive-or | `relevant` while the others are empty |
+| subset | the first `relevant` where the second is given |
+| equality; a compound value | `required` each where the other is given |
+| value comparison | `constraint`, compared when both are given |
+| a value node's expression | `calculate` (`number(../totalAmount) div number(../volumeQuantity)`), empty until its operands are given |
+| deontic | XFormsKit's `xfk:warning`: shown at its element, never invalid, never in the way of a submission |
 
-What a form cannot check alone (uniqueness across objects, a rule through
-facts the form does not hold) is checked where it is submitted: by the
-service, or by the local store's save ([In and out](#in-and-out-a-service-or-a-local-store)).
-Its refusal names the rule and, where it can, the property; the form shows
-the verbalization at that node. The paper's point holds either way: a constraint a form does
-not show is met as an error said in the model's words.
+An owned object's and a subtype part's constraints are bound as the
+anchor's are, each path from the element's own place
+(`../../../contact/shippingAddress/postCode`). Constraints on a
+supertype's roles about another of its subtypes (a trip's, in a fill-up's
+form) are left out.
 
-## Controls
+What a form cannot check alone (a join, a pattern, uniqueness across
+objects, a rule through facts it does not hold: the driver who drives the
+vehicle, the meter going up) is listed under `ormf:checks` as
+`ormf:checkedWhereSubmitted`, in words, and checked where it is saved.
+Either way a constraint is met as an error said in the model's words.
 
-Intent only: an `input` for each entered value, `select1` for a reference
-(its itemset the choices' instance) or a value list, `output` for each
-shown one, a `repeat` for a group, a `group` for a subtype's part. The
-label is the form's own for that node where it gives one, else the role's
-name ("Odometer"); a role with neither is labelled by its player's name and
-noted. The hint is the fact type's note; the alert, the constraint's
-verbalization. Order is the outline's.
+### Controls
 
-Layout is not here. A generated form runs as it is in an XForms processor;
-a designer lays it out (XFormsKit's designer, or a native view with its
-controls bound to the form's: see [Running one](#running-one)).
+Intent only, in the outline's order: an `input` for an entered value, a
+`select1` for a reference or a list of values, a `group` for a compound,
+an owned object or a subtype part, an `output` for what is shown or
+calculated. The label is the role's name, else its player's (a unary's,
+its reading); the hint, the fact type's note; the alert, the constraints'
+statements. A given node has no control. Ids come from the model element
+(`control-<node id>`, `bind-<node id>`), so a renamed role or a reordered
+outline keeps them.
 
-## In and out: a service or a local store
+### In and out: a service or a local store
 
-A form does not say where its data is. Its inputs and outputs name what
-they are (the form's object read; the vehicle's drivers; the fill-up
-saved), and the app that runs it says where: the service, when it is
-online and works against one; its own Core Data store, when it works
-offline and syncs later (Logbook does, through ODataSync). Both are planned
-from the same tree, as any query is planned into either
-([QUERIES.md](QUERIES.md)).
+A form does not say where its data is. Its reads and save are planned from
+the same tree as any query is ([QUERIES.md](QUERIES.md)), and the app says
+where they run:
 
-In the document, each instance's `src` and each submission's `resource` is
-a name the app resolves (`form:read`, `form:choices/driver`,
-`form:save`), and its XForms submission transport does the work. XFormsKit
-takes a transport per model (`XFSubmissionTransport`), so a host chooses:
-- **The service.** Reads are the planner's OData requests (`$select`,
-  `$expand`); the answer is the instance, in XML. A new object is a `POST`
-  of the instance (with its owned items, a deep insert); an existing one a
-  `PATCH` of what changed, with its ETag. Both are one change set, so the
-  service's rules hold of it as a whole.
-- **The local store.** Reads are the same plan as a fetch request, run by
-  the interpreter against the app's context, and the objects written as
-  the instance. A submission writes the instance back into objects, by the
-  same mapping, and saves the context: Core Data's own checks, the
-  generated validation code and the rules at save
-  ([COREDATA-MAPPING.md](COREDATA-MAPPING.md#validation-code-what-core-data-cannot-enforce),
+- **The service.** Reads are OData requests (`$select`, `$expand`); a new
+  object is a `POST` (with its owned objects, a deep insert), an existing
+  one a `PATCH` of what changed with `If-Match`; references as
+  `@odata.bind`.
+- **The local store.** Reads are fetches run by the interpreter; a save
+  writes the instance into objects, by the same mapping, and saves the
+  context: Core Data's checks, the generated validation code and the rules
+  at save ([COREDATA-MAPPING.md](COREDATA-MAPPING.md#validation-code-what-core-data-cannot-enforce),
   [RULES.md](RULES.md)) refuse it as the service would. Sync uploads it
-  later, and the service checks it again then.
+  later.
 
-Either way:
-- **In: the instance.** Opening a form for an existing object reads it: the
-  form's tree as a query, its entered and shown nodes listed.
-- **In: the choices.** Each reference's choices are a query of their own,
-  its condition the step under it (the vehicle's drivers), read when the
-  form opens and again when what it depends on changes.
-- **Out: an action.** A form for a step of a process may submit to an
-  action instead (Logbook's `Continue` of a schedule): its parameters are
-  the instance's. Offline, the app's own procedure does what the action
-  does (Logbook's `LBProcedures`, which its server's action calls too).
-- **Back: the response.** Done, the form says so, or leads on
-  ([Flows](#flows-forms-and-the-ways-between-them)). Refused, each violation is
-  shown at its node: the service's 400 details, or the save's validation
-  errors (`NSValidationKeyErrorKey` names the property, which names the
-  node). Deontic violations come back as warnings and do not refuse it.
+In the document, each read and the save is a name the app resolves
+(`form:read`, `form:choices/<name>`, `form:save`) through its XForms
+submission transport. Each reference's choices are a query of their own,
+read when the form opens and again when what they depend on changes. A
+refusal comes back by element (the service's error details by target, or
+`NSValidationKeyErrorKey`) and is shown at its control; deontic
+violations come back as warnings.
 
-A store's changes made elsewhere (a sync, an undo) while a form is open
-reach it as a new read of what changed: the form's instance follows its
-objects, as the spike's mirror did.
+An app runs a form without ORMKit: ORMRuntime's `ORMForm` reads the
+`<Form>.ormform` table ormtool writes beside the document
+([RUNTIME.md](RUNTIME.md#forms)), and `ORMFormSession` holds the values,
+the choices and the refusals for any view of it.
 
-## Flows: forms and the ways between them
+### Customizing: the contract, and the views of it
 
-An application is more than one form: a list of vehicles leads to a
-vehicle, a vehicle to its fill-ups, a fill-up to its form, and a form back
-when it is saved. The paper's screen transition diagrams model that: forms
-as screens, and transitions between them, each taken on an atomic action (a
-submission, a choice, a cancel). What happens within a form is not part of
-the diagram; the form says that itself.
+A generated form reads like the model, not like the app, and people lay
+forms out, word them, and build their own. What has to hold is not how a
+form looks but what goes in and out of it. **A form is a contract**, and
+its table holds it:
 
-It is what a design tool's prototyping does. In Figma a prototype is
-frames, connections from a frame's element to another frame on an
-interaction, overlays shown over a frame, and a flow's starting point;
-people click through it before anything is built. A flow here is the same,
-in the model's terms:
+- **its inputs:** what it is given as it opens (`-inputNames`);
+- **what is entered and shown:** each element's `role` ("key", "given",
+  "entered", "shown", "calculated", "hidden") and `label`;
+- **what it may offer:** each reference's choices and what they depend on;
+  an element's `items` (and `itemLabels`), where the model lists its values;
+- **its groups:** each owned object's keys, entity, key, and whether it is
+  `needed`;
+- **what a save writes, and its result:** the object saved, its key;
+- **the rules:** the model's, checked as it is filled in where they can be
+  and always where it is saved.
 
-| Figma | Here |
+Flows and processes refer to a form only by its contract. Its views:
+
+1. **The generated XForms document**, the default, replaced whole when the
+   model changes.
+2. **A customized copy of it**, kept with the app's sources and edited
+   freely. The build checks it against the contract: an input it does not
+   take, an element the contract has not, or one the contract enters that
+   it never binds, is an error; a looser bind is a warning.
+3. **A view of the app's own:** a XIB's controls bound to the session's
+   values, its pop-ups filled from the choices, the refusals shown at its
+   controls.
+
+**A form under construction does not run.** A field the model has no fact
+type for has nowhere to go, so a customization that adds one marks its
+form under construction, refused when opened until the model has the fact
+types it asks for. It can still be walked through over the sample
+population, each provisional field a question for the modeller.
+
+## The flow vocabulary
+
+A flow is what a design tool's prototype is, in the model's terms:
+
+| Figma | A flow |
 | --- | --- |
-| a frame | a form, or a list (a query whose rows lead somewhere) |
-| a connection, on a click | a transition, on an action: a submission done, refused, cancelled; a row chosen; a trigger |
-| what the next frame shows | what the next form is given: its given nodes, bound to the facts of the one before (the vehicle chosen) |
-| an overlay | a modal form: it returns to the one it was opened over, with what it made (a new expense kind chosen as soon as it exists) |
-| a flow's starting point | an entry: where the app, or a task, begins |
+| a frame | a **screen**: a form, or a list (a query whose rows lead somewhere) |
+| a connection, on a click | a **transition**, on an action: `RowChosen`, `Trigger` (a control of the form), `SubmitDone`, `SubmitError`, `Cancel` |
+| what the next frame shows | what the transition **gives** the next form: its given nodes, from the row chosen, what the screen saved, or a value a screen before had |
+| navigate, overlay, back | its **kind**: navigate; overlay (a modal form over this one); back; close the overlay, giving the form under it what it made |
+| a flow's starting point | an **entry**: where the app, or a task, begins |
 
-And it can be clicked through before an app exists, more truly than a
-prototype: the forms are generated, and they run against the model's sample
-population ([POPULATIONS.md](POPULATIONS.md)) in a local store made of it.
-A domain expert walks the flow with real-looking facts, a refusal says a
-real rule in its own words, and what they ask for that the model lacks is
-found there, not in production.
+A flow is one file, XML in ORMKit's own namespace, naming its model and
+referring to its forms and queries by id, their names beside for a reader;
+one the model no longer has is reported:
 
-In XForms a transition is what a submission's `xforms-submit-done` or
-`xforms-submit-error`, or a trigger's `DOMActivate`, does: load the next form
-(`xf:load`), with its given values. A flow is generated into those actions;
-the forms themselves do not name each other. `ormtool xforms model.orm dir/
---flow Records.flow` writes each screen's form with the flow's ways on from
-it: the save's `xforms-submit-done` and `xforms-submit-error`, a Cancel
-trigger, and a trigger for each control a transition names, each an
-`xf:load` of a resource the app resolves, as it does the form's own:
+```xml
+<flow:Flow xmlns:flow="http://schemas.ormkit.org/2026-10/Flows" Name="Fleet" Model="Fleet.orm">
+    <flow:Entry Name="Start" Screen="Vehicles"></flow:Entry>
+    <flow:Screen id="Vehicles" Query="_5D996639-D799-471F-962E-3877A50A854A" Name="Vehicles" X="0" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="RecordFillUp" Form="_8A69A360-C738-4C55-8542-F1A8EA7184D9" Name="RecordFillUp" X="480" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Screen id="NewStation" Form="_8A4C9725-696A-4BCD-8DE7-D19CF6B57D10" Name="NewStation" X="960" Y="0" Width="390" Height="844"></flow:Screen>
+    <flow:Transition From="Vehicles" On="RowChosen" To="RecordFillUp">
+        <flow:Give Node="_8C6710B8-2CDB-4AFE-9F4D-659658AEABED" From="row"></flow:Give>
+    </flow:Transition>
+    <flow:Transition From="RecordFillUp" On="SubmitDone" Kind="Back"></flow:Transition>
+    <flow:Transition From="RecordFillUp" On="Cancel" Kind="Back"></flow:Transition>
+    <flow:Transition From="RecordFillUp" On="Trigger" Control="newStation" To="NewStation" Kind="Overlay"></flow:Transition>
+    <flow:Transition From="NewStation" On="SubmitDone" Kind="Close">
+        <flow:Give Node="_287EFCB3-73AA-41B1-A5B8-CFABD1F38F03" From="result"></flow:Give>
+    </flow:Transition>
+    <flow:Transition From="NewStation" On="Cancel" Kind="Close"></flow:Transition>
+</flow:Flow>
+```
+
+(An excerpt of [Samples/Fleet.flow](../Samples/Fleet.flow). A `Give`'s
+`Node` is a given node of the next screen's form; `From` is `row` (the
+list's row chosen), `result` (what the screen before saved), or
+`<screen id>.<node id>` (a value a screen before had).)
+
+What is inside a screen is not in the flow: a form's controls, and where
+they are, are the form's and its customization's. A flow draws each screen
+from them and keeps no copy.
+
+## Flows: what they give
+
+**Generated into the forms.** In XForms a transition is what a
+submission's `xforms-submit-done` or `xforms-submit-error`, or a trigger's
+`DOMActivate`, does: an `xf:load` of a resource the app resolves. The
+forms themselves do not name each other; `ormtool xforms model.orm dir/
+--flow Fleet.flow` writes each screen's form with its ways on:
 
 | Resource | Where it goes |
 | --- | --- |
@@ -274,472 +345,106 @@ trigger, and a trigger for each control a transition names, each an
 | `form:back` | the screen before |
 | `form:close?<element>=<value>&...` | the overlay closed, the values given to the form it is over |
 
-A value is one of this form's elements (its key, for what it saved), or
-`{<screen id>.<node id>}` for a screen's before it, which the app keeps:
-
-```xml
-<xf:submission id="save" resource="form:save" method="post" ref="instance('form')" replace="instance" instance="form">
-  <xf:action ev:event="xforms-submit-done">
-    <xf:load show="replace">
-      <xf:resource value="concat('form:open/RecordFillUp', '?vehicle=', instance('form')/vehicle)"/>
-    </xf:load>
-  </xf:action>
-</xf:submission>
-```
-
-**Walked through.** `ORMFlowWalk` runs a flow over the model's sample
-population, in a store made of it (`ORMPopulationStore`), as an app opens
-its screens: a list's rows are its query's over the population; a form
-opens with what the way to it gave, its choices are the population's, and
-a save is checked as the form checks it before it submits (each value it
-requires, said in the constraint's own words at its element), then saved.
-An overlay returns what it made to the form it was opened over: a `Close`
-gives that form's nodes what the overlay saved (`From="result"`).
-`ormtool flow model.orm Records.flow walk [entry]` walks it on its own,
-each way once (a list's first row chosen, each form submitted as it opens),
-and prints what happened:
+**Played before an app exists.** `ORMFlowWalk` runs a flow over the
+model's sample population ([POPULATIONS.md](POPULATIONS.md)), in a store
+made of it, as an app would: a list's rows are its query's, a form opens
+with what the way to it gave, its choices are the population's, and a save
+is checked and refused in the rule's own words. A domain expert clicks
+through with real-looking facts, and what they ask for that the model
+lacks is found there, not in production. `ormtool flow model.orm
+Fleet.flow walk` walks each way once and prints what happened:
 
 ```
-▶ Start: Vehicles, 2 rows: car-7 | car-8
-Vehicles —RowChosen (car-7)→ RecordFillUp, given vehicle = car-7
-RecordFillUp refused: timestamp: Each FillUp was at some Moment.
+▶ Start: Vehicles, 2 rows: KZ 101 AAA | KZ 202 BBB
+Vehicles —RowChosen (KZ 101 AAA)→ RecordFillUp, given vehicle = KZ 101 AAA
+RecordFillUp refused: litres: Each FillUp took exactly one Litres. The possible values of Litres are {(0..]}.; moment: Each FillUp was at exactly one Moment.
+RecordFillUp —Trigger newStation→ over it: NewStation
+NewStation refused: stationName: Each Station is called exactly one StationName.
+NewStation —Cancel→ closed: RecordFillUp
 RecordFillUp —Cancel→ back: Vehicles
 ```
 
-**BPMN** sees the same from the process's side. A user task is performed
-with a form or a flow: the task's input data are its entry's given nodes,
-its output what was submitted, and a gateway after it reads the facts it
-asserted. A flow is one actor's dialogue; a process is who does what, in
-which order, across actors. The bridge from BPMN to ORM2 (in the works) is
-then a fact selection per data object, which a form already is.
+**Drawn on a canvas of its own**, not the model's diagram: a `.flow` opens
+in its own window (ORMDesigner) or tab (UDCode), with the model it names.
+The model's forms and lists are placed as screens, drawn with their
+outlines; transitions are arrows from a screen or a control to a screen;
+entries are marked. **Play** walks it in a window: the screen it is at,
+what it shows (a list's rows; a form's elements, each entered with the
+control its type wants: a date's picker, a flag's checkbox, a reference's
+choices named as a reader knows them), the ways on, and what happened.
 
-### Flow files
+**BPMN** sees the same from the process's side: a user task is performed
+with a form or a flow, its input data the entry's given nodes, its output
+what was submitted. A flow is one actor's dialogue; a process is who does
+what, in which order, across actors.
 
-A flow is about screens, which the model is not, so it lives in a file of
-its own beside the `.orm`, one file a flow (`Logbook.orm`, `Records.flow`,
-`Schedules.flow`). It names its model and refers to the model's forms and
-queries by id, with their names beside for a reader; a form or query the
-model no longer has is reported, as a customization's is. XML in ORMKit's
-own namespace, as the queries in the `.orm` are:
+### Figma
 
-```xml
-<flow:Flow xmlns:flow="http://schemas.ormkit.org/2026-10/Flows"
-           Name="Records" Model="Logbook.orm">
-  <flow:Entry Name="Start" Screen="_s1"/>
-  <flow:Screen id="_s1" Query="_qVehicles" Name="Vehicles" X="0" Y="0" Width="390" Height="844"/>
-  <flow:Screen id="_s2" Query="_qRecords" Name="Records" X="480" Y="0" Width="390" Height="844"/>
-  <flow:Screen id="_s3" Form="_fFillUp" Name="RecordFillUp" X="960" Y="0" Width="390" Height="844"/>
-  <flow:Transition From="_s1" On="RowChosen" To="_s2">
-    <flow:Give Node="_n.vehicle" From="row"/>
-  </flow:Transition>
-  <flow:Transition From="_s2" On="Trigger" Control="addFillUp" To="_s3">
-    <flow:Give Node="_n.fillUp.vehicle" From="_s2.vehicle"/>
-  </flow:Transition>
-  <flow:Transition From="_s3" On="SubmitDone" To="_s2"/>
-  <flow:Transition From="_s3" On="Cancel" Kind="Back"/>
-</flow:Flow>
-```
-
-### Its canvas
-
-A flow is drawn on a canvas of its own, not on the model's diagram: a
-`.flow` is a document with its own window, opened with the model it names.
-Its screens are frames on the canvas, each drawn as its form is (the
-generated controls, laid out as the customization lays them out, rendered
-by XFormsKit), its transitions arrows from a screen or a control to a
-screen, its entries marked. Editing it changes the flow file and nothing
-else: a form's layout is edited in XFormsKit's designer, the model in its
-own. **Play** runs the flow from an entry over the sample population
-([Flows](#flows-forms-and-the-ways-between-them)): its window
-(ORMDesignerKit's ORMFlowPlayController) names the screen it is at, lists
-what it shows (a list's rows, a form's elements, typed into), the ways on,
-and what happened; Submit saves the form, a refusal said at its element.
-
-### A little Figma
-
-No standard covers what Figma does: its file format and its prototypes are
-its own. The nearest standard is OMG's IFML (Interaction Flow Modeling
-Language): view containers, events, navigation flows and their binding to a
-domain model. That is a flow's semantics, without any of its look, and a
-check on our terms; we do not use its format. So a flow file is our own
-small subset of what a design tool keeps, enough to draw a flow and click
-through it:
+No standard covers what Figma does; the nearest is OMG's IFML (view
+containers, events, navigation flows bound to a domain model), a check on
+our terms whose format we do not use. A flow keeps a small subset of what
+a design tool does:
 
 | Kept | Not kept |
 | --- | --- |
-| a screen: a frame on a canvas, its place and size, the form or list it shows (or a placeholder: a screen not yet a form) | drawing: vectors, styles, effects, images, fonts |
-| a transition: from a screen, or a control of its form, on an event, to a screen | auto layout, constraints, variants, component libraries |
-| its kind: navigate, overlay (modal), back, close the overlay | animations: a transition is instant |
-| what it gives the next screen | comments, versions, collaborators |
-| entries (a flow's starting points) | |
+| a screen: its place and size, the form or list it shows (or a placeholder) | drawing: vectors, styles, effects, images, fonts |
+| a transition: from a screen or a control, on an event, to a screen | auto layout, constraints, variants, components |
+| its kind: navigate, overlay, back, close | animations |
+| what it gives the next screen; entries | comments, versions, collaborators |
 
-What is inside a screen is not in the flow file: the form's controls, and
-where they are, are the form's and its customization's
-([Customizing](#customizing-the-contract-and-the-views-of-it)). A flow
-draws each screen from them; it does not keep a copy.
+**From Figma** (planned), through its REST API (`GET /v1/files/:key`),
+which reads prototypes and writes no frames: a page's
+`flowStartingPoints` are entries; a frame with our id, or named as a form
+or query, is that screen, any other a placeholder; a layer named as a
+control is that control; `ON_CLICK` with `NAVIGATE` or `SWAP` is a
+transition, `OVERLAY` an overlay, `BACK` back, `CLOSE` a close; what
+happens within a frame (`SCROLL_TO`, `CHANGE_TO`, hovers) is not kept. A
+layer that looks like a field and names nothing the form has is a
+provisional field.
 
-**From Figma.** Figma's REST API reads a file (`GET /v1/files/:key`, the
-`file_content:read` scope) and writes none of its frames: what it writes is
-comments, webhooks, variables and dev resources' links, never nodes. What it
-reads is enough for a flow:
-- a page's `flowStartingPoints` (`nodeId`, `name`): the entries;
-- the frames on it, their names, places and sizes, and their layers;
-- each node's `interactions`: a `trigger` (`ON_CLICK`, `ON_KEY_DOWN`, ...)
-  and its `actions`: `NODE` with a `destinationId` and a `navigation`
-  (`NAVIGATE`, `OVERLAY`, `SWAP`, `SCROLL_TO`, `CHANGE_TO`), `BACK`,
-  `CLOSE`, `URL`;
-- with `plugin_data=shared`, each node's `sharedPluginData`: the ids our
-  export left on it.
-
-Importing maps them to a flow:
-- a frame with our id, or named as a form or a query (`RecordFillUp`), is
-  that screen; any other frame is a placeholder screen;
-- a layer with our id, or named as a control's id, in a frame of a form is
-  that control; its place seeds the customization's layout;
-- a layer that looks like a field and names nothing the form has is a
-  provisional field: the form is under construction
-  ([Customizing](#customizing-the-contract-and-the-views-of-it)), and
-  the modeller is asked;
-- `ON_CLICK` and `NODE` with `NAVIGATE` (or `SWAP`) is a navigating
-  transition, `OVERLAY` an overlay, `BACK` back, `CLOSE` the overlay closed;
-  `SCROLL_TO`, `CHANGE_TO` (a component's variant), hovers and timeouts
-  are what happens within a screen, and are not kept;
-- starting points are entries.
-
-**To Figma.** Exporting is a Figma plugin of our own, since only the Plugin
-API makes frames: `figma.createFrame()` and its layers, `setReactionsAsync`
-for each transition (`reactions` itself is read-only to a plugin that loads
-pages dynamically), and the page's `flowStartingPoints` for the entries
-(typed a read-only array: to be checked that a new array may be assigned).
-Given a flow and its forms (as JSON), it draws each screen as a frame with
-the form's controls as labelled placeholders, and the transitions as
-reactions. It keeps each element's id with `setSharedPluginData` in a
-namespace of ours (`ormkit`): under 100 kB an entry, readable by any plugin,
-and returned by the REST API's `plugin_data=shared`. So the next import
-matches by id, not by name, and a designer's renaming loses nothing.
+**To Figma** (planned), through a plugin of our own, since only the Plugin
+API makes frames: each screen a frame with its form's controls as
+labelled placeholders, each transition a reaction (`setReactionsAsync`),
+the entries the page's starting points, and each element's id kept with
+`setSharedPluginData` (namespace `ormkit`), so the next import matches by
+id, not by name.
 
 ## Running one
 
-Anything that runs XForms runs a generated form: XFormsKit's own views,
+Anything that runs XForms runs a generated form: XFormsKit's views,
 XSLTForms in a browser. For a native UI laid out by hand (a XIB, an iOS
 storyboard), XFormsKit's processor runs without its views and each native
-control is the view of an `XFControl`: it shows the control's value and its
-state (relevant, readonly, required, valid, alert) and commits what is typed
-to it. A spike did this on macOS and GNUstep over the fill-up form: about
-60 lines of binding, an edit in 0.4 ms (macOS) and 1 ms (GNUstep).
+control is the view of an `XFControl`, showing its value and state and
+committing what is typed. XFormsKit still needs decimal arithmetic for
+`xsd:decimal` (XPath 1.0's numbers are doubles: 0.1 + 0.2 is
+0.30000000000000004) and a refresh of only what changed.
 
-It also found what XFormsKit needs first:
-- **Decimal arithmetic.** XPath 1.0's numbers are doubles: 0.1 + 0.2 is
-  0.30000000000000004. Money calculated in a form would be wrong. Values
-  typed `xsd:decimal` need decimal arithmetic in the engine, the W3C suite
-  run with it.
-- **A refresh of what changed.** Every edit refreshes every control: 3 ms
-  for 100 repeated rows on macOS, 73 ms for 250 on GNUstep, which is too slow
-  to type in. Only the controls whose node, or whose binds' dependencies,
-  changed need refreshing.
+## Commands
 
-## Customizing: the contract, and the views of it
+- `ormtool xforms model.orm dir/ [form] [mapping] [--flow file.flow]`
+  writes each form's `<Form>.xhtml` and `<Form>.ormform`, never edited, and
+  prints what each leaves out, what it leaves to its submission, and the
+  plans `form:read` and each `form:choices/<name>` stand for.
+- `ormtool flow model.orm file.flow` lists a flow and what is wrong of it;
+  `... walk [entry]` walks it over the sample population.
 
-Generating a form gets it working the moment it is in the model, but a
-generated form reads like the model, not like the app. People lay forms
-out, word them, and build their own in Cocoa, as Logbook's hand-made
-fill-up window is. What has to hold is not how a form looks but what goes
-in and out of it.
+## Planned
 
-**A form in the model is a contract.** What it says, and the form's table
-(`<Form>.ormform`, ORMRuntime's `ORMForm`) holds:
-
-- **Its inputs:** what it is given as it opens (`= ?`: the vehicle, who is
-  entering), `-inputNames`.
-- **What is entered and shown:** each element's `role` ("key", "given",
-  "entered", "shown", "calculated", "hidden") and `label`, what the model
-  calls it (a unary's reading, a role's name).
-- **What it may offer:** each reference's choices, and what they depend on;
-  an element's `items`, where the model lists its values (a fuel, a
-  currency: the value constraint the XForms document's items come from).
-- **What a save writes, and its result:** the object saved, its key.
-- **The rules:** the model's, checked as the form is filled in where they
-  can be and always where it is submitted.
-
-Flows and processes refer to a form only by its contract. Which view shows
-it is the app's choice, and changing the view changes nothing that leads to
-it.
-
-**Any view of the contract runs it, through ORMFormSession.** The session
-opens with the inputs, holds the values by element, gives each reference's
-choices for the values as they are, and saves against the app's store or
-the model's service; a refusal comes back by element, for the view to show
-at its control, "" for the form's own. The views:
-
-1. **The generated XForms document**, the default: `ormtool xforms`, never
-   edited, replaced whole when the model changes. Its host answers
-   `form:read`, `form:choices/<name>` and `form:save` from a session.
-2. **A customized copy of it**, kept with the app's sources and edited
-   freely, by hand or in XFormsKit's designer. The build checks it against
-   the contract instead of writing over it: an input it does not take, an
-   element it binds that the contract has not, or one the contract enters
-   that it never binds, is an error; a bind looser than the model's is a
-   warning, since the save refuses what the model does not allow anyway.
-3. **A view of the app's own:** a XIB's window or view, its controls bound
-   to the session's values, its pop-ups filled from the choices, the
-   refusals shown at its controls.
-
-**Ids survive regeneration.** Every generated node, bind and control has an
-id from the model element it comes from (the role's, the constraint's), not
-from its name or its place, so a renamed role or a reordered outline keeps
-it, and a customized copy still matches.
-
-**Where a refusal is said, and in whose words.** A refusal is shown at
-the element the rule is about; a rule over several (the driver must drive
-the vehicle) at the first of them the form enters, since what it is given
-the user cannot change, and of the form where it enters none. Its text is
-the rule's verbalization for now; wording it in the app's words ("You don't
-drive this vehicle."), by the form or the rule, is to come: it needs a line
-of the form's outline that FORML reads back.
-
-**A form under construction does not run.** A field the model has no fact
-type for has nowhere to go: no property in the store, none in the service,
-no rule that says what it may hold. So a customization that adds one marks
-its form under construction, and the form is refused when it is opened,
-saying which fields are provisional, until the model has the fact types
-they ask for and the form is generated again with them. Nothing provisional
-is ever stored.
-
-Under construction, a form is still useful where nothing is stored: in the
-designer, and walked through over the sample population
-([Flows](#flows-forms-and-the-ways-between-them)), where its provisional
-fields are shown as such. Each one is a question for the modeller: the
-paper's first direction again, a form seeding the model.
-
-## Seeding the model from forms
-
-The other direction, the paper's first: an existing form (an XForms
-document, or a sample filled in) proposes fact types. Its instance's
-elements are candidate object types and roles, its binds candidate
-constraints, and a filled instance a sample population to check them
-against ([POPULATIONS.md](POPULATIONS.md)). So does a form under
-construction: each provisional field, with the sample values it was walked
-through with. Later, after forms are generated.
-
-## Where forms live
-
-In the `.orm`, as queries do, `Kind="Form"`, a node's part
-`Part="Entered"` or `"Shown"`, a given one `Given="true"`. **Save a Copy
-for NORMA** leaves them out. `ormtool xforms model.orm dir/ [form]
-[mapping]` writes each form's XForms document, `<Form>.xhtml`; generated,
-never edited, as the validation code is. Customizations are documents of their own beside it
-([Customizing](#customizing-the-contract-and-the-views-of-it)).
-
-## Steps
-
-1. **Forms in the file and the model.** `Kind="Form"`, `Part`, `Given`;
-   the outline reads and writes `✎`, `✓` and `= ?`; the editor's changes
-   undo. *Done.* A form's outline starts `Form RecordFillUp:`. In a form
-   `✓` shows a node (`Part="Shown"`, not `Projected`), and its read lists
-   what is entered and shown, so the planner plans a form as it plans a
-   list. A list made a form shows what it listed; a form made a list lists
-   what it entered and showed and gives nothing. A given node may be
-   entered or shown too (`✎City = ?`). `-[ORMQuery subschemaInModel:]` is
-   the form read as its subschema. The Queries window has Form among the
-   kinds, and a node's part and Given where a list's node has List. A
-   unary step, which has no node, is marked itself, after its reading
-   (`+ filled the tank ✎`, `Part` on the step); the Queries window's
-   part pop-up marks it when the step is chosen. A form with several
-   anchors waits: one anchor for now.
-2. **Fmap: the instance.** The form's tree to an XML instance, named as the
-   mapping names properties; subtypes, compound values, references, owned
-   groups. *Done for the anchor's own properties* (`ORMFormDocument`):
-   each node is placed by its column in the form's read, which is the
-   form listed (the anchor, what is entered, shown or given, and what a
-   value node computes with), each of the anchor's steps a maybe, the
-   steps under an entered reference left out (they are its choices'
-   condition). So a value is the attribute's element, typed from the
-   attribute and the value type's temporal type; a reference is its
-   relationship's element holding the key (`vehicle`, the vehicle's id);
-   a compound is its parts as the mapping absorbs them (`totalAmount`,
-   `totalCurrency`; `mileageQuantity` and `mileageDistanceUnit`, the
-   unit's code); the anchor's key is the first element. The names are
-   the mapping's (Core Data's) properties; the service's transport says
-   them as ODataKit's `ODataPropertyMapper` does (step 5). A unary
-   entered or shown is its attribute's element, an `xsd:boolean`
-   (`filledTheTank`), read as a column of its own rather than asked for. A node past a
-   to-many is a repeat's (below).
-   *Done beyond the anchor's own:*
-   - **Through an object it refers to** (Logbook's receipt, its order's
-     supplier's contact's name): shown, never written, its element named
-     by its keys (`purchaseOrderSupplierContactContactName`), its `path`
-     in the table; read with the anchor, and as the object of the
-     reference chosen has it (ORMFormSession reads it again on a store
-     when the reference changes). Entered there, it is noted and shown.
-   - **An object the form owns** (a customer's contact, the contact's
-     shipping address): an object reached by a step that is not entered,
-     shown or given, with something entered beneath it. Its elements are
-     a group's (`contact/contactName`), nested in the instance and in an
-     `xf:group` of the controls; the table lists its `groups`, outer
-     ones first, each its keys, entity, key and whether every anchor has
-     one (`needed`). It is made with the anchor where needed or where
-     anything of it is entered, changed with it, and put back with it
-     when the save is refused; to the service, nested in the body (a deep
-     insert, a deep update). Its mandatory roles are required where the
-     object is needed, else once anything of it is entered (`../* != ''`);
-     its other constraints are bound as the anchor's are (an address in
-     a city or with a post code), each path from the element's own place
-     (`../../../contact/shippingAddress/postCode`).
-   - **Subtype parts** (Logbook's events: `+ is Trip`, `+ is FillUp`): its
-     nodes the subentity's properties (`tripMoment` where another part
-     has a `moment`), each relevant where the object is of it; an element
-     `isA` (kind `subtype`, its items the subentities, `itemLabels` each
-     as a reader says its type's name: "Fill up") says which the
-     object is: a new one is made of it, one read is of it and stays so,
-     and the service is told its type. The read reads every object,
-     each subtype's properties nothing where it is not one.
-3. **Binds.** From the constraints whose roles are all in the form, with
-   the verbalization as each alert; rules and derivations over the form's
-   facts in XPath; the rest listed as checked where it is submitted.
-   *Done, but rules and derivations:* a bind per element, its id
-   `bind-<node id>` (a compound's part's index after it). Required from
-   a simple mandatory on the anchor's role, and from the definition of a
-   subtype the anchor is of (a derivation query's plain steps: "Each
-   MeteredEvent is by definition an Event that was at some Distance"
-   makes a fill-up's distance needed, the definition its alert); a
-   compound required whole or not at all; value ranges and text lengths as `constraint`, a list of
-   text values as a `select1`'s items; an inclusive-or as `required`
-   while the others are empty; an exclusion as `relevant` while the
-   others are empty; a subset's first relevant where its second is given;
-   equality as `required` each way; a value comparison as `constraint`.
-   Each control's alert says the constraints its element is in (their
-   own statements); each bind names them in `ormf:constraints`. A deontic
-   one is XFormsKit's `xfk:warning` in the model (its element, a test that
-   ought to hold, its words; `urn:xformskit:extensions`), shown and never
-   invalid. The reads (`read`, `choices-*`) are `validate="false"`: a new
-   form's required fields are empty until entered. What the form
-   cannot check alone (a join, a pattern, a rule through its facts:
-   Logbook's driver who drives the vehicle, its meter going up) is listed
-   under `ormf:checks` in the head as `ormf:checkedWhereSubmitted`, said
-   in words. Constraints on a
-   supertype's roles that are about another of its subtypes (a trip's,
-   in a fill-up's form) are left out. A value node's expression is a
-   `calculate` (`number(../totalAmount) div number(../volumeQuantity)`,
-   empty until its operands are given); one XPath cannot say (moments,
-   aggregates) is computed where the form is read. Rules over the form's
-   facts alone are not yet said as constraints: they are listed with the
-   rest.
-4. **Controls.** Intent-level, labelled with the form's labels or the
-   roles' names. *Done:* in outline order, an `input` for an entered value,
-   a `select1` for a reference (its itemset the choices' instance; a type
-   whose reference mode has a list of values, as units have, its items),
-   a `group` for a compound with a control a part, an `output` for what is
-   shown or calculated; the label the role's name, else its player's; the
-   hint the fact type's note. A given node has no control. Its id is
-   `control-<node id>`. The form's own labels wait for the model to have
-   them.
-5. **In and out, both ways.** Two transports from the same plans: the
-   service's (OData reads, POST, PATCH, actions) and the local store's
-   (fetches, writes into objects, a save). A refusal's violations shown at
-   their nodes; deontic ones as warnings. *ORMKit's half is done:* what
-   the abstract names stand for is ORMRuntime's `ORMForm`, read from the
-   `<Form>.ormform` table ormtool writes beside the document
-   ([RUNTIME.md](RUNTIME.md#forms)), so an app runs a form without ORMKit.
-   Plans take parameters (`$id`, `$vehicle`), bound where they run: the
-   read's is the key's element, a choices plan's the elements it depends
-   on (with nothing to go by, every one). The instance is a dictionary of
-   texts by element, xsd's lexical forms: the XML is the host's, and iOS
-   has no NSXML. Against the store, `-readKey:inContext:error:`,
-   `-choicesNamed:values:inContext:error:` and
-   `-save:inContext:errors:error:` (the object found by its key or made
-   and given one, each reference found by its key, the context saved; a
-   refusal said by element, from `NSValidationKeyErrorKey`, the object as
-   it was). Against the service, the read and choices as `ORMQueryOData`
-   requests, the save as an `ORMFormRequest` (a POST of what has a
-   value, or a PATCH of what differs with `If-Match`; references as
-   `@odata.bind`, names the service's), and an error body's details by
-   element, by their targets. Sending them is the host's: XFormsKit's
-   submission transport. Actions (a form submitting to one) wait for a
-   form that needs one. Deontic warnings are in the document only.
-6. **`ormtool xforms`**, and the fill-up form run in XFormsKit's viewer,
-   once against Logbook's test server and once against a local store:
-   opened for a vehicle, filled in, refused, corrected, saved. *The
-   generator is done:* `ormtool xforms model.orm dir/ [form] [mapping]`
-   writes `<Form>.xhtml` into dir/ and prints what each leaves out, what
-   it leaves to its submission, and the plans `form:read` and each
-   `form:choices/<name>` stand for. In the document: the instance `form`
-   (empty, the shape the read fills), a `choices-<name>` instance for
-   each reference with choices, the submissions `read`, `choices-<name>`
-   and `save` (all `ref="instance('form')"`, so a choices read is given
-   the values it depends on), sent as the form is ready; a reference
-   whose choices depend on another element is read again as that one
-   changes. Beside it ormtool writes `<Form>.ormform`, what an app runs
-   it with (step 5), and prints the parameterized plans. *Run both ways
-   in Logbook* (its branch `forms`: `Tests/LBFormCheck.m`, and its
-   desktop app's File > Record a Fill-Up with the Form…): XFormsKit's
-   `XFSchemeTransport`, given as the processor is made, answers `form:`
-   from Logbook's store (saved as Logbook saves, `-save:inContext:saving:`)
-   or from its server's OData service (the requests ORMForm makes, a POST
-   naming a derived type's `@odata.type`, a PATCH with `If-Match`); a
-   refusal said at its field with XFormsKit's host errors, cleared as the
-   field is changed. Logbook's model showed a form needs every mandatory
-   role its anchor plays, a given one where the app knows it (who enters
-   a record: `+ was entered by User2 = ?`).
-7. **XFormsKit:** decimal arithmetic, refreshing only what changed, the
-   native binding (AppKit, UIKit), deontic warnings.
-8. **The contract and its views:** each element's role and label and the
-   form's inputs in its table, `ORMFormSession` running any view of it
-   (store or service, refusals by element, its result the key saved); a
-   customized copy of the XForms checked against the contract at build; a
-   view of the app's own (a XIB) on a session; messages in the form's
-   words; a form with provisional fields under construction and refused.
-   *Begun:* roles, labels, `-inputNames` and `ORMFormSession`.
-9. **Logbook:** one form generated and laid out natively, offline; then the
-   checklists, whose questions are data, as forms of their own. *Begun:*
-   RecordFillUp is in Logbook's model, generated with its build and in its
-   desktop app's resources, run in a window of its own by XFormsKit's
-   view, the app's own store behind it (online, over its server); laid
-   out by XFormsKit, not natively yet, and not on the phone.
-10. **Flows:** `.flow` files read and written; screens, transitions,
-    entries; generated into the forms' actions; walked through over the
-    sample population; a modal form returning what it made. Their canvas:
-    a document window of its own, screens drawn from their forms, Play.
-    *Done:* ORMKit's `ORMFlow` reads and writes `.flow` files (screens a
-    form or a list by the query's id, transitions on an action giving the
-    next form's inputs, entries) and checks them against the model;
-    `ormtool flow model.orm file.flow` lists a flow, what is wrong of it,
-    and the inputs each transition leaves to the app. `ORMFormDocument`
-    generates a screen's ways on into its form's actions (`ormtool xforms
-    ... --flow`); `ORMFlowWalk` walks a flow over the sample population
-    (`ormtool flow ... walk`), an overlay returning what it made. ORMDesigner
-    has a `.flow` document's window: the model's forms and lists placed as
-    screens, drawn with their outlines, transitions drawn port to screen,
-    an inspector, undo, and Play. Logbook's `Model/Records.flow` is checked
-    by its build.
-11. **Figma:** import through its REST API (frames, interactions, starting
-    points, layers named as controls); export through a plugin of our own,
-    ids kept in plugin data.
-12. **Processes:** a BPMN user task performed with a form or a flow.
-13. **Later:** provisional fields, with their walked-through values,
-    proposed to the modeller as fact types.
+- A form with several anchors: objects made or changed together that
+  neither reaches through the other, submitted as one change set.
+- A repeat in the generated XForms document (`xf:repeat`) and through the
+  service; a form submitting to an action.
+- Rules and derivations over the form's facts said as binds; messages in
+  the app's words rather than the rule's verbalization.
+- The service's deep insert and update, tried against a real service.
+- Figma import and export.
+- A BPMN user task performed with a form or a flow.
+- Forms seeding the model: a form, or a sample filled in, its provisional
+  fields with their walked-through values, proposing fact types.
 
 ## Open questions
 
-Settled:
-- a form may have several anchors;
-- deontic constraints warn and never prevent a submission;
-- labels are the form's own or the roles' names;
-- a form runs against a local store as well as a service;
-- customizing is the developers' work, not the users';
-- a form with fields the model lacks is under construction and does not
-  run; nothing provisional is stored.
-
-- flows live in files of their own beside the `.orm`, a small subset of
-  what Figma keeps, imported from and exported to Figma.
-- a flow is drawn on a canvas of its own, not on the model's diagram.
-- Figma: imported through its REST API, which reads prototypes and writes
-  no frames; exported through a plugin (checked against Figma's
-  documentation and its OpenAPI description, 2026-10-22).
-
-Open:
-- **Where the plugin lives.** A Figma plugin is TypeScript, built and
+- **Where the Figma plugin lives.** A plugin is TypeScript, built and
   published apart: a repository of its own.
-
-- **The paper itself.** Everything above taken from it comes from its
-  abstract and summaries; the full text may say otherwise, and should be
-  read if it can be had.
+- **The paper itself.** What is taken from it here comes from its abstract
+  and summaries; the full text may say otherwise.
