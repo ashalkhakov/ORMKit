@@ -46,6 +46,8 @@
  *                                            chosen, each form submitted as it opens, each way
  *                                            taken once; what happened, a line a step
  *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]
+ *   ormtool contract model.orm Form copy.xhtml  a customized copy against the form: errors (1), warnings, what is provisional
+ *   ormtool propose model.orm Form copy.xhtml [sample.xml]  the fact types its provisional elements ask for, as FORML
  *                                            each form (or the named one) as an XForms document,
  *                                            <Form>.xhtml in dir/ (docs/FORMS.md): generated, never
  *                                            edited; beside it <Form>.ormform, what an app runs it
@@ -95,6 +97,8 @@ ORMUsage(void)
 	      "       ormtool query model.orm [query name] [mapping name]\n"
 	      "       ormtool flow model.orm file.flow [walk [entry name]]\n"
 	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]\n"
+	      "       ormtool contract model.orm Form copy.xhtml   (1 when the customized copy breaks the form's contract)\n"
+	      "       ormtool propose model.orm Form copy.xhtml [sample.xml]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
 	      "       ormtool forml model.orm [out.forml]\n"
 	      "       ormtool apply model.orm changes.forml [out.orm]\n"
@@ -604,6 +608,43 @@ main(int argc, const char *argv[])
 				fprintf(stderr, "%s: %s\n", [[args objectAtIndex:2] UTF8String], [problem UTF8String]);
 			}
 			return [problems count] > 0 ? 1 : 0;
+		}
+		/* A customized copy of a form's document, against the form as a
+		 * contract; the fact types what it adds asks for. */
+		if (([command isEqualToString:@"contract"] || [command isEqualToString:@"propose"]) && [args count] >= 4) {
+			ORMQuery *found = nil;
+			for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
+				found = query.kind == ORMQueryForm && [query.name isEqualToString:[args objectAtIndex:2]] ? query : found;
+			}
+			NSString *reason = nil;
+			ORMFormDocument *form = found != nil ? [ORMFormDocument documentForForm:found model:model
+			                                                                 mapping:[model.coreDataMappings firstObject] reason:&reason]
+			                                     : nil;
+			NSData *data = [NSData dataWithContentsOfFile:[args objectAtIndex:3]];
+			NSXMLDocument *copy = data != nil ? [[NSXMLDocument alloc] initWithData:data options:0 error:NULL] : nil;
+			if (form == nil || copy == nil) {
+				fprintf(stderr, "ormtool: %s\n", form == nil ? [(found == nil ? @"no form of that name" : reason) UTF8String]
+				                                              : "the copy is no XML document");
+				return 1;
+			}
+			ORMFormCustomization *customization = [ORMFormCustomization customization:copy ofForm:form];
+			if ([command isEqualToString:@"propose"]) {
+				NSData *sampleData = [args count] > 4 ? [NSData dataWithContentsOfFile:[args objectAtIndex:4]] : nil;
+				NSXMLDocument *sample = sampleData != nil ? [[NSXMLDocument alloc] initWithData:sampleData options:0 error:NULL] : nil;
+				ORMPrint([customization proposalGiven:sample]);
+				return 0;
+			}
+			for (NSString *error in customization.errors) {
+				ORMPrint([NSString stringWithFormat:@"error: %@\n", error]);
+			}
+			for (NSString *warning in customization.warnings) {
+				ORMPrint([NSString stringWithFormat:@"warning: %@\n", warning]);
+			}
+			if ([customization isUnderConstruction]) {
+				ORMPrint([NSString stringWithFormat:@"under construction: %@ (ormtool propose says the fact types they ask for)\n",
+				                                    [customization.provisionalElements componentsJoinedByString:@", "]]);
+			}
+			return [customization.errors count] > 0 ? 1 : 0;
 		}
 		if ([command isEqualToString:@"xforms"] && [args count] >= 3) {
 			/* A flow's screens: their forms' ways on, in their actions. */

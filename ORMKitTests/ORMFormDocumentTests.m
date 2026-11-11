@@ -2544,4 +2544,97 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	XCTAssertEqual(count(@"Supplier"), 2u);
 }
 
+#pragma mark A customized copy
+
+/* The XForms element of the local name and the attribute's value, in the
+ * document; nil for none. */
+- (NSXMLElement *)xforms:(NSString *)name where:(NSString *)attribute is:(NSString *)value in:(NSXMLDocument *)document
+{
+	NSString *path = [NSString stringWithFormat:@"//*[local-name()='%@'][@%@='%@']", name, attribute, value];
+	return (NSXMLElement *)[[self nodes:path in:document] firstObject];
+}
+
+/* A copy of the generated document, kept with the app's sources: checked
+ * against the form as a contract; what it adds the model has not, marked
+ * provisional, the form under construction and the fact types it asks
+ * for proposed, which the model then has. */
+- (void)testACustomizedCopyIsCheckedAgainstTheContract
+{
+	ORMEditor *editor = [self fillUps];
+	ORMFormDocument *document = [self documentOf:editor];
+	ORMFormCustomization *same = [ORMFormCustomization customization:[document document] ofForm:document];
+	XCTAssertEqualObjects(same.errors, @[]);
+	XCTAssertEqualObjects(same.warnings, @[]);
+	XCTAssertFalse([same isUnderConstruction]);
+
+	NSXMLDocument *copy = [document document];
+	NSXMLElement *instance = (NSXMLElement *)[[self nodes:@"//*[local-name()='instance'][@id='form']/*" in:copy] firstObject];
+	/* An input left out, an element of its own unmarked, a bind looser. */
+	[(NSXMLElement *)[[instance elementsForName:@"vehicle"] firstObject] detach];
+	[instance addChild:[NSXMLElement elementWithName:@"remark"]];
+	NSXMLElement *timestamp = [self xforms:@"bind" where:@"ref" is:@"timestamp" in:copy];
+	[timestamp removeAttributeForName:@"required"];
+	/* What the model is to have: marked provisional. */
+	NSXMLNode *provisional = [NSXMLNode attributeWithName:@"ormf:provisional" URI:ORMFormNamespace stringValue:@"true"];
+	for (NSString *name in @[ @"colour", @"seats", @"urgent" ]) {
+		NSXMLElement *element = [NSXMLElement elementWithName:name];
+		[element addAttribute:[provisional copy]];
+		[instance addChild:element];
+	}
+	NSXMLElement *model = (NSXMLElement *)[timestamp parent];
+	NSXMLElement *colourBind = [NSXMLElement elementWithName:@"xf:bind" URI:@"http://www.w3.org/2002/xforms"];
+	[colourBind setAttributesWithDictionary:@{ @"id" : @"bind-colour", @"ref" : @"colour", @"type" : @"xf:string", @"required" : @"true()" }];
+	[model addChild:colourBind];
+	NSXMLElement *urgentBind = [NSXMLElement elementWithName:@"xf:bind" URI:@"http://www.w3.org/2002/xforms"];
+	[urgentBind setAttributesWithDictionary:@{ @"id" : @"bind-urgent", @"ref" : @"urgent", @"type" : @"xf:boolean" }];
+	[model addChild:urgentBind];
+	NSXMLElement *body = (NSXMLElement *)[[self nodes:@"//*[local-name()='body']" in:copy] firstObject];
+	NSXMLElement *colours = [NSXMLElement elementWithName:@"xf:select1" URI:@"http://www.w3.org/2002/xforms"];
+	[colours setAttributesWithDictionary:@{ @"bind" : @"bind-colour" }];
+	for (NSString *colour in @[ @"red", @"white" ]) {
+		NSXMLElement *item = [NSXMLElement elementWithName:@"xf:item" URI:@"http://www.w3.org/2002/xforms"];
+		[item addChild:[NSXMLElement elementWithName:@"xf:value" URI:@"http://www.w3.org/2002/xforms"]];
+		[[[item children] firstObject] setStringValue:colour];
+		[colours addChild:item];
+	}
+	[body addChild:colours];
+	ORMFormCustomization *custom = [ORMFormCustomization customization:copy ofForm:document];
+	XCTAssertEqualObjects(custom.errors, (@[
+		@"remark: the form has no such element; one the model is to have is marked ormf:provisional=\"true\".",
+		@"vehicle: the form is given it, and the copy takes no such input.",
+	]));
+	XCTAssertEqualObjects(custom.warnings, (@[ @"timestamp: the model's form has it required, the copy not: checked where it is submitted only." ]));
+	XCTAssertEqualObjects(custom.provisionalElements, (@[ @"colour", @"seats", @"urgent" ]));
+	XCTAssertTrue([custom isUnderConstruction]);
+
+	/* A sample filled in: the seats a number. */
+	NSXMLDocument *sample = [[NSXMLDocument alloc] initWithXMLString:@"<FillUp><seats>5</seats></FillUp>" options:0 error:NULL];
+	NSString *proposal = [custom proposalGiven:sample];
+	XCTAssertEqualObjects(proposal, @"Colour is a value type.\n"
+	                                @"Portable data type: Text: Variable Length\n"
+	                                @"The possible values of Colour are 'red', 'white'.\n"
+	                                @"FillUp has Colour\n"
+	                                @"Each FillUp has exactly one Colour.\n"
+	                                @"// in the form: + has Colour (entered)\n"
+	                                @"\n"
+	                                @"Seats is a value type.\n"
+	                                @"Portable data type: Numeric: Decimal\n"
+	                                @"FillUp has Seats\n"
+	                                @"Each FillUp has at most one Seats.\n"
+	                                @"// in the form: + has Seats (entered)\n"
+	                                @"\n"
+	                                @"FillUp is urgent\n"
+	                                @"// in the form: + is urgent (entered)\n"
+	                                @"\n");
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:proposal failures:&failures], @"%@", failures);
+	NSMutableArray *readings = [NSMutableArray array];
+	for (ORMFactType *fact in editor.model.factTypes) {
+		[readings addObject:[fact displayText] ?: @""];
+	}
+	for (NSString *reading in @[ @"FillUp has Colour", @"FillUp has Seats", @"FillUp is urgent" ]) {
+		XCTAssertTrue([readings containsObject:reading], @"%@ in %@", reading, readings);
+	}
+}
+
 @end

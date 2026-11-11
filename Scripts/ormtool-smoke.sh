@@ -31,6 +31,12 @@ cmp "$sample" "$out/applied.orm"
 run apply "$sample" "$out/broken.forml" "$out/broken.orm"
 if run check "$out/broken.orm" > "$out/broken.txt"; then echo "ormtool-smoke: check passed a broken form"; exit 1; fi
 grep -q '^form Broken: E6: Name: ' "$out/broken.txt"
+# A form's customized copy: whole, and with a field the model is to have.
+run xforms Samples/Fleet.orm "$out/forms" RecordFillUp > /dev/null
+run contract Samples/Fleet.orm RecordFillUp "$out/forms/RecordFillUp.xhtml" > /dev/null
+sed 's|<id></id>|<id></id><colour xmlns:ormf="urn:ormkit:forms" ormf:provisional="true"></colour>|' "$out/forms/RecordFillUp.xhtml" > "$out/custom.xhtml"
+run contract Samples/Fleet.orm RecordFillUp "$out/custom.xhtml" | grep -q '^under construction: colour'
+run propose Samples/Fleet.orm RecordFillUp "$out/custom.xhtml" | grep -q '^FillUp has Colour$'
 run coredata "$sample" "$out/StockMate.xcdatamodeld"
 test -s "$out/StockMate.xcdatamodeld/StockMate.xcdatamodel/contents"
 run import "$out/StockMate.xcdatamodeld" "$out/imported.orm"
@@ -42,4 +48,4 @@ run svg "$sample" "$out/diagrams/"
 test -s "$out/diagrams/Products.svg"
 if command -v xmllint > /dev/null; then xmllint --noout "$out"/diagrams/*.svg; fi
 if command -v xcrun > /dev/null; then xcrun momc "$out/StockMate.xcdatamodeld" "$out/StockMate.momd"; fi
-echo "ormtool-smoke: check, verbalize, normalize, forml, apply, coredata, import, sync, svg"
+echo "ormtool-smoke: check, verbalize, normalize, forml, apply, xforms, contract, propose, coredata, import, sync, svg"

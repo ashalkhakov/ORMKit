@@ -434,18 +434,34 @@ Flows and processes refer to a form only by its contract. Its views:
 1. **The generated XForms document**, the default, replaced whole when the
    model changes.
 2. **A customized copy of it**, kept with the app's sources and edited
-   freely. The build checks it against the contract: an input it does not
-   take, an element the contract has not, or one the contract enters that
-   it never binds, is an error; a looser bind is a warning.
+   freely. The build checks it against the contract (`ormtool contract
+   model.orm Form copy.xhtml`, `ORMFormCustomization`): an input it does
+   not take, an element the contract has not, or one the contract enters
+   that it never binds, is an error; a looser bind is a warning.
 3. **A view of the app's own:** a XIB's controls bound to the session's
    values, its pop-ups filled from the choices, the refusals shown at its
    controls.
 
 **A form under construction does not run.** A field the model has no fact
-type for has nowhere to go, so a customization that adds one marks its
-form under construction, refused when opened until the model has the fact
-types it asks for. It can still be walked through over the sample
-population, each provisional field a question for the modeller.
+type for has nowhere to go, so a customization that adds one marks it
+(`ormf:provisional="true"` on its instance's element) and its form is under
+construction, which `ormtool contract` says, until the model has the fact
+types it asks for. Each provisional field is a question for the modeller,
+and **seeds the model**: `ormtool propose model.orm Form copy.xhtml
+[sample.xml]` says the fact types they ask for as FORML (`ormtool apply`
+takes it), each a value type, typed by its bind or by the values a sample
+filled in has, the anchor's fact type with it (one each, exactly one where
+the copy requires it, its values where the copy lists them), a flag a
+unary, and the step the form is to have:
+
+```
+Colour is a value type.
+Portable data type: Text: Variable Length
+The possible values of Colour are 'red', 'white'.
+FillUp has Colour
+Each FillUp has exactly one Colour.
+// in the form: + has Colour (entered)
+```
 
 ## The flow vocabulary
 
@@ -588,18 +604,24 @@ committing what is typed. XFormsKit still needs decimal arithmetic for
 
 ## Commands
 
-- `ormtool xforms model.orm dir/ [form] [mapping] [--flow file.flow]`
-  writes each form's `<Form>.xhtml` and `<Form>.ormform`, never edited, and
-  prints what each leaves out, what it leaves to its submission, and the
-  plans `form:read` and each `form:choices/<name>` stand for.
+- `ormtool xforms model.orm dir/ [form] [mapping] [--flow file.flow]
+  [--action Form=Action]... [--messages file.plist]` writes each form's
+  `<Form>.xhtml` and `<Form>.ormform`, never edited, and prints what it
+  leaves to its submission and the plans `form:read` and each
+  `form:choices/<name>` stand for; a form that breaks a rule of the
+  definition, or that lacks an element the model has in it, is not written
+  and makes it exit 1.
+- `ormtool check model.orm` checks each form too: each rule of the
+  definition broken, and each element it would lack, a line, exit 1.
+- `ormtool contract model.orm Form copy.xhtml` checks a customized copy
+  against the form's contract; `ormtool propose model.orm Form copy.xhtml
+  [sample.xml]` says the fact types its provisional fields ask for.
 - `ormtool flow model.orm file.flow` lists a flow and what is wrong of it;
   `... walk [entry]` walks it over the sample population.
 
 ## Planned
 
 - Figma import and export.
-- Forms seeding the model: a form, or a sample filled in, its provisional
-  fields with their walked-through values, proposing fact types.
 
 ## Open questions
 

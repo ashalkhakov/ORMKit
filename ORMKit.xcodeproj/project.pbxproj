@@ -957,6 +957,11 @@
 			isa = PBXBuildFile;
 			fileRef = 4A6590013F5CBB78C577F92F /* ORMPath.m */;
 		};
+		B61684B8004126AF0B3985D6 /* ORMFormCustomization.h */ = {
+			isa = PBXBuildFile;
+			fileRef = AE17E705B073D377ED6C907D /* ORMFormCustomization.h */;
+			settings = {ATTRIBUTES = (Public, ); };
+		};
 		B6E97937C096F1C5BCDD707A /* ORMFlowEditor.m */ = {
 			isa = PBXBuildFile;
 			fileRef = FA847BFD8BE459630E83C00B /* ORMFlowEditor.m */;
@@ -1062,6 +1067,10 @@
 		C2D367794895ADB136F15656 /* ORMJoinedObject.m */ = {
 			isa = PBXBuildFile;
 			fileRef = E92DE55981E76DFF8BB89AAE /* ORMJoinedObject.m */;
+		};
+		C34DDD57243921AFA666F1A8 /* ORMFormCustomization.m */ = {
+			isa = PBXBuildFile;
+			fileRef = 00D34BEDBA8B01571BF983F3 /* ORMFormCustomization.m */;
 		};
 		C3712ED2AC0D0085352B1B0E /* ORMDocument.h */ = {
 			isa = PBXBuildFile;
@@ -1476,6 +1485,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
 			path = ORMQueryExpression.m;
+			sourceTree = "<group>";
+		};
+		00D34BEDBA8B01571BF983F3 /* ORMFormCustomization.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMFormCustomization.m;
 			sourceTree = "<group>";
 		};
 		0255901E3843BC73019C71AE /* ORMModelPriv.h */ = {
@@ -2535,6 +2550,12 @@
 			path = ORMCoreDataImportTests.m;
 			sourceTree = "<group>";
 		};
+		AE17E705B073D377ED6C907D /* ORMFormCustomization.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMFormCustomization.h;
+			sourceTree = "<group>";
+		};
 		AE5251B17ACEF77C7E9086BE /* ORMConstraintQueries.h */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
@@ -3507,6 +3528,8 @@
 				FA847BFD8BE459630E83C00B /* ORMFlowEditor.m */,
 				9F5E1B0F905F9C48662290B8 /* ORMFlowWalk.h */,
 				0997072A5A8EA20FA14E01E7 /* ORMFlowWalk.m */,
+				AE17E705B073D377ED6C907D /* ORMFormCustomization.h */,
+				00D34BEDBA8B01571BF983F3 /* ORMFormCustomization.m */,
 				2487388CCC9600BC4593CA1C /* ORMFormDefinition.h */,
 				F1347B3FF0346A9BC998F627 /* ORMFormDefinition.m */,
 				F7EBD9F5B12679705F0FF40F /* ORMFormDocument.h */,
@@ -3703,6 +3726,7 @@
 				F6DDB670DF3C68691A22D453 /* ORMQueryExpression.h */,
 				375CEBFCC8AD92CFBBFC09B0 /* ORMCDModel+CoreData.h */,
 				3AA43FA1EBB9FFC96374ACFF /* ORMQueryPlanner.h */,
+				B61684B8004126AF0B3985D6 /* ORMFormCustomization.h */,
 				BEF911A55372424AC7623F3B /* ORMFormDefinition.h */,
 				2361D9C0A291E18660477028 /* ORMFormDocument.h */,
 				6B7C7B3C567C6751CCC8A01A /* ORMFlow.h */,
@@ -4029,6 +4053,7 @@
 				F75682B4DCD9F9A7DB2310FE /* ORMCDModel+CoreData.m */,
 				DC79B98F73E8B55A6353430C /* ORMQueryPlaces.m */,
 				15AC1BF82DE37E05E043F416 /* ORMQueryPlanner.m */,
+				C34DDD57243921AFA666F1A8 /* ORMFormCustomization.m */,
 				8DA224B7F02E6FA503DFF7D6 /* ORMFormDefinition.m */,
 				F9C9187EBEB990263534F63B /* ORMFormDocument.m */,
 				26165FE098F912A51E73EAF0 /* ORMFlow.m */,
