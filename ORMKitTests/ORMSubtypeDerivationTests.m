@@ -26,17 +26,17 @@
 	                 @"\n"
 	                 @"Query CostRule:\n"
 	                 @"Derivation of Cost:\n"
-	                 @"✓Record\n"
+	                 @"Record (shown)\n"
 	                 @"  + cost Amount\n"
 	                 @"\n"
 	                 @"Query Expensive:\n"
-	                 @"✓Record\n"
+	                 @"Record (shown)\n"
 	                 @"  + is Cost\n"
 	                 @"    + was charged Amount > 100\n"
 	                 @"\n"
 	                 @"Query Charged:\n"
-	                 @"✓Cost\n"
-	                 @"  + was charged ✓Amount\n";
+	                 @"Cost (shown)\n"
+	                 @"  + was charged Amount (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	return editor;
@@ -89,7 +89,7 @@
 	ORMQuery *rule = [self query:@"CostRule" in:editor.model];
 	XCTAssertEqualObjects(rule.derivedSubtype, [editor.model objectTypeNamed:@"Cost"]);
 	XCTAssertEqualObjects([ORMQuery derivationOfSubtype:rule.derivedSubtype inModel:editor.model].identifier, rule.identifier);
-	XCTAssertEqualObjects([rule outlineText], @"Derivation of Cost:\n✓Record\n  + cost Amount\n");
+	XCTAssertEqualObjects([rule outlineText], @"Derivation of Cost:\nRecord (shown)\n  + cost Amount\n");
 	NSArray *said = [[[[ORMVerbalizer alloc] initWithModel:editor.model] sentencesForQuery:rule] valueForKey:@"text"];
 	XCTAssertTrue([said containsObject:@"Each Cost is by definition a Record that cost some Amount."], @"%@", said);
 	XCTAssertEqualObjects([rule.derivedSubtype derivationRule].informalText, @"a Record that cost some Amount");
@@ -112,7 +112,7 @@
 	ORMQueryPlan *charged = [planner planForQuery:[self query:@"Charged" in:editor.model]];
 	XCTAssertEqualObjects([charged text],
 	                      @"read Record\nwhere wasChargedAmount is set and amount is set\nlist self (id), wasChargedAmount");
-	NSString *outline = @"✓Record\n  + is ServiceKind\n";
+	NSString *outline = @"Record (shown)\n  + is ServiceKind\n";
 	NSString *reason = nil;
 	NSString *made = [[[ORMOutlineReader alloc] initWithEditor:editor] addQueryNamed:@"Kinds" outline:outline reason:&reason];
 	XCTAssertNotNil(made, @"%@", reason);
@@ -178,10 +178,10 @@
 {
 	ORMEditor *editor = [self costs];
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:editor.model mapping:nil];
-	NSArray *cases = @[ @[ @"✓FillUp\n  + is Cost\n", @"read FillUp\nwhere amount is set\nlist self (id)" ],
-	                    @[ @"It is impossible that:\n✓FillUp\n  + not is Cost\n",
+	NSArray *cases = @[ @[ @"FillUp (shown)\n  + is Cost\n", @"read FillUp\nwhere amount is set\nlist self (id)" ],
+	                    @[ @"It is impossible that:\nFillUp (shown)\n  + not is Cost\n",
 	                       @"read FillUp\nwhere not (amount is set)\nlist self (id)" ],
-	                    @[ @"✓Record\n  + not is Cost\n", @"read Record\nwhere not (amount is set)\nlist self (id)" ] ];
+	                    @[ @"Record (shown)\n  + not is Cost\n", @"read Record\nwhere not (amount is set)\nlist self (id)" ] ];
 	NSUInteger n = 0;
 	for (NSArray *each in cases) {
 		NSString *reason = nil;
@@ -194,7 +194,7 @@
 	}
 	NSString *reason = nil;
 	NSString *made = [[[ORMOutlineReader alloc] initWithEditor:editor]
-		addQueryNamed:@"More" outline:@"✓FillUp\n  + not is Cost\n    + was charged Amount\n" reason:&reason];
+		addQueryNamed:@"More" outline:@"FillUp (shown)\n  + not is Cost\n    + was charged Amount\n" reason:&reason];
 	XCTAssertNotNil(made, @"%@", reason);
 	ORMQueryPlan *more = [planner planForQuery:[ORMQuery queryWithId:made inModel:editor.model]];
 	XCTAssertEqualObjects(more.notes, @[ @"\"is Cost\" is gone through with not, maybe or a count, and the query says "

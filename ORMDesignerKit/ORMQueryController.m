@@ -61,6 +61,10 @@ static const NSUInteger ORMResultsPage = 200;
 	/* The rules were not checked last time, the window hidden. */
 	BOOL _rulesUnchecked;
 	ORMQuery *_query;
+	/* A form's: what the model has in it and no element is made for (said
+	 * in the status, ⚠ in the outline), and their node and step ids. */
+	NSArray<NSString *> *_formMissing;
+	NSSet<NSString *> *_formMissingIds;
 	/* Node and step ids -> what they are in the query as now read. */
 	NSMutableDictionary<NSString *, id> *_items;
 	/* Each item's children, as read; the outline's items are these very
@@ -207,6 +211,7 @@ static const NSUInteger ORMResultsPage = 200;
 	if (_selectedId == nil) {
 		_selectedId = _query.root.identifier;
 	}
+	[self findFormMissing];
 	_reloading = YES;
 	[_outline reloadData];
 	/* Each root, not nil: GNUstep expands nothing for a nil item. */
@@ -222,6 +227,23 @@ static const NSUInteger ORMResultsPage = 200;
 	[self showQuery];
 }
 
+/* A form made as ormtool xforms makes it, for what it would lack. */
+- (void)findFormMissing
+{
+	ORMFormDocument *document = nil;
+	if (_query.kind == ORMQueryForm) {
+		document = [ORMFormDocument documentForForm:_query model:self.editor.model
+		                                    mapping:[self.editor.model.coreDataMappings firstObject] reason:NULL];
+	}
+	_formMissing = document.missing;
+	_formMissingIds = document.missingIds;
+}
+
+- (NSArray<NSString *> *)formMissing
+{
+	return _formMissing ?: @[];
+}
+
 - (void)showQuery
 {
 	[_verbalizationView setString:[self verbalizationText]];
@@ -230,6 +252,10 @@ static const NSUInteger ORMResultsPage = 200;
 	_result = nil;
 	if ([[[self.tabs selectedTabViewItem] identifier] isEqual:@"results"]) {
 		[self showResults];
+	}
+	if ([_formMissing count] > 0) {
+		[self say:[@"This form cannot be made whole: " stringByAppendingString:[_formMissing componentsJoinedByString:@" "]]];
+		return;
 	}
 	[self say:_query == nil ? @"Choose an object type to start a query from, and New."
 	       : (_query.isComplete ? @"" : @"Something this query went through is no longer in the model.")];
@@ -1036,18 +1062,28 @@ ORMCellText(id value)
 
 - (NSString *)textOfNode:(ORMQueryNode *)node
 {
-	/* A form's: ✎ entered, ✓ shown, "= ?" given. */
-	NSString *mark = _query.kind != ORMQueryForm ? (node.isProjected ? @"✓ " : @"")
-		: node.formPart == ORMFormPartEntered ? @"✎ " : node.formPart == ORMFormPartShown ? @"✓ " : @"";
-	NSMutableString *text = [NSMutableString stringWithFormat:@"%@%@%@", mark, [node designation], node.isGiven ? @" = ?" : @""];
+	/* As the outline says it: "= ?" given, its condition, then its marks,
+	 * "(shown, descending)"; ⚠ before what the form cannot make. */
+	NSMutableString *text = [NSMutableString stringWithFormat:@"%@%@%@",
+	                                                          [_formMissingIds containsObject:node.identifier] ? @"⚠ " : @"",
+	                                                          [node designation], node.isGiven ? @" = ?" : @""];
 	if (node.comparedNode != nil) {
 		[text appendFormat:@" %@ %@", node.comparison, [node.comparedNode designation]];
 	} else if (node.comparison != nil) {
 		[text appendFormat:@" %@ %@", node.comparison,
 		                   [node isNumeric] ? node.value : [NSString stringWithFormat:@"'%@'", node.value ?: @""]];
 	}
+	NSMutableArray *marks = [NSMutableArray array];
+	if (_query.kind != ORMQueryForm ? node.isProjected : node.formPart == ORMFormPartShown) {
+		[marks addObject:@"shown"];
+	} else if (_query.kind == ORMQueryForm && node.formPart == ORMFormPartEntered) {
+		[marks addObject:@"entered"];
+	}
 	if (node.sortOrder != ORMQueryUnsorted) {
-		[text appendString:node.sortOrder == ORMQueryAscending ? @" ↑" : @" ↓"];
+		[marks addObject:node.sortOrder == ORMQueryAscending ? @"ascending" : @"descending"];
+	}
+	if ([marks count] > 0) {
+		[text appendFormat:@" (%@)", [marks componentsJoinedByString:@", "]];
 	}
 	if (node.combinesWithOr && [node.steps count] > 1) {
 		[text appendString:@"   (any of these)"];
@@ -1078,8 +1114,12 @@ ORMCellText(id value)
 		? [NSString stringWithFormat:@"   %@(%@)%@ %@ %@", [ORMQuery nameOfAggregate:step.aggregate],
 		                             [step.aggregateNode designation], group, step.countComparison, compared]
 		: @"";
-	/* A form's unary step: ✎ entered, ✓ shown. */
-	NSString *mark = step.formPart == ORMFormPartEntered ? @" ✎" : step.formPart == ORMFormPartShown ? @" ✓" : @"";
+	/* A form's unary step: entered or shown. */
+	NSString *mark = step.formPart == ORMFormPartEntered ? @" (entered)"
+		: step.formPart == ORMFormPartShown ? @" (shown)" : @"";
+	if ([_formMissingIds containsObject:step.identifier]) {
+		mark = [mark stringByAppendingString:@" ⚠"];
+	}
 	return [NSString stringWithFormat:@"+ %@%@%@%@", operator, reading, mark, count];
 }
 

@@ -14,8 +14,8 @@
 
 /* A flow (docs/FORMS.md, Flows) drawn and edited: DiagramKit's canvas, its
  * own data source and delegate. Each screen a card -- its name, whether a
- * form or a list, and its outline as the model has it (= ? given, ✎
- * entered, ✓ shown) -- an entry a dot with an arrow into its screen, each
+ * form or a list, and its outline as the model has it (= ? given,
+ * (entered), (shown)) -- an entry a dot with an arrow into its screen, each
  * transition an arrow from its screen's port (the dot on its right edge)
  * to the next, said with its action and what it gives, a return (back, or
  * the overlay closed) a dotted arrow to the screen it comes back to. A drag from a

@@ -12,8 +12,11 @@
  *   ormtool verbalize [--html] model.orm     the model as FORML sentences
  *   ormtool check model.orm                  what the model holds, and whether it reads;
  *                                            its sample population against its
- *                                            constraints and constraint queries
- *                                            (1 when it breaks an alethic one)
+ *                                            constraints and constraint queries,
+ *                                            and each form whole (1 when it
+ *                                            breaks an alethic one, or a form
+ *                                            lacks an element the model has
+ *                                            in it)
  *   ormtool normalize model.orm [out.orm]    NORMA's derived data brought up to date
  *   ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]
  *                                            the model mapped to Core Data, with the mapping's report;
@@ -84,7 +87,7 @@ static int
 ORMUsage(void)
 {
 	fputs("usage: ormtool verbalize [--html] model.orm\n"
-	      "       ormtool check model.orm      (1 when the sample population breaks an alethic constraint)\n"
+	      "       ormtool check model.orm      (1 when the sample population breaks an alethic constraint, or a form lacks an element the model has in it)\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
 	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]\n"
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
@@ -415,6 +418,24 @@ main(int argc, const char *argv[])
 			}
 			for (NSString *note in [checker unchecked]) {
 				ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
+			}
+			/* Each form whole: an element for everything the model has in
+			 * it (what ormtool xforms refuses to write without). */
+			ORMCoreDataMapping *formMapping = [model.coreDataMappings firstObject];
+			for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
+				if (query.kind != ORMQueryForm) {
+					continue;
+				}
+				NSString *reason = nil;
+				ORMFormDocument *form = [ORMFormDocument documentForForm:query model:model mapping:formMapping reason:&reason];
+				if (form == nil) {
+					ORMPrint([NSString stringWithFormat:@"form %@: cannot be made: %@\n", query.name, reason]);
+					broken += 1;
+				}
+				for (NSString *missing in form.missing) {
+					ORMPrint([NSString stringWithFormat:@"form %@: %@\n", query.name, missing]);
+					broken += 1;
+				}
 			}
 			return broken > 0 ? 1 : 0;
 		}

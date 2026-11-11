@@ -971,7 +971,7 @@ ORMSeedValueOf(id value)
  * does not store it: FillUp is asserted, and its entity's objects must
  * meet the rule ("an Event that was at some Distance"), which nothing in
  * Core Data says, its properties being the supertype's, optional there
- * (docs/DERIVATION.md). A rule of the subtype's entity, its query "✓FillUp
+ * (docs/DERIVATION.md). A rule of the subtype's entity, its query "FillUp (shown)
  * + not is MeteredEvent", made in the copy of the document; skipped, with
  * why, where it cannot be planned. */
 - (void)subtypeRules
@@ -993,7 +993,7 @@ ORMSeedValueOf(id value)
 			NSString *text = [NSString stringWithFormat:@"Each %@ is %@ %@.", subtype.name, ORMArticle(supertype.name),
 			                                            supertype.name];
 			NSString *name = [NSString stringWithFormat:@"%@IsA%@", subtype.name, supertype.name];
-			NSString *outline = [NSString stringWithFormat:@"It is impossible that:\n✓%@\n  + not is %@", subtype.name,
+			NSString *outline = [NSString stringWithFormat:@"It is impossible that:\n%@ (shown)\n  + not is %@", subtype.name,
 			                                               supertype.name];
 			NSString *why = nil;
 			ORMBeginIds([NSString stringWithFormat:@"subtype.%@", fact.identifier]);

@@ -1862,7 +1862,6 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 
 - (NSString *)nodeText:(ORMQueryNode *)node
 {
-	NSString *sort = node.sortOrder == ORMQueryAscending ? @" ↑" : node.sortOrder == ORMQueryDescending ? @" ↓" : @"";
 	/* A value node with what it computes: "Length = Quantity2 - Quantity1";
 	 * its type where it is not the first node's it uses ("Minutes:
 	 * Minutes = minutes(Moment1, Moment2)"). */
@@ -1878,11 +1877,20 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 			: [NSString stringWithFormat:@": %@", node.objectType.name ?: @"?"];
 		computed = [NSString stringWithFormat:@"%@ = %@", typed, [node.expression textWithDesignations:[self designationsById]]];
 	}
-	/* A form's node: ✎ entered, ✓ shown; "= ?" given. */
-	NSString *mark = self.kind != ORMQueryForm ? (node.isProjected ? @"✓" : @"")
-		: node.formPart == ORMFormPartEntered ? @"✎" : node.formPart == ORMFormPartShown ? @"✓" : @"";
-	return [NSString stringWithFormat:@"%@%@%@%@%@%@", mark, [node designation], computed,
-	                                  node.isGiven ? @" = ?" : @"", [self conditionText:node], sort];
+	/* Its marks last, "(shown, descending)": a form's node entered or shown,
+	 * another query's ticked one shown; its sort. "= ?" gives it. */
+	NSMutableArray *marks = [NSMutableArray array];
+	if (self.kind != ORMQueryForm ? node.isProjected : node.formPart == ORMFormPartShown) {
+		[marks addObject:@"shown"];
+	} else if (self.kind == ORMQueryForm && node.formPart == ORMFormPartEntered) {
+		[marks addObject:@"entered"];
+	}
+	if (node.sortOrder != ORMQueryUnsorted) {
+		[marks addObject:node.sortOrder == ORMQueryAscending ? @"ascending" : @"descending"];
+	}
+	NSString *marked = [marks count] > 0 ? [NSString stringWithFormat:@" (%@)", [marks componentsJoinedByString:@", "]] : @"";
+	return [NSString stringWithFormat:@"%@%@%@%@%@", [node designation], computed, node.isGiven ? @" = ?" : @"",
+	                                  [self conditionText:node], marked];
 }
 
 - (NSDictionary<NSString *, NSString *> *)designationsById
@@ -2015,8 +2023,9 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		NSString *reading = ORMRewritePlaceholders([ORMQuery readingOfStep:step], places);
 		NSString *operator = step.operatorKind == ORMQueryNot ? @"not " : step.operatorKind == ORMQueryMaybe ? @"maybe "
 		                                                                                                       : @"";
-		/* A form's unary step: ✎ entered, ✓ shown, after its reading. */
-		NSString *mark = step.formPart == ORMFormPartEntered ? @" ✎" : step.formPart == ORMFormPartShown ? @" ✓" : @"";
+		/* A form's unary step: entered or shown, after its reading. */
+		NSString *mark = step.formPart == ORMFormPartEntered ? @" (entered)"
+			: step.formPart == ORMFormPartShown ? @" (shown)" : @"";
 		[out appendFormat:@"%@+ %@%@%@%@\n", pad, node.combinesWithOr && !first ? @"or " : @"", operator, reading, mark];
 		first = NO;
 		if (step.countComparison != nil && step.aggregateNode != nil) {

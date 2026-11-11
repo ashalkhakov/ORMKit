@@ -112,6 +112,7 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	/* The anchor's unary steps entered or shown, by id: a flag each. */
 	NSMutableDictionary<NSString *, ORMQueryStep *> *_unarySteps;
 	NSMutableArray<NSString *> *_missing;
+	NSMutableSet<NSString *> *_missingIds;
 	/* -definingSteps, worked out once. */
 	NSArray<NSArray *> *_definingSteps;
 	/* The steps from the anchor to many (an order's lines), by id, and the
@@ -305,6 +306,7 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_fields = [NSMutableArray array];
 	_notes = [NSMutableArray array];
 	_missing = [NSMutableArray array];
+	_missingIds = [NSMutableSet set];
 	_checked = [NSMutableArray array];
 	_binds = [NSMutableDictionary dictionary];
 	_warnings = [NSMutableArray array];
@@ -352,11 +354,13 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 		}
 		[_missing addObject:[NSString stringWithFormat:@"%@: the model has it in the form, and no element is made for it.",
 		                                               [node designation]]];
+		[_missingIds addObject:node.identifier];
 	}
 	for (ORMQueryStep *step in [_unarySteps allValues]) {
 		if ([self elementOfNode:step.identifier] == nil) {
 			[_missing addObject:[NSString stringWithFormat:@"\"%@\": the model has it in the form, and no element is made for it.",
 			                                               [step.factType displayText]]];
+			[_missingIds addObject:step.identifier];
 		}
 	}
 	[_missing sortUsingSelector:@selector(compare:)];
@@ -376,6 +380,11 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 - (NSArray<NSString *> *)missing
 {
 	return [_missing copy];
+}
+
+- (NSSet<NSString *> *)missingIds
+{
+	return [_missingIds copy];
 }
 
 /* The step under the anchor the node hangs from; nil for the anchor. */

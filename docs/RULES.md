@@ -67,7 +67,7 @@ A query says what it is for. A plain query lists, as now:
 rule, and the rule holds when the query finds none. "Overpaid":
 
 ```
-✓Employee
+Employee (shown)
   + earns Salary1
   + works for Branch
     + is headed by Employee
@@ -160,7 +160,7 @@ If some Trip had driver some User and that Trip is of some Vehicle then
 that User drives that Vehicle.
 
 It is impossible that:
-✓Trip
+Trip (shown)
   + had driver User1
   + is of Vehicle
     + not User1 drives that Vehicle

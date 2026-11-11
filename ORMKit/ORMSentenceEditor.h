@@ -54,7 +54,7 @@
  *                                  derived, ++ partly and stored
  *   Query Name:                    a query: its outline, as ormtool query
  *   It is impossible that:         prints it, on the lines after, up to a
- *   ✓Branch                        blank line (ORMOutlineReader)
+ *   Branch (shown)                 blank line (ORMOutlineReader)
  *     + ...
  *   // ...                         a comment
  *

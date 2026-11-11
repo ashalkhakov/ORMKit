@@ -56,8 +56,8 @@
 	       @"\n"
 	       @"// The cars and their owners.\n"
 	       @"Query Owners:\n"
-	       @"✓Car\n"
-	       @"  + is owned by ✓Person\n";
+	       @"Car (shown)\n"
+	       @"  + is owned by Person (shown)\n";
 }
 
 - (ORMEditor *)built
@@ -125,7 +125,7 @@
 	                          @"Permit is where Person drives Car.",
 	                          @"+ An owner drives the cars they own; others are entered.",
 	                          @"Each OldCar is by definition a Car that was built in some Year.",
-	                          @"// The cars and their owners.\nQuery Owners:\n✓Car\n  + is owned by ✓Person" ]) {
+	                          @"// The cars and their owners.\nQuery Owners:\nCar (shown)\n  + is owned by Person (shown)" ]) {
 		XCTAssertTrue([text containsString:line], @"%@ in\n%@", line, text);
 	}
 	/* What a statement names is said before it: the query after its fact
@@ -167,8 +167,8 @@
 	                    @"- Car has VIN\n"
 	                    @"\n"
 	                    @"Query Owners:\n"
-	                    @"✓Person\n"
-	                    @"  + owns ✓Car\n";
+	                    @"Person (shown)\n"
+	                    @"  + owns Car (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:changes failures:&failures], @"%@", failures);
 	/* The diagram it named, not a new one; the fact type said again not
@@ -191,7 +191,7 @@
 	}
 	XCTAssertNotNil([cars shapeForSubject:painted.identifier]);
 	NSString *text = [self textOf:editor];
-	XCTAssertTrue([text containsString:@"Query Owners:\n✓Person\n  + owns ✓Car"], @"%@", text);
+	XCTAssertTrue([text containsString:@"Query Owners:\nPerson (shown)\n  + owns Car (shown)"], @"%@", text);
 	XCTAssertFalse([text containsString:@"If some Person drives"], @"%@", text);
 
 	[self.undoManager undo];

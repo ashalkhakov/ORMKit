@@ -63,10 +63,10 @@
 	                 @"Each Trip has at most one Note.\n"
 	                 @"\n"
 	                 @"Query Long:\n"
-	                 @"✓Trip\n"
+	                 @"Trip (shown)\n"
 	                 @"  + started at Kilometres1\n"
 	                 @"  + ended at Kilometres2\n"
-	                 @"  ✓Length = Kilometres2 - Kilometres1 > 100\n";
+	                 @"  Length = Kilometres2 - Kilometres1 > 100 (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	return editor;
@@ -132,7 +132,7 @@
 {
 	ORMEditor *editor = [self trips];
 	ORMQuery *query = [self query:@"Long" in:editor.model];
-	NSString *outline = @"✓Trip\n  + started at Kilometres1\n  + ended at Kilometres2\n  ✓Length = Kilometres2 - Kilometres1 > 100\n";
+	NSString *outline = @"Trip (shown)\n  + started at Kilometres1\n  + ended at Kilometres2\n  Length = Kilometres2 - Kilometres1 > 100 (shown)\n";
 	XCTAssertEqualObjects([query outlineText], outline);
 	ORMQueryNode *length = [self node:@"Length" of:query];
 	XCTAssertTrue(length.isValue);
@@ -151,21 +151,21 @@
 	ORMEditor *again = [self newEditorWithDocument:document];
 	XCTAssertEqualObjects([[self query:@"Long" in:again.model] outlineText], outline);
 	/* A value under a step's node, written under it; read back the same. */
-	NSString *halves = @"✓Trip\n  + started at Kilometres\n    Half = Kilometres / 2 ↓\n";
+	NSString *halves = @"Trip (shown)\n  + started at Kilometres\n    Half = Kilometres / 2 (descending)\n";
 	NSString *reason = nil;
 	ORMOutlineReader *reader = [[ORMOutlineReader alloc] initWithEditor:editor];
 	NSString *made = [reader addQueryNamed:@"Halves" outline:halves reason:&reason];
 	XCTAssertNotNil(made, @"%@", reason);
 	XCTAssertEqualObjects([[ORMQuery queryWithId:made inModel:editor.model] outlineText], halves);
 	/* One value used by another, and compared with a node. */
-	NSString *more = @"✓Trip\n  + started at Kilometres1\n  + ended at Kilometres2\n"
-	                 @"  Length = Kilometres2 - Kilometres1\n  ✓Double: Kilometres = Length * 2 < Kilometres2\n";
+	NSString *more = @"Trip (shown)\n  + started at Kilometres1\n  + ended at Kilometres2\n"
+	                 @"  Length = Kilometres2 - Kilometres1\n  Double: Kilometres = Length * 2 < Kilometres2 (shown)\n";
 	made = [reader addQueryNamed:@"More" outline:more reason:&reason];
 	XCTAssertNotNil(made, @"%@", reason);
 	XCTAssertEqualObjects([[ORMQuery queryWithId:made inModel:editor.model] outlineText],
 	                      [more stringByReplacingOccurrencesOfString:@"Double: Kilometres" withString:@"Double"]);
 	/* A type that is not what it would be taken to be is written. */
-	NSString *typed = @"✓Trip\n  + started at Kilometres\n  + has Note\n  Count: Kilometres = count(Note) for Trip\n";
+	NSString *typed = @"Trip (shown)\n  + started at Kilometres\n  + has Note\n  Count: Kilometres = count(Note) for Trip\n";
 	made = [reader addQueryNamed:@"Typed" outline:typed reason:&reason];
 	XCTAssertNotNil(made, @"%@", reason);
 	XCTAssertEqualObjects([[ORMQuery queryWithId:made inModel:editor.model] outlineText], typed);
@@ -194,7 +194,7 @@
 	XCTAssertTrue([reason rangeOfString:@"no value type"].location != NSNotFound, @"%@", reason);
 	/* Arithmetic of what is not a number. */
 	NSString *made = [[[ORMOutlineReader alloc] initWithEditor:editor]
-		addQueryNamed:@"Notes" outline:@"✓Trip\n  + has Note\n  + started at Kilometres\n" reason:&reason];
+		addQueryNamed:@"Notes" outline:@"Trip (shown)\n  + has Note\n  + started at Kilometres\n" reason:&reason];
 	ORMQuery *notes = [ORMQuery queryWithId:made inModel:editor.model];
 	XCTAssertNil([queries addValueNamed:@"Odd" to:notes.root.identifier expression:@"Note * 2" type:nil reason:&reason]);
 	XCTAssertTrue([reason rangeOfString:@"Note is not a number"].location != NSNotFound, @"%@", reason);
@@ -209,7 +209,7 @@
 	XCTAssertTrue([queries setExpression:@"Kilometres2 + Kilometres1" ofValue:length reason:&reason], @"%@", reason);
 	XCTAssertFalse([queries setExpression:@"Twice + 1" ofValue:length reason:&reason]);
 	XCTAssertTrue([[[self query:@"Long" in:editor.model] outlineText]
-	                  rangeOfString:@"✓Length = Kilometres2 + Kilometres1 > 100"].location != NSNotFound);
+	                  rangeOfString:@"Length = Kilometres2 + Kilometres1 > 100 (shown)"].location != NSNotFound);
 	XCTAssertTrue([queries removeValue:twice reason:&reason], @"%@", reason);
 	XCTAssertTrue([queries removeValue:length reason:&reason], @"%@", reason);
 	XCTAssertNil([self node:@"Length" of:[self query:@"Long" in:editor.model]]);
@@ -218,7 +218,7 @@
 	/* A step taken away takes the values using what it reached. */
 	ORMQueryStep *ended = [[self node:@"Kilometres2" of:[self query:@"Long" in:editor.model]] step];
 	[queries removeStep:ended.identifier];
-	XCTAssertEqualObjects([[self query:@"Long" in:editor.model] outlineText], @"✓Trip\n  + started at Kilometres1\n");
+	XCTAssertEqualObjects([[self query:@"Long" in:editor.model] outlineText], @"Trip (shown)\n  + started at Kilometres1\n");
 }
 
 /* Said as Halpin says calculations: the value by its name, the arithmetic
@@ -273,8 +273,8 @@
 		                                             reason:&reason]), @"%@", reason);
 	}
 	NSString *all = [[[ORMOutlineReader alloc] initWithEditor:editor]
-		addQueryNamed:@"All" outline:@"✓Trip\n  + started at Kilometres1\n  + maybe ended at Kilometres2\n"
-		              @"  ✓Length = Kilometres2 - Kilometres1\n"
+		addQueryNamed:@"All" outline:@"Trip (shown)\n  + started at Kilometres1\n  + maybe ended at Kilometres2\n"
+		              @"  Length = Kilometres2 - Kilometres1 (shown)\n"
 		       reason:&reason];
 	XCTAssertNotNil(all, @"%@", reason);
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:nil];
@@ -354,27 +354,27 @@
 	                 @"Each FillUp took exactly one Litres.\n"
 	                 @"\n"
 	                 @"Query Before:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + FillUp2 is of that Vehicle\n"
 	                 @"      + was at Odometer2 < Odometer1\n"
-	                 @"    + ✓FillUp3 is of that Vehicle\n"
+	                 @"    + FillUp3 (shown) is of that Vehicle\n"
 	                 @"      + was at Odometer3 = Previous\n"
 	                 @"  Previous = max(Odometer2) for FillUp1\n"
 	                 @"\n"
 	                 @"Query Consumption:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + took Litres1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + FillUp2 is of that Vehicle\n"
 	                 @"      + was at Odometer2 < Odometer1\n"
 	                 @"  Previous = max(Odometer2) for FillUp1\n"
-	                 @"  ✓Consumption = Litres1 / (Odometer1 - Previous) * 100\n"
+	                 @"  Consumption = Litres1 / (Odometer1 - Previous) * 100 (shown)\n"
 	                 @"\n"
 	                 @"Query Since:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + FillUp2 is of that Vehicle\n"
@@ -384,34 +384,34 @@
 	                 @"      + was at Odometer3 <= Odometer1\n"
 	                 @"      + took Litres3\n"
 	                 @"  Previous = max(Odometer2) for FillUp1\n"
-	                 @"  ✓Since = total(Litres3) for FillUp1\n"
+	                 @"  Since = total(Litres3) for FillUp1 (shown)\n"
 	                 @"\n"
 	                 @"Query Shifted:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + FillUp2 is of that Vehicle\n"
 	                 @"      + was at Odometer2\n"
 	                 @"      + took Litres2\n"
 	                 @"      Later: Odometer = Odometer2 + 500 < Odometer1\n"
-	                 @"  ✓Most = max(Litres2) for FillUp1\n"
+	                 @"  Most = max(Litres2) for FillUp1 (shown)\n"
 	                 @"\n"
 	                 @"Query Among:\n"
-	                 @"✓FillUp\n"
+	                 @"FillUp (shown)\n"
 	                 @"  + took Litres in (30, 36)\n"
 	                 @"\n"
 	                 @"Query SameLitres:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + took Litres1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + FillUp2 is of that Vehicle\n"
 	                 @"      + took Litres2 = Litres1\n"
 	                 @"      + was at Odometer2 < Odometer1\n"
-	                 @"  ✓Prior = max(Odometer2) for FillUp1\n"
+	                 @"  Prior = max(Odometer2) for FillUp1 (shown)\n"
 	                 @"\n"
 	                 @"Query First:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + not FillUp2 is of that Vehicle\n"
@@ -452,12 +452,12 @@
 {
 	ORMEditor *editor = [self fillUps];
 	ORMQuery *before = [self query:@"Before" in:editor.model];
-	XCTAssertEqualObjects([before outlineText], @"✓FillUp1\n"
+	XCTAssertEqualObjects([before outlineText], @"FillUp1 (shown)\n"
 	                                            @"  + was at Odometer1\n"
 	                                            @"  + is of Vehicle\n"
 	                                            @"    + FillUp2 is of that Vehicle\n"
 	                                            @"      + was at Odometer2 < Odometer1\n"
-	                                            @"    + ✓FillUp3 is of that Vehicle\n"
+	                                            @"    + FillUp3 (shown) is of that Vehicle\n"
 	                                            @"      + was at Odometer3 = Previous\n"
 	                                            @"  Previous = max(Odometer2) for FillUp1\n");
 	ORMQueryNode *previous = [self node:@"Previous" of:before];
@@ -549,7 +549,7 @@
 	XCTAssertEqualObjects([self sorted:[self rowsOf:odata over:context]], (@[ @"3 40" ]), @"%@", [odata requestText]);
 	/* One of a list: any of its values. */
 	ORMQuery *among = [self query:@"Among" in:model];
-	XCTAssertEqualObjects([among outlineText], @"✓FillUp\n  + took Litres in (30, 36)\n");
+	XCTAssertEqualObjects([among outlineText], @"FillUp (shown)\n  + took Litres in (30, 36)\n");
 	XCTAssertEqualObjects([[self node:@"Litres" of:among] comparedValues], (@[ @"30", @"36" ]));
 	said = [[[[ORMVerbalizer alloc] initWithModel:model] sentencesForQuery:among] valueForKey:@"text"];
 	XCTAssertTrue([[said firstObject] rangeOfString:@" or "].location != NSNotFound, @"%@", said);
@@ -704,13 +704,13 @@
 	                 @"Each FillUp was at exactly one Odometer.\n"
 	                 @"\n"
 	                 @"Query Before:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + Record is of that Vehicle\n"
 	                 @"      + is FillUp2\n"
 	                 @"        + was at Odometer2 < Odometer1\n"
-	                 @"  ✓Previous = max(Odometer2) for FillUp1\n";
+	                 @"  Previous = max(Odometer2) for FillUp1 (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;
@@ -781,10 +781,10 @@
 	                 @"FillUp filled the tank\n"
 	                 @"\n"
 	                 @"Query Before:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Distance1\n"
 	                 @"    + has Quantity1\n"
-	                 @"    + is in ✓DistanceUnit1\n"
+	                 @"    + is in DistanceUnit1 (shown)\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + Record is of that Vehicle\n"
 	                 @"      + is Event\n"
@@ -793,10 +793,10 @@
 	                 @"          + was at Distance2\n"
 	                 @"            + has Quantity2 < Quantity1\n"
 	                 @"            + is in DistanceUnit1\n"
-	                 @"  ✓Previous = max(Quantity2) for FillUp1\n"
+	                 @"  Previous = max(Quantity2) for FillUp1 (shown)\n"
 	                 @"\n"
 	                 @"Query Prior:\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Distance1\n"
 	                 @"    + has Quantity1\n"
 	                 @"  + is of Vehicle\n"
@@ -807,7 +807,7 @@
 	                 @"            + has Quantity2 < Quantity1\n"
 	                 @"    + Record is of that Vehicle\n"
 	                 @"      + is Event\n"
-	                 @"        + is ✓FillUp3\n"
+	                 @"        + is FillUp3 (shown)\n"
 	                 @"          + was at Distance3\n"
 	                 @"            + has Quantity3 = Previous\n"
 	                 @"  Previous = max(Quantity2) for FillUp1\n"
@@ -905,14 +905,14 @@
 	                 @"\n"
 	                 @"Query Followed:\n"
 	                 @"Derivation of \"FillUp followed Litres\":\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + FillUp2 is of that Vehicle\n"
 	                 @"      + was at Odometer2 < Odometer1\n"
 	                 @"    + FillUp3 is of that Vehicle\n"
 	                 @"      + was at Odometer3 = Previous\n"
-	                 @"      + took ✓Litres\n"
+	                 @"      + took Litres (shown)\n"
 	                 @"  Previous = max(Odometer2) for FillUp1\n"
 	                 @"\n";
 	NSArray *failures = nil;
@@ -987,13 +987,13 @@
 	                 @"\n"
 	                 @"Query Followed:\n"
 	                 @"Derivation of \"FillUp followed Odometer\":\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + Record is of that Vehicle\n"
 	                 @"      + is FillUp2\n"
 	                 @"        + was at Odometer2 < Odometer1\n"
-	                 @"  ✓Previous = max(Odometer2) for FillUp1\n"
+	                 @"  Previous = max(Odometer2) for FillUp1 (shown)\n"
 	                 @"\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
@@ -1051,8 +1051,8 @@
 	                 @"\n"
 	                 @"Query OwnerDrives:\n"
 	                 @"Derivation of \"Person drives Car\":\n"
-	                 @"✓Person\n"
-	                 @"  + ✓Car is owned by that Person\n"
+	                 @"Person (shown)\n"
+	                 @"  + Car (shown) is owned by that Person\n"
 	                 @"\n";
 	NSArray *failures = nil;
 	ORMSentenceEditor *sentences = [[ORMSentenceEditor alloc] initWithEditor:editor];
@@ -1064,8 +1064,8 @@
 	XCTAssertTrue([drives derivationRule].isStored);
 	XCTAssertTrue([sentences addFromText:@"Query OwnerDrives:\n"
 	                                     @"Derivation of \"Person drives Car\":\n"
-	                                     @"✓Person\n"
-	                                     @"  + ✓Car is driven by that Person\n"
+	                                     @"Person (shown)\n"
+	                                     @"  + Car (shown) is driven by that Person\n"
 	                                     @"\n"
 	                            failures:&failures], @"%@", failures);
 	XCTAssertEqualObjects([[ORMQuery derivationOf:drives inModel:editor.model] name], @"OwnerDrives");
@@ -1094,20 +1094,20 @@
 	                 @"\n"
 	                 @"Query OwnerDrives:\n"
 	                 @"Derivation of \"Person drives Car\":\n"
-	                 @"✓Person\n"
-	                 @"  + ✓Car is owned by that Person\n"
+	                 @"Person (shown)\n"
+	                 @"  + Car (shown) is owned by that Person\n"
 	                 @"\n"
 	                 @"Query Drivers:\n"
-	                 @"✓Person\n"
+	                 @"Person (shown)\n"
 	                 @"  + drives Car\n"
 	                 @"\n"
 	                 @"Query Idle:\n"
-	                 @"✓Person\n"
+	                 @"Person (shown)\n"
 	                 @"  + not drives Car\n"
 	                 @"\n"
 	                 @"Query DriverDrives:\n"
 	                 @"It is impossible that:\n"
-	                 @"✓Trip\n"
+	                 @"Trip (shown)\n"
 	                 @"  + is of Car1\n"
 	                 @"  + had driver Person\n"
 	                 @"    + not drives Car1\n"
@@ -1185,19 +1185,19 @@
 	                 @"\n"
 	                 @"Query Followed:\n"
 	                 @"Derivation of \"FillUp followed Litres\":\n"
-	                 @"✓FillUp1\n"
+	                 @"FillUp1 (shown)\n"
 	                 @"  + was at Odometer1\n"
 	                 @"  + is of Vehicle\n"
 	                 @"    + FillUp2 is of that Vehicle\n"
 	                 @"      + was at Odometer2 < Odometer1\n"
 	                 @"    + FillUp3 is of that Vehicle\n"
 	                 @"      + was at Odometer3 = Previous\n"
-	                 @"      + took ✓Litres\n"
+	                 @"      + took Litres (shown)\n"
 	                 @"  Previous = max(Odometer2) for FillUp1\n"
 	                 @"\n"
 	                 @"Query Spilled:\n"
 	                 @"It is impossible that:\n"
-	                 @"✓FillUp\n"
+	                 @"FillUp (shown)\n"
 	                 @"  + followed Litres > 50\n"
 	                 @"\n";
 	NSArray *failures = nil;
@@ -1289,18 +1289,18 @@
 	                 @"Each Trip ended at exactly one Moment.\n"
 	                 @"\n"
 	                 @"Query Durations:\n"
-	                 @"✓Trip\n"
+	                 @"Trip (shown)\n"
 	                 @"  + started at Moment1\n"
 	                 @"  + ended at Moment2\n"
-	                 @"  ✓Duration: Count = minutes(Moment1, Moment2)\n"
-	                 @"  ✓Days: Count = days(Moment1, Moment2)\n"
-	                 @"  ✓Month = month(Moment1)\n"
-	                 @"  ✓Due = addMonths(Moment1, 6) > '2026-08-01'\n";
+	                 @"  Duration: Count = minutes(Moment1, Moment2) (shown)\n"
+	                 @"  Days: Count = days(Moment1, Moment2) (shown)\n"
+	                 @"  Month = month(Moment1) (shown)\n"
+	                 @"  Due = addMonths(Moment1, 6) > '2026-08-01' (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;
 	ORMQuery *query = [self query:@"Durations" in:model];
-	XCTAssertTrue([[query outlineText] hasSuffix:@"  ✓Month = month(Moment1)\n  ✓Due = addMonths(Moment1, 6) > '2026-08-01'\n"],
+	XCTAssertTrue([[query outlineText] hasSuffix:@"  Month = month(Moment1) (shown)\n  Due = addMonths(Moment1, 6) > '2026-08-01' (shown)\n"],
 	              @"%@", [query outlineText]);
 	NSArray *said = [[[[ORMVerbalizer alloc] initWithModel:model] sentencesForQuery:query] valueForKey:@"text"];
 	for (NSString *words in @[ @"Duration is the number of minutes from Moment1 to Moment2",
@@ -1377,16 +1377,16 @@
 	                 @"Each Trip started in exactly one Zone.\n"
 	                 @"\n"
 	                 @"Query Days:\n"
-	                 @"✓Trip\n"
+	                 @"Trip (shown)\n"
 	                 @"  + started at Moment1\n"
 	                 @"  + started in Zone1\n"
-	                 @"  ✓On: Day = dateIn(Moment1, Zone1)\n"
-	                 @"  ✓Month: Day = monthIn(Moment1, Zone1)\n";
+	                 @"  On: Day = dateIn(Moment1, Zone1) (shown)\n"
+	                 @"  Month: Day = monthIn(Moment1, Zone1) (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;
 	ORMQuery *query = [self query:@"Days" in:model];
-	XCTAssertTrue([[query outlineText] hasSuffix:@"  ✓On: Day = dateIn(Moment1, Zone1)\n  ✓Month: Day = monthIn(Moment1, Zone1)\n"],
+	XCTAssertTrue([[query outlineText] hasSuffix:@"  On: Day = dateIn(Moment1, Zone1) (shown)\n  Month: Day = monthIn(Moment1, Zone1) (shown)\n"],
 	              @"%@", [query outlineText]);
 	NSArray *said = [[[[ORMVerbalizer alloc] initWithModel:model] sentencesForQuery:query] valueForKey:@"text"];
 	for (NSString *words in @[ @"On is the date of that Moment in that Zone", @"Month is the first day of the month of that Moment in that Zone" ]) {
@@ -1454,7 +1454,7 @@
 	                 @"\n"
 	                 @"Query Backwards:\n"
 	                 @"It is impossible that:\n"
-	                 @"✓Trip\n"
+	                 @"Trip (shown)\n"
 	                 @"  + started at Moment1\n"
 	                 @"  + ended at Moment2\n"
 	                 @"  Length: Count = minutes(Moment1, Moment2) < 0\n";
@@ -1515,17 +1515,17 @@
 	                 @"Each Cost cost exactly one Amount.\n"
 	                 @"\n"
 	                 @"Query ByMonth:\n"
-	                 @"✓Vehicle\n"
+	                 @"Vehicle (shown)\n"
 	                 @"  + Cost is of that Vehicle\n"
 	                 @"    + was at Moment\n"
 	                 @"    + cost Amount\n"
-	                 @"    ✓Month = month(Moment)\n"
-	                 @"    ✓Total = total(Amount) for Vehicle, Month ↓\n";
+	                 @"    Month = month(Moment) (shown)\n"
+	                 @"    Total = total(Amount) for Vehicle, Month (shown, descending)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;
 	ORMQuery *query = [self query:@"ByMonth" in:model];
-	XCTAssertTrue([[query outlineText] hasSuffix:@"    ✓Total = total(Amount) for Vehicle, Month ↓\n"], @"%@", [query outlineText]);
+	XCTAssertTrue([[query outlineText] hasSuffix:@"    Total = total(Amount) for Vehicle, Month (shown, descending)\n"], @"%@", [query outlineText]);
 	NSArray *said = [[[[ORMVerbalizer alloc] initWithModel:model] sentencesForQuery:query] valueForKey:@"text"];
 	XCTAssertTrue([[said firstObject] rangeOfString:@"Total is the total of that Amount for that Vehicle and Month"].location != NSNotFound,
 	              @"%@", said);
@@ -1598,21 +1598,21 @@
 	                 @"\n"
 	                 @"Query WentRule:\n"
 	                 @"Derivation of \"Trip went Kilometres\":\n"
-	                 @"✓Trip\n"
+	                 @"Trip (shown)\n"
 	                 @"  + started at Kilometres1\n"
 	                 @"  + ended at Kilometres2\n"
-	                 @"  ✓Length = Kilometres2 - Kilometres1\n"
+	                 @"  Length = Kilometres2 - Kilometres1 (shown)\n"
 	                 @"\n"
 	                 @"Query CoveredRule:\n"
 	                 @"Derivation of \"Trip covered Kilometres\":\n"
-	                 @"✓Trip\n"
+	                 @"Trip (shown)\n"
 	                 @"  + started at Kilometres1\n"
 	                 @"  + ended at Kilometres2\n"
-	                 @"  ✓Length = Kilometres2 - Kilometres1\n"
+	                 @"  Length = Kilometres2 - Kilometres1 (shown)\n"
 	                 @"\n"
 	                 @"Query Long:\n"
-	                 @"✓Trip\n"
-	                 @"  + went ✓Kilometres > 100\n";
+	                 @"Trip (shown)\n"
+	                 @"  + went Kilometres > 100 (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;
@@ -1648,7 +1648,7 @@
 	XCTAssertEqualObjects([self sorted:result.rows], (@[ @"1 150" ]), @"%@", [plan text]);
 	/* No step from a role its rule computes. */
 	NSString *from = [[[ORMOutlineReader alloc] initWithEditor:editor]
-		addQueryNamed:@"From" outline:@"✓Kilometres\n  + Trip went that Kilometres\n" reason:&reason];
+		addQueryNamed:@"From" outline:@"Kilometres (shown)\n  + Trip went that Kilometres\n" reason:&reason];
 	XCTAssertNotNil(from, @"%@", reason);
 	XCTAssertTrue([[[planner planForQuery:[ORMQuery queryWithId:from inModel:model]].notes firstObject]
 	                  rangeOfString:@"its rule computes"].location != NSNotFound);
@@ -1719,8 +1719,8 @@
 	                 @"\n"
 	                 @"Query CostRule:\n"
 	                 @"Derivation of \"Service cost Money\":\n"
-	                 @"✓Service\n"
-	                 @"  + is paid in ✓Currency1\n"
+	                 @"Service (shown)\n"
+	                 @"  + is paid in Currency1 (shown)\n"
 	                 @"  + ServiceItem is part of that Service\n"
 	                 @"    + cost Money1\n"
 	                 @"      + has Amount1\n"
@@ -1728,7 +1728,7 @@
 	                 @"  + maybe had a discount of Money2\n"
 	                 @"    + has Amount2\n"
 	                 @"  Items = total(Amount1) for Service\n"
-	                 @"  ✓Amount = Items - coalesce(Amount2, 0)\n";
+	                 @"  Amount = Items - coalesce(Amount2, 0) (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;
@@ -1840,14 +1840,14 @@
 	                 @"\n"
 	                 @"Query ServiceCost:\n"
 	                 @"Derivation of \"Record cost Money\":\n"
-	                 @"✓Record\n"
+	                 @"Record (shown)\n"
 	                 @"  + is Service\n"
-	                 @"    + is paid in ✓Currency1\n"
+	                 @"    + is paid in Currency1 (shown)\n"
 	                 @"    + ServiceItem is part of that Service\n"
 	                 @"      + cost Money1\n"
 	                 @"        + has Amount1\n"
 	                 @"        + is in Currency1\n"
-	                 @"  ✓Amount = total(Amount1) for Record\n";
+	                 @"  Amount = total(Amount1) for Record (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;
@@ -1914,12 +1914,12 @@
 	                 @"Each Cost cost exactly one Amount.\n"
 	                 @"\n"
 	                 @"Query Totals:\n"
-	                 @"✓Vehicle\n"
+	                 @"Vehicle (shown)\n"
 	                 @"  + Cost is of that Vehicle\n"
 	                 @"    + cost Amount > 5\n"
-	                 @"  ✓Total = total(Amount) for Vehicle\n"
-	                 @"  ✓Most = max(Amount) for Vehicle\n"
-	                 @"  ✓Costs: Number = count(Amount) for Vehicle\n";
+	                 @"  Total = total(Amount) for Vehicle (shown)\n"
+	                 @"  Most = max(Amount) for Vehicle (shown)\n"
+	                 @"  Costs: Number = count(Amount) for Vehicle (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;

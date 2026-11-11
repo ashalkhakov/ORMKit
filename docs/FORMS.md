@@ -64,29 +64,17 @@ marked:
 
 | Mark | The node | Example |
 | --- | --- | --- |
-| `✎X` | entered: the user gives its value; the form asserts the fact | `+ took ✎Litres` |
-| `✓X` | shown: read, not changed | `+ has ✓Plate` |
-| `X = ?` | given: its value comes in as the form opens, a parameter; may be entered or shown too (`✎City = ?`) | `+ is of Vehicle = ?` |
+| `X (entered)` | entered: the user gives its value; the form asserts the fact | `+ took Litres (entered)` |
+| `X (shown)` | shown: read, not changed | `+ has Plate (shown)` |
+| `X = ?` | given: its value comes in as the form opens, a parameter; may be entered or shown too (`City = ? (entered)`) | `+ is of Vehicle = ?` |
 | none | the way to something entered or shown, or a condition | `+ is at Address` |
-| `+ <reading> ✎` | a unary fact entered (a flag) | `+ filled the tank ✎` |
-| `✓X = <expr>` | a value node: computed from the form's values and shown ([EXPRESSIONS.md](EXPRESSIONS.md)) | `✓PricePerUnit = Money / Volume` |
+| `+ <reading> (entered)` | a unary fact entered (a flag) | `+ filled the tank (entered)` |
+| `X = <expr> (shown)` | a value node: computed from the form's values and shown ([EXPRESSIONS.md](EXPRESSIONS.md)) | `PricePerUnit = Money / Volume (shown)` |
 
 The anchor is given when the form changes an object that exists, and new
-when it makes one. Where a node sits in the outline says the rest:
-
-- **A step under an entered reference is a condition on its choices**, a
-  drop-down that depends on another: `+ had driver ✎Driver` /
-  `+ drives Vehicle1` offers only the vehicle's drivers.
-- **A value through an object the form refers to is shown**, never
-  written: `+ is of Vehicle1 = ?` / `+ has ✓Plate` shows the given van's
-  plate, and changes when another is chosen.
-- **An object reached by a plain step, with something entered beneath it,
-  is owned:** made or changed with the anchor (a station's address).
-- **A subtype step is a part**, relevant when the object is of that
-  subtype; a form with parts asks which kind the object is (`+ is FillUp`,
-  `+ is Service` in a record's form).
-- **A step to many is a repeat**, a form of its own for each item (a
-  service's lines: `+ ServiceLine is in that Service`).
+when it makes one. Where a node sits in the outline says the rest; [The
+definition](#the-definition-what-each-node-of-a-form-is) below says it
+exactly, and which outlines are no form at all.
 
 Fleet's forms ([Samples/Fleet.orm](../Samples/Fleet.orm)) show each:
 
@@ -94,42 +82,168 @@ Fleet's forms ([Samples/Fleet.orm](../Samples/Fleet.orm)) show each:
 Form RecordFillUp:
 FillUp
   + is of Vehicle1 = ?
-    + has ✓Plate
-  + was at ✎Moment
-  + took ✎Litres
-  + was of ✎Fuel
-  + was at ✎Station
-  + cost ✎Money
-  + had driver ✎Driver
+    + has Plate (shown)
+  + was at Moment (entered)
+  + took Litres (entered)
+  + was of Fuel (entered)
+  + was at Station (entered)
+  + cost Money (entered)
+  + had driver Driver (entered)
     + drives Vehicle1
-  + filled the tank ✎
+  + filled the tank (entered)
 
 Form NewStation:
 Station
-  + is called ✎StationName
+  + is called StationName (entered)
   + is at Address
-    + has ✎AddressLines
-    + is in ✎City
+    + has AddressLines (entered)
+    + is in City (entered)
 
 Form NewRecord:
 Record
   + is of Vehicle = ?
   + is FillUp
-    + was at ✎Moment
-    + took ✎Litres
-    + was of ✎Fuel
-    + was at ✎Station
-    + cost ✎Money
-    + had driver ✎Driver
-    + filled the tank ✎
+    + was at Moment (entered)
+    + took Litres (entered)
+    + was of Fuel (entered)
+    + was at Station (entered)
+    + cost Money (entered)
+    + had driver Driver (entered)
+    + filled the tank (entered)
   + is Service
-    + was on ✎Day
+    + was on Day (entered)
 ```
 
 A form is verbalized as a query is. In the `.orm` it is a query with
 `Kind="Form"`, a node's part `Part="Entered"` or `"Shown"`, a given one
 `Given="true"`, a unary's part on its step. **Save a Copy for NORMA**
 leaves them out.
+
+## The definition: what each node of a form is
+
+A form's outline is a conceptual query (ConQuer's paths through the
+model's fact types, [QUERIES.md](QUERIES.md)) with each node given one
+meaning. Following form-oriented analysis, a form is two typed things: what
+it **submits**, "an editable method call" whose "actual parameter list is
+given by the contents of the input elements", and what it **shows**, a
+report; "server action types describe input capabilities, while client
+page types are high-level descriptions of reports offered to the user"
+(Draheim and Weber 2005, pp. 210, 224). Here both types are made of the
+model's fact types: the submission is a population of the form's
+subschema for one object (Halpin and Weber 2012), the report a query's
+answer.
+
+Every outline of kind Form either is well formed, and then means exactly
+one form and is translated by exactly one rule below, or is not, and then
+it is refused where it is drawn (the Queries window marks the node, `ormtool
+check` fails) and never generated.
+
+### Where a node is
+
+Each node's place is decided from the steps above it, before its mark:
+
+- **The anchor**, the outline's root: the object the form makes or changes.
+- **Owned**: an entity node, reached by a step that is not a subtype step
+  from the anchor or another owned object, that is neither marked nor
+  given, and that has something entered beneath it (not under a
+  reference). It is made, changed and put back with the anchor.
+- **Referenced**: any other entity node below the anchor: one entered (a
+  choice), given, shown, or unmarked with nothing entered beneath. The form
+  does not make or change it.
+- **A part**: a node reached by a subtype step is the same object as the
+  one above it, of that subtype.
+- **Absorbed**: a value object the mapping keeps in its owner's row
+  (Money, Volume, Distance): not an object of the store, its parts its
+  owner's properties.
+- **To one, to many**: a step is to one when the role it leaves from is
+  unique (a uniqueness constraint spans it alone), else to many.
+
+### What each node means (well formed)
+
+| | The node | Means | Translated to |
+| --- | --- | --- | --- |
+| D1 | the anchor | the object made (not given) or changed (given) | the instance's root; its key the first element, `role` "key" |
+| D2 | given (`= ?`), on a path of steps to one from the anchor | a parameter: its value comes with the form as it opens | an element filled as it opens, `role` "given"; a parameter of the reads and the choices |
+| D3 | an entered value, on the anchor, an owned object or a part of either, to one | a fact the submission asserts | an element written by the save, `role` "entered", typed by its attribute |
+| D4 | an entered entity, on the anchor, an owned object or a part, to one | a choice: the object the fact is about is picked, not made | an element holding the chosen object's key (`kind` reference), its choices a query of their own |
+| D5 | unmarked steps beneath a choice, leading to nothing marked | conditions on the choice (the drivers of the vehicle) | the choices query's conditions, on the form's other elements by shared nodes |
+| D6 | entered values beneath a referenced object, together the roles of one of its uniqueness constraints (its reference scheme or another) | identification: they find at most one object, which the fact is about | the lookup's inputs, written as the choice's key would be; refused at save when no object has them |
+| D7 | a shown node, anywhere a path reaches | read, never written | an element read with the anchor (again when a reference it goes through changes), `role` "shown"; an `output` |
+| D8 | a step to many from the anchor or an owned object, with something entered beneath | a repeat of the submission: rows asserted, each item made, changed or deleted with the anchor | a repeat: each row a form of the same rules, anchored on the item and given its owner back |
+| D9 | a step to many with only shown nodes beneath, from anywhere | a list in the report | a read-only repeat: rows read, never written |
+| D10 | a unary, on the anchor, an owned object or a part | a flag asserted (entered) or read (shown) | an `xsd:boolean` element at its owner's path |
+| D11 | an absorbed value, wherever its owner may be | its parts, whole or not given | an element per part at its owner's path (`volumeQuantity`, `volumeVolumeUnit`) |
+| D12 | a part (subtype step) | its nodes count where the object is of that subtype | on the anchor or an owned object: a kind element choosing it, its elements `relevant` where chosen; on a referenced object: shown where it is one |
+| D13 | a computed value (`X = expr (shown)`) over nodes at its own level or above by steps to one | a value worked out from the form's values | an element `calculate`d, read-only; also worked out by ORMRuntime when it reads the form |
+| D14 | a computed value whose operand is beneath a step to many, under an aggregate (count, total, avg, max, min) | an aggregate over the rows | `calculate` over the repeat's or list's rows (`sum(purchaseLines/amount)`); ORMRuntime the same |
+| D15 | a constraint or rule whose roles are all in the form | checked as the form is filled in | a bind (see [Binds](#binds-the-constraints-that-apply)) |
+| D16 | any other constraint or rule on the form's fact types | checked where the submission is saved | `checkedWhereSubmitted`, refused in its words at its element |
+
+### What is no form (refused where it is drawn)
+
+| | The outline | Why |
+| --- | --- | --- |
+| E1 | entered values beneath a referenced object that are not the roles of one of its uniqueness constraints (a van's colour, part of a compound key) | they identify a set of objects at best, not one: no fact can be about it |
+| E2 | anything entered beneath a step to many from a referenced object, or a unary entered on one | the form would change objects it does not own |
+| E3 | given beneath a step to many | a parameter is one value, not one per row |
+| E4 | a computed value with an operand beneath a step to many, not under an aggregate | one value from many rows needs an aggregate |
+| E5 | a computed value with an operand in a choice's conditions (D5) | conditions are not read; there is no value to compute with |
+| E6 | an unmarked node that leads to nothing marked and is no choice's condition | a form asserts, identifies, chooses or shows; a bare step does none of these |
+| E7 | a node the mapping places nowhere (no entity, no attribute, no relationship for it) | the store cannot hold it; the mapping is to be changed, not the form trimmed |
+
+A well-formed outline the generator cannot translate is the generator's
+fault, and an error: `ormtool xforms` names the node, writes nothing for
+that form, and exits 1 (`missing` in `ORMFormDocument`). It is never a form
+without the node.
+
+### Where the generator is now
+
+Written down, the definition shows what ORMKit 0.6 does not do yet, each
+listed with the rule it breaks; these are what is to be implemented:
+
+- D6 and E1: an entered value beneath a referenced object is turned into
+  a shown one, with a note.
+- D8 and D9 beyond the anchor: a step to many below a referenced or owned
+  object is left out, with a note ("one of many, not reached by one step
+  from the anchor").
+- D5: a shown node beneath a choice is taken as a condition and left out.
+- D10: a unary not on the anchor's own steps is never considered.
+- D11: an absorbed value not on the anchor ("a compound not the anchor's
+  own") is left out.
+- D12 on a referenced object; D14 (aggregates have no XForms expression:
+  "computed where it is read, not in the form").
+- A repeat that cannot be made is left out whole, and nothing inside it is
+  reported missing.
+- E1–E7 are not checked where the form is drawn; until they are, ormtool
+  refuses only what it cannot place.
+
+### Sources
+
+- Dirk Draheim and Gerald Weber, "Modelling form-based interfaces with
+  bipartite state machines", *Interacting with Computers* 17 (2005)
+  207–228: submit/response interaction, the form as an editable method
+  call, typed pages (reports) and server actions (inputs).
+- Dirk Draheim and Gerald Weber, *Form-Oriented Analysis: A New
+  Methodology to Model Form-Based Applications*, Springer, 2005: the
+  method, formcharts, their data model and dialogue constraints.
+- Terry Halpin and Gerald Weber, "Form-and-Fact Based Modeling",
+  EMMSAD 2012, LNBIP 113, pp. 285–299: fact-based modelling for the data,
+  form-based for the interface, screen transition diagrams. We have its
+  abstract, not its text.
+- Anthony Bloesch and Terry Halpin, "ConQuer: A Conceptual Query
+  Language", ER '96, LNCS 1157, pp. 121–133; "Conceptual Queries using
+  ConQuer-II", ER '97, LNCS 1331, pp. 113–126: the outline of paths
+  through fact types a form is written as, and its aggregates.
+- Terry Halpin and Tony Morgan, *Information Modeling and Relational
+  Databases*, 2nd ed., Morgan Kaufmann, 2008: reference schemes and
+  uniqueness constraints (D6, E1), absorption by the relational mapping
+  (D11).
+- Amir Choobineh, Michael V. Mannino, Jay F. Nunamaker and Benn R.
+  Konsynski, "An Expert Database Design System Based on Analysis of
+  Forms", *IEEE TSE* 14(2), 1988, 242–253; Choobineh, Mannino and Tseng,
+  "A Form-Based Approach for Database Analysis and Design", *CACM* 35(2),
+  1992, 108–120: the other direction,
+  a schema derived from forms; we have their abstracts, not their text.
 
 ## What a form gives
 

@@ -93,19 +93,19 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
                                     @"Form RecordFillUp:\n"
                                     @"FillUp\n"
                                     @"  + is of Vehicle1 = ?\n"
-                                    @"  + was at ✎Moment\n"
-                                    @"  + was at ✎Distance\n"
-                                    @"  + was of ✎Volume\n"
+                                    @"  + was at Moment (entered)\n"
+                                    @"  + was at Distance (entered)\n"
+                                    @"  + was of Volume (entered)\n"
                                     @"    + has Quantity\n"
-                                    @"  + was of ✎Fuel\n"
-                                    @"  + was at ✎Station\n"
-                                    @"  + cost ✎Money1\n"
+                                    @"  + was of Fuel (entered)\n"
+                                    @"  + was at Station (entered)\n"
+                                    @"  + cost Money1 (entered)\n"
                                     @"    + has Amount\n"
-                                    @"  + was charged ✎Money2\n"
-                                    @"  + had driver ✎User\n"
+                                    @"  + was charged Money2 (entered)\n"
+                                    @"  + had driver User (entered)\n"
                                     @"    + drives Vehicle1\n"
-                                    @"  + filled the tank ✎\n"
-                                    @"  ✓PricePerUnit = Amount / Quantity\n";
+                                    @"  + filled the tank (entered)\n"
+                                    @"  PricePerUnit = Amount / Quantity (shown)\n";
 
 - (ORMEditor *)fillUps
 {
@@ -320,13 +320,13 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	XCTAssertEqualObjects(reason, @"It is no form.");
 }
 
-/* "+ filled the tank ✎": a unary step entered, a flag of the form's own,
+/* "+ filled the tank (entered)": a unary step entered, a flag of the form's own,
  * written and read back as the outline says it. */
 - (void)testAUnaryIsEntered
 {
 	ORMEditor *editor = [self fillUps];
 	ORMQuery *query = [self formIn:editor.model];
-	XCTAssertTrue([[query outlineText] rangeOfString:@"  + filled the tank ✎\n"].location != NSNotFound, @"%@",
+	XCTAssertTrue([[query outlineText] rangeOfString:@"  + filled the tank (entered)\n"].location != NSNotFound, @"%@",
 	              [query outlineText]);
 	ORMFormDocument *form = [self documentOf:editor];
 	ORMFormField *full = [form.fields lastObject];
@@ -347,7 +347,12 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	XCTAssertFalse([queries setFormPart:ORMFormPartEntered ofStep:driver.identifier reason:&reason]);
 	XCTAssertEqualObjects(reason, @"Only a unary step is entered or shown itself: mark its nodes.");
 	XCTAssertTrue([queries setKind:ORMQueryList ofQuery:query.identifier reason:NULL]);
-	XCTAssertTrue([[[self formIn:editor.model] outlineText] rangeOfString:@"✎"].location == NSNotFound, @"a list has none");
+	XCTAssertTrue([[[self formIn:editor.model] outlineText] rangeOfString:@"(entered)"].location == NSNotFound, @"a list has none");
+	/* A step's marks say it is entered or shown, never sorted. */
+	XCTAssertNil([[[ORMOutlineReader alloc] initWithEditor:editor] addQueryNamed:nil
+	                                                                      outline:@"Form Sorted:\nFillUp\n  + filled the tank (descending)\n"
+	                                                                       reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 3, \"+ filled the tank (descending)\": a step is not sorted; its nodes are");
 }
 
 /* A subtype's definition is asked of every one of it: the distance a
@@ -374,14 +379,14 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	                 @"\n"
 	                 @"Query MeteredEventRule:\n"
 	                 @"Derivation of MeteredEvent:\n"
-	                 @"✓Event\n"
+	                 @"Event (shown)\n"
 	                 @"  + was at Quantity\n"
 	                 @"\n"
 	                 @"Query Log:\n"
 	                 @"Form Log:\n"
 	                 @"FillUp\n"
-	                 @"  + was at ✎Quantity\n"
-	                 @"  + has ✎Note\n";
+	                 @"  + was at Quantity (entered)\n"
+	                 @"  + has Note (entered)\n";
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMQuery *log = nil;
 	for (ORMQuery *query in [ORMQuery queriesInModel:editor.model]) {
@@ -545,8 +550,8 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
  * one of many. */
 - (void)testWhatCannotBePlacedIsMissingNotDropped
 {
-	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  ✓PricePerUnit"
-	                                                       withString:@"  + had driver User2\n    + drives ✓Vehicle3\n  ✓PricePerUnit"];
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  PricePerUnit ="
+	                                                       withString:@"  + had driver User2\n    + drives Vehicle3 (shown)\n  PricePerUnit ="];
 	XCTAssertNotEqualObjects(text, ORMFillUps);
 	ORMEditor *editor = [self newEditor];
 	NSArray *failures = nil;
@@ -564,10 +569,10 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
  * quantity reached again): read with the row, no maybe of its own. */
 - (void)testAValueComputedThroughAnAbsorbedObjectAgainIsRead
 {
-	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  + was of ✎Volume\n    + has Quantity\n"
-	                                                       withString:@"  + was of ✎Volume1\n"];
-	text = [text stringByReplacingOccurrencesOfString:@"  ✓PricePerUnit"
-	                                       withString:@"  + was of Volume2\n    + has Quantity\n  ✓PricePerUnit"];
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  + was of Volume (entered)\n    + has Quantity\n"
+	                                                       withString:@"  + was of Volume1 (entered)\n"];
+	text = [text stringByReplacingOccurrencesOfString:@"  PricePerUnit ="
+	                                       withString:@"  + was of Volume2\n    + has Quantity\n  PricePerUnit ="];
 	XCTAssertNotEqualObjects(text, ORMFillUps);
 	ORMEditor *editor = [self newEditor];
 	NSArray *failures = nil;
@@ -713,10 +718,10 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
                                    @"Query ReceiveGoods:\n"
                                    @"Form ReceiveGoods:\n"
                                    @"PurchaseOrder\n"
-                                   @"  + was placed on ✓Day\n"
+                                   @"  + was placed on Day (shown)\n"
                                    @"  + PurchaseLine is in that PurchaseOrder\n"
-                                   @"    + is of ✎StockItem\n"
-                                   @"    + wants ✎Quantity\n";
+                                   @"    + is of StockItem (entered)\n"
+                                   @"    + wants Quantity (entered)\n";
 
 - (ORMEditor *)orders
 {
@@ -894,7 +899,7 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 {
 	ORMEditor *editor = [self fillUps];
 	NSArray *failures = nil;
-	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:@"Query Vehicles:\n✓Vehicle\n" failures:&failures],
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:@"Query Vehicles:\nVehicle (shown)\n" failures:&failures],
 	              @"%@", failures);
 	return editor;
 }
@@ -1109,7 +1114,7 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 	                                                                             @"Query NewVehicle:\n"
 	                                                                             @"Form NewVehicle:\n"
 	                                                                             @"Vehicle\n"
-	                                                                             @"  + has ✎Nickname\n"
+	                                                                             @"  + has Nickname (entered)\n"
 	                                                                    failures:&failures],
 	              @"%@", failures);
 	ORMQuery *form = [self formIn:editor.model], *car = [self query:@"NewVehicle" in:editor.model];
@@ -1403,19 +1408,19 @@ static NSString *const ORMBeyond = @"Catalog is an entity type.\n"
                                    @"  + is of PurchaseOrder = ?\n"
                                    @"    + is from Supplier\n"
                                    @"      + is of Contact\n"
-                                   @"        + has ✓ContactName\n"
-                                   @"  + was received on ✎Day\n"
+                                   @"        + has ContactName (shown)\n"
+                                   @"  + was received on Day (entered)\n"
                                    @"\n"
                                    @"Query NewCustomer:\n"
                                    @"Form NewCustomer:\n"
                                    @"Customer\n"
                                    @"  + is of Catalog = ?\n"
                                    @"  + is of Contact\n"
-                                   @"    + has ✎ContactName\n"
+                                   @"    + has ContactName (entered)\n"
                                    @"    + ships to Address\n"
-                                   @"      + has ✎AddressLines\n"
-                                   @"      + is in ✎City\n"
-                                   @"      + has ✎PostCode\n";
+                                   @"      + has AddressLines (entered)\n"
+                                   @"      + is in City (entered)\n"
+                                   @"      + has PostCode (entered)\n";
 
 static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
                                    @"Reference Mode: .id\n"
@@ -1446,11 +1451,11 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
                                    @"Form RecordEvent:\n"
                                    @"Event\n"
                                    @"  + is of Vehicle = ?\n"
-                                   @"  + was at ✎Moment\n"
+                                   @"  + was at Moment (entered)\n"
                                    @"  + is Trip\n"
-                                   @"    + went to ✎Place\n"
+                                   @"    + went to Place (entered)\n"
                                    @"  + is FillUp\n"
-                                   @"    + took ✎Litres\n";
+                                   @"    + took Litres (entered)\n";
 
 - (ORMEditor *)editorOf:(NSString *)text
 {

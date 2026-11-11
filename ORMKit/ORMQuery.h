@@ -9,8 +9,8 @@
  * on the way, so that it is said in the model's own terms and not in the
  * store's (Core Data's entities, attributes and key paths).
  *
- *   ✓Academic
- *     + was awarded ✓Degree in Year
+ *   Academic (shown)
+ *     + was awarded Degree (shown) in Year
  *       + has Rating > 5
  *
  * lists each academic, and the degrees, for the academics awarded a degree
@@ -108,7 +108,7 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, weak) ORMQueryStep *step;
 /* Ticked: listed in the result. A form's entered and shown nodes are. */
 @property (nonatomic, readonly) BOOL isProjected;
-/* In a form: entered (✎), shown (✓) or neither; and given ("X = ?"), its
+/* In a form: entered, shown or neither; and given ("X = ?"), its
  * value coming in with the form as it is opened. None and NO elsewhere. */
 @property (nonatomic, readonly) ORMQueryFormPart formPart;
 @property (nonatomic, readonly) BOOL isGiven;
@@ -179,8 +179,8 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, weak) ORMQueryNode *comparedGroupNode;
 /* Through a subtype link: "is Professor". */
 - (BOOL)isSubtyping;
-/* In a form, a unary step entered (✎: whether it holds is the user's to
- * say) or shown (✓); none elsewhere. A unary step has no node to mark. */
+/* In a form, a unary step entered (whether it holds is the user's to
+ * say) or shown; none elsewhere. A unary step has no node to mark. */
 @property (nonatomic, readonly) ORMQueryFormPart formPart;
 @end
 

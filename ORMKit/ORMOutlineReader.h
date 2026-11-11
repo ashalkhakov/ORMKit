@@ -4,12 +4,13 @@
 /* A query read back from its outline, as -[ORMQuery outlineText] writes one
  * (docs/QUERIES.md, Outline):
  *
- *   ✓Employee
+ *   Employee (shown)
  *     + lives in City
  *       + is location of Branch = 52
  *
- * The first line is the root: ✓ ticks it, digits after the name are a
- * label, then a condition and ↑ or ↓. Each "+" line indented under a node
+ * The first line is the root: digits after the name are a label, then a
+ * condition and its marks, "(shown, descending)": shown ticks it, ascending
+ * or descending sorts by it; a node's marks follow it wherever it is. Each "+" line indented under a node
  * is a step from it: a reading of a fact type from the role the node's
  * object type plays, each other role's node written in its place, as the
  * outline writes it, after "or", "not" or "maybe". Under a step, "+ count(X)
@@ -18,7 +19,8 @@
  * X (the first node's need none). A constraint's, calculation's or form's
  * first line ("It is impossible that:", "Total of each Branch is
  * total(Salary) of:", "Form RecordFillUp:") says what the query is for; in
- * a form ✎ enters a node, ✓ shows it and "= ?" gives it. */
+ * a form (entered) enters a node, (shown) shows it and "= ?" gives it;
+ * after a unary step's reading they mark the step. */
 @interface ORMOutlineReader : NSObject
 - (instancetype)initWithEditor:(ORMEditor *)editor;
 @property (nonatomic, readonly, strong) ORMEditor *editor;

@@ -1056,7 +1056,7 @@
 	[queries performSelector:@selector(formPartChanged:) withObject:part];
 	ORMQuery *form = [ORMQuery queryWithId:query inModel:editor.model];
 	XCTAssertEqual([form.root.steps.firstObject formPart], ORMFormPartEntered);
-	XCTAssertTrue([[form outlineText] rangeOfString:@"is open ✎"].location != NSNotFound, @"%@", [form outlineText]);
+	XCTAssertTrue([[form outlineText] rangeOfString:@"is open (entered)"].location != NSNotFound, @"%@", [form outlineText]);
 	[queries close];
 }
 
@@ -1356,12 +1356,12 @@
 	/* Branch's role of "Employee works for Branch": to the branch. */
 	NSString *branch = [queries followRole:roleOf(@"Employee works for Branch", @"Branch")];
 	XCTAssertEqualObjects([[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText],
-	                      @"✓Employee\n  + works for Branch\n");
+	                      @"Employee (shown)\n  + works for Branch\n");
 	XCTAssertEqualObjects(queries.selectedId, branch);
 	/* Then City's role of "Branch is located in City", from the branch. */
 	[queries followRole:roleOf(@"Branch is located in City", @"City")];
 	XCTAssertEqualObjects([[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText],
-	                      @"✓Employee\n  + works for Branch\n    + is located in City\n");
+	                      @"Employee (shown)\n  + works for Branch\n    + is located in City\n");
 	/* A role the node's object type cannot reach from there: refused. */
 	XCTAssertNil([queries followRole:roleOf(@"Car is of CarModel", @"CarModel")]);
 	/* From the canvas, the checkbox on. */
@@ -1710,13 +1710,13 @@
 	                 @"Each FillUp took at most one Litres.\n"
 	                 @"\n"
 	                 @"Query Vehicles:\n"
-	                 @"✓Vehicle\n"
+	                 @"Vehicle (shown)\n"
 	                 @"\n"
 	                 @"Query RecordFillUp:\n"
 	                 @"Form RecordFillUp:\n"
 	                 @"FillUp\n"
 	                 @"  + is of Vehicle = ?\n"
-	                 @"  + took ✎Litres\n";
+	                 @"  + took Litres (entered)\n";
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	/* Its sample: two cars, to play the flow over. */
 	NSString *reason = nil;

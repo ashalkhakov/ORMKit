@@ -6,15 +6,15 @@
 /* A form (docs/FORMS.md) as an XForms 1.1 document: what ormtool xforms
  * writes, generated and never edited.
  *
- *   Form RecordFillUp:                 <FillUp>             the instance (Fmap)
- *   FillUp                               <id/>
- *     + is of Vehicle1 = ?               <vehicle/>         a reference: its key
- *     + was at ✎Moment                   <timestamp/>       typed by its bind
- *     + cost ✎Money                      <totalAmount/>     a compound, as the
- *                                        <totalCurrency/>   mapping absorbs it
- *     + had driver ✎User                 <driver/>          a select1, its choices
- *       + drives Vehicle1                                   read for that vehicle
- *     ✓PricePerUnit = Amount / Quantity  <pricePerUnit/>    calculated
+ *   Form RecordFillUp:                         <FillUp>           the instance (Fmap)
+ *   FillUp                                       <id/>
+ *     + is of Vehicle1 = ?                       <vehicle/>         a reference: its key
+ *     + was at Moment (entered)                  <timestamp/>       typed by its bind
+ *     + cost Money (entered)                     <totalAmount/>     a compound, as the
+ *                                                <totalCurrency/>   mapping absorbs it
+ *     + had driver User (entered)                <driver/>          a select1, its choices
+ *       + drives Vehicle1                                           read for that vehicle
+ *     PricePerUnit = Amount / Quantity (shown)   <pricePerUnit/>    calculated
  *
  * Each node is placed by the column the planner gives it in the form's read
  * (the form listed, each step a maybe, the steps under a reference left
@@ -127,6 +127,8 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
  * the document has no element for: a form that is not the model's, which
  * ormtool xforms refuses to write. Empty for a whole one. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *missing;
+/* Their nodes' ids, and the unary steps': where the designer marks them. */
+@property (nonatomic, readonly, copy) NSSet<NSString *> *missingIds;
 /* The steps from the anchor to many (an order's lines), each a form of its
  * own by the element it is (its relationship's name): anchored on what the
  * step reaches, given the anchor back, read for every object linked to

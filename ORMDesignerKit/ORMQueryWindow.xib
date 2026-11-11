@@ -351,8 +351,8 @@
                             <action selector="listChanged:" target="-2" id="listCheckAction"/>
                         </connections>
                     </button>
-                    <popUpButton toolTip="In the form: entered (✎), shown (✓), or neither" verticalHuggingPriority="750" hidden="YES" id="formPartPopUp">
-                        <rect key="frame" x="8" y="254" width="68" height="24"/>
+                    <popUpButton toolTip="In the form: entered, shown, or neither" verticalHuggingPriority="750" hidden="YES" id="formPartPopUp">
+                        <rect key="frame" x="8" y="254" width="96" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
                         <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="formPartPopUpCell">
                             <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
@@ -360,8 +360,8 @@
                             <menu key="menu" id="formPartPopUpMenu">
                                 <items>
                                     <menuItem title="—" id="formPartPopUpItem0"/>
-                                    <menuItem title="✎" id="formPartPopUpItem1"/>
-                                    <menuItem title="✓" id="formPartPopUpItem2"/>
+                                    <menuItem title="entered" id="formPartPopUpItem1"/>
+                                    <menuItem title="shown" id="formPartPopUpItem2"/>
                                 </items>
                             </menu>
                         </popUpButtonCell>
@@ -370,7 +370,7 @@
                         </connections>
                     </popUpButton>
                     <textField focusRingType="none" verticalHuggingPriority="750" id="conditionLabel">
-                        <rect key="frame" x="80" y="258" width="64" height="18"/>
+                        <rect key="frame" x="108" y="258" width="64" height="18"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
                         <textFieldCell key="cell" lineBreakMode="truncatingTail" sendsActionOnEndEditing="YES" alignment="left" title="Condition:" id="conditionLabelCell">
                             <font key="font" metaFont="smallSystem"/>
@@ -379,7 +379,7 @@
                         </textFieldCell>
                     </textField>
                     <popUpButton verticalHuggingPriority="750" id="comparisonPopUp">
-                        <rect key="frame" x="144" y="254" width="64" height="24"/>
+                        <rect key="frame" x="172" y="254" width="64" height="24"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
                         <popUpButtonCell key="cell" type="push" bezelStyle="rounded" alignment="left" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" arrowPosition="arrowAtCenter" preferredEdge="maxY" id="comparisonPopUpCell">
                             <behavior key="behavior" lightByBackground="YES" lightByGray="YES"/>
@@ -401,7 +401,7 @@
                         </connections>
                     </popUpButton>
                     <textField verticalHuggingPriority="750" id="valueField">
-                        <rect key="frame" x="212" y="256" width="140" height="22"/>
+                        <rect key="frame" x="240" y="256" width="112" height="22"/>
                         <autoresizingMask key="autoresizingMask" flexibleMaxY="YES"/>
                         <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" borderStyle="bezel" placeholderString="Value" drawsBackground="YES" id="valueFieldCell">
                             <font key="font" metaFont="smallSystem"/>
