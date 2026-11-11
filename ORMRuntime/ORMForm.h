@@ -91,6 +91,10 @@ extern NSString * const ORMFormErrorDomain;
  * email: docs/FORMS.md, D6): that reference's element; nil for others.
  * The reference's role is then "identified": the app finds it. */
 @property (nonatomic, readonly, copy) NSString *identifies;
+/* An aggregate over a repeat's rows (docs/FORMS.md, D14): its function
+ * ("count", "total", "avg", "max", "min") and the path to the values
+ * (purchaseLines, quantity); nil for others. */
+@property (nonatomic, readonly, copy) NSDictionary *aggregate;
 @end
 
 /* What to send the service to save the form: the method, the path under
@@ -161,6 +165,9 @@ extern NSString * const ORMFormErrorDomain;
  * the values given (the vehicle it is for), a flag entered "false", and
  * each repeat no rows. */
 - (NSDictionary<NSString *, id> *)instanceGiven:(NSDictionary<NSString *, id> *)values;
+/* The instance with each aggregate worked out over its rows as they are:
+ * a total and a count "0" over none, the others "". */
+- (NSDictionary<NSString *, id> *)instanceWithAggregates:(NSDictionary<NSString *, id> *)instance;
 /* A row of the read, from the store or the service, as the instance: each
  * element's text from its column (a compound's from its part, a reference's
  * key), xsd's lexical forms ("2026-11-10T08:30:00Z", "true", "40.5"). */

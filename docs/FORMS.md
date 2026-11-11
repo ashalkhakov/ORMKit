@@ -217,8 +217,6 @@ listed with the rule it breaks; these are what is to be implemented:
 - D8 and D9 beyond the anchor: a step to many below a referenced or owned
   object is left out, with a note ("one of many, not reached by one step
   from the anchor").
-- D14 (aggregates have no XForms expression:
-  "computed where it is read, not in the form").
 
 ### Sources
 
@@ -286,7 +284,16 @@ up" for FillUp).
 
 **Repeats:** a step from the anchor to many (an order's lines) is a form
 anchored on what it reaches, given the anchor by the same fact type the
-other way round. The anchor's save writes each row into its item, found or
+other way round. In the document its rows are elements of the anchor's,
+named as the repeat (`purchaseLines`), shown in an `xf:repeat`, each with
+a trigger taking it away and one after them adding a row from an instance
+of one empty row (`row-purchaseLines`); a row's binds are at its path
+(`purchaseLines/quantity`), its references' choices their own
+(`form:choices/purchaseLines/stockItem`). An aggregate over the rows (D14,
+`Wanted = total(Quantity) for PurchaseOrder`) is calculated over them in
+XForms 1.1's terms (`sum(../purchaseLines/quantity[. != ''])`, `max()`,
+`count()`), and worked out by `ORMForm` from the rows it reads or is given,
+not read. The anchor's save writes each row into its item, found or
 made and linked; an item the rows no longer have is deleted; a row's
 refusal is said at `purchaseLines[1].quantity`.
 

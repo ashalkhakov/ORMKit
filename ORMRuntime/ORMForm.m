@@ -32,6 +32,7 @@ ORMFormError(NSString *text)
 @property (nonatomic, readwrite, copy) NSString *group;
 @property (nonatomic, readwrite, copy) NSString *subtype;
 @property (nonatomic, readwrite, copy) NSString *identifies;
+@property (nonatomic, readwrite, copy) NSDictionary *aggregate;
 @property (nonatomic, readwrite, copy) NSString *label;
 @end
 
@@ -245,6 +246,7 @@ static NSString *ORMFormMessage(NSError *error);
 		element.group = [[item objectForKey:@"group"] isKindOfClass:[NSString class]] ? [item objectForKey:@"group"] : nil;
 		element.subtype = [[item objectForKey:@"subtype"] isKindOfClass:[NSString class]] ? [item objectForKey:@"subtype"] : nil;
 		element.identifies = [[item objectForKey:@"identifies"] isKindOfClass:[NSString class]] ? [item objectForKey:@"identifies"] : nil;
+		element.aggregate = [[item objectForKey:@"aggregate"] isKindOfClass:[NSDictionary class]] ? [item objectForKey:@"aggregate"] : nil;
 		/* A table from before roles: what it writes entered, the rest shown. */
 		element.role = [item objectForKey:@"role"]
 		    ?: ([element.name isEqualToString:_keyElement ?: @""] ? @"key"
@@ -496,7 +498,68 @@ ORMRegisteredForms(void)
 	for (NSString *name in _repeats) {
 		[instance setObject:@[] forKey:name];
 	}
-	return instance;
+	return [self instanceWithAggregates:instance];
+}
+
+/* The texts at the path through rows: each row's, each of its rows' in
+ * turn. */
+static void
+ORMFormCollect(id value, NSArray<NSString *> *path, NSMutableArray<NSString *> *into)
+{
+	if ([path count] == 0) {
+		NSString *text = [value description];
+		if ([text length] > 0) {
+			[into addObject:text];
+		}
+		return;
+	}
+	if ([value isKindOfClass:[NSArray class]]) {
+		for (id row in value) {
+			ORMFormCollect(row, path, into);
+		}
+		return;
+	}
+	if ([value isKindOfClass:[NSDictionary class]]) {
+		ORMFormCollect([value objectForKey:[path firstObject]], [path subarrayWithRange:NSMakeRange(1, [path count] - 1)], into);
+	}
+}
+
+- (NSDictionary<NSString *, id> *)instanceWithAggregates:(NSDictionary<NSString *, id> *)instance
+{
+	NSMutableDictionary *worked = [instance mutableCopy];
+	for (ORMFormElement *element in _elements) {
+		NSArray *path = [element.aggregate objectForKey:@"path"];
+		NSString *function = [element.aggregate objectForKey:@"function"];
+		if (![path isKindOfClass:[NSArray class]] || ![function isKindOfClass:[NSString class]]) {
+			continue;
+		}
+		NSMutableArray *texts = [NSMutableArray array];
+		ORMFormCollect(instance, path, texts);
+		NSDecimalNumber *sum = [NSDecimalNumber zero], *most = nil, *least = nil;
+		NSUInteger count = 0;
+		for (NSString *text in texts) {
+			NSDecimalNumber *number = [NSDecimalNumber decimalNumberWithString:text locale:@{ NSLocaleDecimalSeparator : @"." }];
+			if ([number isEqualToNumber:[NSDecimalNumber notANumber]]) {
+				continue;
+			}
+			count++;
+			sum = [sum decimalNumberByAdding:number];
+			most = most == nil || [number compare:most] == NSOrderedDescending ? number : most;
+			least = least == nil || [number compare:least] == NSOrderedAscending ? number : least;
+		}
+		NSString *value = @"";
+		if ([function isEqualToString:@"count"]) {
+			value = [NSString stringWithFormat:@"%lu", (unsigned long)count];
+		} else if ([function isEqualToString:@"total"]) {
+			value = [sum stringValue];
+		} else if (count > 0 && [function isEqualToString:@"avg"]) {
+			value = [[sum decimalNumberByDividingBy:[NSDecimalNumber decimalNumberWithMantissa:count exponent:0 isNegative:NO]] stringValue];
+		} else if (count > 0) {
+			value = [([function isEqualToString:@"max"] ? most : least) stringValue] ?: @"";
+		}
+		[worked setObject:value forKey:element.name];
+	}
+	return worked;
 }
 
 - (NSDictionary<NSString *, id> *)instanceOfRow:(NSArray *)row
@@ -547,7 +610,7 @@ ORMRegisteredForms(void)
 		}
 		[instance setObject:rows forKey:name];
 	}
-	return instance;
+	return [self instanceWithAggregates:instance];
 }
 
 - (NSArray<NSDictionary *> *)rowsLinkedTo:(NSString *)key inContext:(NSManagedObjectContext *)context error:(NSError **)error

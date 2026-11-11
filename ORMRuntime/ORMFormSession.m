@@ -266,6 +266,8 @@ ORMFormSessionError(NSString *text)
 - (void)setRows:(NSArray<NSDictionary<NSString *, NSString *> *> *)rows forRepeat:(NSString *)name
 {
 	[_values setObject:[rows copy] ?: @[] forKey:name];
+	/* What is worked out over them (a total of the lines), again. */
+	_values = [[_form instanceWithAggregates:_values] mutableCopy];
 }
 
 - (NSArray<NSString *> *)choicesNamed:(NSString *)name inRepeat:(NSString *)repeat row:(NSUInteger)row error:(NSError **)error

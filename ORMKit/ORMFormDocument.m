@@ -138,6 +138,14 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	/* What each node is (docs/FORMS.md, The definition); a repeat's is the
 	 * form's it is in. */
 	ORMFormDefinition *_definition;
+	/* A repeat's place in the outermost form's instance: its rows' path
+	 * ("purchaseLines", "purchaseLines/serials"); nil for that form. */
+	NSString *_repeatPath;
+	/* The value nodes that are aggregates (D14): worked out over rows, by
+	 * the document and by the app, not read. */
+	NSMutableSet<NSString *> *_aggregateNodes;
+	/* Each aggregate's element: its function and the path to its values. */
+	NSMutableDictionary<NSString *, NSDictionary *> *_aggregateOf;
 }
 
 #pragma mark The form's parts
@@ -326,6 +334,13 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_groupNodes = [NSMutableDictionary dictionary];
 	_groupNames = [NSMutableArray array];
 	_elementOfNode = [NSMutableDictionary dictionary];
+	_aggregateNodes = [NSMutableSet set];
+	_aggregateOf = [NSMutableDictionary dictionary];
+	for (ORMQueryNode *node in [form nodes]) {
+		if (node.isValue && node.expression.kind == ORMQueryExpressionAggregate) {
+			[_aggregateNodes addObject:node.identifier];
+		}
+	}
 	_unarySteps = [NSMutableDictionary dictionary];
 	for (ORMQueryStep *step in [self flagSteps]) {
 		if (step.formPart != ORMFormPartNone && [step.factType isUnary]) {
@@ -355,6 +370,7 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	[self bindConstraints];
 	[self bindIdentifications];
 	[self makeRepeats];
+	[self bindAggregates];
 	[self findMissing];
 	return nil;
 }
@@ -596,6 +612,7 @@ ORMThroughName(NSArray<NSString *> *keys)
 		ORMFormDocument *repeat = [[ORMFormDocument alloc] init];
 		repeat->_linkNodeId = anchor.identifier;
 		repeat->_definition = _definition;
+		repeat->_repeatPath = _repeatPath != nil ? [NSString stringWithFormat:@"%@/%@", _repeatPath, name] : name;
 		NSString *why = query != nil ? [repeat makeForm:query stored:stored model:_model mapping:_mapping] : @"it cannot be read";
 		if (why != nil) {
 			[_notes addObject:[NSString stringWithFormat:@"%@: a repeat not made: %@", name, why]];
@@ -691,6 +708,16 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 	for (ORMQueryPart *step in conditions) {
 		[step detach];
 	}
+	/* An aggregate is worked out over the rows, not read. */
+	NSMutableArray *aggregates = [NSMutableArray array];
+	for (ORMQueryPart *part in [copy.root tree]) {
+		if (part.isValue && [_aggregateNodes containsObject:part.identifier]) {
+			[aggregates addObject:part];
+		}
+	}
+	for (ORMQueryPart *part in aggregates) {
+		[part detach];
+	}
 	if (key != nil && _linkNodeId != nil && _linkValue) {
 		/* A repeat's: every object linked to the one of the key. */
 		ORMQueryPart *link = [copy partWithId:_linkNodeId step:NO];
@@ -756,6 +783,10 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 		}
 		ORMPlanColumn *column = [plan columnOfNode:node.identifier];
 		NSString *name = [node designation];
+		if ([_aggregateNodes containsObject:node.identifier]) {
+			[self addField:node.identifier name:[self elementNameOfValue:node] kind:ORMFormFieldCalculated type:@"xsd:decimal"];
+			continue;
+		}
 		if (column == nil) {
 			[_notes addObject:[NSString stringWithFormat:@"%@: the mapping places it nowhere.", name]];
 			continue;
@@ -1467,6 +1498,11 @@ ORMItemsOf(ORMValueConstraint *values)
 			bind.readonly = unary.formPart == ORMFormPartShown;
 			continue;
 		}
+		if (field.kind == ORMFormFieldCalculated && [_aggregateNodes containsObject:node.identifier]) {
+			/* Over the rows, once they are made: -bindAggregates. */
+			bind.readonly = YES;
+			continue;
+		}
 		if (field.kind == ORMFormFieldCalculated) {
 			bind.calculate = ORMXPathOf(node.expression, elements);
 			bind.readonly = YES;
@@ -1564,6 +1600,52 @@ ORMItemsOf(ORMValueConstraint *values)
 			[_checked addObject:[NSString stringWithFormat:@"%@ matches the pattern '%@'.",
 			                                               ORMLabelOf(field.role, valueType), valueType.valuePattern]];
 		}
+	}
+}
+
+/* Where a node is placed, from the anchor's element: its own element, or
+ * in a repeat's rows ("purchaseLines/quantity"); nil for none. */
+- (NSArray<NSString *> *)pathOfNode:(NSString *)nodeId
+{
+	NSString *own = [self elementOfNode:nodeId];
+	if (own != nil) {
+		return @[ own ];
+	}
+	for (NSString *name in [[_repeats allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		NSArray *inner = [[_repeats objectForKey:name] pathOfNode:nodeId];
+		if (inner != nil) {
+			return [@[ name ] arrayByAddingObjectsFromArray:inner];
+		}
+	}
+	return nil;
+}
+
+/* D14: each aggregate (total, count, avg, max, min of a node) over the
+ * rows it is of, as XForms 1.1 says them; an empty value none of them. */
+- (void)bindAggregates
+{
+	for (NSString *nodeId in _aggregateNodes) {
+		ORMQueryNode *node = [self nodeWithId:nodeId];
+		ORMFormField *field = [[self fieldsOfNode:nodeId] firstObject];
+		NSString *operand = [[node.expression nodeIds] firstObject];
+		NSArray *path = operand != nil ? [self pathOfNode:operand] : nil;
+		NSString *function = node.expression.function;
+		if (field == nil || path == nil) {
+			[_missing addObject:[NSString stringWithFormat:@"%@: the rows it is an aggregate of are not in the form.", [node designation]]];
+			[_missingIds addObject:nodeId];
+			continue;
+		}
+		NSString *values = [NSString stringWithFormat:@"%@[. != '']", ORMPathFrom(field.elementName, [path componentsJoinedByString:@"/"])];
+		NSString *count = [NSString stringWithFormat:@"count(%@)", values], *sum = [NSString stringWithFormat:@"sum(%@)", values];
+		NSDictionary *said = @{
+			@"count" : count, @"total" : sum,
+			@"avg" : [NSString stringWithFormat:@"choose(%@ > 0, %@ div %@, '')", count, sum, count],
+			@"max" : [NSString stringWithFormat:@"choose(%@ > 0, max(%@), '')", count, values],
+			@"min" : [NSString stringWithFormat:@"choose(%@ > 0, min(%@), '')", count, values],
+		};
+		[self bindOf:field].calculate = [said objectForKey:function ?: @""];
+		[self bindOf:field].readonly = YES;
+		[_aggregateOf setObject:@{ @"function" : function ?: @"", @"path" : path } forKey:field.elementName];
 	}
 }
 
@@ -2201,6 +2283,9 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		if (field.identifies != nil) {
 			[element setObject:field.identifies forKey:@"identifies"];
 		}
+		if ([_aggregateOf objectForKey:field.elementName] != nil) {
+			[element setObject:[_aggregateOf objectForKey:field.elementName] forKey:@"aggregate"];
+		}
 		[element setObject:@(written) forKey:@"written"];
 		/* What it is to whoever opens the form, and what it is called. */
 		[element setObject:[self roleOfField:field] forKey:@"role"];
@@ -2366,7 +2451,7 @@ ORMXText(NSString *name, NSString *text)
 	[model addChild:instance];
 	NSArray *choices = [self choiceNames];
 	for (NSString *name in choices) {
-		NSXMLElement *list = ORMXElement(@"xf:instance", @{ @"id" : [@"choices-" stringByAppendingString:name] });
+		NSXMLElement *list = ORMXElement(@"xf:instance", @{ @"id" : [self choicesInstanceOf:name] });
 		NSXMLElement *empty = [NSXMLElement elementWithName:@"choices"];
 		[empty addNamespace:[NSXMLNode namespaceWithName:@"" stringValue:@""]];
 		[list addChild:empty];
@@ -2375,6 +2460,9 @@ ORMXText(NSString *name, NSString *text)
 	for (ORMFormField *field in _fields) {
 		[model addChild:[self bindElement:[self bindOf:field]]];
 	}
+	/* Each repeat's: a row to add, its binds under its rows, its choices. */
+	NSMutableArray *repeatChoices = [NSMutableArray array];
+	[self addRepeatsTo:model choices:repeatChoices];
 	/* What ought to hold: XFormsKit shows each at its element, the form
 	 * valid all the same. */
 	for (ORMFormWarning *warning in _warnings) {
@@ -2391,11 +2479,7 @@ ORMXText(NSString *name, NSString *text)
 		@"replace" : @"instance", @"instance" : @"form", @"validate" : @"false",
 	})];
 	for (NSString *name in choices) {
-		[model addChild:ORMXElement(@"xf:submission", @{
-			@"id" : [@"choices-" stringByAppendingString:name], @"resource" : [@"form:choices/" stringByAppendingString:name],
-			@"method" : @"get", @"ref" : @"instance('form')", @"replace" : @"instance",
-			@"instance" : [@"choices-" stringByAppendingString:name], @"validate" : @"false",
-		})];
+		[model addChild:[self choicesSubmissionOf:name]];
 	}
 	NSXMLElement *save = ORMXElement(@"xf:submission", @{
 		@"id" : @"save", @"resource" : @"form:save", @"method" : @"post", @"ref" : @"instance('form')",
@@ -2414,10 +2498,66 @@ ORMXText(NSString *name, NSString *text)
 	NSXMLElement *ready = ORMXElement(@"xf:action", @{ @"ev:event" : @"xforms-ready" });
 	[ready addChild:ORMXElement(@"xf:send", @{ @"submission" : @"read" })];
 	for (NSString *name in choices) {
-		[ready addChild:ORMXElement(@"xf:send", @{ @"submission" : [@"choices-" stringByAppendingString:name] })];
+		[ready addChild:ORMXElement(@"xf:send", @{ @"submission" : [self choicesInstanceOf:name] })];
+	}
+	for (NSString *submission in repeatChoices) {
+		[ready addChild:ORMXElement(@"xf:send", @{ @"submission" : submission })];
 	}
 	[model addChild:ready];
 	return model;
+}
+
+/* "choices-driver"; a repeat's, "choices-purchaseLines-stockItem". */
+- (NSString *)choicesInstanceOf:(NSString *)name
+{
+	NSString *within = [_repeatPath stringByReplacingOccurrencesOfString:@"/" withString:@"-"];
+	return within != nil ? [NSString stringWithFormat:@"choices-%@-%@", within, name] : [@"choices-" stringByAppendingString:name];
+}
+
+/* What reads a reference's choices: "form:choices/driver"; a repeat's,
+ * "form:choices/purchaseLines/stockItem". */
+- (NSXMLElement *)choicesSubmissionOf:(NSString *)name
+{
+	NSString *resource = _repeatPath != nil ? [NSString stringWithFormat:@"form:choices/%@/%@", _repeatPath, name]
+	                                        : [@"form:choices/" stringByAppendingString:name];
+	return ORMXElement(@"xf:submission", @{
+		@"id" : [self choicesInstanceOf:name], @"resource" : resource, @"method" : @"get", @"ref" : @"instance('form')",
+		@"replace" : @"instance", @"instance" : [self choicesInstanceOf:name], @"validate" : @"false",
+	});
+}
+
+/* Each repeat, nested ones within: an instance of one empty row to add
+ * ("row-purchaseLines"), its binds at its rows ("purchaseLines/quantity"),
+ * its choices' instances and submissions (their ids put in choices). */
+- (void)addRepeatsTo:(NSXMLElement *)model choices:(NSMutableArray<NSString *> *)choices
+{
+	for (NSString *name in [[_repeats allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		ORMFormDocument *repeat = [_repeats objectForKey:name];
+		NSXMLElement *template = ORMXElement(@"xf:instance", @{ @"id" : [repeat rowInstanceId] });
+		NSXMLElement *row = [repeat instanceGiven:@{}];
+		[row setName:name];
+		[template addChild:row];
+		[model addChild:template];
+		for (ORMFormField *field in repeat.fields) {
+			[model addChild:[repeat bindElement:[repeat bindOf:field]]];
+		}
+		for (NSString *choice in [repeat choiceNames]) {
+			NSXMLElement *list = ORMXElement(@"xf:instance", @{ @"id" : [repeat choicesInstanceOf:choice] });
+			NSXMLElement *empty = [NSXMLElement elementWithName:@"choices"];
+			[empty addNamespace:[NSXMLNode namespaceWithName:@"" stringValue:@""]];
+			[list addChild:empty];
+			[model addChild:list];
+			[model addChild:[repeat choicesSubmissionOf:choice]];
+			[choices addObject:[repeat choicesInstanceOf:choice]];
+		}
+		[repeat addRepeatsTo:model choices:choices];
+	}
+}
+
+/* A repeat's instance of one empty row: "row-purchaseLines". */
+- (NSString *)rowInstanceId
+{
+	return [@"row-" stringByAppendingString:[_repeatPath stringByReplacingOccurrencesOfString:@"/" withString:@"-"] ?: @""];
 }
 
 - (NSXMLElement *)bindElement:(ORMFormBind *)bind
@@ -2425,7 +2565,9 @@ ORMXText(NSString *name, NSString *text)
 	ORMFormField *field = bind.field;
 	NSMutableDictionary *attributes = [NSMutableDictionary dictionary];
 	[attributes setObject:[@"bind-" stringByAppendingString:[field fieldId]] forKey:@"id"];
-	[attributes setObject:field.elementName forKey:@"ref"];
+	/* A repeat's at its rows, from the outermost form's anchor. */
+	[attributes setObject:_repeatPath != nil ? [NSString stringWithFormat:@"%@/%@", _repeatPath, field.elementName] : field.elementName
+	               forKey:@"ref"];
 	/* XForms' own datatypes: XML Schema's, but empty is one of their
 	 * values, as an optional field's is until it is entered (required says
 	 * whether it may stay so). */
@@ -2574,7 +2716,9 @@ ORMXText(NSString *name, NSString *text)
 	return group;
 }
 
-- (void)addControlsTo:(NSXMLElement *)body
+/* The fields' controls, in order, an owned object's in its group; then
+ * each repeat's. */
+- (void)addFieldControlsTo:(NSXMLElement *)parent
 {
 	NSMutableSet *done = [NSMutableSet set];
 	for (ORMFormField *field in _fields) {
@@ -2586,9 +2730,51 @@ ORMXText(NSString *name, NSString *text)
 			control = [self controlOfField:field done:done];
 		}
 		if (control != nil) {
-			[body addChild:control];
+			[parent addChild:control];
 		}
 	}
+	for (NSString *name in [[_repeats allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		[parent addChild:[[_repeats objectForKey:name] repeatControlNamed:name]];
+	}
+}
+
+/* A repeat's group: its rows in an xf:repeat, each with its controls (the
+ * link to the form it is in the app's) and, where the rows are written, a
+ * trigger taking it away; after them one adding a row. A list's rows only
+ * shown. */
+- (NSXMLElement *)repeatControlNamed:(NSString *)name
+{
+	NSString *dashed = [_repeatPath stringByReplacingOccurrencesOfString:@"/" withString:@"-"];
+	NSXMLElement *group = ORMXElement(@"xf:group", @{ @"id" : [@"control-rows-" stringByAppendingString:dashed] });
+	[group addChild:ORMXText(@"xf:label", ORMLabelOf(_form.root.role, _form.root.objectType))];
+	NSXMLElement *repeat = ORMXElement(@"xf:repeat", @{ @"id" : [@"repeat-" stringByAppendingString:dashed], @"nodeset" : name });
+	[self addFieldControlsTo:repeat];
+	BOOL written = NO;
+	for (ORMFormField *field in _fields) {
+		written = written || [[self roleOfField:field] isEqualToString:@"entered"];
+	}
+	if (written) {
+		NSXMLElement *remove = ORMXElement(@"xf:trigger", @{ @"id" : [@"control-remove-" stringByAppendingString:dashed] });
+		[remove addChild:ORMXText(@"xf:label", @"Remove")];
+		[remove addChild:ORMXElement(@"xf:delete", @{ @"ev:event" : @"DOMActivate", @"nodeset" : @"." })];
+		[repeat addChild:remove];
+	}
+	[group addChild:repeat];
+	if (written) {
+		NSXMLElement *add = ORMXElement(@"xf:trigger", @{ @"id" : [@"control-add-" stringByAppendingString:dashed] });
+		[add addChild:ORMXText(@"xf:label", @"Add")];
+		[add addChild:ORMXElement(@"xf:insert", @{
+			@"ev:event" : @"DOMActivate", @"context" : @".", @"nodeset" : name, @"at" : @"last()", @"position" : @"after",
+			@"origin" : [NSString stringWithFormat:@"instance('%@')/%@", [self rowInstanceId], name],
+		})];
+		[group addChild:add];
+	}
+	return group;
+}
+
+- (void)addControlsTo:(NSXMLElement *)body
+{
+	[self addFieldControlsTo:body];
 	NSXMLElement *submit = ORMXElement(@"xf:submit", @{ @"id" : @"control-save", @"submission" : @"save" });
 	[submit addChild:ORMXText(@"xf:label", @"Save")];
 	[body addChild:submit];
@@ -2740,7 +2926,7 @@ ORMXPathLiteral(NSString *text)
 		[control addChild:ORMXText(@"xf:hint", note)];
 	}
 	if (!shown && field.kind == ORMFormFieldReference && items == nil) {
-		NSString *instance = [NSString stringWithFormat:@"instance('choices-%@')/*", field.elementName];
+		NSString *instance = [NSString stringWithFormat:@"instance('%@')/*", [self choicesInstanceOf:field.elementName]];
 		NSXMLElement *itemset = ORMXElement(@"xf:itemset", @{ @"nodeset" : instance });
 		[itemset addChild:ORMXElement(@"xf:label", @{ @"ref" : @"*[1]" })];
 		[itemset addChild:ORMXElement(@"xf:value", @{ @"ref" : @"*[1]" })];
@@ -2762,7 +2948,7 @@ ORMXPathLiteral(NSString *text)
 		for (NSString *name in [self choiceNames]) {
 			if ([[self elementsChoicesDependOn:name] containsObject:field.elementName]) {
 				NSXMLElement *action = ORMXElement(@"xf:action", @{ @"ev:event" : @"xforms-value-changed" });
-				[action addChild:ORMXElement(@"xf:send", @{ @"submission" : [@"choices-" stringByAppendingString:name] })];
+				[action addChild:ORMXElement(@"xf:send", @{ @"submission" : [self choicesInstanceOf:name] })];
 				[control addChild:action];
 			}
 		}

@@ -2033,4 +2033,86 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	XCTAssertEqualObjects([read objectForKey:tax], @"KZ-7", @"read with the receipt: %@ %@", read, error);
 }
 
+#pragma mark Rows in the document
+
+/* The order's lines in the XForms document: rows of the instance, each
+ * bound and shown in an xf:repeat, added from a template and removed. */
+- (void)testARepeatIsAnXFormsRepeat
+{
+	ORMEditor *editor = [self orders];
+	ORMFormDocument *document = [self receiveGoodsOf:editor];
+	ORMFormDocument *lines = [document.repeats objectForKey:@"purchaseLines"];
+	NSXMLDocument *xforms = [document document];
+	NSString *pretty = [xforms XMLStringWithOptions:NSXMLNodePrettyPrint];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='row-purchaseLines']/*[local-name()='purchaseLines']/*[local-name()='quantity']" in:xforms] count], 1u, @"%@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='form']/*/*[local-name()='purchaseLines']" in:xforms] count], 0u, @"a new order: no rows");
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@ref='purchaseLines/quantity']" in:xforms] count], 1u, @"%@", pretty);
+	NSString *quantity = [[lines fieldNamed:@"quantity"] fieldId];
+	NSString *input = [NSString stringWithFormat:@"//*[local-name()='repeat'][@id='repeat-purchaseLines'][@nodeset='purchaseLines']//*[local-name()='input'][@bind='bind-%@']", quantity];
+	XCTAssertEqual([[self nodes:input in:xforms] count], 1u, @"%@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='repeat'][@id='repeat-purchaseLines']//*[local-name()='select1'][*[local-name()='itemset'][@nodeset=\"instance('choices-purchaseLines-stockItem')/*\"]]" in:xforms] count], 1u,
+	               @"a line's item chosen from its own choices: %@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='choices-purchaseLines-stockItem']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='submission'][@resource='form:choices/purchaseLines/stockItem']" in:xforms] count], 1u);
+	NSXMLNode *insert = [[self nodes:@"//*[local-name()='trigger'][@id='control-add-purchaseLines']/*[local-name()='insert']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"origin" of:insert], @"instance('row-purchaseLines')/purchaseLines", @"%@", pretty);
+	XCTAssertEqualObjects([self attribute:@"nodeset" of:insert], @"purchaseLines");
+	XCTAssertEqual([[self nodes:@"//*[local-name()='repeat'][@id='repeat-purchaseLines']//*[local-name()='delete'][@nodeset='.']" in:xforms] count], 1u);
+	NSString *link = [NSString stringWithFormat:@"//*[local-name()='repeat']//*[@bind='bind-%@']", [[lines fieldNamed:lines.linkElement] fieldId]];
+	XCTAssertEqual([[self nodes:link in:xforms] count], 0u, @"the link is the app's");
+}
+
+/* Aggregates over the order's lines (D14): calculated in the document over
+ * the rows, and worked out by ORMRuntime from the rows it has. */
+- (void)testAnAggregateOverRowsIsCalculated
+{
+	NSString *text = [ORMOrders stringByAppendingString:@"\n"
+	                                                    @"Query CountGoods:\n"
+	                                                    @"Form CountGoods:\n"
+	                                                    @"PurchaseOrder\n"
+	                                                    @"  + PurchaseLine is in that PurchaseOrder\n"
+	                                                    @"    + is of StockItem (entered)\n"
+	                                                    @"    + wants Quantity (entered)\n"
+	                                                    @"  Wanted = total(Quantity) for PurchaseOrder (shown)\n"
+	                                                    @"  Most = max(Quantity) for PurchaseOrder (shown)\n"
+	                                                    @"  Lines: Quantity = count(Quantity) for PurchaseOrder (shown)\n"];
+	ORMEditor *editor = [self editorOf:text];
+	ORMFormDocument *document = [self form:@"CountGoods" of:editor];
+	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"], (@[ @"number", @"wanted", @"most", @"lines" ]), @"%@", document.notes);
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *wanted = [[self nodes:@"//*[local-name()='bind'][@ref='wanted']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"calculate" of:wanted], @"sum(../purchaseLines/quantity[. != ''])");
+	NSXMLNode *most = [[self nodes:@"//*[local-name()='bind'][@ref='most']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"calculate" of:most],
+	                      @"choose(count(../purchaseLines/quantity[. != '']) > 0, max(../purchaseLines/quantity[. != '']), '')");
+	NSXMLNode *count = [[self nodes:@"//*[local-name()='bind'][@ref='lines']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"calculate" of:count], @"count(../purchaseLines/quantity[. != ''])");
+
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSDictionary *empty = [form instanceGiven:@{}];
+	XCTAssertEqualObjects([empty objectForKey:@"wanted"], @"0", @"%@", empty);
+	XCTAssertEqualObjects([empty objectForKey:@"lines"], @"0");
+	XCTAssertEqualObjects([empty objectForKey:@"most"], @"");
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session setRows:@[ @{ @"stockItem" : @"OIL", @"quantity" : @"4" }, @{ @"stockItem" : @"FILTER", @"quantity" : @"2.5" },
+	                    @{ @"stockItem" : @"WIPER", @"quantity" : @"" } ]
+	       forRepeat:@"purchaseLines"];
+	XCTAssertEqualObjects([session valueForElement:@"wanted"], @"6.5");
+	XCTAssertEqualObjects([session valueForElement:@"most"], @"4");
+	XCTAssertEqualObjects([session valueForElement:@"lines"], @"2");
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *order = [self insert:@"PurchaseOrder" values:@{ @"number" : @7 } in:context];
+	NSManagedObject *oil = [self insert:@"StockItem" values:@{ @"sku" : @"OIL" } in:context];
+	for (NSString *quantity in @[ @"4", @"3" ]) {
+		[self insert:@"PurchaseLine" values:@{ @"id" : [NSUUID UUID], @"purchaseOrder" : order, @"stockItem" : oil,
+		                                       @"quantity" : [NSDecimalNumber decimalNumberWithString:quantity] } in:context];
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *read = [form readKey:@"7" inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"wanted"], @"7", @"%@ %@", read, error);
+	XCTAssertEqualObjects([read objectForKey:@"lines"], @"2");
+}
+
 @end
