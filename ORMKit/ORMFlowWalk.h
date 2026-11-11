@@ -37,7 +37,8 @@
 @property (nonatomic, readonly, strong) ORMFormSession *session;
 /* A reference's value as a reader knows what it refers to, the form's
  * element named: the object's other identifier (a van's plate, a
- * station's name), else its first text, else the key itself. */
+ * station's name), else its first text, else the key itself; a kind's
+ * as a reader says it ("Fill up"). */
 - (NSString *)labelOfKey:(NSString *)key element:(NSString *)name;
 /* The ways on from here, in the flow's order. */
 - (NSArray<ORMFlowTransition *> *)transitions;

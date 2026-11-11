@@ -581,11 +581,15 @@ never edited, as the validation code is. Customizations are documents of their o
      anything of it is entered, changed with it, and put back with it
      when the save is refused; to the service, nested in the body (a deep
      insert, a deep update). Its mandatory roles are required where the
-     object is needed, else once anything of it is entered (`../* != ''`).
+     object is needed, else once anything of it is entered (`../* != ''`);
+     its other constraints are bound as the anchor's are (an address in
+     a city or with a post code), each path from the element's own place
+     (`../../../contact/shippingAddress/postCode`).
    - **Subtype parts** (Logbook's events: `+ is Trip`, `+ is FillUp`): its
      nodes the subentity's properties (`tripMoment` where another part
      has a `moment`), each relevant where the object is of it; an element
-     `isA` (kind `subtype`, its items the subentities) says which the
+     `isA` (kind `subtype`, its items the subentities, `itemLabels` each
+     as a reader says its type's name: "Fill up") says which the
      object is: a new one is made of it, one read is of it and stays so,
      and the service is told its type. The read reads every object,
      each subtype's properties nothing where it is not one.

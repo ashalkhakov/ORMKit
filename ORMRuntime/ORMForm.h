@@ -69,6 +69,11 @@ extern NSString * const ORMFormErrorDomain;
 /* The values it may have, where the model lists them (a fuel, a
  * currency): its choices, whatever the store holds; nil for others. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *items;
+/* Each item as a reader says it, where it is not the value itself (a
+ * kind's: "Fill up" for FillUp); nil where they are. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *itemLabels;
+/* The item's label: its itemLabels', else the item itself. */
+- (NSString *)labelOfItem:(NSString *)item;
 /* Beyond the anchor's own properties, the keys to it from the anchor
  * (purchaseOrder, supplier, contact, contactName); nil for its own, but
  * one named for another (a trip's moment, "tripMoment": moment). In an

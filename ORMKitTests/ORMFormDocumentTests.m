@@ -1322,6 +1322,8 @@ static NSString *const ORMBeyond = @"Catalog is an entity type.\n"
                                    @"Portable data type: Text: Variable Length\n"
                                    @"City is a value type.\n"
                                    @"Portable data type: Text: Variable Length\n"
+                                   @"PostCode is a value type.\n"
+                                   @"Portable data type: Text: Variable Length\n"
                                    @"Day is a value type.\n"
                                    @"Portable data type: Temporal: Date\n"
                                    @"Contact has ContactName\n"
@@ -1330,6 +1332,8 @@ static NSString *const ORMBeyond = @"Catalog is an entity type.\n"
                                    @"Each Address has exactly one AddressLines.\n"
                                    @"Address is in City\n"
                                    @"Each Address is in at most one City.\n"
+                                   @"Address has PostCode\n"
+                                   @"Each Address has at most one PostCode.\n"
                                    @"Contact ships to Address (as ShippingAddress)\n"
                                    @"Each Contact ships to at most one Address.\n"
                                    @"Customer is of Catalog\n"
@@ -1363,7 +1367,8 @@ static NSString *const ORMBeyond = @"Catalog is an entity type.\n"
                                    @"    + has ✎ContactName\n"
                                    @"    + ships to Address\n"
                                    @"      + has ✎AddressLines\n"
-                                   @"      + is in ✎City\n";
+                                   @"      + is in ✎City\n"
+                                   @"      + has ✎PostCode\n";
 
 static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
                                    @"Reference Mode: .id\n"
@@ -1488,7 +1493,7 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 	ORMFormDocument *document = [self form:@"NewCustomer" of:editor];
 	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"],
 	                      (@[ @"id", @"catalog", @"contact/contactName", @"contact/shippingAddress/addressLines",
-	                          @"contact/shippingAddress/city" ]), @"%@", document.notes);
+	                          @"contact/shippingAddress/city", @"contact/shippingAddress/postCode" ]), @"%@", document.notes);
 	XCTAssertEqualObjects([document fieldNamed:@"contact/shippingAddress/city"].groupName, @"contact/shippingAddress");
 	NSXMLDocument *xforms = [document document];
 	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='form']/*/*[local-name()='contact']/*[local-name()='shippingAddress']/*[local-name()='city']"
@@ -1499,6 +1504,24 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 	XCTAssertNotNil([required objectForKey:@"contact/contactName"], @"the contact is the customer's: %@", required);
 	NSXMLNode *lines = [[self nodes:@"//*[local-name()='bind'][@ref='contact/shippingAddress/addressLines']" in:xforms] firstObject];
 	XCTAssertEqualObjects([self attribute:@"required" of:lines], @"(../* != '')", @"an address entered at all has its lines");
+	/* Its other constraints bound too, from within its group: an address
+	 * entered at all is in a city or has a post code. */
+	NSMutableArray *either = [NSMutableArray array];
+	for (ORMFactType *fact in editor.model.factTypes) {
+		ORMRole *address = [fact.roles firstObject];
+		NSString *other = [[[fact.roles lastObject] player] name];
+		if ([address.player.name isEqualToString:@"Address"] && ([other isEqualToString:@"City"] || [other isEqualToString:@"PostCode"])) {
+			[either addObject:address.identifier];
+		}
+	}
+	XCTAssertEqual([either count], 2u);
+	XCTAssertNotNil([editor.constraintEditor addMandatoryConstraintOverRoles:either reason:NULL]);
+	document = [self form:@"NewCustomer" of:editor];
+	xforms = [document document];
+	NSXMLNode *city = [[self nodes:@"//*[local-name()='bind'][@ref='contact/shippingAddress/city']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"required" of:city], @"((../../../contact/shippingAddress/postCode = '') and ../* != '')",
+	                      @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	XCTAssertFalse([[document.checkedWhereSubmitted componentsJoinedByString:@"\n"] rangeOfString:@"City"].location != NSNotFound, @"%@", document.checkedWhereSubmitted);
 
 	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
 	XCTAssertEqualObjects([[form groups] valueForKey:@"name"], (@[ @"contact", @"contact/shippingAddress" ]));
@@ -1571,6 +1594,10 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 	ORMFormElement *kind = [form elementNamed:@"isA"];
 	XCTAssertEqualObjects(kind.kind, @"subtype");
 	XCTAssertEqualObjects(kind.items, (@[ @"Trip", @"FillUp" ]));
+	XCTAssertEqualObjects(kind.itemLabels, (@[ @"Trip", @"Fill up" ]), @"said as a reader does");
+	XCTAssertEqualObjects([kind labelOfItem:@"FillUp"], @"Fill up");
+	XCTAssertEqual([[self nodes:@"//*[local-name()='select1']/*[local-name()='item'][*[local-name()='label']='Fill up'][*[local-name()='value']='FillUp']"
+	                         in:[document document]] count], 1u, @"the XForms item");
 	XCTAssertEqualObjects([form elementNamed:@"litres"].subtype, @"FillUp");
 	NSManagedObjectContext *context = [self contextOf:editor];
 	NSManagedObject *van = [self insert:@"Vehicle" values:@{ @"id" : [NSUUID UUID] } in:context];

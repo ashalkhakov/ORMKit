@@ -637,6 +637,47 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 	return subtypes;
 }
 
+/* "Fill up" for FillUp: a subentity as a reader says its object type's
+ * name, its words apart, the first capitalized (an acronym kept). */
+- (NSString *)labelOfSubtype:(NSString *)entity
+{
+	NSString *name = entity;
+	for (ORMObjectType *type in _model.objectTypes) {
+		if ([[_planner entityNameOfType:type] isEqualToString:entity]) {
+			name = type.name;
+			break;
+		}
+	}
+	NSMutableArray *words = [NSMutableArray array];
+	NSMutableString *word = [NSMutableString string];
+	NSCharacterSet *upper = [NSCharacterSet uppercaseLetterCharacterSet];
+	for (NSUInteger i = 0; i < [name length]; i++) {
+		unichar c = [name characterAtIndex:i];
+		BOOL starts = [upper characterIsMember:c] && [word length] > 0
+		              && (![upper characterIsMember:[word characterAtIndex:[word length] - 1]]
+		                  || (i + 1 < [name length] && [[NSCharacterSet lowercaseLetterCharacterSet] characterIsMember:[name characterAtIndex:i + 1]]));
+		if (starts || c == '_' || c == ' ') {
+			if ([word length] > 0) {
+				[words addObject:[word copy]];
+			}
+			[word setString:@""];
+		}
+		if (c != '_' && c != ' ') {
+			[word appendFormat:@"%C", c];
+		}
+	}
+	if ([word length] > 0) {
+		[words addObject:word];
+	}
+	for (NSUInteger i = 1; i < [words count]; i++) {
+		NSString *each = [words objectAtIndex:i];
+		if (![[each uppercaseString] isEqualToString:each] || [each length] == 1) {
+			[words replaceObjectAtIndex:i withObject:[each lowercaseString]];
+		}
+	}
+	return [words count] > 0 ? [words componentsJoinedByString:@" "] : entity;
+}
+
 /* Where the form has subtype parts: which of them the object is, an
  * element after the key ("isA": "Trip"), entered. */
 - (void)placeSubtypeChoice
@@ -989,6 +1030,19 @@ ORMSibling(NSString *elementName)
 	return [@"../" stringByAppendingString:elementName];
 }
 
+/* "../../address/city": an element from another's context, where either
+ * may be in a group (an address's lines, its city). */
+static NSString *
+ORMPathFrom(NSString *from, NSString *to)
+{
+	NSMutableString *path = [NSMutableString string];
+	for (NSUInteger i = [[from componentsSeparatedByString:@"/"] count]; i > 0; i--) {
+		[path appendString:@"../"];
+	}
+	[path appendString:to];
+	return path;
+}
+
 /* The expression in XPath over the elements its nodes are at; nil where it
  * uses what XPath cannot say (a function of moments, an aggregate). */
 static NSString *
@@ -1188,7 +1242,7 @@ ORMItemsOf(ORMValueConstraint *values)
 			NSMutableArray *others = [NSMutableArray array];
 			for (ORMFormField *other in [self fieldsOfNode:node.identifier]) {
 				if (other != field) {
-					[others addObject:[NSString stringWithFormat:@"%@ != ''", ORMSibling(other.elementName)]];
+					[others addObject:[NSString stringWithFormat:@"%@ != ''", ORMPathFrom(field.elementName, other.elementName)]];
 				}
 			}
 			if ([others count] > 0) {
@@ -1315,7 +1369,10 @@ ORMItemsOf(ORMValueConstraint *values)
 	NSMutableDictionary *byRole = [NSMutableDictionary dictionary];
 	for (ORMFormField *field in _fields) {
 		ORMQueryNode *node = [self nodeWithId:field.nodeId];
-		if (node.isValue || node.step.parent != _form.root || field.kind == ORMFormFieldCalculated) {
+		/* The anchor's own (a subtype part's among them) and an owned
+		 * object's: what is written with it. */
+		BOOL written = [self isAnchorsOwn:node.step.parent] || (field.groupName != nil && [self ownsNode:node.step.parent]);
+		if (node.isValue || !written || field.kind == ORMFormFieldCalculated) {
 			continue;
 		}
 		for (ORMRole *role in @[ node.step.entryRole ?: (id)[NSNull null], node.role ?: (id)[NSNull null] ]) {
@@ -1349,13 +1406,14 @@ ORMItemsOf(ORMValueConstraint *values)
 	return YES;
 }
 
-/* "../a = '' and ../b = ''": none of the fields given. */
+/* "../a = '' and ../b = ''": none of the fields given, from the one's
+ * context. */
 static NSString *
-ORMNoneGiven(NSArray<ORMFormField *> *fields)
+ORMNoneGiven(ORMFormField *from, NSArray<ORMFormField *> *fields)
 {
 	NSMutableArray *tests = [NSMutableArray array];
 	for (ORMFormField *field in fields) {
-		[tests addObject:[NSString stringWithFormat:@"%@ = ''", ORMSibling(field.elementName)]];
+		[tests addObject:[NSString stringWithFormat:@"%@ = ''", ORMPathFrom(from.elementName, field.elementName)]];
 	}
 	return [tests componentsJoinedByString:@" and "];
 }
@@ -1454,7 +1512,13 @@ ORMNoneGiven(NSArray<ORMFormField *> *fields)
 	case ORMMandatoryConstraint:
 		/* Inclusive-or: each needed while the others are empty. */
 		for (ORMFormField *field in all) {
-			NSString *test = ORMNoneGiven(ORMWithout(all, field));
+			NSString *test = ORMNoneGiven(field, ORMWithout(all, field));
+			/* An owned object's, where it need not be: once anything of it
+			 * is entered (an address left out has none of its lines). */
+			ORMQueryNode *object = [self nodeWithId:field.nodeId].step.parent;
+			if (field.groupName != nil && [self ownsNode:object] && ![self needsObjectOf:object]) {
+				test = [NSString stringWithFormat:@"(%@) and ../* != ''", test];
+			}
 			[self apply:constraint to:field];
 			if (deontic) {
 				[self warn:constraint at:field test:[NSString stringWithFormat:@". != '' or not(%@)", test]];
@@ -1471,9 +1535,9 @@ ORMNoneGiven(NSArray<ORMFormField *> *fields)
 			for (ORMFormField *field in fields) {
 				[self apply:constraint to:field];
 				if (deontic) {
-					[self warn:constraint at:field test:[NSString stringWithFormat:@". = '' or (%@)", ORMNoneGiven(others)]];
+					[self warn:constraint at:field test:[NSString stringWithFormat:@". = '' or (%@)", ORMNoneGiven(field, others)]];
 				} else {
-					[[self bindOf:field].relevant addObject:ORMNoneGiven(others)];
+					[[self bindOf:field].relevant addObject:ORMNoneGiven(field, others)];
 				}
 			}
 		}
@@ -1488,8 +1552,8 @@ ORMNoneGiven(NSArray<ORMFormField *> *fields)
 		BOOL both = constraint.kind == ORMEqualityConstraint;
 		for (NSUInteger i = 0; i < (both ? 2 : 1); i++) {
 			NSArray *these = [sequences objectAtIndex:i], *those = [sequences objectAtIndex:1 - i];
-			NSString *given = [NSString stringWithFormat:@"not(%@)", ORMNoneGiven(those)];
 			for (ORMFormField *field in these) {
+				NSString *given = [NSString stringWithFormat:@"not(%@)", ORMNoneGiven(field, those)];
 				[self apply:constraint to:field];
 				if (deontic) {
 					[self warn:constraint at:field test:[NSString stringWithFormat:@". = '' or %@", given]];
@@ -1514,11 +1578,11 @@ ORMNoneGiven(NSArray<ORMFormField *> *fields)
 		}
 		ORMFormField *first = [fields firstObject], *second = [fields lastObject];
 		BOOL numeric = ![first.schemaType isEqualToString:@"xsd:string"];
-		NSString *a = numeric ? @"number(.)" : @".", *b = ORMSibling(second.elementName);
+		NSString *a = numeric ? @"number(.)" : @".", *b = ORMPathFrom(first.elementName, second.elementName);
 		if (numeric) {
 			b = [NSString stringWithFormat:@"number(%@)", b];
 		}
-		NSString *test = [NSString stringWithFormat:@". = '' or %@ = '' or %@ %@ %@", ORMSibling(second.elementName), a,
+		NSString *test = [NSString stringWithFormat:@". = '' or %@ = '' or %@ %@ %@", ORMPathFrom(first.elementName, second.elementName), a,
 		                                            operator, b];
 		[self apply:constraint to:first];
 		if (deontic) {
@@ -1754,6 +1818,14 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		               : field.kind == ORMFormFieldSubtype ? [self subtypeEntities] : nil;
 		if (items != nil) {
 			[element setObject:items forKey:@"items"];
+		}
+		/* A kind's said as the reader does ("Fill up"), its value the subentity's. */
+		if (field.kind == ORMFormFieldSubtype) {
+			NSMutableArray *labels = [NSMutableArray array];
+			for (NSString *subtype in items) {
+				[labels addObject:[self labelOfSubtype:subtype]];
+			}
+			[element setObject:labels forKey:@"itemLabels"];
 		}
 		[element setObject:[self labelOfField:field] forKey:@"label"];
 		[elements addObject:element];
@@ -2044,7 +2116,7 @@ ORMXText(NSString *name, NSString *text)
 		[control addChild:ORMXText(@"xf:label", [self labelOfField:field])];
 		for (NSString *subtype in [self subtypeEntities]) {
 			NSXMLElement *item = [NSXMLElement elementWithName:@"xf:item"];
-			[item addChild:ORMXText(@"xf:label", subtype)];
+			[item addChild:ORMXText(@"xf:label", [self labelOfSubtype:subtype])];
 			[item addChild:ORMXText(@"xf:value", subtype)];
 			[control addChild:item];
 		}

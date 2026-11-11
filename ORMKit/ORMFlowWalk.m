@@ -334,7 +334,7 @@ ORMFlowWalkIsKind(ORMForm *form, NSString *subtype, NSDictionary *values, NSMana
 {
 	ORMFormElement *element = [session.form elementNamed:name];
 	if ([key length] == 0 || ![element.kind isEqualToString:@"reference"] || _context == nil) {
-		return key;
+		return element != nil ? [element labelOfItem:key] : key;
 	}
 	NSEntityDescription *entity = [[_store.managedObjectModel entitiesByName] objectForKey:session.form.entityName ?: @""];
 	NSEntityDescription *destination = [[[entity relationshipsByName] objectForKey:name] destinationEntity];

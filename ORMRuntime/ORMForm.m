@@ -27,6 +27,7 @@ ORMFormError(NSString *text)
 @property (nonatomic, readwrite, copy) NSString *role;
 @property (nonatomic, readwrite) BOOL given;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *items;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *itemLabels;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *path;
 @property (nonatomic, readwrite, copy) NSString *group;
 @property (nonatomic, readwrite, copy) NSString *subtype;
@@ -34,6 +35,13 @@ ORMFormError(NSString *text)
 @end
 
 @implementation ORMFormElement
+
+- (NSString *)labelOfItem:(NSString *)item
+{
+	NSUInteger index = item != nil ? [self.items indexOfObject:item] : NSNotFound;
+	return index != NSNotFound && index < [self.itemLabels count] ? [self.itemLabels objectAtIndex:index] : item;
+}
+
 @end
 
 @interface ORMFormRequest ()
@@ -228,6 +236,8 @@ static NSString *ORMFormMessage(NSError *error);
 		element.given = [[item objectForKey:@"given"] boolValue];
 		element.label = [item objectForKey:@"label"] ?: element.name;
 		element.items = [[item objectForKey:@"items"] isKindOfClass:[NSArray class]] ? [item objectForKey:@"items"] : nil;
+		NSArray *labels = [item objectForKey:@"itemLabels"];
+		element.itemLabels = [labels isKindOfClass:[NSArray class]] && [labels count] == [element.items count] ? labels : nil;
 		element.path = [[item objectForKey:@"path"] isKindOfClass:[NSArray class]] ? [item objectForKey:@"path"] : nil;
 		element.group = [[item objectForKey:@"group"] isKindOfClass:[NSString class]] ? [item objectForKey:@"group"] : nil;
 		element.subtype = [[item objectForKey:@"subtype"] isKindOfClass:[NSString class]] ? [item objectForKey:@"subtype"] : nil;
