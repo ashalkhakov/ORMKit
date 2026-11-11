@@ -537,7 +537,13 @@ choices named as a reader knows them), the ways on, and what happened.
 **BPMN** sees the same from the process's side: a user task is performed
 with a form or a flow, its input data the entry's given nodes, its output
 what was submitted. A flow is one actor's dialogue; a process is who does
-what, in which order, across actors.
+what, in which order, across actors. In WorkflowKit a task's form key is
+`ormkit:form:<Form>` or `ormkit:flow:<file>#<entry>`; the form's document
+(`<Form>.xhtml`, as `ormtool xforms` writes it) deployed beside the process
+is the task's, and WorkflowKit's `WFModelFormHandler` fills its given
+elements (each bind says its element's role, `ormf:role`) from the task's
+variables and sets a variable of each element submitted, a repeat's rows
+an array.
 
 ### Figma
 
@@ -592,7 +598,6 @@ committing what is typed. XFormsKit still needs decimal arithmetic for
 ## Planned
 
 - Figma import and export.
-- A BPMN user task performed with a form or a flow.
 - Forms seeding the model: a form, or a sample filled in, its provisional
   fields with their walked-through values, proposing fact types.
 
