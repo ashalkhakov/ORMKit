@@ -174,4 +174,9 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
  * "{<screen id>.<node id>}" for a screen's before it, which the app keeps.
  * The next form's elements are named as its document names them. */
 - (void)setFlow:(ORMFlow *)flow screen:(ORMFlowScreen *)screen;
+/* The service's action the form is submitted to, not saved (a procedure:
+ * goods received, given the order as the form has it), set before
+ * -document: its save "form:submit/<Action>", and the table says it, so
+ * that ORMFormSession calls it. nil to save. */
+@property (nonatomic, copy) NSString *action;
 @end

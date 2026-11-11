@@ -164,6 +164,9 @@ extern NSString * const ORMFormErrorDomain;
 /* What finds a reference's object for the instance's values: the objects of
  * its type whose key they are. nil, and why, for none such. */
 - (ORMQueryPlan *)identifyPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error;
+/* The service's action the form is submitted to (docs/FORMS.md); nil for
+ * a form that is saved. */
+@property (nonatomic, readonly, copy) NSString *action;
 /* The rules the form cannot check, said: the store or the service does. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 
@@ -232,6 +235,11 @@ extern NSString * const ORMFormErrorDomain;
 /* The read of the key as requests to the model's service, and a choices
  * plan's; their rows go through -instanceOfRow: and the choice's key. */
 - (ORMQueryOData *)readRequestForKey:(NSString *)key model:(NSManagedObjectModel *)model error:(NSError **)error;
+/* A repeat's rows linked to the object of the key, as a request. */
+- (ORMQueryOData *)rowsRequestOfRepeat:(NSString *)name
+                              linkedTo:(NSString *)key
+                                 model:(NSManagedObjectModel *)model
+                                 error:(NSError **)error;
 - (ORMQueryOData *)identifyRequestNamed:(NSString *)name
                                  values:(NSDictionary<NSString *, id> *)values
                                   model:(NSManagedObjectModel *)model
@@ -246,7 +254,11 @@ extern NSString * const ORMFormErrorDomain;
 /* What saves the instance: a POST of each element written that has a
  * value, where it has no key or no original; else a PATCH of those that differ from the original,
  * with the ETag read (If-Match). A reference is bound
- * ("Vehicle@odata.bind": "Vehicles(7)"); names are the service's. nil, and
+ * ("Vehicle@odata.bind": "Vehicles(7)"); names are the service's. An owned
+ * object's are nested in it, and a repeat's rows under its navigation
+ * property: all of them in a POST (a deep insert, each new one given a key
+ * where the key is a UUID or text), in a PATCH a delta of those added or
+ * changed and those taken away ("@removed", reason "deleted"). nil, and
  * why, where a value is not of its type. */
 - (ORMFormRequest *)saveRequestFor:(NSDictionary<NSString *, id> *)instance
                           original:(NSDictionary<NSString *, id> *)original
@@ -256,5 +268,13 @@ extern NSString * const ORMFormErrorDomain;
 /* What the service's error body (JSON) says of each element: a detail's or
  * the error's target, a property's name on the wire, by its element; the
  * rest under "". */
+/* What submits the instance to the form's action: a POST of the action
+ * (unbound, "ReceiveGoods"), its one parameter the anchor's entity named
+ * so ("PurchaseOrder"), as a POST of a new one would send it, its key, its
+ * owned objects and rows within. nil, and why, for a form with no action
+ * or a value not of its type. */
+- (ORMFormRequest *)actionRequestFor:(NSDictionary<NSString *, id> *)instance
+                               model:(NSManagedObjectModel *)model
+                               error:(NSError **)error;
 - (NSDictionary<NSString *, NSString *> *)elementErrorsOfResponse:(NSData *)body model:(NSManagedObjectModel *)model;
 @end

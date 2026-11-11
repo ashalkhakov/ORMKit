@@ -161,9 +161,11 @@ finds tables):
   context. A refusal is said by element, from each error's
   `NSValidationKeyErrorKey`, and the object is put back as it was.
 - **The service:** the read and the choices as `ORMQueryOData` requests,
-  the save as an `ORMFormRequest`: a POST, or a PATCH of what changed with
-  the ETag; a reference bound (`Vehicle@odata.bind`), every name the
-  service's. An error body's details come back by element, by their
+  a repeat's rows one each; the save as an `ORMFormRequest`: a POST (a deep
+  insert, owned objects and rows within), or a PATCH of what changed with
+  the ETag, rows as a delta; a reference bound (`Vehicle@odata.bind`),
+  every name the service's. A form with an `action` is submitted to it
+  (`-actionRequestFor:model:error:`) instead. An error body's details come back by element, by their
   targets. Sending them is the host's.
 
 ## The generated code

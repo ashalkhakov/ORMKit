@@ -45,7 +45,7 @@
  *                                            population (ORMFlowWalk): each list's first row
  *                                            chosen, each form submitted as it opens, each way
  *                                            taken once; what happened, a line a step
- *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]
+ *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]...
  *                                            each form (or the named one) as an XForms document,
  *                                            <Form>.xhtml in dir/ (docs/FORMS.md): generated, never
  *                                            edited; beside it <Form>.ormform, what an app runs it
@@ -94,7 +94,7 @@ ORMUsage(void)
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
 	      "       ormtool flow model.orm file.flow [walk [entry name]]\n"
-	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]\n"
+	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]...\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
 	      "       ormtool forml model.orm [out.forml]\n"
 	      "       ormtool apply model.orm changes.forml [out.orm]\n"
@@ -622,6 +622,19 @@ main(int argc, const char *argv[])
 				[rest removeObjectsInRange:NSMakeRange(flowAt, 2)];
 				args = rest;
 			}
+			/* The actions forms are submitted to: --action Form=Action, each. */
+			NSMutableDictionary *actions = [NSMutableDictionary dictionary];
+			for (NSUInteger at = [args indexOfObject:@"--action"]; at != NSNotFound; at = [args indexOfObject:@"--action"]) {
+				NSArray *pair = at + 1 < [args count] ? [[args objectAtIndex:at + 1] componentsSeparatedByString:@"="] : nil;
+				if ([pair count] != 2 || [[pair firstObject] length] == 0 || [[pair lastObject] length] == 0) {
+					fprintf(stderr, "ormtool: --action: give Form=Action\n");
+					return 1;
+				}
+				[actions setObject:[pair lastObject] forKey:[pair firstObject]];
+				NSMutableArray *rest = [args mutableCopy];
+				[rest removeObjectsInRange:NSMakeRange(at, 2)];
+				args = rest;
+			}
 			ORMCoreDataMapping *mapping = nil;
 			for (ORMCoreDataMapping *each in editor.model.coreDataMappings) {
 				if ([args count] < 5 || [each.name isEqualToString:[args objectAtIndex:4]]) {
@@ -664,6 +677,7 @@ main(int argc, const char *argv[])
 						break;
 					}
 				}
+				form.action = [actions objectForKey:query.name];
 				NSString *path = [directory stringByAppendingPathComponent:[query.name stringByAppendingPathExtension:@"xhtml"]];
 				NSData *data = [[form document] XMLDataWithOptions:NSXMLNodePrettyPrint];
 				if (![data writeToFile:path atomically:YES]) {

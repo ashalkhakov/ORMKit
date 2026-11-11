@@ -301,6 +301,7 @@ static NSString *ORMFormMessage(NSError *error);
 	_identifiedBy = identifiedBy;
 	_dependsOn = dependsOn;
 	_checkedWhereSubmitted = [[list objectForKey:@"checkedWhereSubmitted"] copy] ?: @[];
+	_action = [[list objectForKey:@"action"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"action"] copy] : nil;
 	_linkElement = [[list objectForKey:@"link"] copy];
 	_isList = [[list objectForKey:@"list"] boolValue];
 	_from = [[list objectForKey:@"from"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"from"] copy] : nil;
@@ -1211,6 +1212,16 @@ ORMFormMessage(NSError *error)
 	return plan != nil ? [ORMQueryOData requestForPlan:plan model:model error:error] : nil;
 }
 
+- (ORMQueryOData *)rowsRequestOfRepeat:(NSString *)name
+                              linkedTo:(NSString *)key
+                                 model:(NSManagedObjectModel *)model
+                                 error:(NSError **)error
+{
+	ORMForm *repeat = [_repeats objectForKey:name];
+	ORMQueryPlan *plan = [repeat.readPlan planBinding:@{ repeat.linkElement ?: @"" : key ?: @"" } error:error];
+	return plan != nil ? [ORMQueryOData requestForPlan:plan model:model error:error] : nil;
+}
+
 - (ORMQueryOData *)identifyRequestNamed:(NSString *)name
                                  values:(NSDictionary<NSString *, id> *)values
                                   model:(NSManagedObjectModel *)model
@@ -1317,6 +1328,33 @@ ORMFormMessage(NSError *error)
 		[into setObject:typed != nil ? [coder JSONForCoreDataValue:typed attribute:attribute] : [NSNull null]
 		         forKey:[mapper propertyForAttribute:attribute]];
 	}
+	/* Each repeat's rows under its navigation property, in the body of what
+	 * they are of (the anchor, an owned object). */
+	for (NSString *name in [self repeatNames]) {
+		ORMForm *repeat = [_repeats objectForKey:name];
+		NSArray *rows = [[instance objectForKey:name] isKindOfClass:[NSArray class]] ? [instance objectForKey:name] : nil;
+		if (repeat.isList || rows == nil || problem != nil) {
+			continue;
+		}
+		NSString *within = repeat->_fromGroup ?: @"";
+		NSRelationshipDescription *relationship = [[[entities objectForKey:within] relationshipsByName]
+			objectForKey:[[name componentsSeparatedByString:@"/"] lastObject]];
+		NSMutableDictionary *into = [bodies objectForKey:within];
+		if (relationship == nil || into == nil) {
+			problem = [NSString stringWithFormat:@"%@ has no %@.", _entityName, name];
+			break;
+		}
+		NSArray *was = isNew || ![[original objectForKey:name] isKindOfClass:[NSArray class]] ? @[] : [original objectForKey:name];
+		NSArray *sent = [repeat rowBodiesOf:rows was:was model:model new:isNew error:error];
+		if (sent == nil) {
+			return nil;
+		}
+		if (isNew) {
+			[into setObject:sent forKey:[mapper propertyForRelationship:relationship]];
+		} else if ([sent count] > 0) {
+			[into setObject:sent forKey:[[mapper propertyForRelationship:relationship] stringByAppendingString:@"@delta"]];
+		}
+	}
 	/* Inner ones into outer ones, the innermost first. */
 	for (NSDictionary *group in [[self groups] reverseObjectEnumerator]) {
 		NSString *name = [group objectForKey:@"name"];
@@ -1345,6 +1383,88 @@ ORMFormMessage(NSError *error)
 	request.headers = headers;
 	request.body = body;
 	return request;
+}
+
+- (ORMFormRequest *)actionRequestFor:(NSDictionary<NSString *, id> *)instance
+                               model:(NSManagedObjectModel *)model
+                               error:(NSError **)error
+{
+	if (_action == nil) {
+		if (error != NULL) {
+			*error = ORMFormError([NSString stringWithFormat:@"%@ is submitted to no action.", _name ?: @"The form"]);
+		}
+		return nil;
+	}
+	ORMFormRequest *whole = [self saveRequestFor:instance original:nil etag:nil model:model error:error];
+	if (whole == nil) {
+		return nil;
+	}
+	ORMFormRequest *request = [[ORMFormRequest alloc] init];
+	request.method = @"POST";
+	request.path = _action;
+	request.headers = @{ @"Content-Type" : @"application/json" };
+	request.body = @{ _entityName : whole.body };
+	return request;
+}
+
+/* A repeat's rows as the service is sent them: in a deep insert, each;
+ * in a deep update's delta, each new one (given a key where the key is a
+ * UUID or text), each changed one with its key and what differs, and each
+ * the rows no longer have, removed as deleted. */
+- (NSArray *)rowBodiesOf:(NSArray *)rows was:(NSArray *)was model:(NSManagedObjectModel *)model new:(BOOL)allNew error:(NSError **)error
+{
+	NSEntityDescription *entity = [[model entitiesByName] objectForKey:_entityName];
+	NSAttributeDescription *keyAttribute = [[entity attributesByName] objectForKey:_keyElement ?: @""];
+	ODataPropertyMapper *mapper = [[ODataPropertyMapper alloc] init];
+	ODataValueCoder *coder = mapper.values ?: [[ODataValueCoder alloc] init];
+	NSMutableDictionary *before = [NSMutableDictionary dictionary];
+	for (NSDictionary *row in was) {
+		NSString *key = [[row objectForKey:_keyElement ?: @""] description];
+		if ([key length] > 0) {
+			[before setObject:row forKey:key];
+		}
+	}
+	NSMutableArray *sent = [NSMutableArray array];
+	NSMutableSet *kept = [NSMutableSet set];
+	for (NSDictionary *each in rows) {
+		NSMutableDictionary *row = [each mutableCopy];
+		NSString *key = [[row objectForKey:_keyElement ?: @""] description];
+		NSDictionary *original = [key length] > 0 && !allNew ? [before objectForKey:key] : nil;
+		if ([key length] == 0 && ([keyAttribute attributeType] == NSUUIDAttributeType || [keyAttribute attributeType] == NSStringAttributeType)) {
+			[row setObject:[[NSUUID UUID] UUIDString] forKey:_keyElement];
+		}
+		if (original != nil) {
+			[kept addObject:key];
+		}
+		ORMFormRequest *request = [self saveRequestFor:row original:original etag:nil model:model error:error];
+		if (request == nil) {
+			return nil;
+		}
+		NSMutableDictionary *body = [request.body mutableCopy];
+		if (original != nil) {
+			/* Changed: named by its key; unchanged, not sent. */
+			if ([body count] == 0) {
+				continue;
+			}
+			NSString *problem = nil;
+			id typed = ORMFormValue(key, keyAttribute, &problem);
+			if (typed != nil) {
+				[body setObject:[coder JSONForCoreDataValue:typed attribute:keyAttribute] forKey:[mapper propertyForAttribute:keyAttribute]];
+			}
+		}
+		[sent addObject:body];
+	}
+	for (NSString *key in before) {
+		if ([kept containsObject:key]) {
+			continue;
+		}
+		NSString *problem = nil;
+		id typed = ORMFormValue(key, keyAttribute, &problem);
+		NSString *literal = typed != nil ? [coder literalForValue:typed attribute:keyAttribute] : key;
+		[sent addObject:@{ @"@removed" : @{ @"reason" : @"deleted" },
+		                   @"@id" : [NSString stringWithFormat:@"%@(%@)", [mapper entitySetForEntity:entity], literal] }];
+	}
+	return sent;
 }
 
 - (NSDictionary<NSString *, NSString *> *)elementErrorsOfResponse:(NSData *)body model:(NSManagedObjectModel *)model

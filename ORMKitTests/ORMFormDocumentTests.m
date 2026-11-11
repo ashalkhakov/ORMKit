@@ -1,6 +1,26 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
 #import <CoreData/CoreData.h>
+#import <ODataService/ODataService.h>
+
+/* A service's action a form submits to: the goods received, a procedure
+ * of the service's, given the order as the form has it. */
+@protocol ORMTestReceivingActions <ODataActions>
+- (NSString *)receiveGoodsWithPurchaseOrder:(NSDictionary *)purchaseOrder reply:(ODataReply *)reply;
+@end
+
+@interface ORMTestReceiving : NSObject <ORMTestReceivingActions>
+@property (atomic, strong) NSDictionary *received;
+@end
+
+@implementation ORMTestReceiving
+- (NSString *)receiveGoodsWithPurchaseOrder:(NSDictionary *)purchaseOrder reply:(ODataReply *)reply
+{
+	(void)reply;
+	self.received = purchaseOrder;
+	return [[purchaseOrder objectForKey:@"Number"] description];
+}
+@end
 
 /* A form generated as XForms (docs/FORMS.md): FORMS.md's RecordFillUp over
  * a fill-up model shaped as Logbook's is, its compound values absorbed. */
@@ -2197,6 +2217,121 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	[changed setObject:@[ [[read objectForKey:@"contact/phones"] firstObject] ] forKey:@"contact/phones"];
 	XCTAssertNotNil([form save:changed inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
 	XCTAssertEqual([[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Phone"] error:NULL] count], 1u);
+}
+
+#pragma mark Rows through the service
+
+/* An order's lines through the model's service, ODataService over a store:
+ * the order read with its lines, lines added as it is saved (a deep update,
+ * a delta), changed, and taken away (removed as deleted); a new order and
+ * its lines one deep insert. */
+- (void)testRowsAreSavedThroughTheService
+{
+	ORMEditor *editor = [self orders];
+	ORMForm *form = [ORMForm formWithPropertyList:[[self receiveGoodsOf:editor] tablePropertyList] error:NULL];
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObjectModel *model = [[context persistentStoreCoordinator] managedObjectModel];
+	[self insert:@"PurchaseOrder" values:@{ @"number" : @7 } in:context];
+	for (NSString *sku in @[ @"OIL", @"FILTER", @"WIPER" ]) {
+		[self insert:@"StockItem" values:@{ @"sku" : sku } in:context];
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[context persistentStoreCoordinator] serviceRoot:root];
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useServiceRoot:root model:model transport:service];
+	session.key = @"7";
+	XCTAssertTrue([session open:&error], @"%@", error);
+	XCTAssertEqualObjects([session rowsOfRepeat:@"purchaseLines"], @[]);
+	XCTAssertEqualObjects(([session choicesNamed:@"stockItem" inRepeat:@"purchaseLines" row:0 error:&error]),
+	                      (@[ @"FILTER", @"OIL", @"WIPER" ]), @"a row's choices from the service: %@", error);
+	[session setRows:@[ @{ @"id" : @"", @"stockItem" : @"OIL", @"quantity" : @"4" }, @{ @"id" : @"", @"stockItem" : @"FILTER", @"quantity" : @"2" } ]
+	       forRepeat:@"purchaseLines"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	NSDictionary *(^quantities)(void) = ^NSDictionary *{
+		NSManagedObjectContext *fresh = [[NSManagedObjectContext alloc] init];
+		[fresh setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+		NSMutableDictionary *found = [NSMutableDictionary dictionary];
+		for (NSManagedObject *line in [fresh executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"PurchaseLine"] error:NULL]) {
+			[found setObject:[[line valueForKey:@"quantity"] stringValue] forKey:[[line valueForKey:@"stockItem"] valueForKey:@"sku"]];
+		}
+		return found;
+	};
+	XCTAssertEqualObjects(quantities(), (@{ @"OIL" : @"4", @"FILTER" : @"2" }));
+	NSArray *rows = [session rowsOfRepeat:@"purchaseLines"];
+	XCTAssertEqual([rows count], 2u, @"read again from the service: %@", [session values]);
+
+	/* The oil's changed, the filter's taken away, a wiper's added. */
+	NSMutableArray *changed = [NSMutableArray array];
+	for (NSDictionary *row in rows) {
+		if ([[row objectForKey:@"stockItem"] isEqualToString:@"OIL"]) {
+			NSMutableDictionary *oil = [row mutableCopy];
+			[oil setObject:@"6" forKey:@"quantity"];
+			[changed addObject:oil];
+		}
+	}
+	[changed addObject:@{ @"id" : @"", @"stockItem" : @"WIPER", @"quantity" : @"1" }];
+	NSDictionary *before = [session values];
+	NSMutableDictionary *after = [before mutableCopy];
+	[after setObject:changed forKey:@"purchaseLines"];
+	ORMFormRequest *patch = [form saveRequestFor:after original:before etag:nil model:model error:&error];
+	NSArray *delta = [patch.body objectForKey:@"PurchaseLines@delta"];
+	XCTAssertEqual([delta count], 3u, @"%@ %@", patch.body, error);
+	NSUInteger removed = 0;
+	for (NSDictionary *entry in delta) {
+		removed += [[[entry objectForKey:@"@removed"] objectForKey:@"reason"] isEqualToString:@"deleted"] ? 1 : 0;
+	}
+	XCTAssertEqual(removed, 1u, @"%@", delta);
+	[session setRows:changed forRepeat:@"purchaseLines"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqualObjects(quantities(), (@{ @"OIL" : @"6", @"WIPER" : @"1" }), @"one save, the filter's line deleted");
+
+	/* A new order: it and its lines, one deep insert. */
+	NSMutableDictionary *fresh = [[form instanceGiven:@{}] mutableCopy];
+	[fresh setObject:@"8" forKey:@"number"];
+	[fresh setObject:@[ @{ @"id" : @"", @"stockItem" : @"OIL", @"quantity" : @"3" } ] forKey:@"purchaseLines"];
+	ORMFormRequest *post = [form saveRequestFor:fresh original:nil etag:nil model:model error:&error];
+	XCTAssertEqualObjects(post.method, @"POST", @"%@", error);
+	XCTAssertEqual([[post.body objectForKey:@"PurchaseLines"] count], 1u, @"%@", post.body);
+}
+
+/* A form submitted to an action of the service's, not saved: the order's
+ * lines handed to ReceiveGoods, its answer the key of what it did. */
+- (void)testAFormSubmitsToAnAction
+{
+	ORMEditor *editor = [self orders];
+	ORMFormDocument *document = [self receiveGoodsOf:editor];
+	document.action = @"ReceiveGoods";
+	NSXMLDocument *xforms = [document document];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='submission'][@id='save'][@resource='form:submit/ReceiveGoods']" in:xforms] count], 1u,
+	               @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects(form.action, @"ReceiveGoods");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObjectModel *model = [[context persistentStoreCoordinator] managedObjectModel];
+	[self insert:@"PurchaseOrder" values:@{ @"number" : @7 } in:context];
+	[self insert:@"StockItem" values:@{ @"sku" : @"OIL" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[context persistentStoreCoordinator] serviceRoot:root];
+	ORMTestReceiving *receiving = [[ORMTestReceiving alloc] init];
+	service.serviceOperations = receiving;
+	XCTAssertEqualObjects(service.operationProblems, @[]);
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useServiceRoot:root model:model transport:service];
+	session.key = @"7";
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setRows:@[ @{ @"id" : @"", @"stockItem" : @"OIL", @"quantity" : @"4" } ] forRepeat:@"purchaseLines"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqualObjects(session.savedKey, @"7");
+	XCTAssertEqualObjects([[receiving.received objectForKey:@"Number"] description], @"7", @"%@", receiving.received);
+	XCTAssertEqual([[receiving.received objectForKey:@"PurchaseLines"] count], 1u, @"the lines with it: %@", receiving.received);
+	NSManagedObjectContext *fresh = [[NSManagedObjectContext alloc] init];
+	[fresh setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+	XCTAssertEqual([[fresh executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"PurchaseLine"] error:NULL] count], 0u,
+	               @"submitted, not saved: the action's to do");
 }
 
 @end

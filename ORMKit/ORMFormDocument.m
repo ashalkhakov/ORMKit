@@ -2438,6 +2438,9 @@ ORMFieldKindName(ORMFormFieldKind kind)
 		[list setObject:groups forKey:@"groups"];
 	}
 	[list setObject:[self checkedWhereSubmitted] forKey:@"checkedWhereSubmitted"];
+	if (_action != nil) {
+		[list setObject:_action forKey:@"action"];
+	}
 	/* A repeat's link; the repeats, each a table of its own. */
 	if (_linkNodeId != nil) {
 		[list setObject:[self linkElement] ?: @"link" forKey:@"link"];
@@ -2572,7 +2575,8 @@ ORMXText(NSString *name, NSString *text)
 		[model addChild:[self choicesSubmissionOf:name]];
 	}
 	NSXMLElement *save = ORMXElement(@"xf:submission", @{
-		@"id" : @"save", @"resource" : @"form:save", @"method" : @"post", @"ref" : @"instance('form')",
+		@"id" : @"save", @"resource" : _action != nil ? [@"form:submit/" stringByAppendingString:_action] : @"form:save",
+		@"method" : @"post", @"ref" : @"instance('form')",
 		@"replace" : @"instance", @"instance" : @"form",
 	});
 	/* What the flow does next, the save done or refused. */

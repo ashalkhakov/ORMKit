@@ -361,10 +361,18 @@ A form does not say where its data is. Its reads and save are planned from
 the same tree as any query is ([QUERIES.md](QUERIES.md)), and the app says
 where they run:
 
-- **The service.** Reads are OData requests (`$select`, `$expand`); a new
-  object is a `POST` (with its owned objects, a deep insert), an existing
-  one a `PATCH` of what changed with `If-Match`; references as
-  `@odata.bind`.
+- **The service.** Reads are OData requests (`$select`, `$expand`), a
+  repeat's rows one of their own; a new object is a `POST` (with its owned
+  objects and its rows, a deep insert), an existing one a `PATCH` of what
+  changed with `If-Match`, its rows a delta (`PurchaseLines@delta`: those
+  added or changed, those taken away `@removed` as deleted); references
+  as `@odata.bind`. Tried against ODataKit's `ODataService` over a store.
+- **An action.** A form may be submitted to an action of the service's
+  instead of saved (`ormtool xforms ... --action ReceiveGoods=ReceiveGoods`,
+  `ORMFormDocument.action`): its save is `form:submit/<Action>`, a `POST` of
+  the action with the anchor's entity as its one parameter
+  (`{"PurchaseOrder": {...}}`, as a new one would be sent, its rows
+  within), and the action's answer the key of what it did.
 - **The local store.** Reads are fetches run by the interpreter; a save
   writes the instance into objects, by the same mapping, and saves the
   context: Core Data's checks, the generated validation code and the rules
@@ -567,11 +575,8 @@ committing what is typed. XFormsKit still needs decimal arithmetic for
 
 - A form with several anchors: objects made or changed together that
   neither reaches through the other, submitted as one change set.
-- A repeat in the generated XForms document (`xf:repeat`) and through the
-  service; a form submitting to an action.
 - Rules and derivations over the form's facts said as binds; messages in
   the app's words rather than the rule's verbalization.
-- The service's deep insert and update, tried against a real service.
 - Figma import and export.
 - A BPMN user task performed with a form or a flow.
 - Forms seeding the model: a form, or a sample filled in, its provisional
