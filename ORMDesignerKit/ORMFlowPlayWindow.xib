@@ -48,7 +48,7 @@
 <rect key="frame" x="1" y="1" width="444" height="278"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <subviews>
-<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" rowSizeStyle="custom" viewBased="YES" headerView="valuesHeader" identifier="values" id="values">
+<tableView verticalHuggingPriority="750" allowsExpansionToolTips="YES" columnAutoresizingStyle="lastColumnOnly" multipleSelection="NO" autosaveColumns="NO" rowHeight="24" rowSizeStyle="custom" viewBased="YES" headerView="valuesHeader" identifier="values" id="values" customClass="ORMFlowPlayValuesTable">
 <rect key="frame" x="0" y="0" width="444" height="255"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
 <size key="intercellSpacing" width="3" height="2"/>
@@ -107,7 +107,7 @@
 <textField verticalHuggingPriority="750" id="textField">
 <rect key="frame" x="2" y="2" width="296" height="20"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
-<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" borderStyle="bezel" drawsBackground="YES" alignment="left" id="textFieldCell">
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" borderStyle="bezel" drawsBackground="YES" alignment="left" id="textFieldCell" sendsActionOnEndEditing="YES">
 <font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
 </textFieldCell><connections><action selector="valueChanged:" target="-2" id="textFieldAction"/></connections>
 </textField>
@@ -121,7 +121,7 @@
 <textField verticalHuggingPriority="750" id="numberField">
 <rect key="frame" x="2" y="2" width="140" height="20"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
-<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" borderStyle="bezel" drawsBackground="YES" alignment="right" id="numberFieldCell">
+<textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" borderStyle="bezel" drawsBackground="YES" alignment="right" id="numberFieldCell" sendsActionOnEndEditing="YES">
 <font key="font" metaFont="smallSystem"/><color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/><color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/><numberFormatter key="formatter" formatterBehavior="custom10_4" numberStyle="decimal" usesGroupingSeparator="NO" generatesDecimalNumbers="YES" maximumFractionDigits="6" id="numberFormatter"/>
 </textFieldCell><connections><action selector="valueChanged:" target="-2" id="numberFieldAction"/></connections>
 </textField>
@@ -149,7 +149,7 @@
 <buttonCell key="cell" type="push" title="Clear" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="dateClearCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
 </buttonCell>
-<connections><action selector="clearValue:" target="-2" id="dateClearAction"/></connections>
+<connections><action selector="setOrClearDate:" target="-2" id="dateClearAction"/></connections>
 </button>
 </subviews>
 <connections></connections>
@@ -175,7 +175,7 @@
 <buttonCell key="cell" type="push" title="Clear" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="dateTimeClearCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
 </buttonCell>
-<connections><action selector="clearValue:" target="-2" id="dateTimeClearAction"/></connections>
+<connections><action selector="setOrClearDate:" target="-2" id="dateTimeClearAction"/></connections>
 </button>
 </subviews>
 <connections></connections>

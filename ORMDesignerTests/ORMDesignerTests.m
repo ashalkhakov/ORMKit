@@ -2025,8 +2025,34 @@
 		}
 	}
 	XCTAssertEqualObjects([player editorOfRow:litres], @"number");
-	[player setValue:@"40" ofRow:litres];
+	/* Typed into at the first click, and kept when left without Return
+	 * (tabbed out of, or Submit pressed). */
+	XCTAssertTrue([player.values isKindOfClass:[ORMFlowPlayValuesTable class]], @"the XIB's class");
+	NSInteger valueColumn = [player.values columnWithIdentifier:@"value"];
+	NSTextField *typed = [(NSTableCellView *)[player.values viewAtColumn:valueColumn row:litres makeIfNecessary:YES] textField];
+	XCTAssertTrue([[typed cell] sendsActionOnEndEditing]);
+	XCTAssertTrue([player.values validateProposedFirstResponder:typed forEvent:nil], @"its row not chosen");
+	XCTAssertTrue([[player window] makeFirstResponder:typed]);
+	[[typed currentEditor] setString:@"40"];
+	[[player window] makeFirstResponder:nil];
 	XCTAssertEqualObjects([player.walk.session valueForElement:[player.walk.session.form.elements objectAtIndex:(NSUInteger)litres].name], @"40");
+	/* An empty date's Set takes the date its picker shows; then it is Clear. */
+	for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+		if (![[player editorOfRow:row] hasPrefix:@"date"]) {
+			continue;
+		}
+		NSString *name = [player.walk.session.form.elements objectAtIndex:(NSUInteger)row].name;
+		[player setValue:@"" ofRow:row];
+		NSButton *button = [[[player.values viewAtColumn:valueColumn row:row makeIfNecessary:YES] subviews] lastObject];
+		XCTAssertEqualObjects([button title], @"Set", @"%@", name);
+		[player setOrClearDate:button];
+		XCTAssertTrue([[player.walk.session valueForElement:name] length] > 0, @"%@ set", name);
+		button = [[[player.values viewAtColumn:valueColumn row:row makeIfNecessary:YES] subviews] lastObject];
+		XCTAssertEqualObjects([button title], @"Clear", @"%@", name);
+		[player setOrClearDate:button];
+		XCTAssertEqualObjects([player.walk.session valueForElement:name] ?: @"", @"", @"%@ cleared", name);
+		[player setOrClearDate:[[[player.values viewAtColumn:valueColumn row:row makeIfNecessary:YES] subviews] lastObject]];
+	}
 	NSTextField *litresField = [(NSTableCellView *)[player tableView:player.values viewForTableColumn:value row:litres] textField];
 	XCTAssertNotNil([litresField formatter], @"a number's field takes numbers only");
 	XCTAssertEqualObjects([[litresField objectValue] description], @"40");

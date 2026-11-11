@@ -196,8 +196,14 @@
 		[picker setTimeZone:[editor isEqualToString:@"date"] ? [NSTimeZone timeZoneForSecondsFromGMT:0] : [NSTimeZone localTimeZone]];
 		NSDate *date = [self dateOf:value];
 		[picker setDateValue:date ?: [NSDate date]];
-		/* Empty: today offered, faint, until one is chosen. */
+		/* Empty: today offered, faint, until one is chosen or Set takes it. */
 		[picker setAlphaValue:date != nil ? 1.0 : 0.45];
+		for (NSView *each in [view subviews]) {
+			if ([each isKindOfClass:[NSButton class]]) {
+				[(NSButton *)each setTitle:date != nil ? @"Clear" : @"Set"];
+				[each setToolTip:date != nil ? @"Leave it empty" : @"Take the date shown"];
+			}
+		}
 	} else if ([editor isEqualToString:@"flag"]) {
 		NSButton *box = [[view subviews] firstObject];
 		[box setState:[value isEqualToString:@"true"] ? NSControlStateValueOn : NSControlStateValueOff];
@@ -380,12 +386,33 @@ ORMFlowPlayFormatter(NSString *format)
 	}
 }
 
-- (IBAction)clearValue:(id)sender
+- (IBAction)setOrClearDate:(id)sender
 {
 	NSInteger row = [self.values rowForView:sender];
-	if (row >= 0) {
-		[self setValue:@"" ofRow:row];
+	ORMFormElement *element = [self elementOfRow:row];
+	if (element == nil) {
+		return;
 	}
+	if ([[_walk.session valueForElement:element.name] length] > 0) {
+		[self setValue:@"" ofRow:row];
+		return;
+	}
+	for (NSView *each in [[sender superview] subviews]) {
+		if ([each isKindOfClass:[NSDatePicker class]]) {
+			[self valueChanged:each];
+		}
+	}
+}
+
+@end
+
+/* A field in a row not chosen yet is typed into at the first click, not
+ * the second (AppKit's table would have the row chosen first). */
+@implementation ORMFlowPlayValuesTable
+
+- (BOOL)validateProposedFirstResponder:(NSResponder *)responder forEvent:(NSEvent *)event
+{
+	return YES;
 }
 
 @end

@@ -40,10 +40,17 @@
 /* The control's value set as its row's: a field's text or number, a
  * picker's date, a checkbox's flag, a choice's key. */
 - (IBAction)valueChanged:(id)sender;
-/* Its row's value emptied (a date's: a picker always shows one). */
-- (IBAction)clearValue:(id)sender;
+/* A date's button: an empty one set to the date its picker shows (a
+ * picker always shows one, and says nothing until it is changed), a set
+ * one emptied. */
+- (IBAction)setOrClearDate:(id)sender;
 /* The chosen way taken: for a row chosen, the row chosen in values. */
 - (IBAction)takeWay:(id)sender;
 - (IBAction)submit:(id)sender;
 - (IBAction)startOver:(id)sender;
+@end
+
+/* Play's values (the XIB's class for them): a field typed into at the first
+ * click, its row chosen or not. */
+@interface ORMFlowPlayValuesTable : NSTableView
 @end
