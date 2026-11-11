@@ -546,22 +546,48 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 
 /* What the model has in a form and the document cannot place is said as
  * missing, by name: never a form quietly without it (ormtool xforms
- * refuses to write one). Here a vehicle shown through the driver's "drives",
- * one of many. */
+ * refuses to write one). Here a driver's vehicles entered, rows that are
+ * facts of "drives", not objects linked to one owner. */
 - (void)testWhatCannotBePlacedIsMissingNotDropped
+{
+	ORMEditor *editor = nil;
+	ORMFormDefinition *definition = [self definitionOf:@"Drives" outline:@"User\n  + drives Vehicle (entered)\n" editor:&editor];
+	XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[], @"well formed: rows of choices (D8)");
+	NSString *reason = nil;
+	ORMFormDocument *document = [ORMFormDocument documentForForm:definition.form model:editor.model mapping:nil reason:&reason];
+	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, (@[ @"vehicles: rows entered that are not each of one User, but facts of many: not written by a repeat." ]),
+	                      @"(notes: %@)", document.notes);
+}
+
+/* A list beneath what the form refers to (D9): the fill-up's driver's
+ * vehicles, read with the fill-up, never written. */
+- (void)testAListBeneathAReferenceIsRead
 {
 	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  PricePerUnit ="
 	                                                       withString:@"  + had driver User2\n    + drives Vehicle3 (shown)\n  PricePerUnit ="];
-	XCTAssertNotEqualObjects(text, ORMFillUps);
-	ORMEditor *editor = [self newEditor];
-	NSArray *failures = nil;
-	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
-	NSString *reason = nil;
-	ORMFormDocument *document = [ORMFormDocument documentForForm:[self formIn:editor.model] model:editor.model mapping:nil
-	                                                      reason:&reason];
-	XCTAssertNotNil(document, @"%@", reason);
-	XCTAssertEqual([document.missing count], 1u, @"%@ (notes: %@)", document.missing, document.notes);
-	XCTAssertTrue([[document.missing firstObject] hasPrefix:@"Vehicle3: "], @"%@", document.missing);
+	ORMEditor *editor = [self editorOf:text];
+	ORMFormDocument *document = [self form:@"RecordFillUp" of:editor];
+	NSString *name = [[document.repeats allKeys] firstObject];
+	XCTAssertEqual([document.repeats count], 1u, @"%@ %@", document.repeats, document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	ORMForm *list = [form repeatNamed:name];
+	XCTAssertTrue(list.isList, @"read only");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *van = [self insert:@"Vehicle" values:@{ @"id" : [NSUUID UUID] } in:context];
+	NSManagedObject *car = [self insert:@"Vehicle" values:@{ @"id" : [NSUUID UUID] } in:context];
+	NSManagedObject *ann = [self insert:@"User" values:@{ @"email" : @"ann@example.com" } in:context];
+	for (NSString *key in [[[ann entity] relationshipsByName] allKeys]) {
+		if ([[[[[ann entity] relationshipsByName] objectForKey:key] destinationEntity].name isEqualToString:@"Vehicle"]) {
+			[ann setValue:[NSSet setWithObjects:van, car, nil] forKey:key];
+		}
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	XCTAssertEqualObjects([form repeatFrom:name], @"driver", @"read for the driver's key");
+	NSArray *rows = [list rowsLinkedTo:@"ann@example.com" inContext:context error:&error];
+	XCTAssertEqual([rows count], 2u, @"the driver's two: %@ %@", rows, error);
+	XCTAssertEqualObjects([[form instanceGiven:@{}] objectForKey:name], @[], @"none before a driver");
 }
 
 /* What is computed with read through a second step to an object absorbed
@@ -2113,6 +2139,64 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	NSDictionary *read = [form readKey:@"7" inContext:context error:&error];
 	XCTAssertEqualObjects([read objectForKey:@"wanted"], @"7", @"%@ %@", read, error);
 	XCTAssertEqualObjects([read objectForKey:@"lines"], @"2");
+}
+
+/* Rows beneath an owned object (D8): a contact's phones, written into the
+ * contact made with the customer, read with it. */
+- (void)testRowsBeneathAnOwnedObjectAreItsOwn
+{
+	NSString *facts = @"Phone is an entity type.\n"
+	                  @"Reference Mode: .id\n"
+	                  @"Portable data type: Other: Object ID\n"
+	                  @"PhoneNumber is a value type.\n"
+	                  @"Phone is of Contact\n"
+	                  @"Each Phone is of exactly one Contact.\n"
+	                  @"Phone has PhoneNumber\n"
+	                  @"Each Phone has exactly one PhoneNumber.\n";
+	NSString *text = [[ORMBeyond stringByReplacingOccurrencesOfString:@"\n\nQuery ReceiveFromSupplier:"
+	                                                       withString:[NSString stringWithFormat:@"\n%@\nQuery ReceiveFromSupplier:", facts]]
+	                     stringByAppendingString:@"\n"
+	                                             @"Query PhoneCustomer:\n"
+	                                             @"Form PhoneCustomer:\n"
+	                                             @"Customer\n"
+	                                             @"  + is of Catalog = ?\n"
+	                                             @"  + is of Contact\n"
+	                                             @"    + has ContactName (entered)\n"
+	                                             @"    + Phone is of that Contact\n"
+	                                             @"      + has PhoneNumber (entered)\n"];
+	ORMEditor *editor = [self editorOf:text];
+	ORMFormDocument *document = [self form:@"PhoneCustomer" of:editor];
+	XCTAssertEqualObjects([document.repeats allKeys], @[ @"contact/phones" ], @"%@", document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertFalse([form repeatNamed:@"contact/phones"].isList);
+	NSXMLDocument *xforms = [document document];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='repeat'][@nodeset='contact/phones']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@ref='contact/phones/phoneNumber']" in:xforms] count], 1u,
+	               @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	NSXMLNode *insert = [[self nodes:@"//*[local-name()='insert']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"context" of:insert], @"contact");
+	XCTAssertEqualObjects([self attribute:@"nodeset" of:insert], @"phones");
+	XCTAssertEqualObjects([self attribute:@"origin" of:insert], @"instance('row-contact-phones')/phones");
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Catalog" values:@{ @"code" : @"GAR" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSMutableDictionary *instance = [[form instanceGiven:@{ @"catalog" : @"GAR" }] mutableCopy];
+	[instance setObject:@"Ann's Garage" forKey:@"contact/contactName"];
+	[instance setObject:@[ @{ @"id" : @"", @"phoneNumber" : @"+7 701 000 0001" }, @{ @"id" : @"", @"phoneNumber" : @"+7 701 000 0002" } ]
+	             forKey:@"contact/phones"];
+	NSDictionary *errors = nil;
+	NSManagedObject *customer = [form save:instance inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(customer, @"%@ %@", errors, error);
+	NSDictionary *read = [form readKey:[[customer valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	NSArray *phones = [[[read objectForKey:@"contact/phones"] valueForKey:@"phoneNumber"] sortedArrayUsingSelector:@selector(compare:)];
+	XCTAssertEqualObjects(phones, (@[ @"+7 701 000 0001", @"+7 701 000 0002" ]), @"%@ %@", read, error);
+	/* One taken away: gone from the contact. */
+	NSMutableDictionary *changed = [read mutableCopy];
+	[changed setObject:@[ [[read objectForKey:@"contact/phones"] firstObject] ] forKey:@"contact/phones"];
+	XCTAssertNotNil([form save:changed inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
+	XCTAssertEqual([[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Phone"] error:NULL] count], 1u);
 }
 
 @end

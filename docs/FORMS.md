@@ -211,12 +211,17 @@ required of them.
 
 ### Where the generator is now
 
-Written down, the definition shows what ORMKit 0.6 does not do yet, each
-listed with the rule it breaks; these are what is to be implemented:
+Written down, the definition shows what the generator does not do yet,
+each with the rule it falls short of; each is an error where it is met,
+never a form without it:
 
-- D8 and D9 beyond the anchor: a step to many below a referenced or owned
-  object is left out, with a note ("one of many, not reached by one step
-  from the anchor").
+- D8 for rows that are facts of many rather than objects of one owner (a
+  driver's vehicles, entered): reported missing ("rows entered that are
+  not each of one User, but facts of many"); read as a list (D9), they
+  are made.
+- A list read through a reference (D9, the driver's vehicles) is read as
+  the form opens and with its object; a session does not read it again
+  when the reference changes, as it does a value shown through it.
 
 ### Sources
 
@@ -293,7 +298,13 @@ of one empty row (`row-purchaseLines`); a row's binds are at its path
 `Wanted = total(Quantity) for PurchaseOrder`) is calculated over them in
 XForms 1.1's terms (`sum(../purchaseLines/quantity[. != ''])`, `max()`,
 `count()`), and worked out by `ORMForm` from the rows it reads or is given,
-not read. The anchor's save writes each row into its item, found or
+not read.
+
+**Beyond the anchor:** rows beneath an owned object (a contact's phones,
+`contact/phones`) are written into it with the anchor, linked by the
+owned object's key, an element of its group (`contact/id`); rows beneath
+what the form refers to (the driver's vehicles, `driverVehicles`) are a
+list, read for the reference's key, never written. The anchor's save writes each row into its item, found or
 made and linked; an item the rows no longer have is deleted; a row's
 refusal is said at `purchaseLines[1].quantity`.
 

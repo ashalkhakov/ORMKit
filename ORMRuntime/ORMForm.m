@@ -191,6 +191,10 @@ static NSString *ORMFormMessage(NSError *error);
 	NSDictionary<NSString *, NSArray<NSString *> *> *_dependsOn;
 	NSDictionary<NSString *, ORMForm *> *_repeats;
 	NSDictionary<NSString *, ORMQueryPlan *> *_identify;
+	/* A repeat's: the element its rows' key is in, and the owned object's
+	 * group they are written into; nil for the anchor's. */
+	NSString *_from;
+	NSString *_fromGroup;
 	NSDictionary<NSString *, NSArray<NSString *> *> *_identifiedBy;
 }
 
@@ -298,6 +302,9 @@ static NSString *ORMFormMessage(NSError *error);
 	_dependsOn = dependsOn;
 	_checkedWhereSubmitted = [[list objectForKey:@"checkedWhereSubmitted"] copy] ?: @[];
 	_linkElement = [[list objectForKey:@"link"] copy];
+	_isList = [[list objectForKey:@"list"] boolValue];
+	_from = [[list objectForKey:@"from"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"from"] copy] : nil;
+	_fromGroup = [[list objectForKey:@"fromGroup"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"fromGroup"] copy] : nil;
 	NSMutableDictionary *repeats = [NSMutableDictionary dictionary];
 	NSDictionary *tables = [list objectForKey:@"repeats"] ?: @{};
 	for (NSString *name in tables) {
@@ -323,6 +330,12 @@ static NSString *ORMFormMessage(NSError *error);
 - (ORMForm *)repeatNamed:(NSString *)name
 {
 	return [_repeats objectForKey:name];
+}
+
+- (NSString *)repeatFrom:(NSString *)name
+{
+	ORMForm *repeat = [_repeats objectForKey:name];
+	return repeat != nil ? repeat->_from : nil;
 }
 
 - (id)propertyList
@@ -604,7 +617,11 @@ ORMFormCollect(id value, NSArray<NSString *> *path, NSMutableArray<NSString *> *
 		[instance setObject:[kind.items containsObject:name ?: @""] ? name : @"" forKey:kind.name];
 	}
 	for (NSString *name in _repeats) {
-		NSArray *rows = [[_repeats objectForKey:name] rowsLinkedTo:key inContext:context error:error];
+		/* Linked to the anchor, or to what the form reads its key of (an
+		 * owned contact, the driver): none where that has none. */
+		ORMForm *repeat = [_repeats objectForKey:name];
+		NSString *linked = repeat->_from != nil ? [[instance objectForKey:repeat->_from] description] : key;
+		NSArray *rows = [linked length] > 0 ? [repeat rowsLinkedTo:linked inContext:context error:error] : @[];
 		if (rows == nil) {
 			return nil;
 		}
@@ -1018,10 +1035,31 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 			continue;
 		}
 		ORMForm *repeat = [_repeats objectForKey:name];
+		if (repeat.isList) {
+			continue;
+		}
+		/* Linked to the anchor, or to the owned object they are of (a
+		 * contact's phones), as written above. */
+		NSManagedObject *of = object;
+		NSString *ofKey = keyText;
+		if (repeat->_fromGroup != nil) {
+			of = nil;
+			for (NSDictionary *each in owned) {
+				of = [[each objectForKey:@"group"] isEqualToString:repeat->_fromGroup] ? [each objectForKey:@"object"] : of;
+			}
+			NSString *groupKey = nil;
+			for (NSDictionary *group in [self groups]) {
+				groupKey = [[group objectForKey:@"name"] isEqualToString:repeat->_fromGroup] ? [group objectForKey:@"key"] : groupKey;
+			}
+			if (of == nil) {
+				continue;
+			}
+			ofKey = ORMFormText([of valueForKey:groupKey ?: @""], nil, nil);
+		}
 		NSMutableSet *kept = [NSMutableSet set];
 		for (NSUInteger i = 0; i < [rows count]; i++) {
 			NSMutableDictionary *row = [[rows objectAtIndex:i] mutableCopy];
-			[row setObject:keyText forKey:repeat.linkElement];
+			[row setObject:ofKey forKey:repeat.linkElement];
 			NSString *prefix = [NSString stringWithFormat:@"%@[%lu].", name, (unsigned long)i];
 			NSMutableDictionary *was = [NSMutableDictionary dictionary];
 			BOOL rowWasMade = NO;
@@ -1037,7 +1075,7 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 			[rowPrefixes setObject:prefix forKey:[NSValue valueWithNonretainedObject:rowObject]];
 		}
 		NSFetchRequest *linked = [NSFetchRequest fetchRequestWithEntityName:repeat.entityName];
-		[linked setPredicate:[NSPredicate predicateWithFormat:@"%K == %@", repeat.linkElement, object]];
+		[linked setPredicate:[NSPredicate predicateWithFormat:@"%K == %@", repeat.linkElement, of]];
 		for (NSManagedObject *gone in [context executeFetchRequest:linked error:NULL]) {
 			if (![kept containsObject:gone]) {
 				[context deleteObject:gone];

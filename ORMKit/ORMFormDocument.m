@@ -146,6 +146,13 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	NSMutableSet<NSString *> *_aggregateNodes;
 	/* Each aggregate's element: its function and the path to its values. */
 	NSMutableDictionary<NSString *, NSDictionary *> *_aggregateOf;
+	/* A repeat's own: its rows only read (D9), and where the key they are
+	 * linked to is in the form it is in: an element's value (a list of what
+	 * the form refers to), or an owned object (its group); the anchor's key
+	 * for neither. */
+	BOOL _isList;
+	NSString *_from;
+	NSString *_fromGroup;
 }
 
 #pragma mark The form's parts
@@ -512,7 +519,9 @@ ORMThroughName(NSArray<NSString *> *keys)
 {
 	for (ORMQueryNode *node in [_form nodes]) {
 		BOOL marked = node.formPart != ORMFormPartNone || node.isGiven || node.isValue;
-		if (!marked || node == _form.root || [self elementOfNode:node.identifier] != nil || [self isInRepeat:node]) {
+		/* A repeat's link to the form it is in is the app's, said there. */
+		if (!marked || node == _form.root || [self elementOfNode:node.identifier] != nil || [self isInRepeat:node]
+		    || [node.identifier isEqualToString:_linkNodeId ?: @""]) {
 			continue;
 		}
 		[_missing addObject:[NSString stringWithFormat:@"%@: the model has it in the form, and no element is made for it.",
@@ -556,6 +565,29 @@ ORMThroughName(NSArray<NSString *> *keys)
 	return [_missingIds copy];
 }
 
+/* The step to many nearest the anchor the node hangs from; nil for none. */
+- (ORMQueryStep *)outermostToManyAbove:(ORMQueryNode *)node
+{
+	ORMQueryStep *found = nil;
+	for (ORMQueryStep *step = node.step; step != nil; step = step.parent.step) {
+		found = [_definition isToMany:step] ? step : found;
+	}
+	return found;
+}
+
+/* The form's step of the id, wherever it is. */
+- (ORMQueryStep *)stepWithId:(NSString *)identifier
+{
+	for (ORMQueryNode *node in [_form nodes]) {
+		for (ORMQueryStep *step in node.steps) {
+			if ([step.identifier isEqualToString:identifier]) {
+				return step;
+			}
+		}
+	}
+	return nil;
+}
+
 /* The step under the anchor the node hangs from; nil for the anchor. */
 - (ORMQueryStep *)topStepOf:(ORMQueryNode *)node
 {
@@ -576,13 +608,14 @@ ORMThroughName(NSArray<NSString *> *keys)
 		NSString *name = [_repeatSteps objectForKey:stepId];
 		ORMQueryPart *step = [_stored partWithId:stepId step:YES];
 		ORMQueryPart *reached = [[step nodes] firstObject];
-		ORMQueryStep *formStep = nil;
-		for (ORMQueryStep *each in _form.root.steps) {
-			if ([each.identifier isEqualToString:stepId]) {
-				formStep = each;
-			}
-		}
+		ORMQueryStep *formStep = [self stepWithId:stepId];
 		ORMQueryNode *reachedNode = [formStep.nodes firstObject];
+		/* The object the rows are of: the anchor, an owned object, or one
+		 * the form refers to. */
+		ORMQueryNode *of = formStep.parent;
+		while (of.step != nil && [of.step isSubtyping]) {
+			of = of.step.parent;
+		}
 		if (step == nil || reached == nil || reachedNode.objectType == nil) {
 			[_notes addObject:[NSString stringWithFormat:@"%@: a repeat of nothing the model has.", name]];
 			continue;
@@ -598,7 +631,7 @@ ORMThroughName(NSArray<NSString *> *keys)
 		back.ref = step.ref;
 		back.roleId = reached.roleId;
 		ORMQueryPart *anchor = [[ORMQueryPart alloc] init];
-		anchor.identifier = [_form.root.identifier stringByAppendingString:@"-of"];
+		anchor.identifier = [(of ?: _form.root).identifier stringByAppendingString:@"-of"];
 		anchor.roleId = step.roleId;
 		anchor.given = @"true";
 		[back addPart:anchor];
@@ -612,6 +645,15 @@ ORMThroughName(NSArray<NSString *> *keys)
 		ORMFormDocument *repeat = [[ORMFormDocument alloc] init];
 		repeat->_linkNodeId = anchor.identifier;
 		repeat->_definition = _definition;
+		repeat->_isList = [_definition isList:formStep];
+		if (of != nil && ![self isAnchorsOwn:of]) {
+			if ([self ownsNode:of]) {
+				repeat->_fromGroup = [[name componentsSeparatedByString:@"/"] count] > 1
+					? [[[name componentsSeparatedByString:@"/"] subarrayWithRange:NSMakeRange(0, [[name componentsSeparatedByString:@"/"] count] - 1)]
+					      componentsJoinedByString:@"/"] : nil;
+			}
+			repeat->_from = [self elementOfNode:of.identifier];
+		}
 		repeat->_repeatPath = _repeatPath != nil ? [NSString stringWithFormat:@"%@/%@", _repeatPath, name] : name;
 		NSString *why = query != nil ? [repeat makeForm:query stored:stored model:_model mapping:_mapping] : @"it cannot be read";
 		if (why != nil) {
@@ -621,6 +663,13 @@ ORMThroughName(NSArray<NSString *> *keys)
 		[_notes addObjectsFromArray:repeat.notes];
 		for (NSString *each in repeat.missing) {
 			[_missing addObject:[NSString stringWithFormat:@"%@: %@", name, each]];
+		}
+		/* Rows written are each of one object of the form's, linked to it
+		 * by its key; rows of a fact of many (a driver's vehicles) are not. */
+		if (!repeat->_isList && repeat.linkElement == nil) {
+			[_missing addObject:[NSString stringWithFormat:@"%@: rows entered that are not each of one %@, but facts of many: "
+			                                               @"not written by a repeat.", name, of.objectType.name ?: @"object"]];
+			[_missingIds addObject:stepId];
 		}
 		[_missingIds unionSet:repeat.missingIds];
 		[_repeats setObject:repeat forKey:name];
@@ -650,6 +699,12 @@ ORMThroughName(NSArray<NSString *> *keys)
 		}
 		if (node.isValue) {
 			[listed addObjectsFromArray:[node.expression nodeIds]];
+		}
+		/* What rows beyond the anchor are of: its key read, to link them. */
+		for (ORMQueryStep *step in node.steps) {
+			if (([_definition isRepeat:step] || [_definition isList:step]) && ![self isAnchorsOwn:node]) {
+				[listed addObject:node.identifier];
+			}
 		}
 	}
 	return listed;
@@ -792,6 +847,20 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 			continue;
 		}
 		BOOL hidden = node.formPart == ORMFormPartNone && !node.isGiven && node != _form.root;
+		/* An owned object rows are of (a contact's phones): its key, in its
+		 * group, read to link them. */
+		if (node != _form.root && [self ownsNode:node] && column.identifierKey != nil && [plan trailOfColumn:column] != nil) {
+			NSArray *toObject = [plan trailOfColumn:column];
+			NSArray *path = [toObject arrayByAddingObject:column.identifierKey];
+			ORMCDAttribute *attribute = (ORMCDAttribute *)ORMPropertyOf(coreData, [self entityAtKeys:toObject], column.identifierKey);
+			ORMFormField *field = [self addField:node.identifier name:[path componentsJoinedByString:@"/"] kind:ORMFormFieldValue
+			                                type:[attribute isKindOfClass:[ORMCDAttribute class]] ? ORMSchemaTypeOf(attribute, nil) : @"xsd:string"];
+			field.keys = path;
+			field.isHidden = YES;
+			field.groupName = [toObject componentsJoinedByString:@"/"];
+			[self addGroups:toObject objects:[[self objectsAbove:node] arrayByAddingObject:node]];
+			continue;
+		}
 		if (column.value != nil || node.isValue) {
 			ORMFormField *field = [self addField:node.identifier
 			                                name:[self elementNameOfValue:node]
@@ -807,22 +876,34 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 			continue;
 		}
 		NSString *entity = _entityName;
-		BOOL toOnes = YES;
-		for (NSString *key in keys) {
-			ORMCDRelationship *relationship = (ORMCDRelationship *)ORMPropertyOf(coreData, entity, key);
+		NSUInteger firstMany = NSNotFound;
+		for (NSUInteger k = 0; k < [keys count]; k++) {
+			ORMCDRelationship *relationship = (ORMCDRelationship *)ORMPropertyOf(coreData, entity, [keys objectAtIndex:k]);
 			if ([relationship isKindOfClass:[ORMCDRelationship class]]) {
-				toOnes = toOnes && !relationship.toMany;
+				firstMany = firstMany == NSNotFound && relationship.toMany ? k : firstMany;
 				entity = relationship.destination;
 			}
 		}
-		if (!toOnes) {
-			/* Under a step from the anchor to many: a repeat's. */
-			ORMQueryStep *top = [self topStepOf:node];
-			ORMCDRelationship *first = (ORMCDRelationship *)ORMPropertyOf(coreData, _entityName, [keys firstObject]);
-			if (top != nil && [first isKindOfClass:[ORMCDRelationship class]] && first.toMany) {
-				[_repeatSteps setObject:[keys firstObject] forKey:top.identifier];
+		if (firstMany != NSNotFound) {
+			/* Under a step to many: a repeat's, or a list's (D8, D9), its
+			 * rows named by the keys to them ("purchaseLines"); of an owned
+			 * object, in its group ("contact/phones"); of what the form
+			 * refers to, read through it ("driverVehicles"). */
+			ORMQueryStep *many = [self outermostToManyAbove:node];
+			ORMQueryNode *from = many.parent;
+			NSArray *toFrom = [keys subarrayWithRange:NSMakeRange(0, firstMany)];
+			NSString *relationship = [keys objectAtIndex:firstMany];
+			if ([node.identifier isEqualToString:_linkNodeId ?: @""]) {
+				/* A repeat's link back to what its rows are of, through a fact of
+				 * many (a vehicle's drivers): no element, no repeat of its own. */
+			} else if (many == nil || !([_definition isRepeat:many] || [_definition isList:many])) {
+				[_notes addObject:[NSString stringWithFormat:@"%@: one of many, by no repeat or list.", name]];
+			} else if ([self isAnchorsOwn:from]) {
+				[_repeatSteps setObject:relationship forKey:many.identifier];
+			} else if ([self ownsAllAbove:from including:YES]) {
+				[_repeatSteps setObject:[[toFrom arrayByAddingObject:relationship] componentsJoinedByString:@"/"] forKey:many.identifier];
 			} else {
-				[_notes addObject:[NSString stringWithFormat:@"%@: one of many, not reached by one step from the anchor.", name]];
+				[_repeatSteps setObject:ORMThroughName([toFrom arrayByAddingObject:relationship]) forKey:many.identifier];
 			}
 			continue;
 		}
@@ -2201,11 +2282,11 @@ ORMPlanWithParameters(ORMQueryPlan *plan, NSDictionary<NSString *, NSString *> *
 - (ORMQueryPlan *)readPlan
 {
 	/* A repeat's is of the objects linked to the key of its link's element. */
-	NSString *name = [self linkElement] ?: [self keyField].elementName;
+	NSString *name = [self linkElement] ?: (_linkNodeId != nil ? @"link" : [self keyField].elementName);
 	if (name == nil) {
 		return nil;
 	}
-	_linkValue = [self linkElement] != nil;
+	_linkValue = _linkNodeId != nil;
 	ORMQueryPlan *plan = ORMPlanWithParameters([self readPlanForKey:ORMParameterSentinel(name)], @{ ORMParameterSentinel(name): name });
 	_linkValue = NO;
 	return plan;
@@ -2358,8 +2439,17 @@ ORMFieldKindName(ORMFormFieldKind kind)
 	}
 	[list setObject:[self checkedWhereSubmitted] forKey:@"checkedWhereSubmitted"];
 	/* A repeat's link; the repeats, each a table of its own. */
-	if ([self linkElement] != nil) {
-		[list setObject:[self linkElement] forKey:@"link"];
+	if (_linkNodeId != nil) {
+		[list setObject:[self linkElement] ?: @"link" forKey:@"link"];
+	}
+	if (_isList) {
+		[list setObject:@YES forKey:@"list"];
+	}
+	if (_from != nil) {
+		[list setObject:_from forKey:@"from"];
+	}
+	if (_fromGroup != nil) {
+		[list setObject:_fromGroup forKey:@"fromGroup"];
 	}
 	if ([_repeats count] > 0) {
 		NSMutableDictionary *repeats = [NSMutableDictionary dictionary];
@@ -2535,7 +2625,7 @@ ORMXText(NSString *name, NSString *text)
 		ORMFormDocument *repeat = [_repeats objectForKey:name];
 		NSXMLElement *template = ORMXElement(@"xf:instance", @{ @"id" : [repeat rowInstanceId] });
 		NSXMLElement *row = [repeat instanceGiven:@{}];
-		[row setName:name];
+		[row setName:[[name componentsSeparatedByString:@"/"] lastObject]];
 		[template addChild:row];
 		[model addChild:template];
 		for (ORMFormField *field in repeat.fields) {
@@ -2763,9 +2853,12 @@ ORMXText(NSString *name, NSString *text)
 	if (written) {
 		NSXMLElement *add = ORMXElement(@"xf:trigger", @{ @"id" : [@"control-add-" stringByAppendingString:dashed] });
 		[add addChild:ORMXText(@"xf:label", @"Add")];
+		/* Within the object the rows are of: an owned one's group. */
+		NSArray *path = [name componentsSeparatedByString:@"/"];
+		NSString *within = [path count] > 1 ? [[path subarrayWithRange:NSMakeRange(0, [path count] - 1)] componentsJoinedByString:@"/"] : @".";
 		[add addChild:ORMXElement(@"xf:insert", @{
-			@"ev:event" : @"DOMActivate", @"context" : @".", @"nodeset" : name, @"at" : @"last()", @"position" : @"after",
-			@"origin" : [NSString stringWithFormat:@"instance('%@')/%@", [self rowInstanceId], name],
+			@"ev:event" : @"DOMActivate", @"context" : within, @"nodeset" : [path lastObject], @"at" : @"last()", @"position" : @"after",
+			@"origin" : [NSString stringWithFormat:@"instance('%@')/%@", [self rowInstanceId], [path lastObject]],
 		})];
 		[group addChild:add];
 	}

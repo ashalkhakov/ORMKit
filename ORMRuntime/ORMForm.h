@@ -143,6 +143,12 @@ extern NSString * const ORMFormErrorDomain;
 /* A repeat's element that holds the key of the object of the form it is in;
  * nil for a form that is no repeat. */
 @property (nonatomic, readonly, copy) NSString *linkElement;
+/* A repeat that is a list (docs/FORMS.md, D9): its rows read, never written. */
+@property (nonatomic, readonly) BOOL isList;
+/* The element of the form whose value the repeat's rows are linked to (an
+ * owned object's key, "contact/id"; a reference's, "driver"); nil for the
+ * anchor's key. */
+- (NSString *)repeatFrom:(NSString *)name;
 /* A repeat's rows linked to the object of the key, read in the context. */
 - (NSArray<NSDictionary *> *)rowsLinkedTo:(NSString *)key inContext:(NSManagedObjectContext *)context error:(NSError **)error;
 /* The references with choices, by element name. */
