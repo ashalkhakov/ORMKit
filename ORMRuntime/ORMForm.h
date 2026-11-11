@@ -168,6 +168,9 @@ extern NSString * const ORMFormErrorDomain;
 /* What finds a reference's object for the instance's values: the objects of
  * its type whose key they are. nil, and why, for none such. */
 - (ORMQueryPlan *)identifyPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error;
+/* The forms it is made or changed with, one change set (docs/FORMS.md): a
+ * form each, in order; empty for one anchor. */
+@property (nonatomic, readonly, copy) NSArray<ORMForm *> *parts;
 /* The service's action the form is submitted to (docs/FORMS.md); nil for
  * a form that is saved. */
 @property (nonatomic, readonly, copy) NSString *action;
@@ -234,6 +237,17 @@ extern NSString * const ORMFormErrorDomain;
                    saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
                    errors:(NSDictionary<NSString *, NSString *> **)errors
                     error:(NSError **)error;
+/* Several forms' instances written and saved as one: a form made or
+ * changed with others (docs/FORMS.md), each of its anchors. Each object
+ * saved, in order; nil where any is refused, every object put back as it
+ * was, errors the first form's by its elements and each other's by its
+ * name before them ("NewSupplier/contact/contactName"). */
++ (NSArray<NSManagedObject *> *)saveForms:(NSArray<ORMForm *> *)forms
+                                instances:(NSArray<NSDictionary<NSString *, id> *> *)instances
+                                inContext:(NSManagedObjectContext *)context
+                                   saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
+                                   errors:(NSDictionary<NSString *, NSString *> **)errors
+                                    error:(NSError **)error;
 /* What a failed save's error says of each element, "" for the rest: a
  * rule's said at the first of its properties (ORMKeys) the form enters, so
  * that one the user cannot change (the vehicle given) is not where it is

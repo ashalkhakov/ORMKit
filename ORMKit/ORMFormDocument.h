@@ -184,4 +184,9 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
  * checks where submitted instead of their verbalizations, and in the
  * table, for what the store refuses. */
 @property (nonatomic, copy) NSDictionary<NSString *, NSString *> *messages;
+/* The forms it is made or changed with, one change set (docs/FORMS.md):
+ * a document each, in order; empty for one anchor. The XForms document of
+ * several anchors has them all: its instance an element of each, named as
+ * its form, read each by its key ("form:read/<Form>"), saved as one. */
+@property (nonatomic, readonly, copy) NSArray<ORMFormDocument *> *parts;
 @end

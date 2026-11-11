@@ -205,6 +205,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* A derivation's subtype: its rows are the instances of its root's type
  * that are of the subtype (nil: it derives a fact type, or none yet). */
 @property (nonatomic, readonly, weak) ORMObjectType *derivedSubtype;
+/* A form's further anchors (docs/FORMS.md): the forms made or changed with
+ * it, one change set, by id, in order; empty for one anchor. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *withFormIds;
 /* "value", "count", "total", "avg", "max", "min". */
 + (NSString *)nameOfCalculationFunction:(ORMQueryCalculationFunction)function;
 
@@ -293,6 +296,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * stored stays. NO for a query of another kind, a fact type another query
  * derives, or one with NORMA's own rule. */
 - (BOOL)setDerivedFactType:(NSString *)factTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
+/* The forms a form is made or changed with, one change set: each a form of
+ * the model's of one anchor, not the form itself. NO for a query that is no
+ * form, or forms that are not so. */
+- (BOOL)setWithForms:(NSArray<NSString *> *)formIds ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* The subtype a derivation derives: each instance of the query's root
  * type that it finds is one. Its root is a supertype of it. The subtype
  * keeps its rule's words, or is given the query's name for them, as

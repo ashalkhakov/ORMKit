@@ -2460,4 +2460,85 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	XCTAssertEqualObjects([form elementErrorsOf:refused], (@{ @"volumeQuantity" : @"No tank holds that much." }));
 }
 
+#pragma mark Several anchors
+
+/* A customer and a supplier onboarded together, neither reaching the
+ * other: a form with two anchors, one change set. */
+- (ORMEditor *)onboarding
+{
+	return [self editorOf:[ORMBeyond stringByAppendingString:@"\n"
+	                                                          @"Query NewSupplier:\n"
+	                                                          @"Form NewSupplier:\n"
+	                                                          @"Supplier\n"
+	                                                          @"  + is of Contact\n"
+	                                                          @"    + has ContactName (entered)\n"
+	                                                          @"\n"
+	                                                          @"Query Onboard:\n"
+	                                                          @"Form Onboard, with NewSupplier:\n"
+	                                                          @"Customer\n"
+	                                                          @"  + is of Catalog = ?\n"
+	                                                          @"  + is of Contact\n"
+	                                                          @"    + has ContactName (entered)\n"]];
+}
+
+- (void)testAFormMayHaveSeveralAnchors
+{
+	ORMEditor *editor = [self onboarding];
+	ORMQuery *onboard = [self query:@"Onboard" in:editor.model];
+	XCTAssertEqual([onboard.withFormIds count], 1u);
+	XCTAssertTrue([[onboard outlineText] hasPrefix:@"Form Onboard, with NewSupplier:\n"], @"%@", [onboard outlineText]);
+	ORMFormDocument *document = [self form:@"Onboard" of:editor];
+	XCTAssertEqualObjects([[document.parts firstObject].form name], @"NewSupplier");
+	NSXMLDocument *xforms = [document document];
+	NSString *pretty = [xforms XMLStringWithOptions:NSXMLNodePrettyPrint];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='form']/*[local-name()='forms']/*[local-name()='NewSupplier']/*[local-name()='contact']/*[local-name()='contactName']" in:xforms] count], 1u, @"%@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@nodeset='NewSupplier']/*[local-name()='bind'][@ref='contact/contactName']" in:xforms] count], 1u, @"%@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='group'][@ref='NewSupplier']//*[local-name()='input']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='submission'][@resource='form:read/NewSupplier']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='submission'][@id='save']" in:xforms] count], 1u, @"one save");
+
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([form.parts valueForKey:@"name"], @[ @"NewSupplier" ]);
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Catalog" values:@{ @"code" : @"GAR" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSUInteger (^count)(NSString *) = ^NSUInteger(NSString *entity) {
+		NSManagedObjectContext *fresh = [[NSManagedObjectContext alloc] init];
+		[fresh setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+		return [[fresh executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:entity] error:NULL] count];
+	};
+	/* The supplier's name left out: neither is saved. */
+	ORMFormSession *refused = [[ORMFormSession alloc] initWithForm:form given:@{ @"catalog" : @"GAR" }];
+	[refused useContext:context saving:nil];
+	XCTAssertTrue([refused open:&error], @"%@", error);
+	[refused setValue:@"Ann's Garage" forElement:@"contact/contactName"];
+	XCTAssertFalse([refused save:&error]);
+	XCTAssertNotNil([refused.errors objectForKey:@"NewSupplier/contact/contactName"], @"%@", refused.errors);
+	XCTAssertEqual(count(@"Customer"), 0u, @"the customer neither");
+
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{ @"catalog" : @"GAR" }];
+	[session useContext:context saving:nil];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setValue:@"Ann's Garage" forElement:@"contact/contactName"];
+	[session setValue:@"Acme Parts" forElement:@"contact/contactName" ofForm:@"NewSupplier"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqual(count(@"Customer"), 1u);
+	XCTAssertEqual(count(@"Supplier"), 1u);
+	XCTAssertNotNil([session savedKeyOfForm:@"NewSupplier"]);
+	XCTAssertEqualObjects([[session valuesOfForm:@"NewSupplier"] objectForKey:@"contact/contactName"], @"Acme Parts", @"read again");
+
+	/* The same through the service: one change set. */
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[context persistentStoreCoordinator] serviceRoot:root];
+	ORMFormSession *served = [[ORMFormSession alloc] initWithForm:form given:@{ @"catalog" : @"GAR" }];
+	[served useServiceRoot:root model:[[context persistentStoreCoordinator] managedObjectModel] transport:service];
+	XCTAssertTrue([served open:&error], @"%@", error);
+	[served setValue:@"Bob's Garage" forElement:@"contact/contactName"];
+	[served setValue:@"Bolt Ltd" forElement:@"contact/contactName" ofForm:@"NewSupplier"];
+	XCTAssertTrue([served save:&error], @"%@ %@", served.errors, error);
+	XCTAssertEqual(count(@"Customer"), 2u);
+	XCTAssertEqual(count(@"Supplier"), 2u);
+}
+
 @end

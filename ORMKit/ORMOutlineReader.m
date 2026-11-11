@@ -38,6 +38,7 @@
 @property (nonatomic) BOOL deontic;
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic, copy) NSString *function;
+@property (nonatomic, copy) NSArray<NSString *> *withFormIds;
 @property (nonatomic, copy) NSString *calculated;
 @property (nonatomic, strong) ORMFactType *derived;
 @property (nonatomic, strong) ORMObjectType *subtype;
@@ -1075,6 +1076,28 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	} else if ([formName length] > 0) {
 		header.kind = ORMQueryForm;
 		header.name = formName;
+		/* "Form Onboard, with NewSupplier and NewCarrier:": the forms it is
+		 * made with, each the model's, by name. */
+		NSRange with = [formName rangeOfString:@", with "];
+		if (with.location != NSNotFound) {
+			header.name = [formName substringToIndex:with.location];
+			NSString *listed = [[formName substringFromIndex:NSMaxRange(with)] stringByReplacingOccurrencesOfString:@" and " withString:@", "];
+			NSMutableArray *ids = [NSMutableArray array];
+			for (NSString *each in [listed componentsSeparatedByString:@", "]) {
+				NSString *name = [each stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+				ORMQuery *found = nil;
+				for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+					found = query.kind == ORMQueryForm && [query.name isEqualToString:name] ? query : found;
+				}
+				if (found == nil) {
+					_failure = [NSString stringWithFormat:@"Line %lu, \"%@\": no form of the model is named %@.",
+					                                      (unsigned long)line.number, text, name];
+					return nil;
+				}
+				[ids addObject:found.identifier];
+			}
+			header.withFormIds = ids;
+		}
 	} else if (subtypeName != nil) {
 		header.kind = ORMQueryDerivation;
 		header.subtype = [_editor.model objectTypeNamed:subtypeName];
@@ -1115,6 +1138,11 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 		return [self fail:why ?: @"the query cannot be made" line:rootLine];
 	}
 	/* A form is one before its nodes are entered, shown or given. */
+	if (_header.kind == ORMQueryForm && [_header.withFormIds count] > 0
+	    && (![_queries setKind:ORMQueryForm ofQuery:_query reason:&why]
+	        || ![_queries setWithForms:_header.withFormIds ofQuery:_query reason:&why])) {
+		return [self fail:why ?: @"the form cannot be made with those" line:_header.line];
+	}
 	if (_header.kind == ORMQueryForm && ![_queries setKind:ORMQueryForm ofQuery:_query reason:&why]) {
 		return [self fail:why ?: @"the query cannot be a form" line:_header.line];
 	}

@@ -114,6 +114,16 @@ Record
     + was on Day (entered)
 ```
 
+**Several anchors.** A form may be made or changed with others, objects
+neither reaches through the other (a customer and a supplier onboarded
+together), its header naming them: `Form Onboard, with NewSupplier:`
+(`With` in the `.orm`, the forms' ids; each of one anchor). Each is a form
+of its own, opened with the same inputs; its document has them all, an
+element of the instance each, named as its form, read each by its key
+(`form:read/<Form>`), saved as one: the store once, the service one
+change set (`$batch`); refused, none is, each other one's refusals said
+under its name (`NewSupplier/contact/contactName`).
+
 A form is verbalized as a query is. In the `.orm` it is a query with
 `Kind="Form"`, a node's part `Part="Entered"` or `"Shown"`, a given one
 `Given="true"`, a unary's part on its step. **Save a Copy for NORMA**
@@ -581,8 +591,6 @@ committing what is typed. XFormsKit still needs decimal arithmetic for
 
 ## Planned
 
-- A form with several anchors: objects made or changed together that
-  neither reaches through the other, submitted as one change set.
 - Figma import and export.
 - A BPMN user task performed with a form or a flow.
 - Forms seeding the model: a form, or a sample filled in, its provisional
