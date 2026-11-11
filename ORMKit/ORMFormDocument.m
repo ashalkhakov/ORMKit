@@ -111,6 +111,7 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	ORMVerbalizer *_verbalizer;
 	/* The anchor's unary steps entered or shown, by id: a flag each. */
 	NSMutableDictionary<NSString *, ORMQueryStep *> *_unarySteps;
+	NSMutableArray<NSString *> *_missing;
 	/* -definingSteps, worked out once. */
 	NSArray<NSArray *> *_definingSteps;
 	/* The steps from the anchor to many (an order's lines), by id, and the
@@ -303,6 +304,7 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_verbalizer = [[ORMVerbalizer alloc] initWithModel:model];
 	_fields = [NSMutableArray array];
 	_notes = [NSMutableArray array];
+	_missing = [NSMutableArray array];
 	_checked = [NSMutableArray array];
 	_binds = [NSMutableDictionary dictionary];
 	_warnings = [NSMutableArray array];
@@ -334,7 +336,46 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	[self bindValues];
 	[self bindConstraints];
 	[self makeRepeats];
+	[self findMissing];
 	return nil;
+}
+
+/* What the model marks for the form (entered, shown, given, computed) and
+ * no element is placed as, its own or a repeat's: the form leaves out what
+ * the model says it has, why in the notes. */
+- (void)findMissing
+{
+	for (ORMQueryNode *node in [_form nodes]) {
+		BOOL marked = node.formPart != ORMFormPartNone || node.isGiven || node.isValue;
+		if (!marked || node == _form.root || [self elementOfNode:node.identifier] != nil || [self isInRepeat:node]) {
+			continue;
+		}
+		[_missing addObject:[NSString stringWithFormat:@"%@: the model has it in the form, and no element is made for it.",
+		                                               [node designation]]];
+	}
+	for (ORMQueryStep *step in [_unarySteps allValues]) {
+		if ([self elementOfNode:step.identifier] == nil) {
+			[_missing addObject:[NSString stringWithFormat:@"\"%@\": the model has it in the form, and no element is made for it.",
+			                                               [step.factType displayText]]];
+		}
+	}
+	[_missing sortUsingSelector:@selector(compare:)];
+}
+
+/* Whether a node hangs from a step to many: a repeat's, placed there. */
+- (BOOL)isInRepeat:(ORMQueryNode *)node
+{
+	for (ORMQueryStep *step = node.step; step != nil; step = step.parent.step) {
+		if ([_repeatSteps objectForKey:step.identifier] != nil) {
+			return YES;
+		}
+	}
+	return NO;
+}
+
+- (NSArray<NSString *> *)missing
+{
+	return [_missing copy];
 }
 
 /* The step under the anchor the node hangs from; nil for the anchor. */

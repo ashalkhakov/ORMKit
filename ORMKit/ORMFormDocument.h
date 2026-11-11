@@ -123,6 +123,10 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 /* What the form says that the document leaves out, and why. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
+/* What the model has in the form (entered, shown, given, computed) that
+ * the document has no element for: a form that is not the model's, which
+ * ormtool xforms refuses to write. Empty for a whole one. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *missing;
 /* The steps from the anchor to many (an order's lines), each a form of its
  * own by the element it is (its relationship's name): anchored on what the
  * step reaches, given the anchor back, read for every object linked to

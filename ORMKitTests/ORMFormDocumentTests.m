@@ -133,6 +133,7 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	ORMFormDocument *document = [ORMFormDocument documentForForm:[self formIn:editor.model] model:editor.model mapping:nil
 	                                                      reason:&reason];
 	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, @[], @"every form here is whole: %@", document.notes);
 	return document;
 }
 
@@ -538,6 +539,26 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertTrue([[error localizedDescription] rangeOfString:@"bind them first"].location != NSNotFound, @"%@", error);
 }
 
+/* What the model has in a form and the document cannot place is said as
+ * missing, by name: never a form quietly without it (ormtool xforms
+ * refuses to write one). Here a vehicle shown through the driver's "drives",
+ * one of many. */
+- (void)testWhatCannotBePlacedIsMissingNotDropped
+{
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  ✓PricePerUnit"
+	                                                       withString:@"  + had driver User2\n    + drives ✓Vehicle3\n  ✓PricePerUnit"];
+	XCTAssertNotEqualObjects(text, ORMFillUps);
+	ORMEditor *editor = [self newEditor];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	NSString *reason = nil;
+	ORMFormDocument *document = [ORMFormDocument documentForForm:[self formIn:editor.model] model:editor.model mapping:nil
+	                                                      reason:&reason];
+	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqual([document.missing count], 1u, @"%@ (notes: %@)", document.missing, document.notes);
+	XCTAssertTrue([[document.missing firstObject] hasPrefix:@"Vehicle3: "], @"%@", document.missing);
+}
+
 /* What is computed with read through a second step to an object absorbed
  * into the anchor's row (Logbook's price per unit: the volume entered, its
  * quantity reached again): read with the row, no maybe of its own. */
@@ -717,6 +738,7 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 	NSString *reason = nil;
 	ORMFormDocument *document = [ORMFormDocument documentForForm:form model:editor.model mapping:nil reason:&reason];
 	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, @[], @"every form here is whole: %@", document.notes);
 	return document;
 }
 
@@ -1444,6 +1466,7 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 	ORMFormDocument *document = [ORMFormDocument documentForForm:[self query:name in:editor.model] model:editor.model mapping:nil
 	                                                      reason:&reason];
 	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, @[], @"every form here is whole: %@", document.notes);
 	return document;
 }
 

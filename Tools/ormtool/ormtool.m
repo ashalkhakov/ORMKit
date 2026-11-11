@@ -615,6 +615,18 @@ main(int argc, const char *argv[])
 					status = 1;
 					continue;
 				}
+				/* A form without what the model has in it is not written:
+				 * an app built on it would lack those elements. */
+				if ([form.missing count] > 0) {
+					for (NSString *missing in form.missing) {
+						fprintf(stderr, "ormtool: %s: error: %s\n", [query.name UTF8String], [missing UTF8String]);
+					}
+					for (NSString *note in form.notes) {
+						fprintf(stderr, "ormtool: %s: note: %s\n", [query.name UTF8String], [note UTF8String]);
+					}
+					status = 1;
+					continue;
+				}
 				for (ORMFlowScreen *screen in flow.screens) {
 					if ([screen.formId isEqualToString:query.identifier]) {
 						[form setFlow:flow screen:screen];
