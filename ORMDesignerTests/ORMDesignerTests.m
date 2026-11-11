@@ -1899,8 +1899,13 @@
 		return nil;
 	};
 
-	/* The van's plate, through it. */
-	XCTAssertTrue([player.walk take:way(nil) row:0 error:&error], @"%@", error);
+	/* The van's plate, through it: the van chosen by its plate, a list's
+	 * rows coming in the store's order. */
+	NSUInteger van = [player.walk.rows indexOfObjectPassingTest:^BOOL(NSDictionary<NSString *, NSString *> *row, NSUInteger i, BOOL *stop) {
+		return [[row allValues] containsObject:@"KZ 101 AAA"];
+	}];
+	XCTAssertNotEqual(van, (NSUInteger)NSNotFound, @"%@", player.walk.rows);
+	XCTAssertTrue([player.walk take:way(nil) row:(NSInteger)van error:&error], @"%@", error);
 	[player.values reloadData];
 	NSInteger plate = rowOf(@"Plate");
 	XCTAssertTrue(plate >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
