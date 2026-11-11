@@ -2637,4 +2637,49 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	}
 }
 
+/* Two orders placed together through the service, each customer found by
+ * email (D6) as the change set is sent: the other's under its name. */
+- (void)testSeveralAnchorsFindTheirChoicesThroughTheService
+{
+	NSString *text = [ORMCustomerOrders stringByAppendingString:@"\n"
+	                                                              @"Query PlaceAnother:\n"
+	                                                              @"Form PlaceAnother:\n"
+	                                                              @"Order\n"
+	                                                              @"  + is for Customer (entered)\n"
+	                                                              @"    + has Email (entered)\n"
+	                                                              @"  + was placed on Day (entered)\n"
+	                                                              @"\n"
+	                                                              @"Query PlaceBoth:\n"
+	                                                              @"Form PlaceBoth, with PlaceAnother:\n"
+	                                                              @"Order\n"
+	                                                              @"  + is for Customer (entered)\n"
+	                                                              @"    + has Email (entered)\n"
+	                                                              @"  + was placed on Day (entered)\n"];
+	ORMEditor *editor = [self editorOf:text];
+	ORMForm *form = [ORMForm formWithPropertyList:[[self form:@"PlaceBoth" of:editor] tablePropertyList] error:NULL];
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Customer" values:@{ @"id" : [NSUUID UUID], @"customerName" : @"Ann", @"email" : @"ann@example.com" } in:context];
+	[self insert:@"Customer" values:@{ @"id" : [NSUUID UUID], @"customerName" : @"Bob", @"email" : @"bob@example.com" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[context persistentStoreCoordinator] serviceRoot:root];
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useServiceRoot:root model:[[context persistentStoreCoordinator] managedObjectModel] transport:service];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setValue:@"ann@example.com" forElement:@"customerEmail"];
+	[session setValue:@"2026-11-12" forElement:@"day"];
+	[session setValue:@"nobody@example.com" forElement:@"customerEmail" ofForm:@"PlaceAnother"];
+	[session setValue:@"2026-11-12" forElement:@"day" ofForm:@"PlaceAnother"];
+	XCTAssertFalse([session save:&error]);
+	XCTAssertEqualObjects([session.errors objectForKey:@"PlaceAnother/customerEmail"], @"There is no Customer with that Email.", @"%@", session.errors);
+	[session setValue:@"bob@example.com" forElement:@"customerEmail" ofForm:@"PlaceAnother"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	NSManagedObjectContext *fresh = [[NSManagedObjectContext alloc] init];
+	[fresh setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+	NSArray *orders = [fresh executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Order"] error:NULL];
+	NSArray *names = [[orders valueForKeyPath:@"customer.customerName"] sortedArrayUsingSelector:@selector(compare:)];
+	XCTAssertEqualObjects(names, (@[ @"Ann", @"Bob" ]), @"each found by email");
+}
+
 @end
