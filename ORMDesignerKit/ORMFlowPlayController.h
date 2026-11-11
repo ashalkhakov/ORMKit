@@ -53,4 +53,5 @@
 /* Play's values (the XIB's class for them): a field typed into at the first
  * click, its row chosen or not. */
 @interface ORMFlowPlayValuesTable : NSTableView
+- (BOOL)validateProposedFirstResponder:(NSResponder *)responder forEvent:(NSEvent *)event;
 @end

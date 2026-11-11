@@ -2031,7 +2031,7 @@
 	NSInteger valueColumn = [player.values columnWithIdentifier:@"value"];
 	NSTextField *typed = [(NSTableCellView *)[player.values viewAtColumn:valueColumn row:litres makeIfNecessary:YES] textField];
 	XCTAssertTrue([[typed cell] sendsActionOnEndEditing]);
-	XCTAssertTrue([player.values validateProposedFirstResponder:typed forEvent:nil], @"its row not chosen");
+	XCTAssertTrue([(ORMFlowPlayValuesTable *)player.values validateProposedFirstResponder:typed forEvent:nil], @"its row not chosen");
 	XCTAssertTrue([[player window] makeFirstResponder:typed]);
 	[[typed currentEditor] setString:@"40"];
 	[[player window] makeFirstResponder:nil];
