@@ -145,7 +145,9 @@
 		}
 		/* What the last save refused of it, beside its name. */
 		NSString *error = [_walk.session.errors objectForKey:element.name];
-		NSString *name = [NSString stringWithFormat:@"%@ (%@)", element.label ?: element.name, element.role ?: @"?"];
+		/* Its role is its control's to show (a field to enter, a given
+		 * value's text), and its tooltip's to say. */
+		NSString *name = element.label ?: element.name;
 		return error != nil ? [NSString stringWithFormat:@"⚠︎ %@: %@", name, error] : name;
 	}
 	if ([[column identifier] isEqualToString:@"value"]) {
@@ -169,7 +171,8 @@
 		NSString *refused = _walk.session != nil ? [_walk.session.errors objectForKey:[self elementOfRow:row].name] : nil;
 		[view.textField setStringValue:shown];
 		[view.textField setTextColor:refused != nil ? [NSColor systemRedColor] : [NSColor controlTextColor]];
-		[view setToolTip:refused != nil ? shown : nil];
+		NSString *role = _walk.session != nil ? [self elementOfRow:row].role : nil;
+		[view setToolTip:refused != nil ? shown : role != nil ? [NSString stringWithFormat:@"%@ (%@)", shown, role] : nil];
 		return view;
 	}
 	ORMFormElement *element = [self elementOfRow:row];

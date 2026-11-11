@@ -336,8 +336,13 @@ ORMFlowWalkIsKind(ORMForm *form, NSString *subtype, NSDictionary *values, NSMana
 	if ([key length] == 0 || ![element.kind isEqualToString:@"reference"] || _context == nil) {
 		return element != nil ? [element labelOfItem:key] : key;
 	}
-	NSEntityDescription *entity = [[_store.managedObjectModel entitiesByName] objectForKey:session.form.entityName ?: @""];
-	NSEntityDescription *destination = [[[entity relationshipsByName] objectForKey:name] destinationEntity];
+	/* The entity it refers to, as the element has it: the form's own
+	 * relationship is not where it is a subtype part's (a record's
+	 * fill-up's station) or an owned object's. */
+	NSDictionary *entities = [_store.managedObjectModel entitiesByName];
+	NSEntityDescription *destination = [entities objectForKey:element.entityName ?: @""]
+	                                       ?: [[[[entities objectForKey:session.form.entityName ?: @""] relationshipsByName] objectForKey:name]
+	                                              destinationEntity];
 	NSDictionary *attributes = [destination attributesByName];
 	NSAttributeDescription *keyAttribute = [attributes objectForKey:element.keyName ?: @""];
 	id typed = key;

@@ -1933,6 +1933,10 @@
 	NSPopUpButton *kinds = [[[player tableView:player.values viewForTableColumn:[player.values tableColumnWithIdentifier:@"value"] row:kind]
 	                           subviews] firstObject];
 	XCTAssertEqualObjects([kinds titleOfSelectedItem], @"Fill up");
+	XCTAssertEqualObjects([player tableView:player.values objectValueForTableColumn:[player.values tableColumnWithIdentifier:@"name"] row:kind],
+	                      @"Kind", @"its label alone: its control says it is entered");
+	NSView *kindName = [player tableView:player.values viewForTableColumn:[player.values tableColumnWithIdentifier:@"name"] row:kind];
+	XCTAssertEqualObjects([kindName toolTip], @"Kind (entered)");
 	NSInteger tank = rowOf(@"filled the tank");
 	XCTAssertTrue(tank >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
 	XCTAssertEqualObjects([player editorOfRow:tank], @"flag");
@@ -1948,6 +1952,14 @@
 		NSArray *choices = [player.walk.session choicesNamed:[chosen objectForKey:each] error:NULL];
 		XCTAssertTrue([choices count] > 0, @"%@'s choices", each);
 		[player setValue:[choices firstObject] ofRow:rowOf(each)];
+		/* Named as a reader knows it, a part's as the anchor's are: a
+		 * station by its name, not its key. */
+		if ([each isEqualToString:@"Station"]) {
+			NSPopUpButton *popUp = [[[player tableView:player.values viewForTableColumn:[player.values tableColumnWithIdentifier:@"value"]
+			                                       row:rowOf(each)] subviews] firstObject];
+			XCTAssertNotEqualObjects([popUp titleOfSelectedItem], [choices firstObject]);
+			XCTAssertEqualObjects([popUp titleOfSelectedItem], [player.walk labelOfKey:[choices firstObject] element:@"station"]);
+		}
 	}
 	[player setValue:@"true" ofRow:tank];
 	XCTAssertTrue([player.walk submit:&error], @"%@ %@", player.walk.session.errors, error);
