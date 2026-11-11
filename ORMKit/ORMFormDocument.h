@@ -74,6 +74,10 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 /* In a subtype's part of the form (+ is Trip), the subentity it is a
  * property of: relevant where the object is one; nil for the anchor's. */
 @property (nonatomic, readonly, copy) NSString *subtypeEntity;
+/* Entered beneath a choice, one of the values of a key of its (D6): the
+ * reference element it finds the object of (an order's customer by email);
+ * nil for others. */
+@property (nonatomic, readonly, copy) NSString *identifies;
 /* Its id in the document: the node's, a part's index after it. */
 - (NSString *)fieldId;
 @end
@@ -105,6 +109,14 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 - (ORMQueryPlan *)choicesPlanNamed:(NSString *)elementName given:(NSDictionary<NSString *, NSString *> *)values;
 /* The references with choices, by element name, in order. */
 - (NSArray<NSString *> *)choiceNames;
+/* The references found by values entered (D6), by element name, in
+ * order: no choices of theirs; and the elements that find each. */
+- (NSArray<NSString *> *)identifiedNames;
+- (NSArray<NSString *> *)elementsIdentifying:(NSString *)elementName;
+/* What finds a reference's object ("form:identify/<name>"): the objects of
+ * its type whose key is the values, a parameter for each element that
+ * finds it, named so. */
+- (ORMQueryPlan *)identifyPlanNamed:(NSString *)elementName;
 /* The elements whose values a reference's choices depend on. */
 - (NSArray<NSString *> *)elementsChoicesDependOn:(NSString *)elementName;
 /* The same as an app runs them (ORMRuntime's ORMForm): the read of the

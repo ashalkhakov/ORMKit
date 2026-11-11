@@ -1807,4 +1807,230 @@ static NSString *const ORMVehicleFacts = @"Plate is a value type.\n"
 	XCTAssertEqualObjects([self rulesOf:total], (@[ @"User D1", @"Vehicle step D9", @"Vehicle D7", @"Seats D7", @"Most D14" ]));
 }
 
+#pragma mark Beneath a choice
+
+/* An order placed for a customer found by email (D6), the customer's name
+ * shown as the customer found has it (D7 beneath the choice). */
+static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"Order is an entity type.\n"
+                                   @"Reference Mode: .number\n"
+                                   @"CustomerName is a value type.\n"
+                                   @"Email is a value type.\n"
+                                   @"Day is a value type.\n"
+                                   @"Portable data type: Temporal: Date\n"
+                                   @"Customer has CustomerName\n"
+                                   @"Each Customer has exactly one CustomerName.\n"
+                                   @"Customer has Email\n"
+                                   @"Each Customer has at most one Email.\n"
+                                   @"For each Email, at most one Customer has that Email.\n"
+                                   @"Order is for Customer\n"
+                                   @"Each Order is for exactly one Customer.\n"
+                                   @"Order was placed on Day\n"
+                                   @"Each Order was placed on exactly one Day.\n"
+                                   @"\n"
+                                   @"Query PlaceOrder:\n"
+                                   @"Form PlaceOrder:\n"
+                                   @"Order\n"
+                                   @"  + is for Customer (entered)\n"
+                                   @"    + has Email (entered)\n"
+                                   @"    + has CustomerName (shown)\n"
+                                   @"  + was placed on Day (entered)\n";
+
+- (void)testAChoiceFoundByItsKeyIsTheOrdersCustomer
+{
+	ORMEditor *editor = [self editorOf:ORMCustomerOrders];
+	ORMFormDocument *document = [self form:@"PlaceOrder" of:editor];
+	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"],
+	                      (@[ @"number", @"customer", @"customerEmail", @"customerCustomerName", @"day" ]), @"%@", document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([form elementNamed:@"customer"].role, @"identified");
+	XCTAssertEqualObjects([form elementNamed:@"customerEmail"].role, @"entered");
+	XCTAssertEqualObjects([form elementNamed:@"customerEmail"].identifies, @"customer");
+	XCTAssertFalse([form elementNamed:@"customerEmail"].written, @"the customer's, not the order's");
+	XCTAssertEqualObjects([form elementNamed:@"customerCustomerName"].role, @"shown");
+	XCTAssertEqualObjects([form choiceNames], @[], @"found, not chosen from a list");
+	XCTAssertEqualObjects([form identifiedNames], @[ @"customer" ]);
+	XCTAssertEqualObjects([[document identifyPlanNamed:@"customer"] text], @"read Customer\nwhere email = $customerEmail\nlist self (id)");
+	NSXMLDocument *xforms = [document document];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='select1'][@bind='bind-customer']" in:xforms] count], 0u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='input'][contains(@bind, 'bind-')]/*[local-name()='label'][.='Email']" in:xforms] count], 1u,
+	               @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	NSXMLNode *email = [[self nodes:@"//*[local-name()='bind'][@ref='customerEmail']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"required" of:email], @"true()", @"an order is for a customer");
+	NSXMLNode *customer = [[self nodes:@"//*[local-name()='bind'][@ref='customer']" in:xforms] firstObject];
+	XCTAssertNil([self attribute:@"required" of:customer], @"found by the app, not entered");
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *ann = [self insert:@"Customer" values:@{ @"id" : [NSUUID UUID], @"customerName" : @"Ann", @"email" : @"ann@example.com" }
+	                                 in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useContext:context saving:nil];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setValue:@"ann@example.com" forElement:@"customerEmail"];
+	XCTAssertEqualObjects([session valueForElement:@"customer"], [[ann valueForKey:@"id"] UUIDString], @"found as it is entered");
+	XCTAssertEqualObjects([session valueForElement:@"customerCustomerName"], @"Ann", @"and shown");
+	[session setValue:@"2026-11-12" forElement:@"day"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	NSDictionary *read = [form readKey:session.savedKey inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"customerEmail"], @"ann@example.com", @"%@", error);
+	XCTAssertEqualObjects([read objectForKey:@"customerCustomerName"], @"Ann");
+
+	/* No customer has the email: refused at it. */
+	ORMFormSession *unknown = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[unknown useContext:context saving:nil];
+	XCTAssertTrue([unknown open:&error], @"%@", error);
+	[unknown setValue:@"bob@example.com" forElement:@"customerEmail"];
+	[unknown setValue:@"2026-11-12" forElement:@"day"];
+	XCTAssertEqualObjects([unknown valueForElement:@"customer"], @"", @"none found");
+	XCTAssertFalse([unknown save:&error], @"%@", [unknown values]);
+	XCTAssertEqualObjects([unknown.errors objectForKey:@"customerEmail"], @"There is no Customer with that Email.", @"%@", unknown.errors);
+
+	/* The service is asked for the customer of the email. */
+	ORMQueryOData *find = [form identifyRequestNamed:@"customer" values:@{ @"customerEmail" : @"ann@example.com" }
+	                                           model:[[context persistentStoreCoordinator] managedObjectModel] error:&error];
+	XCTAssertTrue([[find queryText] rangeOfString:@"Email eq 'ann@example.com'"].location != NSNotFound, @"%@ %@", [find queryText], error);
+}
+
+#pragma mark Beyond the anchor
+
+/* The Beyond model, its contacts verified and given a limit, its orders a
+ * total, some of its suppliers local, with a tax number. */
+- (ORMEditor *)beyondFurther
+{
+	NSString *facts = @"Amount is a value type.\n"
+	                  @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                  @"Currency is an entity type.\n"
+	                  @"Reference Mode: .code\n"
+	                  @"The possible values of Currency are 'EUR', 'KZT'.\n"
+	                  @"Money is an entity type.\n"
+	                  @"Money has Amount\n"
+	                  @"Each Money has exactly one Amount.\n"
+	                  @"Money is in Currency\n"
+	                  @"Each Money is in exactly one Currency.\n"
+	                  @"For each Amount and Currency, at most one Money has that Amount and is in that Currency.\n"
+	                  @"This association with Amount and Currency provides the preferred identification scheme for Money.\n"
+	                  @"TaxNumber is a value type.\n"
+	                  @"LocalSupplier is an entity type.\n"
+	                  @"Each LocalSupplier is a Supplier.\n"
+	                  @"LocalSupplier has TaxNumber\n"
+	                  @"Each LocalSupplier has exactly one TaxNumber.\n"
+	                  @"Contact is verified\n"
+	                  @"Contact may spend Money\n"
+	                  @"Each Contact may spend at most one Money.\n"
+	                  @"PurchaseOrder totals Money\n"
+	                  @"Each PurchaseOrder totals at most one Money.\n";
+	NSString *forms = @"\n"
+	                  @"Query VerifiedCustomer:\n"
+	                  @"Form VerifiedCustomer:\n"
+	                  @"Customer\n"
+	                  @"  + is of Catalog = ?\n"
+	                  @"  + is of Contact\n"
+	                  @"    + has ContactName (entered)\n"
+	                  @"    + is verified (entered)\n"
+	                  @"    + may spend Money (entered)\n"
+	                  @"\n"
+	                  @"Query ReceiveLocally:\n"
+	                  @"Form ReceiveLocally:\n"
+	                  @"Receipt\n"
+	                  @"  + is of PurchaseOrder = ?\n"
+	                  @"    + totals Money (shown)\n"
+	                  @"    + is from Supplier\n"
+	                  @"      + is LocalSupplier\n"
+	                  @"        + has TaxNumber (shown)\n"
+	                  @"  + was received on Day (entered)\n";
+	NSString *text = [[ORMBeyond stringByReplacingOccurrencesOfString:@"\n\nQuery ReceiveFromSupplier:"
+	                                                       withString:[NSString stringWithFormat:@"\n%@\nQuery ReceiveFromSupplier:", facts]]
+	                     stringByAppendingString:forms];
+	return [self editorOf:text];
+}
+
+/* An owned object's flag (D10) and compound (D11): elements of its group,
+ * written into it with the anchor. */
+- (void)testAnOwnedObjectsFlagAndCompoundAreItsOwn
+{
+	ORMEditor *editor = [self beyondFurther];
+	ORMFormDocument *document = [self form:@"VerifiedCustomer" of:editor];
+	NSArray *names = [document.fields valueForKey:@"elementName"];
+	XCTAssertEqual([names count], 6u, @"%@ %@", names, document.notes);
+	for (ORMFormField *field in document.fields) {
+		if (![@[ @"id", @"catalog" ] containsObject:field.elementName]) {
+			XCTAssertEqualObjects(field.groupName, @"contact", @"%@", field.elementName);
+		}
+	}
+	NSString *flag = nil, *amount = nil, *currency = nil;
+	for (ORMFormField *field in document.fields) {
+		flag = [field.schemaType isEqualToString:@"xsd:boolean"] ? field.elementName : flag;
+		amount = [field.elementName hasSuffix:@"Amount"] ? field.elementName : amount;
+		currency = [field.elementName hasSuffix:@"Currency"] ? field.elementName : currency;
+	}
+	XCTAssertNotNil(flag, @"%@", names);
+	XCTAssertNotNil(amount, @"%@", names);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertTrue([form elementNamed:flag].written);
+	XCTAssertEqualObjects([form elementNamed:flag].role, @"entered");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Catalog" values:@{ @"code" : @"GAR" } in:context];
+	[self insert:@"Currency" values:@{ @"code" : @"KZT" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSMutableDictionary *instance = [[form instanceGiven:@{ @"catalog" : @"GAR" }] mutableCopy];
+	[instance addEntriesFromDictionary:@{ @"contact/contactName" : @"Ann's Garage", flag : @"true", amount : @"500", currency : @"KZT" }];
+	NSDictionary *errors = nil;
+	NSManagedObject *customer = [form save:instance inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(customer, @"%@ %@", errors, error);
+	NSDictionary *read = [form readKey:[[customer valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:flag], @"true", @"%@ %@", read, error);
+	XCTAssertEqualObjects([read objectForKey:currency], @"KZT", @"%@", read);
+	XCTAssertTrue([[read objectForKey:amount] hasPrefix:@"500"], @"%@", read);
+}
+
+/* Through the order given: its total, a compound shown (D11), and its
+ * supplier's tax number where the supplier is a local one (D12). */
+- (void)testWhatIsShownThroughAReferenceMayBeACompoundOrASubtypes
+{
+	ORMEditor *editor = [self beyondFurther];
+	ORMFormDocument *document = [self form:@"ReceiveLocally" of:editor];
+	NSArray *names = [document.fields valueForKey:@"elementName"];
+	XCTAssertEqual([names count], 6u, @"%@ %@", names, document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSString *tax = nil, *amount = nil;
+	for (ORMFormField *field in document.fields) {
+		tax = [field.elementName hasSuffix:@"TaxNumber"] ? field.elementName : tax;
+		amount = [field.elementName hasSuffix:@"Amount"] ? field.elementName : amount;
+		if (![@[ @"id", @"purchaseOrder", @"day" ] containsObject:field.elementName]) {
+			XCTAssertEqualObjects([form elementNamed:field.elementName].role, @"shown", @"%@", field.elementName);
+			XCTAssertTrue(field.isThrough, @"%@", field.elementName);
+		}
+	}
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *contact = [self insert:@"Contact" values:@{ @"id" : [NSUUID UUID], @"contactName" : @"Acme Parts", @"isVerified" : @NO }
+	                                     in:context];
+	NSManagedObject *local = [self insert:@"LocalSupplier" values:@{ @"id" : [NSUUID UUID], @"contact" : contact, @"taxNumber" : @"KZ-7" }
+	                                   in:context];
+	NSManagedObject *order = [self insert:@"PurchaseOrder" values:@{ @"number" : @7, @"supplier" : local } in:context];
+	for (ORMFormField *field in document.fields) {
+		if ([field.elementName hasSuffix:@"Amount"] || [field.elementName hasSuffix:@"Currency"]) {
+			id value = [field.elementName hasSuffix:@"Amount"] ? (id)[NSDecimalNumber decimalNumberWithString:@"120"]
+			                                                  : [self insert:@"Currency" values:@{ @"code" : @"EUR" } in:context];
+			[order setValue:value forKey:[field.keys lastObject]];
+		}
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *through = [form throughValuesOf:@{ @"purchaseOrder" : @"7" } inContext:context];
+	XCTAssertEqualObjects([through objectForKey:tax], @"KZ-7", @"%@", through);
+	XCTAssertTrue([[through objectForKey:amount] hasPrefix:@"120"], @"%@", through);
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{ @"purchaseOrder" : @"7" }];
+	[session useContext:context saving:nil];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setValue:@"2026-11-12" forElement:@"day"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	NSDictionary *read = [form readKey:session.savedKey inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:tax], @"KZ-7", @"read with the receipt: %@ %@", read, error);
+}
+
 @end

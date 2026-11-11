@@ -201,24 +201,24 @@ fault, and an error: `ormtool xforms` names the node, writes nothing for
 that form, and exits 1 (`missing` in `ORMFormDocument`). It is never a form
 without the node.
 
+A choice found by its key (D6, an order's customer by email) has no list
+of choices: the key's values are its controls, entered, and the app finds
+the object as they are entered and again as the form is saved
+(`form:identify/<name>`, a read of the chosen type with the values as its
+parameters); none found, the save is refused at the first of them ("There
+is no Customer with that Email."). What is required of the choice is
+required of them.
+
 ### Where the generator is now
 
 Written down, the definition shows what ORMKit 0.6 does not do yet, each
 listed with the rule it breaks; these are what is to be implemented:
 
-- D6 and E1: an entered value beneath a referenced object is turned into
-  a shown one, with a note.
 - D8 and D9 beyond the anchor: a step to many below a referenced or owned
   object is left out, with a note ("one of many, not reached by one step
   from the anchor").
-- D5: a shown node beneath a choice is taken as a condition and left out.
-- D10: a unary not on the anchor's own steps is never considered.
-- D11: an absorbed value not on the anchor ("a compound not the anchor's
-  own") is left out.
-- D12 on a referenced object; D14 (aggregates have no XForms expression:
+- D14 (aggregates have no XForms expression:
   "computed where it is read, not in the form").
-- A repeat that cannot be made is left out whole, and nothing inside it is
-  reported missing.
 
 ### Sources
 

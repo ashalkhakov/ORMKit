@@ -134,7 +134,8 @@ finds tables):
                  column = 3; part = 0; written = YES; },
                { name = driver; kind = reference; entity = User; key = email; ... }, ... );
   read = { ... };                            // form:read, its parameter $id
-  choices = { driver = { all = {...}; plan = {...}; dependsOn = ( vehicle ); }; };
+  choices = { driver = { all = {...}; plan = {...}; dependsOn = ( vehicle ); };
+              customer = { identify = {...}; identifiedBy = ( customerEmail ); }; };
   checkedWhereSubmitted = ( "If some Event had driver some User ... then that User drives that Vehicle." );
 }
 ```
@@ -148,6 +149,10 @@ finds tables):
 - **An element** is where the read has its value (a column, a compound's
   part of the column's list), what it holds, and whether a save writes
   it (what is entered or given; never what is shown or computed).
+- **A reference found by its key** (FORMS.md, D6) has role `identified`;
+  the elements entered to find it name it (`identifies = customer`) and
+  are not written; its `identify` plan, its parameters theirs, finds the
+  object, before a save and as they are entered (`ORMFormSession`).
 - **The instance** is a dictionary of texts by element, in xsd's lexical
   forms: the XForms instance's XML is the host's.
 - **The store:** the read and the choices run by the interpreter; a save

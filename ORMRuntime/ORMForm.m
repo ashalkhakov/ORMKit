@@ -31,6 +31,7 @@ ORMFormError(NSString *text)
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *path;
 @property (nonatomic, readwrite, copy) NSString *group;
 @property (nonatomic, readwrite, copy) NSString *subtype;
+@property (nonatomic, readwrite, copy) NSString *identifies;
 @property (nonatomic, readwrite, copy) NSString *label;
 @end
 
@@ -188,6 +189,8 @@ static NSString *ORMFormMessage(NSError *error);
 	NSDictionary<NSString *, ORMQueryPlan *> *_choicesBy;
 	NSDictionary<NSString *, NSArray<NSString *> *> *_dependsOn;
 	NSDictionary<NSString *, ORMForm *> *_repeats;
+	NSDictionary<NSString *, ORMQueryPlan *> *_identify;
+	NSDictionary<NSString *, NSArray<NSString *> *> *_identifiedBy;
 }
 
 + (instancetype)formWithPropertyList:(id)list error:(NSError **)error
@@ -241,6 +244,7 @@ static NSString *ORMFormMessage(NSError *error);
 		element.path = [[item objectForKey:@"path"] isKindOfClass:[NSArray class]] ? [item objectForKey:@"path"] : nil;
 		element.group = [[item objectForKey:@"group"] isKindOfClass:[NSString class]] ? [item objectForKey:@"group"] : nil;
 		element.subtype = [[item objectForKey:@"subtype"] isKindOfClass:[NSString class]] ? [item objectForKey:@"subtype"] : nil;
+		element.identifies = [[item objectForKey:@"identifies"] isKindOfClass:[NSString class]] ? [item objectForKey:@"identifies"] : nil;
 		/* A table from before roles: what it writes entered, the rest shown. */
 		element.role = [item objectForKey:@"role"]
 		    ?: ([element.name isEqualToString:_keyElement ?: @""] ? @"key"
@@ -257,9 +261,20 @@ static NSString *ORMFormMessage(NSError *error);
 	}
 	NSMutableDictionary *all = [NSMutableDictionary dictionary], *by = [NSMutableDictionary dictionary];
 	NSMutableDictionary *dependsOn = [NSMutableDictionary dictionary];
+	NSMutableDictionary *identify = [NSMutableDictionary dictionary], *identifiedBy = [NSMutableDictionary dictionary];
 	NSDictionary *choices = [list objectForKey:@"choices"] ?: @{};
 	for (NSString *name in choices) {
 		NSDictionary *choice = [choices objectForKey:name];
+		/* Found by values entered: no choices. */
+		if ([choice objectForKey:@"identify"] != nil) {
+			ORMQueryPlan *plan = [ORMQueryPlan planWithPropertyList:[choice objectForKey:@"identify"] error:error];
+			if (plan == nil) {
+				return NO;
+			}
+			[identify setObject:plan forKey:name];
+			[identifiedBy setObject:[choice objectForKey:@"identifiedBy"] ?: @[] forKey:name];
+			continue;
+		}
 		ORMQueryPlan *plan = [ORMQueryPlan planWithPropertyList:[choice objectForKey:@"all"] error:error];
 		if (plan == nil) {
 			return NO;
@@ -276,6 +291,8 @@ static NSString *ORMFormMessage(NSError *error);
 	}
 	_allChoices = all;
 	_choicesBy = by;
+	_identify = identify;
+	_identifiedBy = identifiedBy;
 	_dependsOn = dependsOn;
 	_checkedWhereSubmitted = [[list objectForKey:@"checkedWhereSubmitted"] copy] ?: @[];
 	_linkElement = [[list objectForKey:@"link"] copy];
@@ -415,6 +432,56 @@ ORMRegisteredForms(void)
 	return by != nil ? [by planBinding:values error:error] : all;
 }
 
+- (NSArray<NSString *> *)identifiedNames
+{
+	NSMutableArray *names = [NSMutableArray array];
+	for (ORMFormElement *element in _elements) {
+		if ([_identify objectForKey:element.name] != nil) {
+			[names addObject:element.name];
+		}
+	}
+	return names;
+}
+
+- (NSArray<NSString *> *)elementsIdentifying:(NSString *)name
+{
+	return [_identifiedBy objectForKey:name] ?: @[];
+}
+
+- (ORMQueryPlan *)identifyPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error
+{
+	ORMQueryPlan *plan = [_identify objectForKey:name];
+	if (plan == nil) {
+		if (error != NULL) {
+			*error = ORMFormError([NSString stringWithFormat:@"%@ is not found by values entered.", name]);
+		}
+		return nil;
+	}
+	return [plan planBinding:values error:error];
+}
+
+/* Whether nothing that finds the reference is entered. */
+- (BOOL)noneIdentifying:(NSString *)name in:(NSDictionary<NSString *, id> *)values
+{
+	for (NSString *each in [self elementsIdentifying:name]) {
+		if ([[[values objectForKey:each] description] length] > 0) {
+			return NO;
+		}
+	}
+	return YES;
+}
+
+- (NSString *)unfoundMessageNamed:(NSString *)name
+{
+	ORMFormElement *reference = [self elementNamed:name];
+	NSMutableArray *labels = [NSMutableArray array];
+	for (NSString *each in [self elementsIdentifying:name]) {
+		[labels addObject:[self elementNamed:each].label ?: each];
+	}
+	return [NSString stringWithFormat:@"There is no %@ with that %@.", reference.entityName ?: name,
+	                                  [labels componentsJoinedByString:@" and "]];
+}
+
 #pragma mark The instance
 
 - (NSDictionary<NSString *, id> *)instanceGiven:(NSDictionary<NSString *, id> *)values
@@ -526,6 +593,44 @@ ORMRegisteredForms(void)
 	return keys;
 }
 
+- (NSString *)identifiedKeyNamed:(NSString *)name
+                          values:(NSDictionary<NSString *, id> *)values
+                       inContext:(NSManagedObjectContext *)context
+                           error:(NSError **)error
+{
+	if ([self noneIdentifying:name in:values]) {
+		return @"";
+	}
+	ORMQueryPlan *plan = [self identifyPlanNamed:name values:values error:error];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[[context persistentStoreCoordinator] managedObjectModel]];
+	ORMQueryResult *result = plan != nil ? [interpreter executePlan:plan inContext:context error:error] : nil;
+	if (result == nil) {
+		return nil;
+	}
+	return ORMFormText([[result.rows firstObject] firstObject], nil, [self elementNamed:name].keyName);
+}
+
+/* The instance, each reference found by values entered set to the key of
+ * the object they find; where none is, why, at the first of them. */
+- (NSDictionary *)identified:(NSDictionary *)instance
+                   inContext:(NSManagedObjectContext *)context
+                    problems:(NSMutableDictionary<NSString *, NSString *> *)problems
+                       error:(NSError **)error
+{
+	NSMutableDictionary *found = [instance mutableCopy];
+	for (NSString *name in [self identifiedNames]) {
+		NSString *key = [self identifiedKeyNamed:name values:instance inContext:context error:error];
+		if (key == nil) {
+			return nil;
+		}
+		if ([key length] == 0 && ![self noneIdentifying:name in:instance]) {
+			[problems setObject:[self unfoundMessageNamed:name] forKey:[[self elementsIdentifying:name] firstObject]];
+		}
+		[found setObject:key forKey:name];
+	}
+	return found;
+}
+
 /* The object of the entity whose attribute has the value. */
 static NSManagedObject *
 ORMFormFind(NSEntityDescription *entity, NSString *key, id value, NSManagedObjectContext *context)
@@ -543,7 +648,9 @@ ORMFormFind(NSEntityDescription *entity, NSString *key, id value, NSManagedObjec
 	NSEntityDescription *entity = [NSEntityDescription entityForName:_entityName inManagedObjectContext:context];
 	NSMutableDictionary *values = [NSMutableDictionary dictionary];
 	for (ORMFormElement *element in _elements) {
-		ORMFormElement *reference = element.group == nil && [element.path count] > 1 ? [self elementNamed:[element.path firstObject]] : nil;
+		/* What finds the reference is entered, not read through it. */
+		ORMFormElement *reference = element.group == nil && element.identifies == nil && [element.path count] > 1
+			? [self elementNamed:[element.path firstObject]] : nil;
 		if (![reference.kind isEqualToString:@"reference"]) {
 			continue;
 		}
@@ -825,6 +932,11 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 	NSMutableDictionary *problems = [NSMutableDictionary dictionary];
 	NSMutableDictionary *before = [NSMutableDictionary dictionary];
 	BOOL made = NO;
+	/* What values entered find (an order's customer, by email). */
+	instance = [self identified:instance inContext:context problems:problems error:error];
+	if (instance == nil) {
+		return nil;
+	}
 	NSMutableArray<NSDictionary *> *owned = [NSMutableArray array];
 	NSManagedObject *object = [self write:instance inContext:context problems:problems prefix:@"" before:before made:&made
 	                                owned:owned error:error];
@@ -995,6 +1107,15 @@ ORMFormMessage(NSError *error)
 - (ORMQueryOData *)readRequestForKey:(NSString *)key model:(NSManagedObjectModel *)model error:(NSError **)error
 {
 	ORMQueryPlan *plan = [_readPlan planBinding:@{ _keyElement ?: @"": key ?: @"" } error:error];
+	return plan != nil ? [ORMQueryOData requestForPlan:plan model:model error:error] : nil;
+}
+
+- (ORMQueryOData *)identifyRequestNamed:(NSString *)name
+                                 values:(NSDictionary<NSString *, id> *)values
+                                  model:(NSManagedObjectModel *)model
+                                  error:(NSError **)error
+{
+	ORMQueryPlan *plan = [self identifyPlanNamed:name values:values error:error];
 	return plan != nil ? [ORMQueryOData requestForPlan:plan model:model error:error] : nil;
 }
 

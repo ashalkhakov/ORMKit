@@ -87,6 +87,10 @@ extern NSString * const ORMFormErrorDomain;
  * "subtype") says which the object is, its items the subentities; a new
  * one is made of it, one read is of it, and stays so. */
 @property (nonatomic, readonly, copy) NSString *subtype;
+/* Entered to find the object of a reference (an order's customer, by its
+ * email: docs/FORMS.md, D6): that reference's element; nil for others.
+ * The reference's role is then "identified": the app finds it. */
+@property (nonatomic, readonly, copy) NSString *identifies;
 @end
 
 /* What to send the service to save the form: the method, the path under
@@ -144,6 +148,12 @@ extern NSString * const ORMFormErrorDomain;
 /* Its choices' plan for the instance's values: by what it depends on where
  * each has a value, else every one. nil, and why, for no reference. */
 - (ORMQueryPlan *)choicesPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error;
+/* The references found by values entered, and the elements that find each. */
+- (NSArray<NSString *> *)identifiedNames;
+- (NSArray<NSString *> *)elementsIdentifying:(NSString *)name;
+/* What finds a reference's object for the instance's values: the objects of
+ * its type whose key they are. nil, and why, for none such. */
+- (ORMQueryPlan *)identifyPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error;
 /* The rules the form cannot check, said: the store or the service does. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 
@@ -168,6 +178,13 @@ extern NSString * const ORMFormErrorDomain;
                                values:(NSDictionary<NSString *, id> *)values
                             inContext:(NSManagedObjectContext *)context
                                 error:(NSError **)error;
+/* The key of the object the instance's values find, in the context: "" where
+ * no object has them, or none is entered; nil, and why, where it cannot be
+ * read. */
+- (NSString *)identifiedKeyNamed:(NSString *)name
+                          values:(NSDictionary<NSString *, id> *)values
+                       inContext:(NSManagedObjectContext *)context
+                           error:(NSError **)error;
 /* Each element through a reference of the instance's (an order's
  * supplier's name), as the object the reference is to has it, in the
  * context: "" where it has none, or the reference none. */
@@ -202,6 +219,13 @@ extern NSString * const ORMFormErrorDomain;
 /* The read of the key as requests to the model's service, and a choices
  * plan's; their rows go through -instanceOfRow: and the choice's key. */
 - (ORMQueryOData *)readRequestForKey:(NSString *)key model:(NSManagedObjectModel *)model error:(NSError **)error;
+- (ORMQueryOData *)identifyRequestNamed:(NSString *)name
+                                 values:(NSDictionary<NSString *, id> *)values
+                                  model:(NSManagedObjectModel *)model
+                                  error:(NSError **)error;
+/* What a save is refused for where values entered find no object: "There
+ * is no Customer with that Email.", at the first element that finds it. */
+- (NSString *)unfoundMessageNamed:(NSString *)name;
 - (ORMQueryOData *)choicesRequestNamed:(NSString *)name
                                 values:(NSDictionary<NSString *, id> *)values
                                  model:(NSManagedObjectModel *)model

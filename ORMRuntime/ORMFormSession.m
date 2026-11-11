@@ -104,9 +104,38 @@ ORMFormSessionError(NSString *text)
 - (void)setValue:(NSString *)value forElement:(NSString *)name
 {
 	[_values setObject:value ?: @"" forKey:name];
-	if ([[_form elementNamed:name].kind isEqualToString:@"reference"]) {
+	/* A value that finds a reference's object (an order's customer, by
+	 * email): found now, and what is shown through it read. */
+	NSString *identifies = [_form elementNamed:name].identifies;
+	if (identifies != nil) {
+		NSString *key = [self identifiedKeyNamed:identifies error:NULL];
+		[_values setObject:key ?: @"" forKey:identifies];
+	}
+	if ([[_form elementNamed:name].kind isEqualToString:@"reference"] || identifies != nil) {
 		[self readThrough];
 	}
+}
+
+/* The key of the object the values find, from the store or the service; ""
+ * for none; nil, and why, where it cannot be read. */
+- (NSString *)identifiedKeyNamed:(NSString *)name error:(NSError **)error
+{
+	if (_context != nil) {
+		return [_form identifiedKeyNamed:name values:_values inContext:_context error:error];
+	}
+	BOOL none = YES;
+	for (NSString *each in [_form elementsIdentifying:name]) {
+		none = none && [[[_values objectForKey:each] description] length] == 0;
+	}
+	if (none) {
+		return @"";
+	}
+	ORMQueryOData *request = [_form identifyRequestNamed:name values:_values model:_model error:error];
+	NSArray *rows = request != nil ? [self rowsOf:request objects:NULL error:error] : nil;
+	if (rows == nil) {
+		return nil;
+	}
+	return ORMFormText([[rows firstObject] firstObject], [_form elementNamed:name].keyName);
 }
 
 /* What is shown through the references (an order's supplier's name), as
@@ -285,6 +314,24 @@ ORMFormSessionError(NSString *text)
 			_values = [read mutableCopy];
 		}
 		return YES;
+	}
+	/* What values entered find, asked of the service first; none found,
+	 * refused at the first of them. */
+	NSMutableDictionary *unfound = [NSMutableDictionary dictionary];
+	for (NSString *name in [_form identifiedNames]) {
+		NSString *key = [self identifiedKeyNamed:name error:error];
+		if (key == nil) {
+			return NO;
+		}
+		[_values setObject:key forKey:name];
+		NSString *first = [[_form elementsIdentifying:name] firstObject];
+		if ([key length] == 0 && first != nil && [[[_values objectForKey:first] description] length] > 0) {
+			[unfound setObject:[_form unfoundMessageNamed:name] forKey:first];
+		}
+	}
+	if ([unfound count] > 0) {
+		_errors = unfound;
+		return NO;
 	}
 	ORMFormRequest *save = [_form saveRequestFor:_values original:_original etag:_etag model:_model error:error];
 	if (save == nil) {
