@@ -61,10 +61,12 @@ static const NSUInteger ORMResultsPage = 200;
 	/* The rules were not checked last time, the window hidden. */
 	BOOL _rulesUnchecked;
 	ORMQuery *_query;
-	/* A form's: what the model has in it and no element is made for (said
-	 * in the status, ⚠ in the outline), and their node and step ids. */
+	/* A form's: the rules its outline breaks, or else what the model has in
+	 * it and no element is made for (said in the status, ⚠ in the outline),
+	 * and their node and step ids; YES for the rules. */
 	NSArray<NSString *> *_formMissing;
 	NSSet<NSString *> *_formMissingIds;
+	BOOL _formIsNoForm;
 	/* Node and step ids -> what they are in the query as now read. */
 	NSMutableDictionary<NSString *, id> *_items;
 	/* Each item's children, as read; the outline's items are these very
@@ -227,14 +229,25 @@ static const NSUInteger ORMResultsPage = 200;
 	[self showQuery];
 }
 
-/* A form made as ormtool xforms makes it, for what it would lack. */
+/* A form's rules broken (docs/FORMS.md, The definition), each at its node;
+ * else the form made as ormtool xforms makes it, for what it would lack. */
 - (void)findFormMissing
 {
-	ORMFormDocument *document = nil;
-	if (_query.kind == ORMQueryForm) {
-		document = [ORMFormDocument documentForForm:_query model:self.editor.model
-		                                    mapping:[self.editor.model.coreDataMappings firstObject] reason:NULL];
+	_formMissing = nil;
+	_formMissingIds = nil;
+	_formIsNoForm = NO;
+	if (_query.kind != ORMQueryForm) {
+		return;
 	}
+	ORMCoreDataMapping *mapping = [self.editor.model.coreDataMappings firstObject];
+	ORMFormDefinition *definition = [ORMFormDefinition definitionOfForm:_query model:self.editor.model mapping:mapping];
+	if ([definition.problems count] > 0) {
+		_formMissing = [definition.problems valueForKey:@"text"];
+		_formMissingIds = [definition problemIds];
+		_formIsNoForm = YES;
+		return;
+	}
+	ORMFormDocument *document = [ORMFormDocument documentForForm:_query model:self.editor.model mapping:mapping reason:NULL];
 	_formMissing = document.missing;
 	_formMissingIds = document.missingIds;
 }
@@ -254,7 +267,8 @@ static const NSUInteger ORMResultsPage = 200;
 		[self showResults];
 	}
 	if ([_formMissing count] > 0) {
-		[self say:[@"This form cannot be made whole: " stringByAppendingString:[_formMissing componentsJoinedByString:@" "]]];
+		[self say:[(_formIsNoForm ? @"This outline is no form: " : @"This form cannot be made whole: ")
+		              stringByAppendingString:[_formMissing componentsJoinedByString:@" "]]];
 		return;
 	}
 	[self say:_query == nil ? @"Choose an object type to start a query from, and New."

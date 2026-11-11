@@ -1003,6 +1003,10 @@
 	XCTAssertEqual(form.kind, ORMQueryForm);
 	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:[form.name stringByAppendingString:@" (form)"]]);
 	ORMQueryNode *location = [[[form.root.steps firstObject] nodes] firstObject];
+	/* Unmarked, leading to nothing: no form (E6), said at its node. */
+	XCTAssertTrue([[queries textOfNode:location] hasPrefix:@"\u26A0 "], @"%@", [queries textOfNode:location]);
+	XCTAssertTrue([[[queries valueForKey:@"statusLabel"] stringValue] hasPrefix:@"This outline is no form: E6: Location: "],
+	              @"%@", [[queries valueForKey:@"statusLabel"] stringValue]);
 	[queries selectElement:location.identifier];
 	XCTAssertFalse([part isHidden]);
 	XCTAssertFalse([given isHidden]);
@@ -1016,11 +1020,15 @@
 	XCTAssertTrue(location.isGiven);
 	XCTAssertEqual([part indexOfSelectedItem], (NSInteger)ORMFormPartEntered, @"shown as it is");
 	XCTAssertTrue([[queries verbalizationText] hasPrefix:@"The form "], @"%@", [queries verbalizationText]);
-	/* Undone, given no more. */
+	/* A warehouse has many locations: one given is no form (E3). */
+	XCTAssertTrue([[[queries valueForKey:@"statusLabel"] stringValue] hasPrefix:@"This outline is no form: E3: Location: "],
+	              @"%@", [[queries valueForKey:@"statusLabel"] stringValue]);
+	/* Undone, given no more: entered, a repeat's (D8), a form again. */
 	[[_document undoManager] undo];
 	location = [[[[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject] nodes] firstObject];
 	XCTAssertFalse(location.isGiven);
 	XCTAssertEqual(location.formPart, ORMFormPartEntered);
+	XCTAssertFalse([[queries textOfNode:location] hasPrefix:@"\u26A0 "], @"%@", [[queries valueForKey:@"statusLabel"] stringValue]);
 	[queries close];
 }
 

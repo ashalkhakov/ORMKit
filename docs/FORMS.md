@@ -184,12 +184,17 @@ Each node's place is decided from the steps above it, before its mark:
 | | The outline | Why |
 | --- | --- | --- |
 | E1 | entered values beneath a referenced object that are not the roles of one of its uniqueness constraints (a van's colour, part of a compound key) | they identify a set of objects at best, not one: no fact can be about it |
-| E2 | anything entered beneath a step to many from a referenced object, or a unary entered on one | the form would change objects it does not own |
+| E2 | anything entered beneath a referenced object but a choice's own identification (D6): beneath a given, shown or passed-through object, or a step to many from one; a unary entered on one | the form would change objects it does not own |
 | E3 | given beneath a step to many | a parameter is one value, not one per row |
 | E4 | a computed value with an operand beneath a step to many, not under an aggregate | one value from many rows needs an aggregate |
 | E5 | a computed value with an operand in a choice's conditions (D5) | conditions are not read; there is no value to compute with |
-| E6 | an unmarked node that leads to nothing marked and is no choice's condition | a form asserts, identifies, chooses or shows; a bare step does none of these |
-| E7 | a node the mapping places nowhere (no entity, no attribute, no relationship for it) | the store cannot hold it; the mapping is to be changed, not the form trimmed |
+| E6 | an unmarked node, or unary, that leads to nothing entered, shown or given, that no value computes with, and that is not beneath a choice (a condition is only ever a choice's) | a form asserts, identifies, chooses or shows; a bare step does none of these |
+| E7 | a node the mapping places nowhere: a read of the anchor and the node, by the steps between them alone, has no column for it (a compound's part is placed with its compound) | the store cannot hold it; the mapping is to be changed, not the form trimmed |
+
+`ORMFormDefinition` gives each node its place and its rule. A rule broken
+is said at its node in the Queries window ("This outline is no form: E6:
+Station: ..."), makes `ormtool check` exit 1 with a line for each, and
+`ORMFormDocument` refuses the outline.
 
 A well-formed outline the generator cannot translate is the generator's
 fault, and an error: `ormtool xforms` names the node, writes nothing for
@@ -214,8 +219,6 @@ listed with the rule it breaks; these are what is to be implemented:
   "computed where it is read, not in the form").
 - A repeat that cannot be made is left out whole, and nothing inside it is
   reported missing.
-- E1–E7 are not checked where the form is drawn; until they are, ormtool
-  refuses only what it cannot place.
 
 ### Sources
 

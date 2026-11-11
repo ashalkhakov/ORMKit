@@ -419,11 +419,21 @@ main(int argc, const char *argv[])
 			for (NSString *note in [checker unchecked]) {
 				ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
 			}
-			/* Each form whole: an element for everything the model has in
-			 * it (what ormtool xforms refuses to write without). */
+			/* Each form well formed (docs/FORMS.md, The definition), each
+			 * rule it breaks on a line, and whole: an element for everything
+			 * the model has in it (what ormtool xforms refuses to write
+			 * without). */
 			ORMCoreDataMapping *formMapping = [model.coreDataMappings firstObject];
 			for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
 				if (query.kind != ORMQueryForm) {
+					continue;
+				}
+				NSArray *problems = [ORMFormDefinition definitionOfForm:query model:model mapping:formMapping].problems;
+				for (ORMFormProblem *problem in problems) {
+					ORMPrint([NSString stringWithFormat:@"form %@: %@\n", query.name, problem.text]);
+					broken += 1;
+				}
+				if ([problems count] > 0) {
 					continue;
 				}
 				NSString *reason = nil;

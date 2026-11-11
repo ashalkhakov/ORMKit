@@ -55,6 +55,7 @@ ORMKit_HEADER_FILES = \
   ORMQueryExpression.h \
   ORMCDModel+CoreData.h \
   ORMQueryPlanner.h \
+  ORMFormDefinition.h \
   ORMFormDocument.h \
   ORMFlow.h \
   ORMFlowEditor.h \
@@ -108,6 +109,7 @@ ORMKit_OBJC_FILES = \
   ORMCDModel+CoreData.m \
   ORMQueryPlaces.m \
   ORMQueryPlanner.m \
+  ORMFormDefinition.m \
   ORMFormDocument.m \
   ORMFlow.m \
   ORMFlowEditor.m \

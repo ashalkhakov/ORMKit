@@ -3,6 +3,7 @@
 #import "ORMModelPriv.h"
 #import "ORMVerbalizer.h"
 #import "ORMFlow.h"
+#import "ORMFormDefinition.h"
 
 NSString * const ORMFormNamespace = @"urn:ormkit:forms";
 
@@ -133,6 +134,9 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	/* The flow's screen it is shown as: its transitions, its actions. */
 	ORMFlow *_flow;
 	ORMFlowScreen *_screen;
+	/* What each node is (docs/FORMS.md, The definition); a repeat's is the
+	 * form's it is in. */
+	ORMFormDefinition *_definition;
 }
 
 #pragma mark The form's parts
@@ -289,6 +293,13 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	ORMStoredQuery *stored = ORMStoredForm(model, form.identifier);
 	if (stored == nil) {
 		return @"The form is not in the model.";
+	}
+	/* An outline that breaks a rule of the definition is no form: never
+	 * generated, each rule broken said. */
+	_definition = [ORMFormDefinition definitionOfForm:form model:model mapping:mapping];
+	if ([_definition.problems count] > 0) {
+		return [@"The outline is no form. " stringByAppendingString:[[_definition.problems valueForKey:@"text"]
+		                                                                componentsJoinedByString:@" "]];
 	}
 	return [self makeForm:form stored:stored model:model mapping:mapping];
 }

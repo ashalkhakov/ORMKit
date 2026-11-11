@@ -1686,4 +1686,125 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 	XCTAssertFalse([[post.body allValues] containsObject:@"Almaty"], @"a fill-up's own only: %@", post.body);
 }
 
+#pragma mark The definition
+
+/* FORMS.md's definition, each rule: the fill-up model with a vehicle's
+ * plate (its key), colour and seats, and a form of each outline after. */
+static NSString *const ORMVehicleFacts = @"Plate is a value type.\n"
+                                         @"Vehicle has Plate\n"
+                                         @"Each Vehicle has exactly one Plate.\n"
+                                         @"For each Plate, at most one Vehicle has that Plate.\n"
+                                         @"Colour is a value type.\n"
+                                         @"Vehicle has Colour\n"
+                                         @"Each Vehicle has at most one Colour.\n"
+                                         @"Seats is a value type.\n"
+                                         @"Portable data type: Numeric: Decimal(5, 0)\n"
+                                         @"Vehicle has Seats\n"
+                                         @"Each Vehicle has at most one Seats.\n";
+
+/* The fill-up model, the vehicle's facts, and the form; the definition of
+ * the form named. */
+- (ORMFormDefinition *)definitionOf:(NSString *)name outline:(NSString *)outline editor:(ORMEditor **)made
+{
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"\n\nQuery RecordFillUp:"
+	                                                       withString:[NSString stringWithFormat:@"\n%@\nQuery %@:\nForm %@:\n%@\n"
+	                                                                                             @"Query RecordFillUp:",
+	                                                                                             ORMVehicleFacts, name, name,
+	                                                                                             outline]];
+	XCTAssertNotEqualObjects(text, ORMFillUps);
+	ORMEditor *editor = [self newEditor];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	if (made != NULL) {
+		*made = editor;
+	}
+	for (ORMQuery *query in [ORMQuery queriesInModel:editor.model]) {
+		if ([query.name isEqualToString:name]) {
+			return [ORMFormDefinition definitionOfForm:query model:editor.model mapping:nil];
+		}
+	}
+	XCTFail(@"no form %@", name);
+	return nil;
+}
+
+/* Each node and unary step and its rule, in outline order. */
+- (NSArray<NSString *> *)rulesOf:(ORMFormDefinition *)definition
+{
+	NSMutableArray *rules = [NSMutableArray array];
+	for (ORMQueryNode *node in [definition.form nodes]) {
+		[rules addObject:[NSString stringWithFormat:@"%@ %@", [node designation], [definition ruleOf:node.identifier]]];
+		for (ORMQueryStep *step in node.steps) {
+			NSString *rule = [definition ruleOf:step.identifier];
+			if (rule != nil) {
+				NSString *name = [step.factType isUnary] ? [step.factType displayText]
+				                                         : [[[step.nodes firstObject] designation] stringByAppendingString:@" step"];
+				[rules addObject:[NSString stringWithFormat:@"%@ %@", name, rule]];
+			}
+		}
+	}
+	return rules;
+}
+
+/* FORMS.md's RecordFillUp, each node by its rule: well formed. */
+- (void)testEachNodeOfAFormHasItsRule
+{
+	ORMEditor *editor = [self fillUps];
+	ORMFormDefinition *definition = [ORMFormDefinition definitionOfForm:[self formIn:editor.model] model:editor.model mapping:nil];
+	XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[]);
+	XCTAssertEqualObjects([self rulesOf:definition], (@[
+		@"FillUp D1", @"FillUp filled the tank D10", @"Vehicle1 D2", @"Moment D3", @"Distance D11", @"Volume D11",
+		@"Quantity path", @"Fuel D4", @"Station D4", @"Money1 D11", @"Amount path", @"Money2 D11", @"User D4",
+		@"Vehicle1 D5", @"PricePerUnit D13",
+	]));
+}
+
+/* A choice's entered values identify it where they are one of its keys
+ * (D6), the plate; a colour identifies a set of vehicles at best (E1). */
+- (void)testAChoiceIsIdentifiedByItsKeyOnly
+{
+	ORMEditor *editor = nil;
+	ORMFormDefinition *byPlate = [self definitionOf:@"ByPlate" outline:@"FillUp\n  + is of Vehicle (entered)\n    + has Plate (entered)\n"
+	                                         editor:&editor];
+	XCTAssertEqualObjects([byPlate.problems valueForKey:@"text"], @[]);
+	XCTAssertEqualObjects([self rulesOf:byPlate], (@[ @"FillUp D1", @"Vehicle D4", @"Plate D6" ]));
+	ORMFormDefinition *byColour = [self definitionOf:@"ByColour" outline:@"FillUp\n  + is of Vehicle (entered)\n    + has Colour (entered)\n"
+	                                          editor:&editor];
+	XCTAssertEqualObjects([byColour.problems valueForKey:@"text"], (@[
+		@"E1: Colour: entered beneath Vehicle, the object chosen, but not exactly the values of one of its uniqueness "
+		@"constraints: they identify a set of Vehicle at best, not one."
+	]));
+	NSString *reason = nil;
+	XCTAssertNil([ORMFormDocument documentForForm:byColour.form model:editor.model mapping:nil reason:&reason]);
+	XCTAssertTrue([reason hasPrefix:@"The outline is no form. E1: Colour: "], @"%@", reason);
+}
+
+/* E2-E6, each where it is drawn; an aggregate over rows is D14. */
+- (void)testWhatIsNoFormIsSaidByItsRule
+{
+	NSDictionary *outlines = @{
+		@"E2" : @"FillUp\n  + is of Vehicle1 = ?\n    + has Colour (entered)\n",
+		@"E3" : @"User\n  + drives Vehicle = ?\n",
+		@"E4" : @"User\n  + drives Vehicle (shown)\n    + has Seats (shown)\n  Most = Seats (shown)\n",
+		@"E5" : @"FillUp\n  + had driver User (entered)\n    + drives Vehicle\n      + has Seats\n  Seated = Seats (shown)\n",
+		@"E6" : @"FillUp\n  + was at Moment (entered)\n  + was at Station\n",
+	};
+	NSDictionary *said = @{
+		@"E2" : @"E2: Colour: entered beneath Vehicle1, an object the form refers to and does not make or change.",
+		@"E3" : @"E3: Vehicle: given beneath a step to many: a parameter is one value, not one per row.",
+		@"E4" : @"E4: Most: computed with Seats, one of many, outside an aggregate (count, total, avg, max, min).",
+		@"E5" : @"E5: Seated: computed with Seats, a condition on the choice User, which is not read.",
+		@"E6" : @"E6: Station: neither entered, shown nor given, leading to nothing that is, and no condition on a choice.",
+	};
+	for (NSString *rule in [[outlines allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		ORMFormDefinition *definition = [self definitionOf:rule outline:[outlines objectForKey:rule] editor:NULL];
+		XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[ [said objectForKey:rule] ], @"%@", rule);
+	}
+	ORMFormDefinition *total = [self definitionOf:@"Total"
+	                                      outline:@"User\n  + drives Vehicle (shown)\n    + has Seats (shown)\n"
+	                                              @"  Most = max(Seats) for User (shown)\n"
+	                                       editor:NULL];
+	XCTAssertEqualObjects([total.problems valueForKey:@"text"], @[]);
+	XCTAssertEqualObjects([self rulesOf:total], (@[ @"User D1", @"Vehicle step D9", @"Vehicle D7", @"Seats D7", @"Most D14" ]));
+}
+
 @end
