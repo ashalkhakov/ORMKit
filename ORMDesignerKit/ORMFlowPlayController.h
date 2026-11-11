@@ -40,10 +40,11 @@
 /* The control's value set as its row's: a field's text or number, a
  * picker's date, a checkbox's flag, a choice's key. */
 - (IBAction)valueChanged:(id)sender;
-/* A date's button: an empty one set to the date its picker shows (a
- * picker always shows one, and says nothing until it is changed), a set
- * one emptied. */
-- (IBAction)setOrClearDate:(id)sender;
+/* An empty date's Set: given today, its picker shown to change it (a
+ * picker shown always holds its row's value). */
+- (IBAction)setDate:(id)sender;
+/* Its row's value emptied: a date's Clear. */
+- (IBAction)clearValue:(id)sender;
 /* The chosen way taken: for a row chosen, the row chosen in values. */
 - (IBAction)takeWay:(id)sender;
 - (IBAction)submit:(id)sender;

@@ -196,13 +196,11 @@
 		[picker setTimeZone:[editor isEqualToString:@"date"] ? [NSTimeZone timeZoneForSecondsFromGMT:0] : [NSTimeZone localTimeZone]];
 		NSDate *date = [self dateOf:value];
 		[picker setDateValue:date ?: [NSDate date]];
-		/* Empty: today offered, faint, until one is chosen or Set takes it. */
-		[picker setAlphaValue:date != nil ? 1.0 : 0.45];
+		/* Empty: Set alone, where the picker goes; a picker shown always
+		 * holds the value, Clear beside it. */
 		for (NSView *each in [view subviews]) {
-			if ([each isKindOfClass:[NSButton class]]) {
-				[(NSButton *)each setTitle:date != nil ? @"Clear" : @"Set"];
-				[each setToolTip:date != nil ? @"Leave it empty" : @"Take the date shown"];
-			}
+			BOOL set = [each isKindOfClass:[NSButton class]] && [(NSButton *)each action] == @selector(setDate:);
+			[each setHidden:set == (date != nil)];
 		}
 	} else if ([editor isEqualToString:@"flag"]) {
 		NSButton *box = [[view subviews] firstObject];
@@ -354,8 +352,15 @@ ORMFlowPlayFormatter(NSString *format)
 		[self.values selectRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row] byExtendingSelection:NO];
 		return;
 	}
-	/* Choices that depend on it chosen again; the row shown as it is now. */
-	NSMutableIndexSet *rows = [NSMutableIndexSet indexSetWithIndex:(NSUInteger)row];
+	/* Choices that depend on it chosen again; the row shown as it is now
+	 * (a date's picker, set, left alone: it says each change as it is typed). */
+	NSString *editor = [self editorOfRow:row];
+	if ([editor hasPrefix:@"date"] && [value length] > 0) {
+		[self.values reloadDataForRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
+		                        columnIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[self.values columnWithIdentifier:@"name"]]];
+	}
+	NSMutableIndexSet *rows = [editor hasPrefix:@"date"] && [value length] > 0 ? [NSMutableIndexSet indexSet]
+	                                                                         : [NSMutableIndexSet indexSetWithIndex:(NSUInteger)row];
 	for (NSUInteger i = 0; i < [[self elementsShown] count]; i++) {
 		if ([[self editorOfRow:(NSInteger)i] isEqualToString:@"choice"]) {
 			[rows addIndex:i];
@@ -386,21 +391,27 @@ ORMFlowPlayFormatter(NSString *format)
 	}
 }
 
-- (IBAction)setOrClearDate:(id)sender
+- (IBAction)setDate:(id)sender
 {
 	NSInteger row = [self.values rowForView:sender];
-	ORMFormElement *element = [self elementOfRow:row];
-	if (element == nil) {
-		return;
-	}
-	if ([[_walk.session valueForElement:element.name] length] > 0) {
-		[self setValue:@"" ofRow:row];
-		return;
-	}
 	for (NSView *each in [[sender superview] subviews]) {
 		if ([each isKindOfClass:[NSDatePicker class]]) {
+			[(NSDatePicker *)each setDateValue:[NSDate date]];
 			[self valueChanged:each];
 		}
+	}
+	/* Its picker shown, Set gone. */
+	if (row >= 0) {
+		[self.values reloadDataForRowIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)row]
+		                        columnIndexes:[NSIndexSet indexSetWithIndex:(NSUInteger)[self.values columnWithIdentifier:@"value"]]];
+	}
+}
+
+- (IBAction)clearValue:(id)sender
+{
+	NSInteger row = [self.values rowForView:sender];
+	if (row >= 0) {
+		[self setValue:@"" ofRow:row];
 	}
 }
 

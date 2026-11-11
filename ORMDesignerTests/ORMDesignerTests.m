@@ -2036,22 +2036,42 @@
 	[[typed currentEditor] setString:@"40"];
 	[[player window] makeFirstResponder:nil];
 	XCTAssertEqualObjects([player.walk.session valueForElement:[player.walk.session.form.elements objectAtIndex:(NSUInteger)litres].name], @"40");
-	/* An empty date's Set takes the date its picker shows; then it is Clear. */
+	/* An empty date shows Set alone; set, its picker (holding the value)
+	 * and Clear. */
 	for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
 		if (![[player editorOfRow:row] hasPrefix:@"date"]) {
 			continue;
 		}
 		NSString *name = [player.walk.session.form.elements objectAtIndex:(NSUInteger)row].name;
 		[player setValue:@"" ofRow:row];
-		NSButton *button = [[[player.values viewAtColumn:valueColumn row:row makeIfNecessary:YES] subviews] lastObject];
-		XCTAssertEqualObjects([button title], @"Set", @"%@", name);
-		[player setOrClearDate:button];
+		NSMutableDictionary<NSString *, NSView *> *parts = [NSMutableDictionary dictionary];
+		void (^look)(void) = ^{
+			[parts removeAllObjects];
+			for (NSView *each in [[player.values viewAtColumn:valueColumn row:row makeIfNecessary:YES] subviews]) {
+				NSString *part = [each isKindOfClass:[NSDatePicker class]] ? @"picker" : NSStringFromSelector([(NSButton *)each action]);
+				[parts setObject:each forKey:part];
+			}
+		};
+		look();
+		XCTAssertEqual([parts count], 3u, @"%@: %@", name, parts);
+		XCTAssertFalse([[parts objectForKey:@"setDate:"] isHidden], @"%@", name);
+		XCTAssertTrue([[parts objectForKey:@"picker"] isHidden] && [[parts objectForKey:@"clearValue:"] isHidden], @"%@", name);
+		[player setDate:[parts objectForKey:@"setDate:"]];
 		XCTAssertTrue([[player.walk.session valueForElement:name] length] > 0, @"%@ set", name);
-		button = [[[player.values viewAtColumn:valueColumn row:row makeIfNecessary:YES] subviews] lastObject];
-		XCTAssertEqualObjects([button title], @"Clear", @"%@", name);
-		[player setOrClearDate:button];
+		look();
+		XCTAssertTrue([[parts objectForKey:@"setDate:"] isHidden], @"%@", name);
+		XCTAssertFalse([[parts objectForKey:@"picker"] isHidden] || [[parts objectForKey:@"clearValue:"] isHidden], @"%@", name);
+		/* Changed in the picker: kept, the picker left as it is. */
+		NSDatePicker *picker = (NSDatePicker *)[parts objectForKey:@"picker"];
+		[picker setDateValue:[NSDate dateWithTimeIntervalSinceReferenceDate:0]];
+		[player valueChanged:picker];
+		XCTAssertTrue([[player.walk.session valueForElement:name] hasPrefix:@"2001-01-01"], @"%@", [player.walk.session valueForElement:name]);
+		look();
+		XCTAssertEqual([parts objectForKey:@"picker"], picker, @"%@'s picker not made again", name);
+		[player clearValue:[parts objectForKey:@"clearValue:"]];
 		XCTAssertEqualObjects([player.walk.session valueForElement:name] ?: @"", @"", @"%@ cleared", name);
-		[player setOrClearDate:[[[player.values viewAtColumn:valueColumn row:row makeIfNecessary:YES] subviews] lastObject]];
+		look();
+		[player setDate:[parts objectForKey:@"setDate:"]];
 	}
 	NSTextField *litresField = [(NSTableCellView *)[player tableView:player.values viewForTableColumn:value row:litres] textField];
 	XCTAssertNotNil([litresField formatter], @"a number's field takes numbers only");

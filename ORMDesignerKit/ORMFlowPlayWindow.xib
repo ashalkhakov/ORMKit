@@ -149,7 +149,14 @@
 <buttonCell key="cell" type="push" title="Clear" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="dateClearCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
 </buttonCell>
-<connections><action selector="setOrClearDate:" target="-2" id="dateClearAction"/></connections>
+<connections><action selector="clearValue:" target="-2" id="dateClearAction"/></connections>
+</button><button toolTip="Give it a date: today, to change" verticalHuggingPriority="750" hidden="YES" id="dateSet">
+<rect key="frame" x="2" y="2" width="56" height="20"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Set" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="dateSetCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="setDate:" target="-2" id="dateSetAction"/></connections>
 </button>
 </subviews>
 <connections></connections>
@@ -175,7 +182,14 @@
 <buttonCell key="cell" type="push" title="Clear" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="dateTimeClearCell">
 <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
 </buttonCell>
-<connections><action selector="setOrClearDate:" target="-2" id="dateTimeClearAction"/></connections>
+<connections><action selector="clearValue:" target="-2" id="dateTimeClearAction"/></connections>
+</button><button toolTip="Give it a date: today, to change" verticalHuggingPriority="750" hidden="YES" id="dateTimeSet">
+<rect key="frame" x="2" y="2" width="56" height="20"/>
+<autoresizingMask key="autoresizingMask" flexibleMaxX="YES" flexibleMinY="YES"/>
+<buttonCell key="cell" type="push" title="Set" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" imageScaling="proportionallyDown" inset="2" id="dateTimeSetCell">
+<behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+</buttonCell>
+<connections><action selector="setDate:" target="-2" id="dateTimeSetAction"/></connections>
 </button>
 </subviews>
 <connections></connections>
