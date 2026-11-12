@@ -392,7 +392,10 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 			for (ORMQueryNode *each in [derivation nodes]) {
 				branches = branches || [each.steps count] > 1;
 			}
-			if (branches && node == form.root && ![step.factType isUnary]) {
+			/* Shown: one entered is the form's to assert (a semiderived
+			 * cost, worked out for others), read with the anchor. */
+			if (branches && node == form.root && ![step.factType isUnary]
+			    && [[step.nodes firstObject] formPart] == ORMFormPartShown) {
 				[_ownReads addObject:step.identifier];
 			}
 		}
