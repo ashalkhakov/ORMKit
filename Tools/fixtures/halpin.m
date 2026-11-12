@@ -1107,7 +1107,10 @@ static NSString *const FleetText =
 	@"    + had driver Driver (entered)\n"
 	@"    + filled the tank (entered)\n"
 	@"  + is Service\n"
-	@"    + was on Day (entered)\n";
+	@"    + was on Day (entered)\n"
+	@"    + ServiceLine is in that Service\n"
+	@"      + used Part (entered)\n"
+	@"      + used Count (entered)\n";
 
 - (void)fleet
 {

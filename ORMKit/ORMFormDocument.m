@@ -156,6 +156,9 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	BOOL _isList;
 	NSString *_from;
 	NSString *_fromGroup;
+	/* A repeat's in a subtype part (+ is Service: its lines): the subentity
+	 * its rows are of the object only where it is one of. */
+	NSString *_subtype;
 	/* What each text of _checked is of, by the text. */
 	NSMutableDictionary<NSString *, NSString *> *_sourceOfCheck;
 	/* The forms it is made with, and, where it is one of several anchors,
@@ -709,10 +712,16 @@ ORMThroughName(NSArray<NSString *> *keys)
 			repeat->_from = [self elementOfNode:of.identifier];
 		}
 		repeat->_repeatPath = _repeatPath != nil ? [NSString stringWithFormat:@"%@/%@", _repeatPath, name] : name;
+		repeat->_subtype = [self subtypeEntityOf:reachedNode];
 		NSString *why = query != nil ? [repeat makeForm:query stored:stored model:_model mapping:_mapping] : @"it cannot be read";
 		if (why != nil) {
 			[_notes addObject:[NSString stringWithFormat:@"%@: a repeat not made: %@", name, why]];
 			continue;
+		}
+		/* Its rows relevant where the object is of the part they are in. */
+		for (ORMFormField *field in repeat->_subtype != nil ? repeat.fields : @[]) {
+			NSUInteger depth = [[name componentsSeparatedByString:@"/"] count] + [[field.elementName componentsSeparatedByString:@"/"] count];
+			[[repeat bindOf:field].relevant addObject:[self kindTestOf:repeat->_subtype up:depth]];
 		}
 		[_notes addObjectsFromArray:repeat.notes];
 		for (NSString *each in repeat.missing) {
@@ -980,7 +989,8 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 			[_notes addObject:[NSString stringWithFormat:@"%@: not reached from the anchor alone.", name]];
 			continue;
 		}
-		NSString *entity = _entityName;
+		/* From a subtype part's subentity (+ is Service: its lines). */
+		NSString *entity = [self subtypeEntityOf:node] ?: _entityName;
 		NSUInteger firstMany = NSNotFound;
 		for (NSUInteger k = 0; k < [keys count]; k++) {
 			ORMCDRelationship *relationship = (ORMCDRelationship *)ORMPropertyOf(coreData, entity, [keys objectAtIndex:k]);
@@ -1950,8 +1960,14 @@ ORMItemsOf(ORMValueConstraint *values)
  * form's subtypes of it, from where the field is. */
 - (NSString *)kindTestOf:(ORMFormField *)field
 {
+	return [self kindTestOf:field.subtypeEntity up:[[field.elementName componentsSeparatedByString:@"/"] count]];
+}
+
+/* The same of a subentity, from as many elements below the anchor's. */
+- (NSString *)kindTestOf:(NSString *)subtypeEntity up:(NSUInteger)depth
+{
 	NSMutableString *up = [NSMutableString string];
-	for (NSUInteger i = [[field.elementName componentsSeparatedByString:@"/"] count]; i > 0; i--) {
+	for (NSUInteger i = depth; i > 0; i--) {
 		[up appendString:@"../"];
 	}
 	NSMutableArray *tests = [NSMutableArray array];
@@ -1959,7 +1975,7 @@ ORMItemsOf(ORMValueConstraint *values)
 		BOOL kind = NO;
 		for (ORMCDEntity *each = [_planner.coreData entityNamed:subtype]; each != nil && !kind;
 		     each = [_planner.coreData entityNamed:each.parentName ?: @""]) {
-			kind = [each.name isEqualToString:field.subtypeEntity];
+			kind = [each.name isEqualToString:subtypeEntity];
 		}
 		if (kind) {
 			[tests addObject:[NSString stringWithFormat:@"%@%@ = '%@'", up, [self subtypeField].elementName, subtype]];
@@ -2884,6 +2900,9 @@ ORMFieldKindName(ORMFormFieldKind kind)
 	if (_fromGroup != nil) {
 		[list setObject:_fromGroup forKey:@"fromGroup"];
 	}
+	if (_subtype != nil) {
+		[list setObject:_subtype forKey:@"subtype"];
+	}
 	if ([_repeats count] > 0) {
 		NSMutableDictionary *repeats = [NSMutableDictionary dictionary];
 		[_repeats enumerateKeysAndObjectsUsingBlock:^(NSString *name, ORMFormDocument *repeat, BOOL *stop) {
@@ -3359,7 +3378,15 @@ ORMXText(NSString *name, NSString *text)
 		}
 	}
 	for (NSString *name in [[_repeats allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
-		[parent addChild:[[_repeats objectForKey:name] repeatControlNamed:name]];
+		ORMFormDocument *repeat = [_repeats objectForKey:name];
+		NSXMLElement *control = [repeat repeatControlNamed:name];
+		if (repeat->_subtype != nil) {
+			/* Of a subtype part: shown where the object is one. */
+			[control addAttribute:[NSXMLNode attributeWithName:@"ref"
+			                                       stringValue:[NSString stringWithFormat:@"self::node()[%@]",
+			                                                                              [self kindTestOf:repeat->_subtype up:0]]]];
+		}
+		[parent addChild:control];
 	}
 }
 

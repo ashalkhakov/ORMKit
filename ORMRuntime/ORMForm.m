@@ -216,6 +216,8 @@ static NSString *ORMFormMessage(NSError *error);
 	 * group they are written into; nil for the anchor's. */
 	NSString *_from;
 	NSString *_fromGroup;
+	/* A repeat's in a subtype part: written where the object is one. */
+	NSString *_subtype;
 	NSDictionary<NSString *, NSArray<NSString *> *> *_identifiedBy;
 }
 
@@ -344,6 +346,7 @@ static NSString *ORMFormMessage(NSError *error);
 	_isList = [[list objectForKey:@"list"] boolValue];
 	_from = [[list objectForKey:@"from"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"from"] copy] : nil;
 	_fromGroup = [[list objectForKey:@"fromGroup"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"fromGroup"] copy] : nil;
+	_subtype = [[list objectForKey:@"subtype"] isKindOfClass:[NSString class]] ? [[list objectForKey:@"subtype"] copy] : nil;
 	NSMutableDictionary *repeats = [NSMutableDictionary dictionary];
 	NSDictionary *tables = [list objectForKey:@"repeats"] ?: @{};
 	for (NSString *name in tables) {
@@ -1102,7 +1105,7 @@ ORMFormPutBack(NSManagedObject *object, BOOL made, NSDictionary *before, NSManag
 	for (NSString *name in [self repeatNames]) {
 		NSArray *rows = (NSArray *)[(NSDictionary *)instance objectForKey:name];
 		ORMForm *repeat = [_repeats objectForKey:name];
-		if (![rows isKindOfClass:[NSArray class]] || repeat.isList) {
+		if (![rows isKindOfClass:[NSArray class]] || repeat.isList || ![self object:w.object isOf:repeat->_subtype]) {
 			continue;
 		}
 		/* Linked to the anchor, or to the owned object they are of (a
@@ -1474,7 +1477,8 @@ ORMFormMessage(NSError *error)
 	for (NSString *name in [self repeatNames]) {
 		ORMForm *repeat = [_repeats objectForKey:name];
 		NSArray *rows = [[instance objectForKey:name] isKindOfClass:[NSArray class]] ? [instance objectForKey:name] : nil;
-		if (repeat.isList || rows == nil || problem != nil) {
+		NSEntityDescription *part = repeat->_subtype != nil ? [[model entitiesByName] objectForKey:repeat->_subtype] : nil;
+		if (repeat.isList || rows == nil || problem != nil || (repeat->_subtype != nil && (part == nil || ![objectEntity isKindOfEntity:part]))) {
 			continue;
 		}
 		NSString *within = repeat->_fromGroup ?: @"";

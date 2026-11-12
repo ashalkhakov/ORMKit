@@ -156,6 +156,11 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, strong) ORMRole *entryRole;
 @property (nonatomic, readonly, weak) ORMQueryNode *parent;
 @property (nonatomic, readonly) ORMQueryOperator operatorKind;
+/* What it reads as: its operator, but maybe for a form's part (a step down
+ * to a subtype, docs/FORMS.md D12) and each plain step beneath one, its
+ * nodes counting where the object is one, so that a form's parts ("is
+ * FillUp", "is Service") are not all asked of each object. */
+@property (nonatomic, readonly) ORMQueryOperator readOperator;
 /* The object types playing its other roles, in the fact type's order. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryNode *> *nodes;
 /* An aggregate condition, for each node above: "count(Language) > 1",

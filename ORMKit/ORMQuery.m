@@ -142,6 +142,8 @@ ORMQueryAggregateNames(void)
 @property (nonatomic, readwrite, strong) ORMRole *entryRole;
 @property (nonatomic, readwrite, weak) ORMQueryNode *parent;
 @property (nonatomic, readwrite) ORMQueryOperator operatorKind;
+/* In a form's query: its steps down to a subtype are parts. */
+@property (nonatomic) BOOL inForm;
 @property (nonatomic, readwrite, copy) NSArray<ORMQueryNode *> *nodes;
 @property (nonatomic, readwrite, copy) NSString *countComparison;
 @property (nonatomic, readwrite) NSUInteger countValue;
@@ -587,6 +589,24 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 - (BOOL)isSubtyping
 {
 	return self.factType.kind == ORMFactTypeSubtype;
+}
+
+- (BOOL)isFormPart
+{
+	return self.inForm && [self isSubtyping] && self.entryRole.isSupertypeMetaRole;
+}
+
+- (ORMQueryOperator)readOperator
+{
+	if (!self.inForm || self.operatorKind != ORMQueryAnd || self.countComparison != nil) {
+		return self.operatorKind;
+	}
+	for (ORMQueryStep *step = self; step != nil; step = step.parent.step) {
+		if ([step isFormPart]) {
+			return ORMQueryMaybe;
+		}
+	}
+	return self.operatorKind;
 }
 
 @end
@@ -1694,6 +1714,7 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 	step.parent = parent;
 	step.operatorKind = [part.operatorName isEqualToString:@"Not"] ? ORMQueryNot
 		: [part.operatorName isEqualToString:@"Maybe"] ? ORMQueryMaybe : ORMQueryAnd;
+	step.inForm = self.kind == ORMQueryForm;
 	step.formPart = [part.part isEqualToString:@"Entered"] ? ORMFormPartEntered
 		: [part.part isEqualToString:@"Shown"] ? ORMFormPartShown : ORMFormPartNone;
 	step.countComparison = part.countComparison;
@@ -2213,7 +2234,7 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 	for (ORMQueryNode *node in step.nodes) {
 		[terms setObject:[ORMTerm termWithVariable:[variables objectForKey:node.identifier]] forKey:node.role.identifier];
 	}
-	ORMFormula *atom = step.operatorKind == ORMQueryMaybe ? [ORMFormula optionalFact:step.factType terms:terms]
+	ORMFormula *atom = step.readOperator == ORMQueryMaybe ? [ORMFormula optionalFact:step.factType terms:terms]
 	                                                      : [ORMFormula fact:step.factType terms:terms];
 	NSMutableArray *conjuncts = [NSMutableArray arrayWithObject:atom];
 	for (ORMQueryNode *node in step.nodes) {
@@ -2241,7 +2262,7 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		[conjuncts addObject:[ORMFormula compare:step.countComparison operands:@[ aggregate, other ]]];
 	}
 	ORMFormula *formula = [conjuncts count] == 1 ? atom : [ORMFormula combine:ORMFormulaAnd children:conjuncts];
-	return step.operatorKind == ORMQueryNot ? [ORMFormula not:formula] : formula;
+	return step.readOperator == ORMQueryNot ? [ORMFormula not:formula] : formula;
 }
 
 @end

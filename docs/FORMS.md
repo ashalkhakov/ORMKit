@@ -306,6 +306,11 @@ insert, a deep update).
 
 **Subtype parts:** a new object is made of the kind chosen, one read is of
 its kind and stays so, and the service is told its type (`@odata.type`).
+A part's rows (a service's lines) are a repeat relevant where the object
+is of it, written to the store and sent to the service only then. The
+form read as a query (its sentence, its plan, its results in the Queries
+window) reads each part and what is beneath it as "maybe": every object,
+each with its own part's values, not those that are of every part.
 The kind's choices are labelled as a reader says the subtype's name ("Fill
 up" for FillUp).
 

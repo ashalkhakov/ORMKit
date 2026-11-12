@@ -1732,6 +1732,81 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 	XCTAssertFalse([[post.body allValues] containsObject:@"Almaty"], @"a fill-up's own only: %@", post.body);
 }
 
+/* What a part says beneath it (a trip's stops, a fill-up's flag) counts
+ * where the object is of it: the form's query reads every event, not those
+ * that are both; a part's rows are a repeat shown and written where the
+ * object is one. */
+- (void)testAPartsStepsCountWhereTheObjectIsOne
+{
+	NSString *text = [ORMEvents stringByReplacingOccurrencesOfString:@"\n\nQuery RecordEvent:"
+	                                                      withString:@"\nStop is an entity type.\n"
+	                                                                 @"Reference Mode: .id\n"
+	                                                                 @"Portable data type: Other: Object ID\n"
+	                                                                 @"Stop is on Trip\n"
+	                                                                 @"Each Stop is on exactly one Trip.\n"
+	                                                                 @"Stop was at Place\n"
+	                                                                 @"Each Stop was at exactly one Place.\n"
+	                                                                 @"FillUp filled the tank\n"
+	                                                                 @"\nQuery RecordEvent:"];
+	text = [text stringByReplacingOccurrencesOfString:@"    + went to Place (entered)\n"
+	                                       withString:@"    + went to Place (entered)\n"
+	                                                  @"    + Stop is on that Trip\n"
+	                                                  @"      + was at Place (entered)\n"];
+	text = [text stringByAppendingString:@"    + filled the tank (entered)\n"];
+	ORMEditor *editor = [self editorOf:text];
+	ORMQuery *query = [self query:@"RecordEvent" in:editor.model];
+	XCTAssertEqual([[query.root.steps objectAtIndex:2] operatorKind], ORMQueryAnd, @"as it is written");
+	XCTAssertEqual([[query.root.steps objectAtIndex:2] readOperator], ORMQueryMaybe, @"read as a part");
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *van = [self insert:@"Vehicle" values:@{ @"id" : [NSUUID UUID] } in:context];
+	NSDate *now = [NSDate date];
+	[self insert:@"Trip" values:@{ @"id" : [NSUUID UUID], @"vehicle" : van, @"moment" : now, @"place" : @"Almaty" } in:context];
+	[self insert:@"FillUp" values:@{ @"id" : [NSUUID UUID], @"vehicle" : van, @"moment" : now, @"litres" : [NSDecimalNumber decimalNumberWithString:@"40"],
+	                                 @"filledTheTank" : @NO } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	ORMQueryPlan *plan = [[[ORMQueryPlanner alloc] initWithModel:editor.model mapping:nil] planForQuery:query];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[[context persistentStoreCoordinator] managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertEqual([result.rows count], 2u, @"the trip and the fill-up, its tank not filled: %@ %@", result.rows, error);
+
+	ORMFormDocument *document = [self form:@"RecordEvent" of:editor];
+	XCTAssertEqualObjects([document.repeats allKeys], @[ @"stops" ], @"%@", document.notes);
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *stopPlace = [[self nodes:@"//*[local-name()='bind'][@ref='stops/place']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"relevant" of:stopPlace], @"(../../isA = 'Trip')",
+	                      @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	NSXMLNode *rows = [[self nodes:@"//*[local-name()='group'][@id='control-rows-stops']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"ref" of:rows], @"self::node()[isA = 'Trip']");
+
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSString *vanKey = [[van valueForKey:@"id"] UUIDString];
+	NSArray *stops = @[ @{ @"id" : @"", @"place" : @"Kapchagay" } ];
+	/* A trip: its stops written. */
+	NSMutableDictionary *trip = [[form instanceGiven:@{ @"vehicle" : vanKey }] mutableCopy];
+	[trip addEntriesFromDictionary:@{ @"isA" : @"Trip", @"moment" : @"2026-11-12T08:00:00Z", @"place" : @"Almaty", @"stops" : stops }];
+	NSDictionary *errors = nil;
+	NSManagedObject *made = [form save:trip inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(made, @"%@ %@", errors, error);
+	XCTAssertEqualObjects([[[made valueForKey:@"stops"] anyObject] valueForKey:@"place"], @"Kapchagay");
+	/* A fill-up: none, whatever rows the instance has. */
+	NSMutableDictionary *fillUp = [[form instanceGiven:@{ @"vehicle" : vanKey }] mutableCopy];
+	[fillUp addEntriesFromDictionary:@{ @"isA" : @"FillUp", @"moment" : @"2026-11-12T09:00:00Z", @"litres" : @"40", @"stops" : stops }];
+	NSUInteger before = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Stop"] error:NULL] count];
+	XCTAssertNotNil([form save:fillUp inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
+	XCTAssertEqual([[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Stop"] error:NULL] count], before);
+
+	/* To the service: a trip's stops in its deep insert, a fill-up's none. */
+	NSManagedObjectModel *model = [[context persistentStoreCoordinator] managedObjectModel];
+	ORMFormRequest *post = [form saveRequestFor:trip original:nil etag:nil model:model error:&error];
+	XCTAssertNotNil(post, @"%@", error);
+	XCTAssertEqual([[post.body objectForKey:@"Stops"] count], 1u, @"%@", post.body);
+	post = [form saveRequestFor:fillUp original:nil etag:nil model:model error:&error];
+	XCTAssertNotNil(post, @"not \"Event has no stops\": %@", error);
+	XCTAssertNil([post.body objectForKey:@"Stops"], @"%@", post.body);
+}
+
 #pragma mark The definition
 
 /* FORMS.md's definition, each rule: the fill-up model with a vehicle's
