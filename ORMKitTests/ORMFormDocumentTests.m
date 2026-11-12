@@ -635,6 +635,48 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertTrue([[read objectForKey:@"pricePerUnit"] hasPrefix:@"500"], @"%@ %@", read, error);
 }
 
+/* A derived fact type entered is the form's, not read on its own: the
+ * cost semiderived (Logbook's: worked out for a service, its derivation
+ * branching, entered for a fill-up), the price per unit computed with its
+ * amount. */
+- (void)testADerivedFactTypeEnteredIsTheForms
+{
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  + was of Volume (entered)\n    + has Quantity\n"
+	                                                       withString:@"  + was of Volume1 (entered)\n"];
+	text = [text stringByReplacingOccurrencesOfString:@"  PricePerUnit ="
+	                                       withString:@"  + was of Volume2\n    + has Quantity\n  PricePerUnit ="];
+	text = [text stringByReplacingOccurrencesOfString:@"FillUp cost Money (as Total)\n"
+	                                       withString:@"FillUp cost Money (as Total)\n++ By query CostOf.\n"];
+	text = [text stringByReplacingOccurrencesOfString:@"\nQuery RecordFillUp:"
+	                                       withString:@"\nQuery CostOf:\n"
+	                                                  @"Derivation of \"FillUp cost Money\":\n"
+	                                                  @"FillUp (shown)\n"
+	                                                  @"  + was at Station\n"
+	                                                  @"  + was charged Money (shown)\n"
+	                                                  @"\n"
+	                                                  @"Query RecordFillUp:"];
+	ORMEditor *editor = [self newEditor];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMQuery *record = [self query:@"RecordFillUp" in:editor.model];
+	ORMQueryStep *cost = nil;
+	for (ORMQueryStep *step in record.root.steps) {
+		ORMQueryNode *node = [step.nodes firstObject];
+		cost = [node.objectType.name isEqualToString:@"Money"] && node.formPart == ORMFormPartEntered && cost == nil ? step : cost;
+	}
+	XCTAssertNotNil([ORMQuery derivationOf:cost.factType inModel:editor.model], @"the cost is derived: %@", text);
+	ORMFormDocument *document = [self documentOf:editor];
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([form elementNamed:@"totalAmount"].role, @"entered");
+	NSManagedObjectContext *context = [self storeOf:editor];
+	NSDictionary *errors = nil;
+	NSError *error = nil;
+	NSManagedObject *saved = [form save:[self fillUpIn:form] inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(saved, @"%@ %@", errors, error);
+	NSDictionary *read = [form readKey:[[saved valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertTrue([[read objectForKey:@"pricePerUnit"] hasPrefix:@"500"], @"%@ %@", read, error);
+}
+
 /* Refused: said at the element, and the object as it was. */
 - (void)testARefusalIsSaidAtItsElement
 {
