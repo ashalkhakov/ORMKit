@@ -277,7 +277,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		for (ORMQueryStep *step in at.steps) {
 			ORMQueryNode *sub = [step.nodes firstObject];
 			ORMCDEntity *subEntity = sub != nil ? [_places entityOf:sub.objectType] : nil;
-			if ([step isSubtyping] && step.operatorKind == ORMQueryAnd && step.entryRole.isSupertypeMetaRole
+			if ([step isSubtyping] && step.readOperator == ORMQueryAnd && step.entryRole.isSupertypeMetaRole
 			    && subEntity != nil && subEntity != _read && [_places entity:subEntity inherits:_read]) {
 				_read = subEntity;
 				next = sub;
@@ -755,14 +755,14 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	}
 	NSMutableArray *steps = [NSMutableArray array];
 	for (ORMQueryStep *step in node.steps) {
-		BOOL listed = columns && step.operatorKind != ORMQueryNot;
+		BOOL listed = columns && step.readOperator != ORMQueryNot;
 		/* An existence over a window: how many, compared with none. */
 		ORMPlanCondition *counted = [self windowCountOfStep:step];
 		ORMPlanCondition *condition = counted ?: [self conditionForStep:step entity:entity at:at columns:listed];
 		if (condition == nil) {
 			continue;
 		}
-		[steps addObject:step.operatorKind == ORMQueryNot && counted == nil ? [ORMPlanCondition not:condition] : condition];
+		[steps addObject:step.readOperator == ORMQueryNot && counted == nil ? [ORMPlanCondition not:condition] : condition];
 		/* Each value node as soon as what it uses is reached, so that the
 		 * steps after may be compared with it; not among alternatives. */
 		for (BOOL more = !node.combinesWithOr; more;) {
@@ -1118,13 +1118,13 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	NSMutableArray *keys = [NSMutableArray array];
 	for (ORMQueryNode *at = node; at != top;) {
 		ORMQueryNode *above = nil;
-		ORMCDProperty *property = at.step.operatorKind == ORMQueryAnd ? [self propertyOfNode:at above:&above] : nil;
+		ORMCDProperty *property = at.step.readOperator == ORMQueryAnd ? [self propertyOfNode:at above:&above] : nil;
 		if (property == nil || ([property isKindOfClass:[ORMCDRelationship class]] && ((ORMCDRelationship *)property).toMany)
 		    || ([property isKindOfClass:[ORMCDAttribute class]] && at != node)) {
 			return nil;
 		}
 		for (ORMQueryNode *absorbed = at.step.parent; absorbed != above; absorbed = absorbed.step.parent) {
-			if (absorbed == top || absorbed.step.operatorKind != ORMQueryAnd) {
+			if (absorbed == top || absorbed.step.readOperator != ORMQueryAnd) {
 				return nil;
 			}
 		}
@@ -1253,7 +1253,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
         equalities:(NSMutableArray *)equalities
 {
 	for (ORMQueryStep *step in node.steps) {
-		if (step.operatorKind != ORMQueryAnd || step.countComparison != nil) {
+		if (step.readOperator != ORMQueryAnd || step.countComparison != nil) {
 			return NO;
 		}
 		if ([step.nodes count] == 0) {
@@ -1315,7 +1315,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	while ([inner.steps count] == 1 && [[inner.steps firstObject] isSubtyping]) {
 		ORMQueryStep *link = [inner.steps firstObject];
 		ORMQueryNode *next = [link.nodes count] == 1 ? [link.nodes firstObject] : nil;
-		if (next == nil || link.operatorKind != ORMQueryAnd || link.countComparison != nil || inner.comparison != nil
+		if (next == nil || link.readOperator != ORMQueryAnd || link.countComparison != nil || inner.comparison != nil
 		    || [inner.values count] > 0 || ![next.objectType isSubtypeOf:inner.objectType] || ![self isAlone:next]) {
 			return nil;
 		}
@@ -1402,7 +1402,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			members = (ORMCDRelationship *)property;
 		}
 	}
-	BOOL plain = member.step.operatorKind == ORMQueryAnd || (counting && member.step.operatorKind == ORMQueryNot);
+	BOOL plain = member.step.readOperator == ORMQueryAnd || (counting && member.step.readOperator == ORMQueryNot);
 	/* The member as the subtype its links go down to, one object: its
 	 * attributes and its entity the subtype's. */
 	NSMutableArray *chain = [NSMutableArray array];
@@ -1669,7 +1669,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 {
 	ORMQueryNode *member = [step.nodes count] == 1 ? [step.nodes firstObject] : nil;
 	if (_bagNodes != nil || member == nil || step.countComparison != nil
-	    || (step.operatorKind != ORMQueryAnd && step.operatorKind != ORMQueryNot)) {
+	    || (step.readOperator != ORMQueryAnd && step.readOperator != ORMQueryNot)) {
 		return nil;
 	}
 	NSMutableArray *chain = [NSMutableArray array];
@@ -1702,7 +1702,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		}
 		ORMPlanValue *count = [self window:@"count" of:member for:group at:place counting:YES];
 		if (count != nil) {
-			return [ORMPlanCondition compare:count comparison:step.operatorKind == ORMQueryNot ? @"=" : @">"
+			return [ORMPlanCondition compare:count comparison:step.readOperator == ORMQueryNot ? @"=" : @">"
 			                            with:[ORMPlanValue constant:@"0" type:@"Integer 64"]];
 		}
 	}
@@ -1829,7 +1829,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	NSArray *places = [self enter:hops];
 	ORMPlannerPlace *last = [places lastObject];
 	ORMPlanCondition *body = [self plainConditionForStep:step entity:last.entity at:last columns:columns];
-	return [self leave:hops places:places from:at where:body optional:step.operatorKind == ORMQueryMaybe];
+	return [self leave:hops places:places from:at where:body optional:step.readOperator == ORMQueryMaybe];
 }
 
 /* A place for each hop's row, its variable in scope until left. */
@@ -1891,7 +1891,10 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		return [self subtypeStep:step entity:entity at:at columns:columns];
 	}
 	if ([step.nodes count] == 0) {
-		/* A unary: its attribute is true. */
+		/* A unary: its attribute is true; maybe, nothing left out for it. */
+		if (step.readOperator == ORMQueryMaybe) {
+			return nil;
+		}
 		for (ORMRole *role in step.factType.roles) {
 			ORMCDProperty *property = role != step.entryRole ? [_places propertyOf:entity source:[ORMQueryPlaces sourceOfRole:role]] : nil;
 			if ([property isKindOfClass:[ORMCDAttribute class]]) {
@@ -1914,7 +1917,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			ORMPlanCondition *absorbed = [self absorbed:node base:node.role.identifier entity:entity at:at columns:columns];
 			/* Maybe: its parts are the object's own, reached and listed as
 			 * they are (nothing where there is none); nothing asked. */
-			if (step.operatorKind == ORMQueryMaybe) {
+			if (step.readOperator == ORMQueryMaybe) {
 				if ([self asksSomethingBelow:node]) {
 					[self note:[NSString stringWithFormat:@"%@ is absorbed: what is said of it under a maybe is not asked.",
 					                                      node.objectType.name]];
@@ -1962,7 +1965,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	if ([property isKindOfClass:[ORMCDAttribute class]]) {
 		ORMCDAttribute *attribute = (ORMCDAttribute *)property;
 		ORMPlannerPlace *value = [at adding:attribute entity:nil];
-		if (step != nil && step.operatorKind == ORMQueryMaybe) {
+		if (step != nil && step.readOperator == ORMQueryMaybe) {
 			/* Maybe: the value, bound, where it meets its conditions. */
 			NSString *variable = [self nextVariable];
 			[_scope addObject:variable];
@@ -1980,13 +1983,13 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		 * are joins on that value; others are left out. */
 		NSMutableArray *joined = [NSMutableArray array];
 		for (ORMQueryStep *further in node.steps) {
-			ORMPlanCondition *join = [self stepFromValue:further at:value columns:columns && further.operatorKind != ORMQueryNot];
+			ORMPlanCondition *join = [self stepFromValue:further at:value columns:columns && further.readOperator != ORMQueryNot];
 			if (join == nil) {
 				[self note:[NSString stringWithFormat:@"%@ is an attribute: what is said of it further is left out.",
 				                                      node.objectType.name]];
 				continue;
 			}
-			[joined addObject:further.operatorKind == ORMQueryNot ? [ORMPlanCondition not:join] : join];
+			[joined addObject:further.readOperator == ORMQueryNot ? [ORMPlanCondition not:join] : join];
 		}
 		if (step != nil && step.countComparison != nil && ![self tallies:step]) {
 			[self note:[NSString stringWithFormat:@"%@ is one attribute: it is not counted.", node.objectType.name]];
@@ -2005,7 +2008,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	ORMCDRelationship *relationship = (ORMCDRelationship *)property;
 	ORMCDEntity *destination = [self destinationOf:relationship];
 	ORMPlannerPlace *reached = [at adding:relationship entity:destination];
-	if (step != nil && step.operatorKind == ORMQueryMaybe) {
+	if (step != nil && step.readOperator == ORMQueryMaybe) {
 		/* Maybe: each object the path reaches that meets the conditions
 		 * below, bound; or none, nothing required (an outer join). */
 		NSString *variable = [self nextVariable];
@@ -2070,7 +2073,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	                                     pairs:@[ @[ value.path, [ORMPlanPath pathFrom:nil keys:@[ entry.name ]] ] ]
 	                                   binding:variable
 	                                     where:ORMAllOf(parts)
-	                                  optional:step.operatorKind == ORMQueryMaybe];
+	                                  optional:step.readOperator == ORMQueryMaybe];
 }
 
 /* Through a fact type that is an entity of its own: to it, and on from it
@@ -2098,7 +2101,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		return nil;
 	}
 	ORMPlannerPlace *reached = [at adding:relationship entity:factEntity];
-	BOOL maybe = step.operatorKind == ORMQueryMaybe;
+	BOOL maybe = step.readOperator == ORMQueryMaybe;
 	NSString *variable = relationship.toMany || maybe ? [self nextVariable] : nil;
 	ORMPlannerPlace *inner = variable != nil ? [ORMPlannerPlace variable:variable entity:factEntity trail:reached.trail]
 	                                         : reached;
@@ -2198,7 +2201,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		return YES;
 	}
 	for (ORMQueryStep *step in node.steps) {
-		if (step.operatorKind == ORMQueryNot || step.countComparison != nil) {
+		if (step.readOperator == ORMQueryNot || step.countComparison != nil) {
 			return YES;
 		}
 		for (ORMQueryNode *next in step.nodes) {
@@ -2221,7 +2224,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 		return YES;
 	}
 	for (ORMQueryStep *step in node.steps) {
-		if (step.operatorKind != ORMQueryAnd || step.countComparison != nil) {
+		if (step.readOperator != ORMQueryAnd || step.countComparison != nil) {
 			return YES;
 		}
 		for (ORMQueryNode *next in step.nodes) {
@@ -2273,7 +2276,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	ORMPlannerPlace *place = at;
 	if (step.entryRole.isSupertypeMetaRole && [at isRead] && target != nil && [_places entity:_read inherits:target]) {
 		/* What is read is one. */
-	} else if (step.entryRole.isSupertypeMetaRole && step.operatorKind == ORMQueryMaybe) {
+	} else if (step.entryRole.isSupertypeMetaRole && step.readOperator == ORMQueryMaybe) {
 		/* Maybe one: read as one, its properties nothing where it is not
 		 * (a form's subtype part: a trip's end, of an event that is one). */
 		if (target != nil && target != entity && [_places entity:target inherits:entity]) {
@@ -2337,7 +2340,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 	[self reach:node place:place];
 	for (ORMQueryStep *step in node.steps) {
 		ORMQueryNode *next = [step.nodes firstObject];
-		if ([step.nodes count] != 1 || step.operatorKind == ORMQueryMaybe) {
+		if ([step.nodes count] != 1 || step.readOperator == ORMQueryMaybe) {
 			continue;
 		}
 		NSString *partBase = [base stringByAppendingFormat:@"/%@", next.role.identifier];
@@ -2351,7 +2354,7 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 			condition = [self join:step node:next from:base entity:entity at:at];
 		}
 		if (condition != nil) {
-			[conditions addObject:step.operatorKind == ORMQueryNot ? [ORMPlanCondition not:condition] : condition];
+			[conditions addObject:step.readOperator == ORMQueryNot ? [ORMPlanCondition not:condition] : condition];
 		}
 	}
 	if ([conditions count] == 0) {

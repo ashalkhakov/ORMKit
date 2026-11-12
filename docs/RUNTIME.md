@@ -134,7 +134,8 @@ finds tables):
                  column = 3; part = 0; written = YES; },
                { name = driver; kind = reference; entity = User; key = email; ... }, ... );
   read = { ... };                            // form:read, its parameter $id
-  choices = { driver = { all = {...}; plan = {...}; dependsOn = ( vehicle ); }; };
+  choices = { driver = { all = {...}; plan = {...}; dependsOn = ( vehicle ); };
+              customer = { identify = {...}; identifiedBy = ( customerEmail ); }; };
   checkedWhereSubmitted = ( "If some Event had driver some User ... then that User drives that Vehicle." );
 }
 ```
@@ -148,6 +149,10 @@ finds tables):
 - **An element** is where the read has its value (a column, a compound's
   part of the column's list), what it holds, and whether a save writes
   it (what is entered or given; never what is shown or computed).
+- **A reference found by its key** (FORMS.md, D6) has role `identified`;
+  the elements entered to find it name it (`identifies = customer`) and
+  are not written; its `identify` plan, its parameters theirs, finds the
+  object, before a save and as they are entered (`ORMFormSession`).
 - **The instance** is a dictionary of texts by element, in xsd's lexical
   forms: the XForms instance's XML is the host's.
 - **The store:** the read and the choices run by the interpreter; a save
@@ -156,9 +161,11 @@ finds tables):
   context. A refusal is said by element, from each error's
   `NSValidationKeyErrorKey`, and the object is put back as it was.
 - **The service:** the read and the choices as `ORMQueryOData` requests,
-  the save as an `ORMFormRequest`: a POST, or a PATCH of what changed with
-  the ETag; a reference bound (`Vehicle@odata.bind`), every name the
-  service's. An error body's details come back by element, by their
+  a repeat's rows one each; the save as an `ORMFormRequest`: a POST (a deep
+  insert, owned objects and rows within), or a PATCH of what changed with
+  the ETag, rows as a delta; a reference bound (`Vehicle@odata.bind`),
+  every name the service's. A form with an `action` is submitted to it
+  (`-actionRequestFor:model:error:`) instead. An error body's details come back by element, by their
   targets. Sending them is the host's.
 
 ## The generated code

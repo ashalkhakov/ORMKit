@@ -330,7 +330,7 @@
 	                 @"\n"
 	                 @"Query OneOpenReminder:\n"
 	                 @"It is impossible that:\n"
-	                 @"✓Schedule\n"
+	                 @"Schedule (shown)\n"
 	                 @"  + Reminder comes from that Schedule\n"
 	                 @"    + count(Reminder) for Schedule > 1\n"
 	                 @"    + not was done at Moment\n";
@@ -430,7 +430,7 @@
 	                 @"\n"
 	                 @"Query OpenSchedule:\n"
 	                 @"Derivation of \"Schedule is open\":\n"
-	                 @"✓Schedule\n"
+	                 @"Schedule (shown)\n"
 	                 @"  + Reminder comes from that Schedule\n"
 	                 @"    + not was done at Moment\n";
 	NSArray *failures = nil;

@@ -142,6 +142,8 @@ ORMQueryAggregateNames(void)
 @property (nonatomic, readwrite, strong) ORMRole *entryRole;
 @property (nonatomic, readwrite, weak) ORMQueryNode *parent;
 @property (nonatomic, readwrite) ORMQueryOperator operatorKind;
+/* In a form's query: its steps down to a subtype are parts. */
+@property (nonatomic) BOOL inForm;
 @property (nonatomic, readwrite, copy) NSArray<ORMQueryNode *> *nodes;
 @property (nonatomic, readwrite, copy) NSString *countComparison;
 @property (nonatomic, readwrite) NSUInteger countValue;
@@ -168,6 +170,9 @@ ORMQueryAggregateNames(void)
 @property (nonatomic, readwrite, weak) ORMQueryNode *calculatedNode;
 @property (nonatomic, readwrite, weak) ORMFactType *derivedFactType;
 @property (nonatomic, readwrite, weak) ORMObjectType *derivedSubtype;
+@property (nonatomic, readwrite, copy) NSArray<NSString *> *withFormIds;
+/* Their names, as the model has them as the query is read. */
+@property (nonatomic, copy) NSArray<NSString *> *withFormNames;
 /* What the stored query says, its object types, fact types and roles
  * looked up in the model. */
 + (ORMQuery *)queryOf:(ORMStoredQuery *)stored model:(ORMModel *)model;
@@ -230,7 +235,7 @@ static NSArray<NSArray<NSString *> *> *
 ORMStoredQueryAttributes(void)
 {
 	return @[ @[ @"Name", @"name" ], @[ @"Kind", @"kind" ], @[ @"Modality", @"modality" ], @[ @"Function", @"function" ],
-		      @[ @"Of", @"of" ] ];
+		      @[ @"Of", @"of" ], @[ @"With", @"with" ] ];
 }
 
 /* A value as ORMBoolAttribute reads it. */
@@ -401,6 +406,7 @@ ORMBoolValue(NSString *value, BOOL fallback)
 	self.modality = ORMAttribute(element, @"Modality");
 	self.function = ORMAttribute(element, @"Function");
 	self.of = ORMAttribute(element, @"Of");
+	self.with = ORMAttribute(element, @"With");
 	self.noteText = ORMChildText(element, Q, @"Note");
 	NSXMLElement *root = ORMChild(element, Q, @"Node");
 	self.root = root != nil ? [ORMQueryPart partOf:root] : nil;
@@ -415,6 +421,7 @@ ORMBoolValue(NSString *value, BOOL fallback)
 	copy.modality = self.modality;
 	copy.function = self.function;
 	copy.of = self.of;
+	copy.with = self.with;
 	copy.noteText = self.noteText;
 	copy.root = [self.root copy];
 	return copy;
@@ -582,6 +589,24 @@ ORMWriteParts(NSXMLDocument *document, NSXMLElement *parent, NSArray<ORMQueryPar
 - (BOOL)isSubtyping
 {
 	return self.factType.kind == ORMFactTypeSubtype;
+}
+
+- (BOOL)isFormPart
+{
+	return self.inForm && [self isSubtyping] && self.entryRole.isSupertypeMetaRole;
+}
+
+- (ORMQueryOperator)readOperator
+{
+	if (!self.inForm || self.operatorKind != ORMQueryAnd || self.countComparison != nil) {
+		return self.operatorKind;
+	}
+	for (ORMQueryStep *step = self; step != nil; step = step.parent.step) {
+		if ([step isFormPart]) {
+			return ORMQueryMaybe;
+		}
+	}
+	return self.operatorKind;
 }
 
 @end
@@ -1541,6 +1566,17 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 		query.derivedFactType = [derived isKindOfClass:[ORMFactType class]] ? derived : nil;
 		query.derivedSubtype = [derived isKindOfClass:[ORMObjectType class]] ? derived : nil;
 	}
+	query.withFormIds = query.kind == ORMQueryForm && [stored.with length] > 0
+		? [stored.with componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]] : @[];
+	NSMutableArray *withNames = [NSMutableArray array];
+	for (NSString *formId in query.withFormIds) {
+		NSString *name = formId;
+		for (ORMStoredQuery *each in model.storedQueries) {
+			name = [each.identifier isEqualToString:formId] ? each.name ?: formId : name;
+		}
+		[withNames addObject:name];
+	}
+	query.withFormNames = withNames;
 	ORMQueryPart *rootPart = stored.root;
 	ORMObjectType *type = [model elementWithId:rootPart.ref];
 	if (![type isKindOfClass:[ORMObjectType class]]) {
@@ -1678,6 +1714,7 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 	step.parent = parent;
 	step.operatorKind = [part.operatorName isEqualToString:@"Not"] ? ORMQueryNot
 		: [part.operatorName isEqualToString:@"Maybe"] ? ORMQueryMaybe : ORMQueryAnd;
+	step.inForm = self.kind == ORMQueryForm;
 	step.formPart = [part.part isEqualToString:@"Entered"] ? ORMFormPartEntered
 		: [part.part isEqualToString:@"Shown"] ? ORMFormPartShown : ORMFormPartNone;
 	step.countComparison = part.countComparison;
@@ -1862,7 +1899,6 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 
 - (NSString *)nodeText:(ORMQueryNode *)node
 {
-	NSString *sort = node.sortOrder == ORMQueryAscending ? @" ↑" : node.sortOrder == ORMQueryDescending ? @" ↓" : @"";
 	/* A value node with what it computes: "Length = Quantity2 - Quantity1";
 	 * its type where it is not the first node's it uses ("Minutes:
 	 * Minutes = minutes(Moment1, Moment2)"). */
@@ -1878,11 +1914,20 @@ ORMExpandPartialStep(ORMQueryPart *step, ORMFactType *fact, ORMQuery *derivation
 			: [NSString stringWithFormat:@": %@", node.objectType.name ?: @"?"];
 		computed = [NSString stringWithFormat:@"%@ = %@", typed, [node.expression textWithDesignations:[self designationsById]]];
 	}
-	/* A form's node: ✎ entered, ✓ shown; "= ?" given. */
-	NSString *mark = self.kind != ORMQueryForm ? (node.isProjected ? @"✓" : @"")
-		: node.formPart == ORMFormPartEntered ? @"✎" : node.formPart == ORMFormPartShown ? @"✓" : @"";
-	return [NSString stringWithFormat:@"%@%@%@%@%@%@", mark, [node designation], computed,
-	                                  node.isGiven ? @" = ?" : @"", [self conditionText:node], sort];
+	/* Its marks last, "(shown, descending)": a form's node entered or shown,
+	 * another query's ticked one shown; its sort. "= ?" gives it. */
+	NSMutableArray *marks = [NSMutableArray array];
+	if (self.kind != ORMQueryForm ? node.isProjected : node.formPart == ORMFormPartShown) {
+		[marks addObject:@"shown"];
+	} else if (self.kind == ORMQueryForm && node.formPart == ORMFormPartEntered) {
+		[marks addObject:@"entered"];
+	}
+	if (node.sortOrder != ORMQueryUnsorted) {
+		[marks addObject:node.sortOrder == ORMQueryAscending ? @"ascending" : @"descending"];
+	}
+	NSString *marked = [marks count] > 0 ? [NSString stringWithFormat:@" (%@)", [marks componentsJoinedByString:@", "]] : @"";
+	return [NSString stringWithFormat:@"%@%@%@%@%@", [node designation], computed, node.isGiven ? @" = ?" : @"",
+	                                  [self conditionText:node], marked];
 }
 
 - (NSDictionary<NSString *, NSString *> *)designationsById
@@ -1959,6 +2004,15 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		[out appendFormat:@"Derivation of %@:\n", self.derivedSubtype.name];
 	} else if (self.kind == ORMQueryDerivation) {
 		[out appendString:@"Derivation:\n"];
+	} else if (self.kind == ORMQueryForm && [self.withFormNames count] > 0) {
+		/* "Form Onboard, with NewSupplier and NewCarrier:". */
+		NSArray *names = self.withFormNames;
+		NSString *last = [names lastObject];
+		NSString *listed = [names count] > 1 ? [NSString stringWithFormat:@"%@ and %@",
+		                                                                 [[names subarrayWithRange:NSMakeRange(0, [names count] - 1)]
+		                                                                     componentsJoinedByString:@", "], last]
+		                                     : last;
+		[out appendFormat:@"Form %@, with %@:\n", self.name, listed];
 	} else if (self.kind == ORMQueryForm) {
 		[out appendFormat:@"Form %@:\n", self.name];
 	}
@@ -2015,8 +2069,9 @@ ORMOutlineNameOf(ORMQueryNode *node, ORMQueryStep *step)
 		NSString *reading = ORMRewritePlaceholders([ORMQuery readingOfStep:step], places);
 		NSString *operator = step.operatorKind == ORMQueryNot ? @"not " : step.operatorKind == ORMQueryMaybe ? @"maybe "
 		                                                                                                       : @"";
-		/* A form's unary step: ✎ entered, ✓ shown, after its reading. */
-		NSString *mark = step.formPart == ORMFormPartEntered ? @" ✎" : step.formPart == ORMFormPartShown ? @" ✓" : @"";
+		/* A form's unary step: entered or shown, after its reading. */
+		NSString *mark = step.formPart == ORMFormPartEntered ? @" (entered)"
+			: step.formPart == ORMFormPartShown ? @" (shown)" : @"";
 		[out appendFormat:@"%@+ %@%@%@%@\n", pad, node.combinesWithOr && !first ? @"or " : @"", operator, reading, mark];
 		first = NO;
 		if (step.countComparison != nil && step.aggregateNode != nil) {
@@ -2179,7 +2234,7 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 	for (ORMQueryNode *node in step.nodes) {
 		[terms setObject:[ORMTerm termWithVariable:[variables objectForKey:node.identifier]] forKey:node.role.identifier];
 	}
-	ORMFormula *atom = step.operatorKind == ORMQueryMaybe ? [ORMFormula optionalFact:step.factType terms:terms]
+	ORMFormula *atom = step.readOperator == ORMQueryMaybe ? [ORMFormula optionalFact:step.factType terms:terms]
 	                                                      : [ORMFormula fact:step.factType terms:terms];
 	NSMutableArray *conjuncts = [NSMutableArray arrayWithObject:atom];
 	for (ORMQueryNode *node in step.nodes) {
@@ -2207,7 +2262,7 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 		[conjuncts addObject:[ORMFormula compare:step.countComparison operands:@[ aggregate, other ]]];
 	}
 	ORMFormula *formula = [conjuncts count] == 1 ? atom : [ORMFormula combine:ORMFormulaAnd children:conjuncts];
-	return step.operatorKind == ORMQueryNot ? [ORMFormula not:formula] : formula;
+	return step.readOperator == ORMQueryNot ? [ORMFormula not:formula] : formula;
 }
 
 @end
@@ -2323,6 +2378,40 @@ ORMTermOfExpression(ORMQueryExpression *expression, NSDictionary *variables)
 			[self->_editor wrote:query];
 		}];
 	}
+	return YES;
+}
+
+- (BOOL)setWithForms:(NSArray<NSString *> *)formIds ofQuery:(NSString *)queryId reason:(NSString **)reason
+{
+	ORMStoredQuery *query = [self query:queryId];
+	NSString *why = query == nil ? @"There is no such query."
+	              : ![query.kind isEqualToString:@"Form"] ? @"Only a form is made or changed with others." : nil;
+	for (NSString *formId in formIds) {
+		ORMStoredQuery *other = [self query:formId];
+		if (why == nil && ([formId isEqualToString:queryId] || ![other.kind isEqualToString:@"Form"])) {
+			why = @"A form is made or changed with other forms of the model's.";
+		} else if (why == nil && [other.with length] > 0) {
+			why = [NSString stringWithFormat:@"%@ has anchors of its own: a form is made with forms of one anchor each.", other.name];
+		} else if (why == nil && [[formIds indexesOfObjectsPassingTest:^BOOL(NSString *each, NSUInteger i, BOOL *stop) {
+			           return [each isEqualToString:formId];
+		           }] count] > 1) {
+			why = @"A form is made with each other form once.";
+		}
+	}
+	if (why != nil) {
+		if (reason != NULL) {
+			*reason = why;
+		}
+		return NO;
+	}
+	NSString *with = [formIds count] > 0 ? [formIds componentsJoinedByString:@" "] : nil;
+	if ([query.with ?: @"" isEqualToString:with ?: @""]) {
+		return YES;
+	}
+	[_editor modelChange:@"Set Forms Made With" with:^{
+		query.with = with;
+		[self->_editor wrote:query];
+	}];
 	return YES;
 }
 

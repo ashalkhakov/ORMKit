@@ -87,6 +87,18 @@ extern NSString * const ORMFormErrorDomain;
  * "subtype") says which the object is, its items the subentities; a new
  * one is made of it, one read is of it, and stays so. */
 @property (nonatomic, readonly, copy) NSString *subtype;
+/* Entered to find the object of a reference (an order's customer, by its
+ * email: docs/FORMS.md, D6): that reference's element; nil for others.
+ * The reference's role is then "identified": the app finds it. */
+@property (nonatomic, readonly, copy) NSString *identifies;
+/* An aggregate over a repeat's rows (docs/FORMS.md, D14): its function
+ * ("count", "total", "avg", "max", "min") and the path to the values
+ * (purchaseLines, quantity); nil for others. */
+@property (nonatomic, readonly, copy) NSDictionary *aggregate;
+/* A value read on its own, by the anchor's key (a derived one the form's
+ * read cannot take): the plan, and the column its value is in. */
+@property (nonatomic, readonly, strong) ORMQueryPlan *read;
+@property (nonatomic, readonly) NSUInteger readColumn;
 @end
 
 /* What to send the service to save the form: the method, the path under
@@ -135,6 +147,15 @@ extern NSString * const ORMFormErrorDomain;
 /* A repeat's element that holds the key of the object of the form it is in;
  * nil for a form that is no repeat. */
 @property (nonatomic, readonly, copy) NSString *linkElement;
+/* A repeat that is a list (docs/FORMS.md, D9): its rows read, never written. */
+@property (nonatomic, readonly) BOOL isList;
+/* A repeat in a subtype's part (+ is Service: its lines): the subentity
+ * the object is to be for its rows; nil for one of every object. */
+@property (nonatomic, readonly, copy) NSString *subtype;
+/* The element of the form whose value the repeat's rows are linked to (an
+ * owned object's key, "contact/id"; a reference's, "driver"); nil for the
+ * anchor's key. */
+- (NSString *)repeatFrom:(NSString *)name;
 /* A repeat's rows linked to the object of the key, read in the context. */
 - (NSArray<NSDictionary *> *)rowsLinkedTo:(NSString *)key inContext:(NSManagedObjectContext *)context error:(NSError **)error;
 /* The references with choices, by element name. */
@@ -144,6 +165,21 @@ extern NSString * const ORMFormErrorDomain;
 /* Its choices' plan for the instance's values: by what it depends on where
  * each has a value, else every one. nil, and why, for no reference. */
 - (ORMQueryPlan *)choicesPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error;
+/* The references found by values entered, and the elements that find each. */
+- (NSArray<NSString *> *)identifiedNames;
+- (NSArray<NSString *> *)elementsIdentifying:(NSString *)name;
+/* What finds a reference's object for the instance's values: the objects of
+ * its type whose key they are. nil, and why, for none such. */
+- (ORMQueryPlan *)identifyPlanNamed:(NSString *)name values:(NSDictionary<NSString *, id> *)values error:(NSError **)error;
+/* The forms it is made or changed with, one change set (docs/FORMS.md): a
+ * form each, in order; empty for one anchor. */
+@property (nonatomic, readonly, copy) NSArray<ORMForm *> *parts;
+/* The service's action the form is submitted to (docs/FORMS.md); nil for
+ * a form that is saved. */
+@property (nonatomic, readonly, copy) NSString *action;
+/* The app's words for the rules a save may be refused by, by name: said
+ * instead of the rule's own. */
+@property (nonatomic, readonly, copy) NSDictionary<NSString *, NSString *> *messages;
 /* The rules the form cannot check, said: the store or the service does. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 
@@ -151,6 +187,12 @@ extern NSString * const ORMFormErrorDomain;
  * the values given (the vehicle it is for), a flag entered "false", and
  * each repeat no rows. */
 - (NSDictionary<NSString *, id> *)instanceGiven:(NSDictionary<NSString *, id> *)values;
+/* The instance with each element read on its own read so, from its rows
+ * (one row each, of the key). */
+- (NSDictionary<NSString *, id> *)instance:(NSDictionary<NSString *, id> *)instance withOwnReads:(NSDictionary<NSString *, NSArray *> *)rows;
+/* The instance with each aggregate worked out over its rows as they are:
+ * a total and a count "0" over none, the others "". */
+- (NSDictionary<NSString *, id> *)instanceWithAggregates:(NSDictionary<NSString *, id> *)instance;
 /* A row of the read, from the store or the service, as the instance: each
  * element's text from its column (a compound's from its part, a reference's
  * key), xsd's lexical forms ("2026-11-10T08:30:00Z", "true", "40.5"). */
@@ -168,6 +210,13 @@ extern NSString * const ORMFormErrorDomain;
                                values:(NSDictionary<NSString *, id> *)values
                             inContext:(NSManagedObjectContext *)context
                                 error:(NSError **)error;
+/* The key of the object the instance's values find, in the context: "" where
+ * no object has them, or none is entered; nil, and why, where it cannot be
+ * read. */
+- (NSString *)identifiedKeyNamed:(NSString *)name
+                          values:(NSDictionary<NSString *, id> *)values
+                       inContext:(NSManagedObjectContext *)context
+                           error:(NSError **)error;
 /* Each element through a reference of the instance's (an order's
  * supplier's name), as the object the reference is to has it, in the
  * context: "" where it has none, or the reference none. */
@@ -191,6 +240,17 @@ extern NSString * const ORMFormErrorDomain;
                    saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
                    errors:(NSDictionary<NSString *, NSString *> **)errors
                     error:(NSError **)error;
+/* Several forms' instances written and saved as one: a form made or
+ * changed with others (docs/FORMS.md), each of its anchors. Each object
+ * saved, in order; nil where any is refused, every object put back as it
+ * was, errors the first form's by its elements and each other's by its
+ * name before them ("NewSupplier/contact/contactName"). */
++ (NSArray<NSManagedObject *> *)saveForms:(NSArray<ORMForm *> *)forms
+                                instances:(NSArray<NSDictionary<NSString *, id> *> *)instances
+                                inContext:(NSManagedObjectContext *)context
+                                   saving:(BOOL (^)(NSManagedObjectContext *context, NSError **error))saving
+                                   errors:(NSDictionary<NSString *, NSString *> **)errors
+                                    error:(NSError **)error;
 /* What a failed save's error says of each element, "" for the rest: a
  * rule's said at the first of its properties (ORMKeys) the form enters, so
  * that one the user cannot change (the vehicle given) is not where it is
@@ -202,6 +262,18 @@ extern NSString * const ORMFormErrorDomain;
 /* The read of the key as requests to the model's service, and a choices
  * plan's; their rows go through -instanceOfRow: and the choice's key. */
 - (ORMQueryOData *)readRequestForKey:(NSString *)key model:(NSManagedObjectModel *)model error:(NSError **)error;
+/* A repeat's rows linked to the object of the key, as a request. */
+- (ORMQueryOData *)rowsRequestOfRepeat:(NSString *)name
+                              linkedTo:(NSString *)key
+                                 model:(NSManagedObjectModel *)model
+                                 error:(NSError **)error;
+- (ORMQueryOData *)identifyRequestNamed:(NSString *)name
+                                 values:(NSDictionary<NSString *, id> *)values
+                                  model:(NSManagedObjectModel *)model
+                                  error:(NSError **)error;
+/* What a save is refused for where values entered find no object: "There
+ * is no Customer with that Email.", at the first element that finds it. */
+- (NSString *)unfoundMessageNamed:(NSString *)name;
 - (ORMQueryOData *)choicesRequestNamed:(NSString *)name
                                 values:(NSDictionary<NSString *, id> *)values
                                  model:(NSManagedObjectModel *)model
@@ -209,7 +281,11 @@ extern NSString * const ORMFormErrorDomain;
 /* What saves the instance: a POST of each element written that has a
  * value, where it has no key or no original; else a PATCH of those that differ from the original,
  * with the ETag read (If-Match). A reference is bound
- * ("Vehicle@odata.bind": "Vehicles(7)"); names are the service's. nil, and
+ * ("Vehicle@odata.bind": "Vehicles(7)"); names are the service's. An owned
+ * object's are nested in it, and a repeat's rows under its navigation
+ * property: all of them in a POST (a deep insert, each new one given a key
+ * where the key is a UUID or text), in a PATCH a delta of those added or
+ * changed and those taken away ("@removed", reason "deleted"). nil, and
  * why, where a value is not of its type. */
 - (ORMFormRequest *)saveRequestFor:(NSDictionary<NSString *, id> *)instance
                           original:(NSDictionary<NSString *, id> *)original
@@ -219,5 +295,13 @@ extern NSString * const ORMFormErrorDomain;
 /* What the service's error body (JSON) says of each element: a detail's or
  * the error's target, a property's name on the wire, by its element; the
  * rest under "". */
+/* What submits the instance to the form's action: a POST of the action
+ * (unbound, "ReceiveGoods"), its one parameter the anchor's entity named
+ * so ("PurchaseOrder"), as a POST of a new one would send it, its key, its
+ * owned objects and rows within. nil, and why, for a form with no action
+ * or a value not of its type. */
+- (ORMFormRequest *)actionRequestFor:(NSDictionary<NSString *, id> *)instance
+                               model:(NSManagedObjectModel *)model
+                               error:(NSError **)error;
 - (NSDictionary<NSString *, NSString *> *)elementErrorsOfResponse:(NSData *)body model:(NSManagedObjectModel *)model;
 @end

@@ -680,6 +680,10 @@ ORMSchemaPathFacts(ORMRolePath *path, NSMutableArray<ORMFactType *> *facts)
 		}
 		[self depend:unit on:query.derivedFactType];
 		[self depend:unit on:query.derivedSubtype];
+		/* A form after the forms it is made with. */
+		for (NSString *formId in query.withFormIds) {
+			[self depend:unit on:[stored objectForKey:formId]];
+		}
 	}
 	/* Where the diagrams show them first. */
 	NSUInteger position = 0;

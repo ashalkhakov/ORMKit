@@ -35,12 +35,12 @@
 	                 @"Each Trip covered exactly one Distance.\n"
 	                 @"\n"
 	                 @"Query Kilometres:\n"
-	                 @"✓Trip\n"
+	                 @"Trip (shown)\n"
 	                 @"  + covered Distance\n"
 	                 @"    + has Quantity\n"
 	                 @"    + is in DistanceUnit\n"
 	                 @"      + is worth Factor km\n"
-	                 @"  ✓Km = Quantity * Factor\n";
+	                 @"  Km = Quantity * Factor (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	return editor;
@@ -295,7 +295,7 @@
 	                 @"Each Trip is of exactly one Vehicle.\n"
 	                 @"\n"
 	                 @"Query Longer:\n"
-	                 @"✓Trip1\n"
+	                 @"Trip1 (shown)\n"
 	                 @"  + covered Distance1\n"
 	                 @"    + has Quantity1\n"
 	                 @"    + is in DistanceUnit1\n"
@@ -373,9 +373,9 @@
 	                 @"For each Currency1, Currency2 and Date, that Currency1 was worth at most one Factor in that Currency2 on that Date.\n"
 	                 @"\n"
 	                 @"Query ByMonth:\n"
-	                 @"✓Vehicle\n"
+	                 @"Vehicle (shown)\n"
 	                 @"  + is owned by User\n"
-	                 @"    + prefers ✓Currency2\n"
+	                 @"    + prefers Currency2 (shown)\n"
 	                 @"  + Cost is of that Vehicle\n"
 	                 @"    + was at Moment\n"
 	                 @"    + cost Money\n"
@@ -386,9 +386,9 @@
 	                 @"    Day: Date = date(Moment)\n"
 	                 @"    RateDay = max(Date1) for Cost\n"
 	                 @"    Rate = max(Factor2) for Cost\n"
-	                 @"    ✓Month = month(Moment) ↓\n"
+	                 @"    Month = month(Moment) (shown, descending)\n"
 	                 @"    Converted = Amount * coalesce(Rate, 1)\n"
-	                 @"    ✓Total = total(Converted) for Vehicle, Month\n";
+	                 @"    Total = total(Converted) for Vehicle, Month (shown)\n";
 	NSArray *failures = nil;
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMModel *model = editor.model;

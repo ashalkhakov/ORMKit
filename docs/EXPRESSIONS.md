@@ -66,15 +66,15 @@ the query and constants. In the outline it is a line of its own, `=`
 after its name, under the node it is computed for:
 
 ```
-✓Trip
+Trip (shown)
   + started at Distance1
     + has Quantity1
   + ended at Distance2
     + has Quantity2
-  ✓Length = Quantity2 − Quantity1
+  Length = Quantity2 − Quantity1 (shown)
 ```
 
-A value node is used as any value node is: listed (✓), compared
+A value node is used as any value node is: listed (`(shown)`), compared
 (`Length > 100`, `Length < Length2`), sorted by, aggregated
 (`total(Length) for Vehicle`), and named by a calculation (`Of`) or a
 derivation's projection.
@@ -122,7 +122,7 @@ calculation is per its root: `Previous = max(Moment2) for FillUp1`, where
 `Moment2 < Moment1`. The node it picks is then reached by a label:
 
 ```
-✓FillUp1
+FillUp1 (shown)
   + was at Moment1
   + is of Vehicle
     + Record is of that Vehicle
@@ -131,7 +131,7 @@ calculation is per its root: `Previous = max(Moment2) for FillUp1`, where
   Previous = max(Moment2) for FillUp1
   + is of Vehicle
     + Record is of that Vehicle
-      + is ✓FillUp3
+      + is FillUp3 (shown)
         + was at Moment3 = Previous
 ```
 
@@ -166,14 +166,14 @@ A list whose listed nodes include an aggregate value node is grouped by
 the other listed nodes, as SQL's `GROUP BY` is:
 
 ```
-✓Vehicle
+Vehicle (shown)
   + Record is of that Vehicle
     + is Cost
       + was at Moment
       + cost Money
         + has Amount
-  ✓Month = month(date(Moment))
-  ✓Total = total(Amount) for Vehicle, Month
+  Month = month(date(Moment)) (shown)
+  Total = total(Amount) for Vehicle, Month (shown)
 ```
 
 `for Vehicle, Month`: an aggregate's group may now be several nodes,
@@ -184,12 +184,12 @@ the cost, beside `Month`, not under the vehicle, where a vehicle's costs
 are many:
 
 ```
-✓Vehicle
+Vehicle (shown)
   + Cost is of that Vehicle
     + was at Moment
     + cost Amount
-    ✓Month = month(Moment)
-    ✓Total = total(Amount) for Vehicle, Month ↓
+    Month = month(Moment) (shown)
+    Total = total(Amount) for Vehicle, Month (shown, descending)
 ```
 
 - **Grouped by its first node that is not computed** (the node it is
@@ -269,7 +269,7 @@ As built:
       RateDay = max(Date1) for Record
       Rate = max(Factor2) for Record
       Converted = Amount * coalesce(Rate, 1)
-      ✓Total = total(Converted) for Vehicle, Month
+      Total = total(Converted) for Vehicle, Month (shown)
   ```
 
   Where a mapping absorbs a currency as its code
@@ -299,16 +299,16 @@ As built:
 
   ```
   Derivation of "Trip lasted Minutes":
-  ✓Trip
+  Trip (shown)
     + was at Moment1
     + ended at Moment2
-    ✓Minutes: Minutes = minutes(Moment1, Moment2)
+    Minutes: Minutes = minutes(Moment1, Moment2) (shown)
   ```
 
   Said "that Trip lasted Minutes if and only if ... and Minutes is the
   number of minutes from Moment1 to Moment2".
 - **Gone through**, the step's node is the value node, with what the query
-  says of it (`+ lasted ✓Minutes > 60`). No step starts from a role its
+  says of it (`+ lasted Minutes > 60 (shown)`). No step starts from a role its
   rule computes, nor goes on from one: there is no object there.
 - **Stored**, the population's facts are made from the rule's rows (a
   value no instance has, as a new one), and the save hook sets the

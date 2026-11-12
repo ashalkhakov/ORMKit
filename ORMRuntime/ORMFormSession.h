@@ -85,4 +85,16 @@
 @property (nonatomic, readonly, copy) NSDictionary<NSString *, NSString *> *errors;
 /* What the last save saved: the object's key; nil before one is done. */
 @property (nonatomic, readonly, copy) NSString *savedKey;
+
+/* A form made or changed with others (docs/FORMS.md): each of its other
+ * anchors' forms, by name, opened with the same inputs, its values, the
+ * key of the object it edits (nil: a new one), and what the last save
+ * saved of it. A save writes them all as one: the store saved once, the
+ * service sent one change set ($batch); refused, none is, and what each
+ * other one is refused for is said under its name
+ * ("NewSupplier/contact/contactName"). */
+- (void)setKey:(NSString *)key ofForm:(NSString *)name;
+- (NSDictionary<NSString *, id> *)valuesOfForm:(NSString *)name;
+- (void)setValue:(NSString *)value forElement:(NSString *)element ofForm:(NSString *)name;
+- (NSString *)savedKeyOfForm:(NSString *)name;
 @end

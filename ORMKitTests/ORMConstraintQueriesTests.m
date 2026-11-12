@@ -64,12 +64,12 @@
 {
 	ORMEditor *editor = [self fleet];
 	XCTAssertEqualObjects([self outlinesOf:ORMSubsetConstraint in:editor],
-	                      (@[ @"It is impossible that:\n✓Trip\n  + is of Vehicle1\n  + had driver User\n"
+	                      (@[ @"It is impossible that:\nTrip (shown)\n  + is of Vehicle1\n  + had driver User\n"
 	                          @"    + not drives Vehicle1\n" ]));
 	XCTAssertEqualObjects([self outlinesOf:ORMExclusionConstraint in:editor],
-	                      (@[ @"It is impossible that:\n✓User1\n  + owns Vehicle\n    + User1 drives that Vehicle\n" ]));
+	                      (@[ @"It is impossible that:\nUser1 (shown)\n  + owns Vehicle\n    + User1 drives that Vehicle\n" ]));
 	XCTAssertEqualObjects([self outlinesOf:ORMValueComparisonConstraint in:editor],
-	                      (@[ @"It is impossible that:\n✓Trip\n  + started at Moment1\n  + ended at Moment2 < Moment1\n" ]));
+	                      (@[ @"It is impossible that:\nTrip (shown)\n  + started at Moment1\n  + ended at Moment2 < Moment1\n" ]));
 	NSString *reason = nil;
 	ORMConstraint *inclusiveOr = nil;
 	for (ORMConstraint *constraint in editor.model.constraints) {
@@ -79,7 +79,7 @@
 	}
 	NSArray *made = [[[ORMConstraintQueries alloc] initWithEditor:editor] queriesFor:inclusiveOr reason:&reason];
 	XCTAssertEqualObjects([[ORMQuery queryWithId:[made firstObject] inModel:editor.model] outlineText],
-	                      @"It is impossible that:\n✓Trip\n  + not started at Moment\n  + not ended at Moment\n");
+	                      @"It is impossible that:\nTrip (shown)\n  + not started at Moment\n  + not ended at Moment\n");
 }
 
 /* A sample population breaking one is told so, as the constraint. */

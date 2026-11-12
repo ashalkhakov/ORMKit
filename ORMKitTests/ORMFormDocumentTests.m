@@ -1,6 +1,26 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import "ORMTestSupport.h"
 #import <CoreData/CoreData.h>
+#import <ODataService/ODataService.h>
+
+/* A service's action a form submits to: the goods received, a procedure
+ * of the service's, given the order as the form has it. */
+@protocol ORMTestReceivingActions <ODataActions>
+- (NSString *)receiveGoodsWithPurchaseOrder:(NSDictionary *)purchaseOrder reply:(ODataReply *)reply;
+@end
+
+@interface ORMTestReceiving : NSObject <ORMTestReceivingActions>
+@property (atomic, strong) NSDictionary *received;
+@end
+
+@implementation ORMTestReceiving
+- (NSString *)receiveGoodsWithPurchaseOrder:(NSDictionary *)purchaseOrder reply:(ODataReply *)reply
+{
+	(void)reply;
+	self.received = purchaseOrder;
+	return [[purchaseOrder objectForKey:@"Number"] description];
+}
+@end
 
 /* A form generated as XForms (docs/FORMS.md): FORMS.md's RecordFillUp over
  * a fill-up model shaped as Logbook's is, its compound values absorbed. */
@@ -93,19 +113,19 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
                                     @"Form RecordFillUp:\n"
                                     @"FillUp\n"
                                     @"  + is of Vehicle1 = ?\n"
-                                    @"  + was at ✎Moment\n"
-                                    @"  + was at ✎Distance\n"
-                                    @"  + was of ✎Volume\n"
+                                    @"  + was at Moment (entered)\n"
+                                    @"  + was at Distance (entered)\n"
+                                    @"  + was of Volume (entered)\n"
                                     @"    + has Quantity\n"
-                                    @"  + was of ✎Fuel\n"
-                                    @"  + was at ✎Station\n"
-                                    @"  + cost ✎Money1\n"
+                                    @"  + was of Fuel (entered)\n"
+                                    @"  + was at Station (entered)\n"
+                                    @"  + cost Money1 (entered)\n"
                                     @"    + has Amount\n"
-                                    @"  + was charged ✎Money2\n"
-                                    @"  + had driver ✎User\n"
+                                    @"  + was charged Money2 (entered)\n"
+                                    @"  + had driver User (entered)\n"
                                     @"    + drives Vehicle1\n"
-                                    @"  + filled the tank ✎\n"
-                                    @"  ✓PricePerUnit = Amount / Quantity\n";
+                                    @"  + filled the tank (entered)\n"
+                                    @"  PricePerUnit = Amount / Quantity (shown)\n";
 
 - (ORMEditor *)fillUps
 {
@@ -133,6 +153,7 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	ORMFormDocument *document = [ORMFormDocument documentForForm:[self formIn:editor.model] model:editor.model mapping:nil
 	                                                      reason:&reason];
 	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, @[], @"every form here is whole: %@", document.notes);
 	return document;
 }
 
@@ -319,13 +340,13 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	XCTAssertEqualObjects(reason, @"It is no form.");
 }
 
-/* "+ filled the tank ✎": a unary step entered, a flag of the form's own,
+/* "+ filled the tank (entered)": a unary step entered, a flag of the form's own,
  * written and read back as the outline says it. */
 - (void)testAUnaryIsEntered
 {
 	ORMEditor *editor = [self fillUps];
 	ORMQuery *query = [self formIn:editor.model];
-	XCTAssertTrue([[query outlineText] rangeOfString:@"  + filled the tank ✎\n"].location != NSNotFound, @"%@",
+	XCTAssertTrue([[query outlineText] rangeOfString:@"  + filled the tank (entered)\n"].location != NSNotFound, @"%@",
 	              [query outlineText]);
 	ORMFormDocument *form = [self documentOf:editor];
 	ORMFormField *full = [form.fields lastObject];
@@ -346,7 +367,12 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	XCTAssertFalse([queries setFormPart:ORMFormPartEntered ofStep:driver.identifier reason:&reason]);
 	XCTAssertEqualObjects(reason, @"Only a unary step is entered or shown itself: mark its nodes.");
 	XCTAssertTrue([queries setKind:ORMQueryList ofQuery:query.identifier reason:NULL]);
-	XCTAssertTrue([[[self formIn:editor.model] outlineText] rangeOfString:@"✎"].location == NSNotFound, @"a list has none");
+	XCTAssertTrue([[[self formIn:editor.model] outlineText] rangeOfString:@"(entered)"].location == NSNotFound, @"a list has none");
+	/* A step's marks say it is entered or shown, never sorted. */
+	XCTAssertNil([[[ORMOutlineReader alloc] initWithEditor:editor] addQueryNamed:nil
+	                                                                      outline:@"Form Sorted:\nFillUp\n  + filled the tank (descending)\n"
+	                                                                       reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 3, \"+ filled the tank (descending)\": a step is not sorted; its nodes are");
 }
 
 /* A subtype's definition is asked of every one of it: the distance a
@@ -373,14 +399,14 @@ static NSString *const ORMFillUps = @"User is an entity type.\n"
 	                 @"\n"
 	                 @"Query MeteredEventRule:\n"
 	                 @"Derivation of MeteredEvent:\n"
-	                 @"✓Event\n"
+	                 @"Event (shown)\n"
 	                 @"  + was at Quantity\n"
 	                 @"\n"
 	                 @"Query Log:\n"
 	                 @"Form Log:\n"
 	                 @"FillUp\n"
-	                 @"  + was at ✎Quantity\n"
-	                 @"  + has ✎Note\n";
+	                 @"  + was at Quantity (entered)\n"
+	                 @"  + has Note (entered)\n";
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	ORMQuery *log = nil;
 	for (ORMQuery *query in [ORMQuery queriesInModel:editor.model]) {
@@ -538,6 +564,77 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertTrue([[error localizedDescription] rangeOfString:@"bind them first"].location != NSNotFound, @"%@", error);
 }
 
+/* What the model has in a form and the document cannot place is said as
+ * missing, by name: never a form quietly without it (ormtool xforms
+ * refuses to write one). Here a driver's vehicles entered, rows that are
+ * facts of "drives", not objects linked to one owner. */
+- (void)testWhatCannotBePlacedIsMissingNotDropped
+{
+	ORMEditor *editor = nil;
+	ORMFormDefinition *definition = [self definitionOf:@"Drives" outline:@"User\n  + drives Vehicle (entered)\n" editor:&editor];
+	XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[], @"well formed: rows of choices (D8)");
+	NSString *reason = nil;
+	ORMFormDocument *document = [ORMFormDocument documentForForm:definition.form model:editor.model mapping:nil reason:&reason];
+	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, (@[ @"vehicles: rows entered that are not each of one User, but facts of many: not written by a repeat." ]),
+	                      @"(notes: %@)", document.notes);
+}
+
+/* A list beneath what the form refers to (D9): the fill-up's driver's
+ * vehicles, read with the fill-up, never written. */
+- (void)testAListBeneathAReferenceIsRead
+{
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  PricePerUnit ="
+	                                                       withString:@"  + had driver User2\n    + drives Vehicle3 (shown)\n  PricePerUnit ="];
+	ORMEditor *editor = [self editorOf:text];
+	ORMFormDocument *document = [self form:@"RecordFillUp" of:editor];
+	NSString *name = [[document.repeats allKeys] firstObject];
+	XCTAssertEqual([document.repeats count], 1u, @"%@ %@", document.repeats, document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	ORMForm *list = [form repeatNamed:name];
+	XCTAssertTrue(list.isList, @"read only");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *van = [self insert:@"Vehicle" values:@{ @"id" : [NSUUID UUID] } in:context];
+	NSManagedObject *car = [self insert:@"Vehicle" values:@{ @"id" : [NSUUID UUID] } in:context];
+	NSManagedObject *ann = [self insert:@"User" values:@{ @"email" : @"ann@example.com" } in:context];
+	for (NSString *key in [[[ann entity] relationshipsByName] allKeys]) {
+		if ([[[[[ann entity] relationshipsByName] objectForKey:key] destinationEntity].name isEqualToString:@"Vehicle"]) {
+			[ann setValue:[NSSet setWithObjects:van, car, nil] forKey:key];
+		}
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	XCTAssertEqualObjects([form repeatFrom:name], @"driver", @"read for the driver's key");
+	NSArray *rows = [list rowsLinkedTo:@"ann@example.com" inContext:context error:&error];
+	XCTAssertEqual([rows count], 2u, @"the driver's two: %@ %@", rows, error);
+	XCTAssertEqualObjects([[form instanceGiven:@{}] objectForKey:name], @[], @"none before a driver");
+}
+
+/* What is computed with read through a second step to an object absorbed
+ * into the anchor's row (Logbook's price per unit: the volume entered, its
+ * quantity reached again): read with the row, no maybe of its own. */
+- (void)testAValueComputedThroughAnAbsorbedObjectAgainIsRead
+{
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"  + was of Volume (entered)\n    + has Quantity\n"
+	                                                       withString:@"  + was of Volume1 (entered)\n"];
+	text = [text stringByReplacingOccurrencesOfString:@"  PricePerUnit ="
+	                                       withString:@"  + was of Volume2\n    + has Quantity\n  PricePerUnit ="];
+	XCTAssertNotEqualObjects(text, ORMFillUps);
+	ORMEditor *editor = [self newEditor];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	ORMFormDocument *document = [self documentOf:editor];
+	XCTAssertFalse([[document.notes componentsJoinedByString:@"\n"] containsString:@"places it nowhere"], @"%@", document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSManagedObjectContext *context = [self storeOf:editor];
+	NSDictionary *errors = nil;
+	NSError *error = nil;
+	NSManagedObject *saved = [form save:[self fillUpIn:form] inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(saved, @"%@ %@", errors, error);
+	NSDictionary *read = [form readKey:[[saved valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertTrue([[read objectForKey:@"pricePerUnit"] hasPrefix:@"500"], @"%@ %@", read, error);
+}
+
 /* Refused: said at the element, and the object as it was. */
 - (void)testARefusalIsSaidAtItsElement
 {
@@ -667,10 +764,10 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
                                    @"Query ReceiveGoods:\n"
                                    @"Form ReceiveGoods:\n"
                                    @"PurchaseOrder\n"
-                                   @"  + was placed on ✓Day\n"
+                                   @"  + was placed on Day (shown)\n"
                                    @"  + PurchaseLine is in that PurchaseOrder\n"
-                                   @"    + is of ✎StockItem\n"
-                                   @"    + wants ✎Quantity\n";
+                                   @"    + is of StockItem (entered)\n"
+                                   @"    + wants Quantity (entered)\n";
 
 - (ORMEditor *)orders
 {
@@ -692,6 +789,7 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 	NSString *reason = nil;
 	ORMFormDocument *document = [ORMFormDocument documentForForm:form model:editor.model mapping:nil reason:&reason];
 	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, @[], @"every form here is whole: %@", document.notes);
 	return document;
 }
 
@@ -847,7 +945,7 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 {
 	ORMEditor *editor = [self fillUps];
 	NSArray *failures = nil;
-	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:@"Query Vehicles:\n✓Vehicle\n" failures:&failures],
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:@"Query Vehicles:\nVehicle (shown)\n" failures:&failures],
 	              @"%@", failures);
 	return editor;
 }
@@ -1062,7 +1160,7 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 	                                                                             @"Query NewVehicle:\n"
 	                                                                             @"Form NewVehicle:\n"
 	                                                                             @"Vehicle\n"
-	                                                                             @"  + has ✎Nickname\n"
+	                                                                             @"  + has Nickname (entered)\n"
 	                                                                    failures:&failures],
 	              @"%@", failures);
 	ORMQuery *form = [self formIn:editor.model], *car = [self query:@"NewVehicle" in:editor.model];
@@ -1356,19 +1454,19 @@ static NSString *const ORMBeyond = @"Catalog is an entity type.\n"
                                    @"  + is of PurchaseOrder = ?\n"
                                    @"    + is from Supplier\n"
                                    @"      + is of Contact\n"
-                                   @"        + has ✓ContactName\n"
-                                   @"  + was received on ✎Day\n"
+                                   @"        + has ContactName (shown)\n"
+                                   @"  + was received on Day (entered)\n"
                                    @"\n"
                                    @"Query NewCustomer:\n"
                                    @"Form NewCustomer:\n"
                                    @"Customer\n"
                                    @"  + is of Catalog = ?\n"
                                    @"  + is of Contact\n"
-                                   @"    + has ✎ContactName\n"
+                                   @"    + has ContactName (entered)\n"
                                    @"    + ships to Address\n"
-                                   @"      + has ✎AddressLines\n"
-                                   @"      + is in ✎City\n"
-                                   @"      + has ✎PostCode\n";
+                                   @"      + has AddressLines (entered)\n"
+                                   @"      + is in City (entered)\n"
+                                   @"      + has PostCode (entered)\n";
 
 static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
                                    @"Reference Mode: .id\n"
@@ -1399,11 +1497,11 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
                                    @"Form RecordEvent:\n"
                                    @"Event\n"
                                    @"  + is of Vehicle = ?\n"
-                                   @"  + was at ✎Moment\n"
+                                   @"  + was at Moment (entered)\n"
                                    @"  + is Trip\n"
-                                   @"    + went to ✎Place\n"
+                                   @"    + went to Place (entered)\n"
                                    @"  + is FillUp\n"
-                                   @"    + took ✎Litres\n";
+                                   @"    + took Litres (entered)\n";
 
 - (ORMEditor *)editorOf:(NSString *)text
 {
@@ -1419,6 +1517,7 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 	ORMFormDocument *document = [ORMFormDocument documentForForm:[self query:name in:editor.model] model:editor.model mapping:nil
 	                                                      reason:&reason];
 	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, @[], @"every form here is whole: %@", document.notes);
 	return document;
 }
 
@@ -1631,6 +1730,1031 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 	                                     error:&error];
 	XCTAssertTrue([[post.body objectForKey:@"@odata.type"] hasSuffix:@"FillUp"], @"%@ %@", post.body, error);
 	XCTAssertFalse([[post.body allValues] containsObject:@"Almaty"], @"a fill-up's own only: %@", post.body);
+}
+
+/* What a part says beneath it (a trip's stops, a fill-up's flag) counts
+ * where the object is of it: the form's query reads every event, not those
+ * that are both; a part's rows are a repeat shown and written where the
+ * object is one. */
+- (void)testAPartsStepsCountWhereTheObjectIsOne
+{
+	NSString *text = [ORMEvents stringByReplacingOccurrencesOfString:@"\n\nQuery RecordEvent:"
+	                                                      withString:@"\nStop is an entity type.\n"
+	                                                                 @"Reference Mode: .id\n"
+	                                                                 @"Portable data type: Other: Object ID\n"
+	                                                                 @"Stop is on Trip\n"
+	                                                                 @"Each Stop is on exactly one Trip.\n"
+	                                                                 @"Stop was at Place\n"
+	                                                                 @"Each Stop was at exactly one Place.\n"
+	                                                                 @"FillUp filled the tank\n"
+	                                                                 @"\nQuery RecordEvent:"];
+	text = [text stringByReplacingOccurrencesOfString:@"    + went to Place (entered)\n"
+	                                       withString:@"    + went to Place (entered)\n"
+	                                                  @"    + Stop is on that Trip\n"
+	                                                  @"      + was at Place (entered)\n"];
+	text = [text stringByAppendingString:@"    + filled the tank (entered)\n"];
+	ORMEditor *editor = [self editorOf:text];
+	ORMQuery *query = [self query:@"RecordEvent" in:editor.model];
+	XCTAssertEqual([[query.root.steps objectAtIndex:2] operatorKind], ORMQueryAnd, @"as it is written");
+	XCTAssertEqual([[query.root.steps objectAtIndex:2] readOperator], ORMQueryMaybe, @"read as a part");
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *van = [self insert:@"Vehicle" values:@{ @"id" : [NSUUID UUID] } in:context];
+	NSDate *now = [NSDate date];
+	[self insert:@"Trip" values:@{ @"id" : [NSUUID UUID], @"vehicle" : van, @"moment" : now, @"place" : @"Almaty" } in:context];
+	[self insert:@"FillUp" values:@{ @"id" : [NSUUID UUID], @"vehicle" : van, @"moment" : now, @"litres" : [NSDecimalNumber decimalNumberWithString:@"40"],
+	                                 @"filledTheTank" : @NO } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	ORMQueryPlan *plan = [[[ORMQueryPlanner alloc] initWithModel:editor.model mapping:nil] planForQuery:query];
+	ORMQueryInterpreter *interpreter = [[ORMQueryInterpreter alloc] initWithModel:[[context persistentStoreCoordinator] managedObjectModel]];
+	ORMQueryResult *result = [interpreter executePlan:plan inContext:context error:&error];
+	XCTAssertEqual([result.rows count], 2u, @"the trip and the fill-up, its tank not filled: %@ %@", result.rows, error);
+
+	ORMFormDocument *document = [self form:@"RecordEvent" of:editor];
+	XCTAssertEqualObjects([document.repeats allKeys], @[ @"stops" ], @"%@", document.notes);
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *stopPlace = [[self nodes:@"//*[local-name()='bind'][@ref='stops/place']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"relevant" of:stopPlace], @"(../../isA = 'Trip')",
+	                      @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	NSXMLNode *rows = [[self nodes:@"//*[local-name()='group'][@id='control-rows-stops']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"ref" of:rows], @"self::node()[isA = 'Trip']");
+
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSString *vanKey = [[van valueForKey:@"id"] UUIDString];
+	NSArray *stops = @[ @{ @"id" : @"", @"place" : @"Kapchagay" } ];
+	/* A trip: its stops written. */
+	NSMutableDictionary *trip = [[form instanceGiven:@{ @"vehicle" : vanKey }] mutableCopy];
+	[trip addEntriesFromDictionary:@{ @"isA" : @"Trip", @"moment" : @"2026-11-12T08:00:00Z", @"place" : @"Almaty", @"stops" : stops }];
+	NSDictionary *errors = nil;
+	NSManagedObject *made = [form save:trip inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(made, @"%@ %@", errors, error);
+	XCTAssertEqualObjects([[[made valueForKey:@"stops"] anyObject] valueForKey:@"place"], @"Kapchagay");
+	/* A fill-up: none, whatever rows the instance has. */
+	NSMutableDictionary *fillUp = [[form instanceGiven:@{ @"vehicle" : vanKey }] mutableCopy];
+	[fillUp addEntriesFromDictionary:@{ @"isA" : @"FillUp", @"moment" : @"2026-11-12T09:00:00Z", @"litres" : @"40", @"stops" : stops }];
+	NSUInteger before = [[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Stop"] error:NULL] count];
+	XCTAssertNotNil([form save:fillUp inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
+	XCTAssertEqual([[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Stop"] error:NULL] count], before);
+
+	/* To the service: a trip's stops in its deep insert, a fill-up's none. */
+	NSManagedObjectModel *model = [[context persistentStoreCoordinator] managedObjectModel];
+	ORMFormRequest *post = [form saveRequestFor:trip original:nil etag:nil model:model error:&error];
+	XCTAssertNotNil(post, @"%@", error);
+	XCTAssertEqual([[post.body objectForKey:@"Stops"] count], 1u, @"%@", post.body);
+	post = [form saveRequestFor:fillUp original:nil etag:nil model:model error:&error];
+	XCTAssertNotNil(post, @"not \"Event has no stops\": %@", error);
+	XCTAssertNil([post.body objectForKey:@"Stops"], @"%@", post.body);
+}
+
+#pragma mark The definition
+
+/* FORMS.md's definition, each rule: the fill-up model with a vehicle's
+ * plate (its key), colour and seats, and a form of each outline after. */
+static NSString *const ORMVehicleFacts = @"Plate is a value type.\n"
+                                         @"Vehicle has Plate\n"
+                                         @"Each Vehicle has exactly one Plate.\n"
+                                         @"For each Plate, at most one Vehicle has that Plate.\n"
+                                         @"Colour is a value type.\n"
+                                         @"Vehicle has Colour\n"
+                                         @"Each Vehicle has at most one Colour.\n"
+                                         @"Seats is a value type.\n"
+                                         @"Portable data type: Numeric: Decimal(5, 0)\n"
+                                         @"Vehicle has Seats\n"
+                                         @"Each Vehicle has at most one Seats.\n";
+
+/* The fill-up model, the vehicle's facts, and the form; the definition of
+ * the form named. */
+- (ORMFormDefinition *)definitionOf:(NSString *)name outline:(NSString *)outline editor:(ORMEditor **)made
+{
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"\n\nQuery RecordFillUp:"
+	                                                       withString:[NSString stringWithFormat:@"\n%@\nQuery %@:\nForm %@:\n%@\n"
+	                                                                                             @"Query RecordFillUp:",
+	                                                                                             ORMVehicleFacts, name, name,
+	                                                                                             outline]];
+	XCTAssertNotEqualObjects(text, ORMFillUps);
+	ORMEditor *editor = [self newEditor];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
+	if (made != NULL) {
+		*made = editor;
+	}
+	for (ORMQuery *query in [ORMQuery queriesInModel:editor.model]) {
+		if ([query.name isEqualToString:name]) {
+			return [ORMFormDefinition definitionOfForm:query model:editor.model mapping:nil];
+		}
+	}
+	XCTFail(@"no form %@", name);
+	return nil;
+}
+
+/* Each node and unary step and its rule, in outline order. */
+- (NSArray<NSString *> *)rulesOf:(ORMFormDefinition *)definition
+{
+	NSMutableArray *rules = [NSMutableArray array];
+	for (ORMQueryNode *node in [definition.form nodes]) {
+		[rules addObject:[NSString stringWithFormat:@"%@ %@", [node designation], [definition ruleOf:node.identifier]]];
+		for (ORMQueryStep *step in node.steps) {
+			NSString *rule = [definition ruleOf:step.identifier];
+			if (rule != nil) {
+				NSString *name = [step.factType isUnary] ? [step.factType displayText]
+				                                         : [[[step.nodes firstObject] designation] stringByAppendingString:@" step"];
+				[rules addObject:[NSString stringWithFormat:@"%@ %@", name, rule]];
+			}
+		}
+	}
+	return rules;
+}
+
+/* FORMS.md's RecordFillUp, each node by its rule: well formed. */
+- (void)testEachNodeOfAFormHasItsRule
+{
+	ORMEditor *editor = [self fillUps];
+	ORMFormDefinition *definition = [ORMFormDefinition definitionOfForm:[self formIn:editor.model] model:editor.model mapping:nil];
+	XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[]);
+	XCTAssertEqualObjects([self rulesOf:definition], (@[
+		@"FillUp D1", @"FillUp filled the tank D10", @"Vehicle1 D2", @"Moment D3", @"Distance D11", @"Volume D11",
+		@"Quantity path", @"Fuel D4", @"Station D4", @"Money1 D11", @"Amount path", @"Money2 D11", @"User D4",
+		@"Vehicle1 D5", @"PricePerUnit D13",
+	]));
+}
+
+/* A choice's entered values identify it where they are one of its keys
+ * (D6), the plate; a colour identifies a set of vehicles at best (E1). */
+- (void)testAChoiceIsIdentifiedByItsKeyOnly
+{
+	ORMEditor *editor = nil;
+	ORMFormDefinition *byPlate = [self definitionOf:@"ByPlate" outline:@"FillUp\n  + is of Vehicle (entered)\n    + has Plate (entered)\n"
+	                                         editor:&editor];
+	XCTAssertEqualObjects([byPlate.problems valueForKey:@"text"], @[]);
+	XCTAssertEqualObjects([self rulesOf:byPlate], (@[ @"FillUp D1", @"Vehicle D4", @"Plate D6" ]));
+	ORMFormDefinition *byColour = [self definitionOf:@"ByColour" outline:@"FillUp\n  + is of Vehicle (entered)\n    + has Colour (entered)\n"
+	                                          editor:&editor];
+	XCTAssertEqualObjects([byColour.problems valueForKey:@"text"], (@[
+		@"E1: Colour: entered beneath Vehicle, the object chosen, but not exactly the values of one of its uniqueness "
+		@"constraints: they identify a set of Vehicle at best, not one."
+	]));
+	NSString *reason = nil;
+	XCTAssertNil([ORMFormDocument documentForForm:byColour.form model:editor.model mapping:nil reason:&reason]);
+	XCTAssertTrue([reason hasPrefix:@"The outline is no form. E1: Colour: "], @"%@", reason);
+}
+
+/* E2-E6, each where it is drawn; an aggregate over rows is D14. */
+- (void)testWhatIsNoFormIsSaidByItsRule
+{
+	NSDictionary *outlines = @{
+		@"E2" : @"FillUp\n  + is of Vehicle1 = ?\n    + has Colour (entered)\n",
+		@"E3" : @"User\n  + drives Vehicle = ?\n",
+		@"E4" : @"User\n  + drives Vehicle (shown)\n    + has Seats (shown)\n  Most = Seats (shown)\n",
+		@"E5" : @"FillUp\n  + had driver User (entered)\n    + drives Vehicle\n      + has Seats\n  Seated = Seats (shown)\n",
+		@"E6" : @"FillUp\n  + was at Moment (entered)\n  + was at Station\n",
+	};
+	NSDictionary *said = @{
+		@"E2" : @"E2: Colour: entered beneath Vehicle1, an object the form refers to and does not make or change.",
+		@"E3" : @"E3: Vehicle: given beneath a step to many: a parameter is one value, not one per row.",
+		@"E4" : @"E4: Most: computed with Seats, one of many, outside an aggregate (count, total, avg, max, min).",
+		@"E5" : @"E5: Seated: computed with Seats, a condition on the choice User, which is not read.",
+		@"E6" : @"E6: Station: neither entered, shown nor given, leading to nothing that is, and no condition on a choice.",
+	};
+	for (NSString *rule in [[outlines allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
+		ORMFormDefinition *definition = [self definitionOf:rule outline:[outlines objectForKey:rule] editor:NULL];
+		XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[ [said objectForKey:rule] ], @"%@", rule);
+	}
+	ORMFormDefinition *total = [self definitionOf:@"Total"
+	                                      outline:@"User\n  + drives Vehicle (shown)\n    + has Seats (shown)\n"
+	                                              @"  Most = max(Seats) for User (shown)\n"
+	                                       editor:NULL];
+	XCTAssertEqualObjects([total.problems valueForKey:@"text"], @[]);
+	XCTAssertEqualObjects([self rulesOf:total], (@[ @"User D1", @"Vehicle step D9", @"Vehicle D7", @"Seats D7", @"Most D14" ]));
+}
+
+#pragma mark Beneath a choice
+
+/* An order placed for a customer found by email (D6), the customer's name
+ * shown as the customer found has it (D7 beneath the choice). */
+static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
+                                   @"Reference Mode: .id\n"
+                                   @"Portable data type: Other: Object ID\n"
+                                   @"Order is an entity type.\n"
+                                   @"Reference Mode: .number\n"
+                                   @"CustomerName is a value type.\n"
+                                   @"Email is a value type.\n"
+                                   @"Day is a value type.\n"
+                                   @"Portable data type: Temporal: Date\n"
+                                   @"Customer has CustomerName\n"
+                                   @"Each Customer has exactly one CustomerName.\n"
+                                   @"Customer has Email\n"
+                                   @"Each Customer has at most one Email.\n"
+                                   @"For each Email, at most one Customer has that Email.\n"
+                                   @"Order is for Customer\n"
+                                   @"Each Order is for exactly one Customer.\n"
+                                   @"Order was placed on Day\n"
+                                   @"Each Order was placed on exactly one Day.\n"
+                                   @"\n"
+                                   @"Query PlaceOrder:\n"
+                                   @"Form PlaceOrder:\n"
+                                   @"Order\n"
+                                   @"  + is for Customer (entered)\n"
+                                   @"    + has Email (entered)\n"
+                                   @"    + has CustomerName (shown)\n"
+                                   @"  + was placed on Day (entered)\n";
+
+- (void)testAChoiceFoundByItsKeyIsTheOrdersCustomer
+{
+	ORMEditor *editor = [self editorOf:ORMCustomerOrders];
+	ORMFormDocument *document = [self form:@"PlaceOrder" of:editor];
+	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"],
+	                      (@[ @"number", @"customer", @"customerEmail", @"customerCustomerName", @"day" ]), @"%@", document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([form elementNamed:@"customer"].role, @"identified");
+	XCTAssertEqualObjects([form elementNamed:@"customerEmail"].role, @"entered");
+	XCTAssertEqualObjects([form elementNamed:@"customerEmail"].identifies, @"customer");
+	XCTAssertFalse([form elementNamed:@"customerEmail"].written, @"the customer's, not the order's");
+	XCTAssertEqualObjects([form elementNamed:@"customerCustomerName"].role, @"shown");
+	XCTAssertEqualObjects([form choiceNames], @[], @"found, not chosen from a list");
+	XCTAssertEqualObjects([form identifiedNames], @[ @"customer" ]);
+	XCTAssertEqualObjects([[document identifyPlanNamed:@"customer"] text], @"read Customer\nwhere email = $customerEmail\nlist self (id)");
+	NSXMLDocument *xforms = [document document];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@ref='customerEmail'][@*[local-name()='role']='entered']" in:xforms] count], 1u,
+	               @"each element's role, on its bind");
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@ref='customer'][@*[local-name()='role']='identified']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='select1'][@bind='bind-customer']" in:xforms] count], 0u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='input'][contains(@bind, 'bind-')]/*[local-name()='label'][.='Email']" in:xforms] count], 1u,
+	               @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	NSXMLNode *email = [[self nodes:@"//*[local-name()='bind'][@ref='customerEmail']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"required" of:email], @"true()", @"an order is for a customer");
+	NSXMLNode *customer = [[self nodes:@"//*[local-name()='bind'][@ref='customer']" in:xforms] firstObject];
+	XCTAssertNil([self attribute:@"required" of:customer], @"found by the app, not entered");
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *ann = [self insert:@"Customer" values:@{ @"id" : [NSUUID UUID], @"customerName" : @"Ann", @"email" : @"ann@example.com" }
+	                                 in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useContext:context saving:nil];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setValue:@"ann@example.com" forElement:@"customerEmail"];
+	XCTAssertEqualObjects([session valueForElement:@"customer"], [[ann valueForKey:@"id"] UUIDString], @"found as it is entered");
+	XCTAssertEqualObjects([session valueForElement:@"customerCustomerName"], @"Ann", @"and shown");
+	[session setValue:@"2026-11-12" forElement:@"day"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	NSDictionary *read = [form readKey:session.savedKey inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"customerEmail"], @"ann@example.com", @"%@", error);
+	XCTAssertEqualObjects([read objectForKey:@"customerCustomerName"], @"Ann");
+
+	/* No customer has the email: refused at it. */
+	ORMFormSession *unknown = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[unknown useContext:context saving:nil];
+	XCTAssertTrue([unknown open:&error], @"%@", error);
+	[unknown setValue:@"bob@example.com" forElement:@"customerEmail"];
+	[unknown setValue:@"2026-11-12" forElement:@"day"];
+	XCTAssertEqualObjects([unknown valueForElement:@"customer"], @"", @"none found");
+	XCTAssertFalse([unknown save:&error], @"%@", [unknown values]);
+	XCTAssertEqualObjects([unknown.errors objectForKey:@"customerEmail"], @"There is no Customer with that Email.", @"%@", unknown.errors);
+
+	/* The service is asked for the customer of the email. */
+	ORMQueryOData *find = [form identifyRequestNamed:@"customer" values:@{ @"customerEmail" : @"ann@example.com" }
+	                                           model:[[context persistentStoreCoordinator] managedObjectModel] error:&error];
+	XCTAssertTrue([[find queryText] rangeOfString:@"Email eq 'ann@example.com'"].location != NSNotFound, @"%@ %@", [find queryText], error);
+}
+
+#pragma mark Beyond the anchor
+
+/* The Beyond model, its contacts verified and given a limit, its orders a
+ * total, some of its suppliers local, with a tax number. */
+- (ORMEditor *)beyondFurther
+{
+	NSString *facts = @"Amount is a value type.\n"
+	                  @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                  @"Currency is an entity type.\n"
+	                  @"Reference Mode: .code\n"
+	                  @"The possible values of Currency are 'EUR', 'KZT'.\n"
+	                  @"Money is an entity type.\n"
+	                  @"Money has Amount\n"
+	                  @"Each Money has exactly one Amount.\n"
+	                  @"Money is in Currency\n"
+	                  @"Each Money is in exactly one Currency.\n"
+	                  @"For each Amount and Currency, at most one Money has that Amount and is in that Currency.\n"
+	                  @"This association with Amount and Currency provides the preferred identification scheme for Money.\n"
+	                  @"TaxNumber is a value type.\n"
+	                  @"LocalSupplier is an entity type.\n"
+	                  @"Each LocalSupplier is a Supplier.\n"
+	                  @"LocalSupplier has TaxNumber\n"
+	                  @"Each LocalSupplier has exactly one TaxNumber.\n"
+	                  @"Contact is verified\n"
+	                  @"Contact may spend Money\n"
+	                  @"Each Contact may spend at most one Money.\n"
+	                  @"PurchaseOrder totals Money\n"
+	                  @"Each PurchaseOrder totals at most one Money.\n";
+	NSString *forms = @"\n"
+	                  @"Query VerifiedCustomer:\n"
+	                  @"Form VerifiedCustomer:\n"
+	                  @"Customer\n"
+	                  @"  + is of Catalog = ?\n"
+	                  @"  + is of Contact\n"
+	                  @"    + has ContactName (entered)\n"
+	                  @"    + is verified (entered)\n"
+	                  @"    + may spend Money (entered)\n"
+	                  @"\n"
+	                  @"Query ReceiveLocally:\n"
+	                  @"Form ReceiveLocally:\n"
+	                  @"Receipt\n"
+	                  @"  + is of PurchaseOrder = ?\n"
+	                  @"    + totals Money (shown)\n"
+	                  @"    + is from Supplier\n"
+	                  @"      + is LocalSupplier\n"
+	                  @"        + has TaxNumber (shown)\n"
+	                  @"  + was received on Day (entered)\n";
+	NSString *text = [[ORMBeyond stringByReplacingOccurrencesOfString:@"\n\nQuery ReceiveFromSupplier:"
+	                                                       withString:[NSString stringWithFormat:@"\n%@\nQuery ReceiveFromSupplier:", facts]]
+	                     stringByAppendingString:forms];
+	return [self editorOf:text];
+}
+
+/* An owned object's flag (D10) and compound (D11): elements of its group,
+ * written into it with the anchor. */
+- (void)testAnOwnedObjectsFlagAndCompoundAreItsOwn
+{
+	ORMEditor *editor = [self beyondFurther];
+	ORMFormDocument *document = [self form:@"VerifiedCustomer" of:editor];
+	NSArray *names = [document.fields valueForKey:@"elementName"];
+	XCTAssertEqual([names count], 6u, @"%@ %@", names, document.notes);
+	for (ORMFormField *field in document.fields) {
+		if (![@[ @"id", @"catalog" ] containsObject:field.elementName]) {
+			XCTAssertEqualObjects(field.groupName, @"contact", @"%@", field.elementName);
+		}
+	}
+	NSString *flag = nil, *amount = nil, *currency = nil;
+	for (ORMFormField *field in document.fields) {
+		flag = [field.schemaType isEqualToString:@"xsd:boolean"] ? field.elementName : flag;
+		amount = [field.elementName hasSuffix:@"Amount"] ? field.elementName : amount;
+		currency = [field.elementName hasSuffix:@"Currency"] ? field.elementName : currency;
+	}
+	XCTAssertNotNil(flag, @"%@", names);
+	XCTAssertNotNil(amount, @"%@", names);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertTrue([form elementNamed:flag].written);
+	XCTAssertEqualObjects([form elementNamed:flag].role, @"entered");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Catalog" values:@{ @"code" : @"GAR" } in:context];
+	[self insert:@"Currency" values:@{ @"code" : @"KZT" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSMutableDictionary *instance = [[form instanceGiven:@{ @"catalog" : @"GAR" }] mutableCopy];
+	[instance addEntriesFromDictionary:@{ @"contact/contactName" : @"Ann's Garage", flag : @"true", amount : @"500", currency : @"KZT" }];
+	NSDictionary *errors = nil;
+	NSManagedObject *customer = [form save:instance inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(customer, @"%@ %@", errors, error);
+	NSDictionary *read = [form readKey:[[customer valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:flag], @"true", @"%@ %@", read, error);
+	XCTAssertEqualObjects([read objectForKey:currency], @"KZT", @"%@", read);
+	XCTAssertTrue([[read objectForKey:amount] hasPrefix:@"500"], @"%@", read);
+}
+
+/* Through the order given: its total, a compound shown (D11), and its
+ * supplier's tax number where the supplier is a local one (D12). */
+- (void)testWhatIsShownThroughAReferenceMayBeACompoundOrASubtypes
+{
+	ORMEditor *editor = [self beyondFurther];
+	ORMFormDocument *document = [self form:@"ReceiveLocally" of:editor];
+	NSArray *names = [document.fields valueForKey:@"elementName"];
+	XCTAssertEqual([names count], 6u, @"%@ %@", names, document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSString *tax = nil, *amount = nil;
+	for (ORMFormField *field in document.fields) {
+		tax = [field.elementName hasSuffix:@"TaxNumber"] ? field.elementName : tax;
+		amount = [field.elementName hasSuffix:@"Amount"] ? field.elementName : amount;
+		if (![@[ @"id", @"purchaseOrder", @"day" ] containsObject:field.elementName]) {
+			XCTAssertEqualObjects([form elementNamed:field.elementName].role, @"shown", @"%@", field.elementName);
+			XCTAssertTrue(field.isThrough, @"%@", field.elementName);
+		}
+	}
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *contact = [self insert:@"Contact" values:@{ @"id" : [NSUUID UUID], @"contactName" : @"Acme Parts", @"isVerified" : @NO }
+	                                     in:context];
+	NSManagedObject *local = [self insert:@"LocalSupplier" values:@{ @"id" : [NSUUID UUID], @"contact" : contact, @"taxNumber" : @"KZ-7" }
+	                                   in:context];
+	NSManagedObject *order = [self insert:@"PurchaseOrder" values:@{ @"number" : @7, @"supplier" : local } in:context];
+	for (ORMFormField *field in document.fields) {
+		if ([field.elementName hasSuffix:@"Amount"] || [field.elementName hasSuffix:@"Currency"]) {
+			id value = [field.elementName hasSuffix:@"Amount"] ? (id)[NSDecimalNumber decimalNumberWithString:@"120"]
+			                                                  : [self insert:@"Currency" values:@{ @"code" : @"EUR" } in:context];
+			[order setValue:value forKey:[field.keys lastObject]];
+		}
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *through = [form throughValuesOf:@{ @"purchaseOrder" : @"7" } inContext:context];
+	XCTAssertEqualObjects([through objectForKey:tax], @"KZ-7", @"%@", through);
+	XCTAssertTrue([[through objectForKey:amount] hasPrefix:@"120"], @"%@", through);
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{ @"purchaseOrder" : @"7" }];
+	[session useContext:context saving:nil];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setValue:@"2026-11-12" forElement:@"day"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	NSDictionary *read = [form readKey:session.savedKey inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:tax], @"KZ-7", @"read with the receipt: %@ %@", read, error);
+}
+
+#pragma mark Rows in the document
+
+/* The order's lines in the XForms document: rows of the instance, each
+ * bound and shown in an xf:repeat, added from a template and removed. */
+- (void)testARepeatIsAnXFormsRepeat
+{
+	ORMEditor *editor = [self orders];
+	ORMFormDocument *document = [self receiveGoodsOf:editor];
+	ORMFormDocument *lines = [document.repeats objectForKey:@"purchaseLines"];
+	NSXMLDocument *xforms = [document document];
+	NSString *pretty = [xforms XMLStringWithOptions:NSXMLNodePrettyPrint];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='row-purchaseLines']/*[local-name()='purchaseLines']/*[local-name()='quantity']" in:xforms] count], 1u, @"%@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='form']/*/*[local-name()='purchaseLines']" in:xforms] count], 0u, @"a new order: no rows");
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@ref='purchaseLines/quantity']" in:xforms] count], 1u, @"%@", pretty);
+	NSString *quantity = [[lines fieldNamed:@"quantity"] fieldId];
+	NSString *input = [NSString stringWithFormat:@"//*[local-name()='repeat'][@id='repeat-purchaseLines'][@nodeset='purchaseLines']//*[local-name()='input'][@bind='bind-%@']", quantity];
+	XCTAssertEqual([[self nodes:input in:xforms] count], 1u, @"%@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='repeat'][@id='repeat-purchaseLines']//*[local-name()='select1'][*[local-name()='itemset'][@nodeset=\"instance('choices-purchaseLines-stockItem')/*\"]]" in:xforms] count], 1u,
+	               @"a line's item chosen from its own choices: %@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='choices-purchaseLines-stockItem']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='submission'][@resource='form:choices/purchaseLines/stockItem']" in:xforms] count], 1u);
+	NSXMLNode *insert = [[self nodes:@"//*[local-name()='trigger'][@id='control-add-purchaseLines']/*[local-name()='insert']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"origin" of:insert], @"instance('row-purchaseLines')/purchaseLines", @"%@", pretty);
+	XCTAssertEqualObjects([self attribute:@"nodeset" of:insert], @"purchaseLines");
+	XCTAssertEqual([[self nodes:@"//*[local-name()='repeat'][@id='repeat-purchaseLines']//*[local-name()='delete'][@nodeset='.']" in:xforms] count], 1u);
+	NSString *link = [NSString stringWithFormat:@"//*[local-name()='repeat']//*[@bind='bind-%@']", [[lines fieldNamed:lines.linkElement] fieldId]];
+	XCTAssertEqual([[self nodes:link in:xforms] count], 0u, @"the link is the app's");
+}
+
+/* Aggregates over the order's lines (D14): calculated in the document over
+ * the rows, and worked out by ORMRuntime from the rows it has. */
+- (void)testAnAggregateOverRowsIsCalculated
+{
+	NSString *text = [ORMOrders stringByAppendingString:@"\n"
+	                                                    @"Query CountGoods:\n"
+	                                                    @"Form CountGoods:\n"
+	                                                    @"PurchaseOrder\n"
+	                                                    @"  + PurchaseLine is in that PurchaseOrder\n"
+	                                                    @"    + is of StockItem (entered)\n"
+	                                                    @"    + wants Quantity (entered)\n"
+	                                                    @"  Wanted = total(Quantity) for PurchaseOrder (shown)\n"
+	                                                    @"  Most = max(Quantity) for PurchaseOrder (shown)\n"
+	                                                    @"  Lines: Quantity = count(Quantity) for PurchaseOrder (shown)\n"];
+	ORMEditor *editor = [self editorOf:text];
+	ORMFormDocument *document = [self form:@"CountGoods" of:editor];
+	XCTAssertEqualObjects([document.fields valueForKey:@"elementName"], (@[ @"number", @"wanted", @"most", @"lines" ]), @"%@", document.notes);
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *wanted = [[self nodes:@"//*[local-name()='bind'][@ref='wanted']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"calculate" of:wanted], @"sum(../purchaseLines/quantity[. != ''])");
+	NSXMLNode *most = [[self nodes:@"//*[local-name()='bind'][@ref='most']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"calculate" of:most],
+	                      @"choose(count(../purchaseLines/quantity[. != '']) > 0, max(../purchaseLines/quantity[. != '']), '')");
+	NSXMLNode *count = [[self nodes:@"//*[local-name()='bind'][@ref='lines']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"calculate" of:count], @"count(../purchaseLines/quantity[. != ''])");
+
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSDictionary *empty = [form instanceGiven:@{}];
+	XCTAssertEqualObjects([empty objectForKey:@"wanted"], @"0", @"%@", empty);
+	XCTAssertEqualObjects([empty objectForKey:@"lines"], @"0");
+	XCTAssertEqualObjects([empty objectForKey:@"most"], @"");
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session setRows:@[ @{ @"stockItem" : @"OIL", @"quantity" : @"4" }, @{ @"stockItem" : @"FILTER", @"quantity" : @"2.5" },
+	                    @{ @"stockItem" : @"WIPER", @"quantity" : @"" } ]
+	       forRepeat:@"purchaseLines"];
+	XCTAssertEqualObjects([session valueForElement:@"wanted"], @"6.5");
+	XCTAssertEqualObjects([session valueForElement:@"most"], @"4");
+	XCTAssertEqualObjects([session valueForElement:@"lines"], @"2");
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *order = [self insert:@"PurchaseOrder" values:@{ @"number" : @7 } in:context];
+	NSManagedObject *oil = [self insert:@"StockItem" values:@{ @"sku" : @"OIL" } in:context];
+	for (NSString *quantity in @[ @"4", @"3" ]) {
+		[self insert:@"PurchaseLine" values:@{ @"id" : [NSUUID UUID], @"purchaseOrder" : order, @"stockItem" : oil,
+		                                       @"quantity" : [NSDecimalNumber decimalNumberWithString:quantity] } in:context];
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *read = [form readKey:@"7" inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"wanted"], @"7", @"%@ %@", read, error);
+	XCTAssertEqualObjects([read objectForKey:@"lines"], @"2");
+}
+
+/* Rows beneath an owned object (D8): a contact's phones, written into the
+ * contact made with the customer, read with it. */
+- (void)testRowsBeneathAnOwnedObjectAreItsOwn
+{
+	NSString *facts = @"Phone is an entity type.\n"
+	                  @"Reference Mode: .id\n"
+	                  @"Portable data type: Other: Object ID\n"
+	                  @"PhoneNumber is a value type.\n"
+	                  @"Phone is of Contact\n"
+	                  @"Each Phone is of exactly one Contact.\n"
+	                  @"Phone has PhoneNumber\n"
+	                  @"Each Phone has exactly one PhoneNumber.\n";
+	NSString *text = [[ORMBeyond stringByReplacingOccurrencesOfString:@"\n\nQuery ReceiveFromSupplier:"
+	                                                       withString:[NSString stringWithFormat:@"\n%@\nQuery ReceiveFromSupplier:", facts]]
+	                     stringByAppendingString:@"\n"
+	                                             @"Query PhoneCustomer:\n"
+	                                             @"Form PhoneCustomer:\n"
+	                                             @"Customer\n"
+	                                             @"  + is of Catalog = ?\n"
+	                                             @"  + is of Contact\n"
+	                                             @"    + has ContactName (entered)\n"
+	                                             @"    + Phone is of that Contact\n"
+	                                             @"      + has PhoneNumber (entered)\n"];
+	ORMEditor *editor = [self editorOf:text];
+	ORMFormDocument *document = [self form:@"PhoneCustomer" of:editor];
+	XCTAssertEqualObjects([document.repeats allKeys], @[ @"contact/phones" ], @"%@", document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertFalse([form repeatNamed:@"contact/phones"].isList);
+	NSXMLDocument *xforms = [document document];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='repeat'][@nodeset='contact/phones']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@ref='contact/phones/phoneNumber']" in:xforms] count], 1u,
+	               @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	NSXMLNode *insert = [[self nodes:@"//*[local-name()='insert']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"context" of:insert], @"contact");
+	XCTAssertEqualObjects([self attribute:@"nodeset" of:insert], @"phones");
+	XCTAssertEqualObjects([self attribute:@"origin" of:insert], @"instance('row-contact-phones')/phones");
+
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Catalog" values:@{ @"code" : @"GAR" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSMutableDictionary *instance = [[form instanceGiven:@{ @"catalog" : @"GAR" }] mutableCopy];
+	[instance setObject:@"Ann's Garage" forKey:@"contact/contactName"];
+	[instance setObject:@[ @{ @"id" : @"", @"phoneNumber" : @"+7 701 000 0001" }, @{ @"id" : @"", @"phoneNumber" : @"+7 701 000 0002" } ]
+	             forKey:@"contact/phones"];
+	NSDictionary *errors = nil;
+	NSManagedObject *customer = [form save:instance inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(customer, @"%@ %@", errors, error);
+	NSDictionary *read = [form readKey:[[customer valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	NSArray *phones = [[[read objectForKey:@"contact/phones"] valueForKey:@"phoneNumber"] sortedArrayUsingSelector:@selector(compare:)];
+	XCTAssertEqualObjects(phones, (@[ @"+7 701 000 0001", @"+7 701 000 0002" ]), @"%@ %@", read, error);
+	/* One taken away: gone from the contact. */
+	NSMutableDictionary *changed = [read mutableCopy];
+	[changed setObject:@[ [[read objectForKey:@"contact/phones"] firstObject] ] forKey:@"contact/phones"];
+	XCTAssertNotNil([form save:changed inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
+	XCTAssertEqual([[context executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Phone"] error:NULL] count], 1u);
+}
+
+#pragma mark Rows through the service
+
+/* An order's lines through the model's service, ODataService over a store:
+ * the order read with its lines, lines added as it is saved (a deep update,
+ * a delta), changed, and taken away (removed as deleted); a new order and
+ * its lines one deep insert. */
+- (void)testRowsAreSavedThroughTheService
+{
+	ORMEditor *editor = [self orders];
+	ORMForm *form = [ORMForm formWithPropertyList:[[self receiveGoodsOf:editor] tablePropertyList] error:NULL];
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObjectModel *model = [[context persistentStoreCoordinator] managedObjectModel];
+	[self insert:@"PurchaseOrder" values:@{ @"number" : @7 } in:context];
+	for (NSString *sku in @[ @"OIL", @"FILTER", @"WIPER" ]) {
+		[self insert:@"StockItem" values:@{ @"sku" : sku } in:context];
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[context persistentStoreCoordinator] serviceRoot:root];
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useServiceRoot:root model:model transport:service];
+	session.key = @"7";
+	XCTAssertTrue([session open:&error], @"%@", error);
+	XCTAssertEqualObjects([session rowsOfRepeat:@"purchaseLines"], @[]);
+	XCTAssertEqualObjects(([session choicesNamed:@"stockItem" inRepeat:@"purchaseLines" row:0 error:&error]),
+	                      (@[ @"FILTER", @"OIL", @"WIPER" ]), @"a row's choices from the service: %@", error);
+	[session setRows:@[ @{ @"id" : @"", @"stockItem" : @"OIL", @"quantity" : @"4" }, @{ @"id" : @"", @"stockItem" : @"FILTER", @"quantity" : @"2" } ]
+	       forRepeat:@"purchaseLines"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	NSDictionary *(^quantities)(void) = ^NSDictionary *{
+		NSManagedObjectContext *fresh = [[NSManagedObjectContext alloc] init];
+		[fresh setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+		NSMutableDictionary *found = [NSMutableDictionary dictionary];
+		for (NSManagedObject *line in [fresh executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"PurchaseLine"] error:NULL]) {
+			[found setObject:[[line valueForKey:@"quantity"] stringValue] forKey:[[line valueForKey:@"stockItem"] valueForKey:@"sku"]];
+		}
+		return found;
+	};
+	XCTAssertEqualObjects(quantities(), (@{ @"OIL" : @"4", @"FILTER" : @"2" }));
+	NSArray *rows = [session rowsOfRepeat:@"purchaseLines"];
+	XCTAssertEqual([rows count], 2u, @"read again from the service: %@", [session values]);
+
+	/* The oil's changed, the filter's taken away, a wiper's added. */
+	NSMutableArray *changed = [NSMutableArray array];
+	for (NSDictionary *row in rows) {
+		if ([[row objectForKey:@"stockItem"] isEqualToString:@"OIL"]) {
+			NSMutableDictionary *oil = [row mutableCopy];
+			[oil setObject:@"6" forKey:@"quantity"];
+			[changed addObject:oil];
+		}
+	}
+	[changed addObject:@{ @"id" : @"", @"stockItem" : @"WIPER", @"quantity" : @"1" }];
+	NSDictionary *before = [session values];
+	NSMutableDictionary *after = [before mutableCopy];
+	[after setObject:changed forKey:@"purchaseLines"];
+	ORMFormRequest *patch = [form saveRequestFor:after original:before etag:nil model:model error:&error];
+	NSArray *delta = [patch.body objectForKey:@"PurchaseLines@delta"];
+	XCTAssertEqual([delta count], 3u, @"%@ %@", patch.body, error);
+	NSUInteger removed = 0;
+	for (NSDictionary *entry in delta) {
+		removed += [[[entry objectForKey:@"@removed"] objectForKey:@"reason"] isEqualToString:@"deleted"] ? 1 : 0;
+	}
+	XCTAssertEqual(removed, 1u, @"%@", delta);
+	[session setRows:changed forRepeat:@"purchaseLines"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqualObjects(quantities(), (@{ @"OIL" : @"6", @"WIPER" : @"1" }), @"one save, the filter's line deleted");
+
+	/* A new order: it and its lines, one deep insert. */
+	NSMutableDictionary *fresh = [[form instanceGiven:@{}] mutableCopy];
+	[fresh setObject:@"8" forKey:@"number"];
+	[fresh setObject:@[ @{ @"id" : @"", @"stockItem" : @"OIL", @"quantity" : @"3" } ] forKey:@"purchaseLines"];
+	ORMFormRequest *post = [form saveRequestFor:fresh original:nil etag:nil model:model error:&error];
+	XCTAssertEqualObjects(post.method, @"POST", @"%@", error);
+	XCTAssertEqual([[post.body objectForKey:@"PurchaseLines"] count], 1u, @"%@", post.body);
+}
+
+/* A form submitted to an action of the service's, not saved: the order's
+ * lines handed to ReceiveGoods, its answer the key of what it did. */
+- (void)testAFormSubmitsToAnAction
+{
+	ORMEditor *editor = [self orders];
+	ORMFormDocument *document = [self receiveGoodsOf:editor];
+	document.action = @"ReceiveGoods";
+	NSXMLDocument *xforms = [document document];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='submission'][@id='save'][@resource='form:submit/ReceiveGoods']" in:xforms] count], 1u,
+	               @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects(form.action, @"ReceiveGoods");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObjectModel *model = [[context persistentStoreCoordinator] managedObjectModel];
+	[self insert:@"PurchaseOrder" values:@{ @"number" : @7 } in:context];
+	[self insert:@"StockItem" values:@{ @"sku" : @"OIL" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[context persistentStoreCoordinator] serviceRoot:root];
+	ORMTestReceiving *receiving = [[ORMTestReceiving alloc] init];
+	service.serviceOperations = receiving;
+	XCTAssertEqualObjects(service.operationProblems, @[]);
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useServiceRoot:root model:model transport:service];
+	session.key = @"7";
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setRows:@[ @{ @"id" : @"", @"stockItem" : @"OIL", @"quantity" : @"4" } ] forRepeat:@"purchaseLines"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqualObjects(session.savedKey, @"7");
+	XCTAssertEqualObjects([[receiving.received objectForKey:@"Number"] description], @"7", @"%@", receiving.received);
+	XCTAssertEqual([[receiving.received objectForKey:@"PurchaseLines"] count], 1u, @"the lines with it: %@", receiving.received);
+	NSManagedObjectContext *fresh = [[NSManagedObjectContext alloc] init];
+	[fresh setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+	XCTAssertEqual([[fresh executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"PurchaseLine"] error:NULL] count], 0u,
+	               @"submitted, not saved: the action's to do");
+}
+
+#pragma mark Rules and derivations as binds
+
+/* The fill-up model with a rule (no fill-up of more than 200) and a
+ * derivation (a fill-up's unit price, its cost by its volume), and a form
+ * of each outline after. */
+- (ORMEditor *)fillUpsRuledWith:(NSString *)forms
+{
+	NSString *facts = @"UnitPrice is a value type.\n"
+	                  @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                  @"FillUp has UnitPrice\n"
+	                  @"Each FillUp has at most one UnitPrice.\n";
+	NSString *queries = @"Query TooMuch:\n"
+	                    @"It is impossible that:\n"
+	                    @"FillUp\n"
+	                    @"  + was of Volume\n"
+	                    @"    + has Quantity > 200\n"
+	                    @"\n"
+	                    @"Query UnitPriceOf:\n"
+	                    @"Derivation of \"FillUp has UnitPrice\":\n"
+	                    @"FillUp (shown)\n"
+	                    @"  + cost Money\n"
+	                    @"    + has Amount\n"
+	                    @"  + was of Volume\n"
+	                    @"    + has Quantity\n"
+	                    @"  Price: UnitPrice = Amount / Quantity (shown)\n"
+	                    @"\n";
+	NSString *text = [ORMFillUps stringByReplacingOccurrencesOfString:@"\n\nQuery RecordFillUp:"
+	                                                       withString:[NSString stringWithFormat:@"\n%@\n%@Query RecordFillUp:", facts, queries]];
+	return [self editorOf:[text stringByAppendingFormat:@"\n%@", forms]];
+}
+
+/* A rule over the form's own values, a bind: the volume entered is checked
+ * as it is entered, said in the rule's words, and no longer left to where
+ * the form is submitted. */
+- (void)testARuleOverTheFormsValuesIsABind
+{
+	ORMEditor *editor = [self fillUpsRuledWith:@""];
+	ORMFormDocument *document = [self documentOf:editor];
+	XCTAssertFalse([[document.checkedWhereSubmitted componentsJoinedByString:@"\n"] rangeOfString:@"200"].location != NSNotFound,
+	               @"%@", document.checkedWhereSubmitted);
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *quantity = [[self nodes:@"//*[local-name()='bind'][@ref='volumeQuantity']" in:xforms] firstObject];
+	XCTAssertTrue([[self attribute:@"constraint" of:quantity] rangeOfString:@"not(../volumeQuantity != '' and number(../volumeQuantity) > 200)"].location != NSNotFound,
+	              @"%@", [self attribute:@"constraint" of:quantity]);
+	NSXMLNode *alert = [[self nodes:@"//*[@bind=//*[local-name()='bind'][@ref='volumeQuantity']/@id]/*[local-name()='alert']" in:xforms] firstObject];
+	XCTAssertTrue([[alert stringValue] rangeOfString:@"200"].location != NSNotFound, @"said in the rule's words: %@", [alert stringValue]);
+}
+
+/* A derived fact type shown, calculated from the form's values as its
+ * derivation says (the unit price, the cost by the volume). */
+- (void)testADerivedValueShownIsCalculated
+{
+	ORMEditor *editor = [self fillUpsRuledWith:@"Query PricedFillUp:\n"
+	                                           @"Form PricedFillUp:\n"
+	                                           @"FillUp\n"
+	                                           @"  + is of Vehicle = ?\n"
+	                                           @"  + cost Money (entered)\n"
+	                                           @"  + was of Volume (entered)\n"
+	                                           @"  + has UnitPrice (shown)\n"];
+	ORMFormDocument *document = [self form:@"PricedFillUp" of:editor];
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *price = [[self nodes:@"//*[local-name()='bind'][@ref='unitPrice']" in:xforms] firstObject];
+	XCTAssertEqualObjects([self attribute:@"calculate" of:price],
+	                      @"choose(../totalAmount != '' and ../volumeQuantity != '', (number(../totalAmount) div number(../volumeQuantity)), '')",
+	                      @"%@ %@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint], document.notes);
+	/* Read on its own, by the key: the read of the fill-up cannot take it. */
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertNotNil([form elementNamed:@"unitPrice"].read);
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *fill = [self insertWhole:@"FillUp" values:@{ @"totalAmount" : [NSDecimalNumber decimalNumberWithString:@"20000"],
+	                                                              @"volumeQuantity" : [NSDecimalNumber decimalNumberWithString:@"40"] }
+	                                       in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *read = [form readKey:[[fill valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"unitPrice"], @"500", @"%@ %@", read, error);
+}
+
+/* An object of the entity with the values, every other property the store
+ * requires given one: an empty text, zero, now, no, a new key, a related
+ * object made so in turn. */
+- (NSManagedObject *)insertWhole:(NSString *)entity values:(NSDictionary *)values in:(NSManagedObjectContext *)context
+{
+	NSManagedObject *object = [self insert:entity values:values in:context];
+	for (NSPropertyDescription *property in [[object entity] properties]) {
+		if ([property isOptional] || [values objectForKey:[property name]] != nil || [property isTransient]) {
+			continue;
+		}
+		if ([property isKindOfClass:[NSRelationshipDescription class]]) {
+			NSRelationshipDescription *relationship = (NSRelationshipDescription *)property;
+			if (![relationship isToMany]) {
+				[object setValue:[self insertWhole:[[relationship destinationEntity] name] values:@{} in:context] forKey:[property name]];
+			}
+			continue;
+		}
+		NSAttributeType type = [(NSAttributeDescription *)property attributeType];
+		id value = type == NSUUIDAttributeType ? [NSUUID UUID]
+		         : type == NSStringAttributeType ? [[NSUUID UUID] UUIDString]
+		         : type == NSDateAttributeType ? [NSDate date]
+		         : type == NSBooleanAttributeType ? @NO
+		         : type == NSDecimalAttributeType ? [NSDecimalNumber one]
+		         : @1;
+		[object setValue:value forKey:[property name]];
+	}
+	return object;
+}
+
+/* The app's words for a rule, by its name: in the document's alerts, and
+ * where the store refuses it. */
+- (void)testARuleIsSaidInTheAppsWords
+{
+	ORMEditor *editor = [self fillUpsRuledWith:@""];
+	ORMFormDocument *document = [self documentOf:editor];
+	document.messages = @{ @"TooMuch" : @"No tank holds that much." };
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *alert = [[self nodes:@"//*[@bind=//*[local-name()='bind'][@ref='volumeQuantity']/@id]/*[local-name()='alert']" in:xforms] firstObject];
+	XCTAssertTrue([[alert stringValue] rangeOfString:@"No tank holds that much."].location != NSNotFound, @"%@", [alert stringValue]);
+	XCTAssertFalse([[alert stringValue] rangeOfString:@"impossible"].location != NSNotFound, @"%@", [alert stringValue]);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	NSError *refused = [NSError errorWithDomain:NSCocoaErrorDomain code:NSManagedObjectValidationError
+	                                   userInfo:@{ NSLocalizedDescriptionKey : @"It is impossible that some FillUp ...",
+	                                               NSValidationKeyErrorKey : @"volumeQuantity", @"ORMConstraint" : @"TooMuch",
+	                                               @"ORMKeys" : @[ @"volumeQuantity" ] }];
+	XCTAssertEqualObjects([form elementErrorsOf:refused], (@{ @"volumeQuantity" : @"No tank holds that much." }));
+}
+
+#pragma mark Several anchors
+
+/* A customer and a supplier onboarded together, neither reaching the
+ * other: a form with two anchors, one change set. */
+- (ORMEditor *)onboarding
+{
+	return [self editorOf:[ORMBeyond stringByAppendingString:@"\n"
+	                                                          @"Query NewSupplier:\n"
+	                                                          @"Form NewSupplier:\n"
+	                                                          @"Supplier\n"
+	                                                          @"  + is of Contact\n"
+	                                                          @"    + has ContactName (entered)\n"
+	                                                          @"\n"
+	                                                          @"Query Onboard:\n"
+	                                                          @"Form Onboard, with NewSupplier:\n"
+	                                                          @"Customer\n"
+	                                                          @"  + is of Catalog = ?\n"
+	                                                          @"  + is of Contact\n"
+	                                                          @"    + has ContactName (entered)\n"]];
+}
+
+- (void)testAFormMayHaveSeveralAnchors
+{
+	ORMEditor *editor = [self onboarding];
+	ORMQuery *onboard = [self query:@"Onboard" in:editor.model];
+	XCTAssertEqual([onboard.withFormIds count], 1u);
+	XCTAssertTrue([[onboard outlineText] hasPrefix:@"Form Onboard, with NewSupplier:\n"], @"%@", [onboard outlineText]);
+	ORMFormDocument *document = [self form:@"Onboard" of:editor];
+	XCTAssertEqualObjects([[document.parts firstObject].form name], @"NewSupplier");
+	NSXMLDocument *xforms = [document document];
+	NSString *pretty = [xforms XMLStringWithOptions:NSXMLNodePrettyPrint];
+	XCTAssertEqual([[self nodes:@"//*[local-name()='instance'][@id='form']/*[local-name()='forms']/*[local-name()='NewSupplier']/*[local-name()='contact']/*[local-name()='contactName']" in:xforms] count], 1u, @"%@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='bind'][@nodeset='NewSupplier']/*[local-name()='bind'][@ref='contact/contactName']" in:xforms] count], 1u, @"%@", pretty);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='group'][@ref='NewSupplier']//*[local-name()='input']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='submission'][@resource='form:read/NewSupplier']" in:xforms] count], 1u);
+	XCTAssertEqual([[self nodes:@"//*[local-name()='submission'][@id='save']" in:xforms] count], 1u, @"one save");
+
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([form.parts valueForKey:@"name"], @[ @"NewSupplier" ]);
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Catalog" values:@{ @"code" : @"GAR" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSUInteger (^count)(NSString *) = ^NSUInteger(NSString *entity) {
+		NSManagedObjectContext *fresh = [[NSManagedObjectContext alloc] init];
+		[fresh setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+		return [[fresh executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:entity] error:NULL] count];
+	};
+	/* The supplier's name left out: neither is saved. */
+	ORMFormSession *refused = [[ORMFormSession alloc] initWithForm:form given:@{ @"catalog" : @"GAR" }];
+	[refused useContext:context saving:nil];
+	XCTAssertTrue([refused open:&error], @"%@", error);
+	[refused setValue:@"Ann's Garage" forElement:@"contact/contactName"];
+	XCTAssertFalse([refused save:&error]);
+	XCTAssertNotNil([refused.errors objectForKey:@"NewSupplier/contact/contactName"], @"%@", refused.errors);
+	XCTAssertEqual(count(@"Customer"), 0u, @"the customer neither");
+
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{ @"catalog" : @"GAR" }];
+	[session useContext:context saving:nil];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setValue:@"Ann's Garage" forElement:@"contact/contactName"];
+	[session setValue:@"Acme Parts" forElement:@"contact/contactName" ofForm:@"NewSupplier"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	XCTAssertEqual(count(@"Customer"), 1u);
+	XCTAssertEqual(count(@"Supplier"), 1u);
+	XCTAssertNotNil([session savedKeyOfForm:@"NewSupplier"]);
+	XCTAssertEqualObjects([[session valuesOfForm:@"NewSupplier"] objectForKey:@"contact/contactName"], @"Acme Parts", @"read again");
+
+	/* The same through the service: one change set. */
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[context persistentStoreCoordinator] serviceRoot:root];
+	ORMFormSession *served = [[ORMFormSession alloc] initWithForm:form given:@{ @"catalog" : @"GAR" }];
+	[served useServiceRoot:root model:[[context persistentStoreCoordinator] managedObjectModel] transport:service];
+	XCTAssertTrue([served open:&error], @"%@", error);
+	[served setValue:@"Bob's Garage" forElement:@"contact/contactName"];
+	[served setValue:@"Bolt Ltd" forElement:@"contact/contactName" ofForm:@"NewSupplier"];
+	XCTAssertTrue([served save:&error], @"%@ %@", served.errors, error);
+	XCTAssertEqual(count(@"Customer"), 2u);
+	XCTAssertEqual(count(@"Supplier"), 2u);
+}
+
+#pragma mark A customized copy
+
+/* The XForms element of the local name and the attribute's value, in the
+ * document; nil for none. */
+- (NSXMLElement *)xforms:(NSString *)name where:(NSString *)attribute is:(NSString *)value in:(NSXMLDocument *)document
+{
+	NSString *path = [NSString stringWithFormat:@"//*[local-name()='%@'][@%@='%@']", name, attribute, value];
+	return (NSXMLElement *)[[self nodes:path in:document] firstObject];
+}
+
+/* A copy of the generated document, kept with the app's sources: checked
+ * against the form as a contract; what it adds the model has not, marked
+ * provisional, the form under construction and the fact types it asks
+ * for proposed, which the model then has. */
+- (void)testACustomizedCopyIsCheckedAgainstTheContract
+{
+	ORMEditor *editor = [self fillUps];
+	ORMFormDocument *document = [self documentOf:editor];
+	ORMFormCustomization *same = [ORMFormCustomization customization:[document document] ofForm:document];
+	XCTAssertEqualObjects(same.errors, @[]);
+	XCTAssertEqualObjects(same.warnings, @[]);
+	XCTAssertFalse([same isUnderConstruction]);
+
+	NSXMLDocument *copy = [document document];
+	NSXMLElement *instance = (NSXMLElement *)[[self nodes:@"//*[local-name()='instance'][@id='form']/*" in:copy] firstObject];
+	/* An input left out, an element of its own unmarked, a bind looser. */
+	[(NSXMLElement *)[[instance elementsForName:@"vehicle"] firstObject] detach];
+	[instance addChild:[NSXMLElement elementWithName:@"remark"]];
+	NSXMLElement *timestamp = [self xforms:@"bind" where:@"ref" is:@"timestamp" in:copy];
+	[timestamp removeAttributeForName:@"required"];
+	/* What the model is to have: marked provisional. */
+	NSXMLNode *provisional = [NSXMLNode attributeWithName:@"ormf:provisional" URI:ORMFormNamespace stringValue:@"true"];
+	for (NSString *name in @[ @"colour", @"seats", @"urgent" ]) {
+		NSXMLElement *element = [NSXMLElement elementWithName:name];
+		[element addAttribute:[provisional copy]];
+		[instance addChild:element];
+	}
+	NSXMLElement *model = (NSXMLElement *)[timestamp parent];
+	NSXMLElement *colourBind = [NSXMLElement elementWithName:@"xf:bind" URI:@"http://www.w3.org/2002/xforms"];
+	[colourBind setAttributesWithDictionary:@{ @"id" : @"bind-colour", @"ref" : @"colour", @"type" : @"xf:string", @"required" : @"true()" }];
+	[model addChild:colourBind];
+	NSXMLElement *urgentBind = [NSXMLElement elementWithName:@"xf:bind" URI:@"http://www.w3.org/2002/xforms"];
+	[urgentBind setAttributesWithDictionary:@{ @"id" : @"bind-urgent", @"ref" : @"urgent", @"type" : @"xf:boolean" }];
+	[model addChild:urgentBind];
+	NSXMLElement *body = (NSXMLElement *)[[self nodes:@"//*[local-name()='body']" in:copy] firstObject];
+	NSXMLElement *colours = [NSXMLElement elementWithName:@"xf:select1" URI:@"http://www.w3.org/2002/xforms"];
+	[colours setAttributesWithDictionary:@{ @"bind" : @"bind-colour" }];
+	for (NSString *colour in @[ @"red", @"white" ]) {
+		NSXMLElement *item = [NSXMLElement elementWithName:@"xf:item" URI:@"http://www.w3.org/2002/xforms"];
+		[item addChild:[NSXMLElement elementWithName:@"xf:value" URI:@"http://www.w3.org/2002/xforms"]];
+		[[[item children] firstObject] setStringValue:colour];
+		[colours addChild:item];
+	}
+	[body addChild:colours];
+	ORMFormCustomization *custom = [ORMFormCustomization customization:copy ofForm:document];
+	XCTAssertEqualObjects(custom.errors, (@[
+		@"remark: the form has no such element; one the model is to have is marked ormf:provisional=\"true\".",
+		@"vehicle: the form is given it, and the copy takes no such input.",
+	]));
+	XCTAssertEqualObjects(custom.warnings, (@[ @"timestamp: the model's form has it required, the copy not: checked where it is submitted only." ]));
+	XCTAssertEqualObjects(custom.provisionalElements, (@[ @"colour", @"seats", @"urgent" ]));
+	XCTAssertTrue([custom isUnderConstruction]);
+
+	/* A sample filled in: the seats a number. */
+	NSXMLDocument *sample = [[NSXMLDocument alloc] initWithXMLString:@"<FillUp><seats>5</seats></FillUp>" options:0 error:NULL];
+	NSString *proposal = [custom proposalGiven:sample];
+	XCTAssertEqualObjects(proposal, @"Colour is a value type.\n"
+	                                @"Portable data type: Text: Variable Length\n"
+	                                @"The possible values of Colour are 'red', 'white'.\n"
+	                                @"FillUp has Colour\n"
+	                                @"Each FillUp has exactly one Colour.\n"
+	                                @"// in the form: + has Colour (entered)\n"
+	                                @"\n"
+	                                @"Seats is a value type.\n"
+	                                @"Portable data type: Numeric: Decimal\n"
+	                                @"FillUp has Seats\n"
+	                                @"Each FillUp has at most one Seats.\n"
+	                                @"// in the form: + has Seats (entered)\n"
+	                                @"\n"
+	                                @"FillUp is urgent\n"
+	                                @"// in the form: + is urgent (entered)\n"
+	                                @"\n");
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:proposal failures:&failures], @"%@", failures);
+	NSMutableArray *readings = [NSMutableArray array];
+	for (ORMFactType *fact in editor.model.factTypes) {
+		[readings addObject:[fact displayText] ?: @""];
+	}
+	for (NSString *reading in @[ @"FillUp has Colour", @"FillUp has Seats", @"FillUp is urgent" ]) {
+		XCTAssertTrue([readings containsObject:reading], @"%@ in %@", reading, readings);
+	}
+}
+
+/* Two orders placed together through the service, each customer found by
+ * email (D6) as the change set is sent: the other's under its name. */
+- (void)testSeveralAnchorsFindTheirChoicesThroughTheService
+{
+	NSString *text = [ORMCustomerOrders stringByAppendingString:@"\n"
+	                                                              @"Query PlaceAnother:\n"
+	                                                              @"Form PlaceAnother:\n"
+	                                                              @"Order\n"
+	                                                              @"  + is for Customer (entered)\n"
+	                                                              @"    + has Email (entered)\n"
+	                                                              @"  + was placed on Day (entered)\n"
+	                                                              @"\n"
+	                                                              @"Query PlaceBoth:\n"
+	                                                              @"Form PlaceBoth, with PlaceAnother:\n"
+	                                                              @"Order\n"
+	                                                              @"  + is for Customer (entered)\n"
+	                                                              @"    + has Email (entered)\n"
+	                                                              @"  + was placed on Day (entered)\n"];
+	ORMEditor *editor = [self editorOf:text];
+	ORMForm *form = [ORMForm formWithPropertyList:[[self form:@"PlaceBoth" of:editor] tablePropertyList] error:NULL];
+	NSManagedObjectContext *context = [self contextOf:editor];
+	[self insert:@"Customer" values:@{ @"id" : [NSUUID UUID], @"customerName" : @"Ann", @"email" : @"ann@example.com" } in:context];
+	[self insert:@"Customer" values:@{ @"id" : [NSUUID UUID], @"customerName" : @"Bob", @"email" : @"bob@example.com" } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSURL *root = [NSURL URLWithString:@"http://example.test/odata/"];
+	ODataService *service = [[ODataService alloc] initWithPersistentStoreCoordinator:[context persistentStoreCoordinator] serviceRoot:root];
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{}];
+	[session useServiceRoot:root model:[[context persistentStoreCoordinator] managedObjectModel] transport:service];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setValue:@"ann@example.com" forElement:@"customerEmail"];
+	[session setValue:@"2026-11-12" forElement:@"day"];
+	[session setValue:@"nobody@example.com" forElement:@"customerEmail" ofForm:@"PlaceAnother"];
+	[session setValue:@"2026-11-12" forElement:@"day" ofForm:@"PlaceAnother"];
+	XCTAssertFalse([session save:&error]);
+	XCTAssertEqualObjects([session.errors objectForKey:@"PlaceAnother/customerEmail"], @"There is no Customer with that Email.", @"%@", session.errors);
+	[session setValue:@"bob@example.com" forElement:@"customerEmail" ofForm:@"PlaceAnother"];
+	XCTAssertTrue([session save:&error], @"%@ %@", session.errors, error);
+	NSManagedObjectContext *fresh = [[NSManagedObjectContext alloc] init];
+	[fresh setPersistentStoreCoordinator:[context persistentStoreCoordinator]];
+	NSArray *orders = [fresh executeFetchRequest:[NSFetchRequest fetchRequestWithEntityName:@"Order"] error:NULL];
+	NSArray *names = [[orders valueForKeyPath:@"customer.customerName"] sortedArrayUsingSelector:@selector(compare:)];
+	XCTAssertEqualObjects(names, (@[ @"Ann", @"Bob" ]), @"each found by email");
 }
 
 @end

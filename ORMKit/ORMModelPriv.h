@@ -360,6 +360,9 @@
 @property (nonatomic, copy) NSString *modality;
 @property (nonatomic, copy) NSString *function;
 @property (nonatomic, copy) NSString *of;
+/* A form's further anchors (docs/FORMS.md): the ids of the forms made or
+ * changed with it, one change set, space apart; nil for none. */
+@property (nonatomic, copy) NSString *with;
 @property (nonatomic, strong) ORMQueryPart *root;
 @end
 

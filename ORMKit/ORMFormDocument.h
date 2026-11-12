@@ -6,15 +6,15 @@
 /* A form (docs/FORMS.md) as an XForms 1.1 document: what ormtool xforms
  * writes, generated and never edited.
  *
- *   Form RecordFillUp:                 <FillUp>             the instance (Fmap)
- *   FillUp                               <id/>
- *     + is of Vehicle1 = ?               <vehicle/>         a reference: its key
- *     + was at ✎Moment                   <timestamp/>       typed by its bind
- *     + cost ✎Money                      <totalAmount/>     a compound, as the
- *                                        <totalCurrency/>   mapping absorbs it
- *     + had driver ✎User                 <driver/>          a select1, its choices
- *       + drives Vehicle1                                   read for that vehicle
- *     ✓PricePerUnit = Amount / Quantity  <pricePerUnit/>    calculated
+ *   Form RecordFillUp:                         <FillUp>           the instance (Fmap)
+ *   FillUp                                       <id/>
+ *     + is of Vehicle1 = ?                       <vehicle/>         a reference: its key
+ *     + was at Moment (entered)                  <timestamp/>       typed by its bind
+ *     + cost Money (entered)                     <totalAmount/>     a compound, as the
+ *                                                <totalCurrency/>   mapping absorbs it
+ *     + had driver User (entered)                <driver/>          a select1, its choices
+ *       + drives Vehicle1                                           read for that vehicle
+ *     PricePerUnit = Amount / Quantity (shown)   <pricePerUnit/>    calculated
  *
  * Each node is placed by the column the planner gives it in the form's read
  * (the form listed, each step a maybe, the steps under a reference left
@@ -74,6 +74,10 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 /* In a subtype's part of the form (+ is Trip), the subentity it is a
  * property of: relevant where the object is one; nil for the anchor's. */
 @property (nonatomic, readonly, copy) NSString *subtypeEntity;
+/* Entered beneath a choice, one of the values of a key of its (D6): the
+ * reference element it finds the object of (an order's customer by email);
+ * nil for others. */
+@property (nonatomic, readonly, copy) NSString *identifies;
 /* Its id in the document: the node's, a part's index after it. */
 - (NSString *)fieldId;
 @end
@@ -105,6 +109,14 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 - (ORMQueryPlan *)choicesPlanNamed:(NSString *)elementName given:(NSDictionary<NSString *, NSString *> *)values;
 /* The references with choices, by element name, in order. */
 - (NSArray<NSString *> *)choiceNames;
+/* The references found by values entered (D6), by element name, in
+ * order: no choices of theirs; and the elements that find each. */
+- (NSArray<NSString *> *)identifiedNames;
+- (NSArray<NSString *> *)elementsIdentifying:(NSString *)elementName;
+/* What finds a reference's object ("form:identify/<name>"): the objects of
+ * its type whose key is the values, a parameter for each element that
+ * finds it, named so. */
+- (ORMQueryPlan *)identifyPlanNamed:(NSString *)elementName;
 /* The elements whose values a reference's choices depend on. */
 - (NSArray<NSString *> *)elementsChoicesDependOn:(NSString *)elementName;
 /* The same as an app runs them (ORMRuntime's ORMForm): the read of the
@@ -123,6 +135,12 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
 @property (nonatomic, readonly, copy) NSArray<NSString *> *checkedWhereSubmitted;
 /* What the form says that the document leaves out, and why. */
 @property (nonatomic, readonly, copy) NSArray<NSString *> *notes;
+/* What the model has in the form (entered, shown, given, computed) that
+ * the document has no element for: a form that is not the model's, which
+ * ormtool xforms refuses to write. Empty for a whole one. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *missing;
+/* Their nodes' ids, and the unary steps': where the designer marks them. */
+@property (nonatomic, readonly, copy) NSSet<NSString *> *missingIds;
 /* The steps from the anchor to many (an order's lines), each a form of its
  * own by the element it is (its relationship's name): anchored on what the
  * step reaches, given the anchor back, read for every object linked to
@@ -156,4 +174,19 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
  * "{<screen id>.<node id>}" for a screen's before it, which the app keeps.
  * The next form's elements are named as its document names them. */
 - (void)setFlow:(ORMFlow *)flow screen:(ORMFlowScreen *)screen;
+/* The service's action the form is submitted to, not saved (a procedure:
+ * goods received, given the order as the form has it), set before
+ * -document: its save "form:submit/<Action>", and the table says it, so
+ * that ORMFormSession calls it. nil to save. */
+@property (nonatomic, copy) NSString *action;
+/* The app's words for its constraints and rules, by id or name ("TooMuch":
+ * "No tank holds that much."): said in the document's alerts and what it
+ * checks where submitted instead of their verbalizations, and in the
+ * table, for what the store refuses. */
+@property (nonatomic, copy) NSDictionary<NSString *, NSString *> *messages;
+/* The forms it is made or changed with, one change set (docs/FORMS.md):
+ * a document each, in order; empty for one anchor. The XForms document of
+ * several anchors has them all: its instance an element of each, named as
+ * its form, read each by its key ("form:read/<Form>"), saved as one. */
+@property (nonatomic, readonly, copy) NSArray<ORMFormDocument *> *parts;
 @end

@@ -2,8 +2,9 @@
 #import "ORMOutlineReader.h"
 #import "ORMQuery.h"
 
-/* What a node says in the outline: ✓ (✎ in a form), its label, "= ?" in a
- * form, its condition, its sort. */
+/* What a node says in the outline: its label, "= ?" in a form, its
+ * condition, and its marks: shown (entered in a form), its sort. A pair of
+ * marks that cannot both hold, why. */
 @interface ORMOutlineNode : NSObject
 @property (nonatomic) BOOL projected;
 @property (nonatomic) BOOL entered;
@@ -12,6 +13,7 @@
 @property (nonatomic, copy) NSString *comparison;
 @property (nonatomic, copy) NSString *value;
 @property (nonatomic) ORMQuerySort sort;
+@property (nonatomic, copy) NSString *conflict;
 @end
 
 @implementation ORMOutlineNode
@@ -36,6 +38,7 @@
 @property (nonatomic) BOOL deontic;
 @property (nonatomic, copy) NSString *name;
 @property (nonatomic, copy) NSString *function;
+@property (nonatomic, copy) NSArray<NSString *> *withFormIds;
 @property (nonatomic, copy) NSString *calculated;
 @property (nonatomic, strong) ORMFactType *derived;
 @property (nonatomic, strong) ORMObjectType *subtype;
@@ -60,7 +63,7 @@ typedef NS_ENUM(NSInteger, ORMOutlineTokenKind) {
 	ORMOutlineQuoted,
 	/* A reading in double quotes, its text without them. */
 	ORMOutlineReading,
-	/* Any other character; a comparison of two whole: "✓", "(", "<=". */
+	/* Any other character; a comparison of two whole: "(", ",", "<=". */
 	ORMOutlineSymbol,
 };
 
@@ -179,12 +182,13 @@ ORMIsComparison(ORMOutlineToken *token)
 }
 
 /* The tokens from the position that touch one another, no space between:
- * how far a value typed bare runs ("-5", "2026-10-01"). */
+ * how far a value typed bare runs ("-5", "2026-10-01"); not into the marks
+ * after it ("100(shown)"). */
 static NSUInteger
 ORMAdjacentEnd(NSArray<ORMOutlineToken *> *tokens, NSUInteger from)
 {
 	NSUInteger end = from + 1;
-	while (end < [tokens count]
+	while (end < [tokens count] && ![[[tokens objectAtIndex:end] text] isEqualToString:@"("]
 	       && [[tokens objectAtIndex:end] range].location == NSMaxRange([[tokens objectAtIndex:end - 1] range])) {
 		end++;
 	}
@@ -202,9 +206,70 @@ ORMNameWords(NSString *name)
 	return words;
 }
 
-/* A node named so from the position: "✓" or "✎", the name's words, its
- * label's digits after the last, "= ?", " comparison value" (a list after "in", a quoted
- * value or what is typed bare after the others), "↑" or "↓". With
+/* The marks from the position, "(shown, descending)": shown, or entered in
+ * a form, and ascending or descending, put in the node; a pair that cannot
+ * both hold its conflict. NO, nothing read, where the parentheses there hold
+ * anything else. */
+static BOOL
+ORMTakeMarks(NSArray<ORMOutlineToken *> *tokens, NSUInteger *at, ORMOutlineNode *node)
+{
+	NSUInteger i = *at, n = [tokens count];
+	if (!ORMNext(tokens, &i, @"(")) {
+		return NO;
+	}
+	BOOL shown = NO, entered = NO;
+	ORMQuerySort sort = ORMQueryUnsorted;
+	NSString *conflict = nil;
+	do {
+		ORMOutlineToken *word = i < n ? [tokens objectAtIndex:i] : nil;
+		if (word.kind != ORMOutlineWord) {
+			return NO;
+		}
+		if ([word.text isEqualToString:@"shown"] || [word.text isEqualToString:@"entered"]) {
+			BOOL isShown = [word.text isEqualToString:@"shown"];
+			conflict = (isShown ? entered : shown) ? @"a node is shown or entered, not both" : conflict;
+			shown = shown || isShown;
+			entered = entered || !isShown;
+		} else if ([word.text isEqualToString:@"ascending"] || [word.text isEqualToString:@"descending"]) {
+			ORMQuerySort order = [word.text isEqualToString:@"ascending"] ? ORMQueryAscending : ORMQueryDescending;
+			conflict = sort != ORMQueryUnsorted && sort != order ? @"a node is sorted ascending or descending, not both"
+			                                                     : conflict;
+			sort = order;
+		} else {
+			return NO;
+		}
+		i++;
+	} while (ORMNext(tokens, &i, @","));
+	if (!ORMNext(tokens, &i, @")")) {
+		return NO;
+	}
+	node.projected = shown;
+	node.entered = entered;
+	node.sort = sort;
+	node.conflict = conflict;
+	*at = i;
+	return YES;
+}
+
+/* Where the marks that end the tokens start, "(entered)"; the tokens'
+ * count where none end them. */
+static NSUInteger
+ORMTrailingMarks(NSArray<ORMOutlineToken *> *tokens, ORMOutlineNode *node)
+{
+	NSUInteger n = [tokens count];
+	for (NSUInteger open = n; open-- > 0;) {
+		if ([[[tokens objectAtIndex:open] text] isEqualToString:@"("]) {
+			NSUInteger at = open;
+			return ORMTakeMarks(tokens, &at, node) && at == n ? open : n;
+		}
+	}
+	return n;
+}
+
+/* A node named so from the position: the name's words, its label's
+ * digits after the last, "= ?", " comparison value" (a list after "in", a
+ * quoted value or what is typed bare after the others), its marks
+ * "(shown, descending)". With
  * conditional NO, no condition is read: what looked like one is the
  * reading's own words. nil where no node of the name is there. */
 static ORMOutlineNode *
@@ -212,8 +277,6 @@ ORMTakeNode(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger *at, 
 {
 	NSUInteger i = *at, n = [tokens count];
 	ORMOutlineNode *node = [[ORMOutlineNode alloc] init];
-	node.projected = ORMNext(tokens, &i, @"✓");
-	node.entered = !node.projected && ORMNext(tokens, &i, @"✎");
 	for (NSUInteger k = 0; k < [name count]; k++) {
 		ORMOutlineToken *token = i < n ? [tokens objectAtIndex:i] : nil;
 		NSString *word = [name objectAtIndex:k];
@@ -260,16 +323,13 @@ ORMTakeNode(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger *at, 
 			i = end;
 		}
 	}
-	if (ORMNext(tokens, &i, @"↑")) {
-		node.sort = ORMQueryAscending;
-	} else if (ORMNext(tokens, &i, @"↓")) {
-		node.sort = ORMQueryDescending;
-	}
+	ORMTakeMarks(tokens, &i, node);
 	*at = i;
 	return node;
 }
 
-/* A value node's line, "✓Length: Distance = Quantity2 - Quantity1 > 100 ↓":
+/* A value node's line, "Length: Distance = Quantity2 - Quantity1 > 100
+ * (shown, descending)":
  * whether it is ticked, its name, its type's name (nil where not given),
  * its expression, and what it says of the value. NO where it is none. */
 static BOOL
@@ -278,7 +338,6 @@ ORMReadValueLine(ORMOutlineLine *line, NSString **name, NSString **typeName, NSS
 	NSArray *tokens = line.tokens;
 	NSString *text = line.text;
 	NSUInteger at = 0, n = [tokens count];
-	BOOL projected = ORMNext(tokens, &at, @"✓");
 	ORMOutlineToken *first = at < n ? [tokens objectAtIndex:at] : nil;
 	if (first.kind != ORMOutlineWord || [[NSCharacterSet decimalDigitCharacterSet] characterIsMember:[first.text characterAtIndex:0]]) {
 		return NO;
@@ -304,14 +363,9 @@ ORMReadValueLine(ORMOutlineLine *line, NSString **name, NSString **typeName, NSS
 	if (said == nil) {
 		return YES;
 	}
-	said.projected = projected;
 	/* The expression, to the first comparison outside parentheses; the
-	 * sort last. */
-	NSUInteger end = n;
-	if ([[[tokens lastObject] text] isEqualToString:@"↑"] || [[[tokens lastObject] text] isEqualToString:@"↓"]) {
-		said.sort = [[[tokens lastObject] text] isEqualToString:@"↑"] ? ORMQueryAscending : ORMQueryDescending;
-		end = n - 1;
-	}
+	 * marks last. */
+	NSUInteger end = ORMTrailingMarks(tokens, said);
 	NSInteger depth = 0;
 	for (NSUInteger i = equals; i < end; i++) {
 		ORMOutlineToken *token = [tokens objectAtIndex:i];
@@ -534,13 +588,16 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	return YES;
 }
 
-/* ✓ ticks a node, or in a form shows it; ✎ enters it in a form, and
- * "= ?" gives it. */
+/* (shown) ticks a node, or in a form shows it; (entered) enters it in a
+ * form, and "= ?" gives it. */
 - (BOOL)mark:(ORMOutlineNode *)said node:(NSString *)nodeId line:(ORMOutlineLine *)line
 {
+	if (said.conflict != nil) {
+		return [self fail:said.conflict line:line];
+	}
 	if (_header.kind != ORMQueryForm) {
 		if (said.entered || said.given) {
-			return [self fail:@"only a form's nodes are entered (✎) or given (= ?)" line:line];
+			return [self fail:@"only a form's nodes are entered or given (= ?)" line:line];
 		}
 		[_queries setProjected:said.projected ofNode:nodeId];
 		return YES;
@@ -555,7 +612,7 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 
 #pragma mark Value nodes
 
-/* "✓Length = Quantity2 - Quantity1 > 100": the value node, under the node,
+/* "Length = Quantity2 - Quantity1 > 100 (shown)": the value node, under the node,
  * and what the line says of it. */
 - (BOOL)value:(ORMOutlineLine *)line of:(NSString *)nodeId
 {
@@ -656,20 +713,23 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	for (ORMQueryNode *each in [query nodes]) {
 		node = [each.identifier isEqualToString:nodeId] ? each : node;
 	}
-	/* A form's unary step, marked after its reading: "+ filled the tank ✎". */
-	ORMQueryFormPart stepPart = ORMFormPartNone;
-	ORMOutlineLine *reading = line;
-	NSString *mark = [[line.tokens lastObject] text];
-	if ([line.tokens count] > at + 1 && ([mark isEqualToString:@"✎"] || [mark isEqualToString:@"✓"])) {
-		stepPart = [mark isEqualToString:@"✎"] ? ORMFormPartEntered : ORMFormPartShown;
-		reading = [[ORMOutlineLine alloc] init];
+	/* The marks that end the line are its last node's, "+ has Plate
+	 * (shown)"; where no reading takes them so, a form's unary step's:
+	 * "+ filled the tank (entered)". */
+	NSArray<ORMOutlineNode *> *said = nil;
+	ORMRole *entry = [self readStep:line at:at from:node nodes:&said];
+	ORMOutlineNode *stepMarks = [[ORMOutlineNode alloc] init];
+	NSUInteger marks = ORMTrailingMarks(line.tokens, stepMarks);
+	if (entry == nil && marks > at && marks < [line.tokens count]) {
+		ORMOutlineLine *reading = [[ORMOutlineLine alloc] init];
 		reading.number = line.number;
 		reading.depth = line.depth;
 		reading.text = line.text;
-		reading.tokens = [line.tokens subarrayWithRange:NSMakeRange(0, [line.tokens count] - 1)];
+		reading.tokens = [line.tokens subarrayWithRange:NSMakeRange(0, marks)];
+		entry = [self readStep:reading at:at from:node nodes:&said];
+	} else {
+		stepMarks = nil;
 	}
-	NSArray<ORMOutlineNode *> *said = nil;
-	ORMRole *entry = [self readStep:reading at:at from:node nodes:&said];
 	if (entry == nil) {
 		[self fail:[NSString stringWithFormat:@"no fact type of %@ reads so", node.objectType.name ?: @"it"] line:line];
 		return NSNotFound;
@@ -683,11 +743,16 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	if (operatorKind != ORMQueryAnd) {
 		[_queries setOperator:operatorKind ofStep:stepId];
 	}
-	if (stepPart != ORMFormPartNone) {
-		if (_header.kind != ORMQueryForm) {
-			[self fail:@"only a form's steps are entered (✎) or shown" line:line];
+	if (stepMarks != nil) {
+		if (stepMarks.conflict != nil || stepMarks.sort != ORMQueryUnsorted) {
+			[self fail:stepMarks.conflict ?: @"a step is not sorted; its nodes are" line:line];
 			return NSNotFound;
 		}
+		if (_header.kind != ORMQueryForm) {
+			[self fail:@"only a form's steps are entered or shown" line:line];
+			return NSNotFound;
+		}
+		ORMQueryFormPart stepPart = stepMarks.entered ? ORMFormPartEntered : ORMFormPartShown;
 		if (![_queries setFormPart:stepPart ofStep:stepId reason:&why]) {
 			[self fail:why ?: @"the step cannot be in the form so" line:line];
 			return NSNotFound;
@@ -917,8 +982,7 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 		return nil;
 	}
 	/* The root: the longest object type name it starts with, as a node. */
-	NSString *rootText = [rootLine.text hasPrefix:@"✓"] || [rootLine.text hasPrefix:@"✎"] ? [rootLine.text substringFromIndex:1]
-	                                                                                    : rootLine.text;
+	NSString *rootText = rootLine.text;
 	ORMObjectType *rootType = nil;
 	ORMOutlineNode *rootSaid = nil;
 	for (ORMObjectType *type in _editor.model.objectTypes) {
@@ -1012,6 +1076,28 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 	} else if ([formName length] > 0) {
 		header.kind = ORMQueryForm;
 		header.name = formName;
+		/* "Form Onboard, with NewSupplier and NewCarrier:": the forms it is
+		 * made with, each the model's, by name. */
+		NSRange with = [formName rangeOfString:@", with "];
+		if (with.location != NSNotFound) {
+			header.name = [formName substringToIndex:with.location];
+			NSString *listed = [[formName substringFromIndex:NSMaxRange(with)] stringByReplacingOccurrencesOfString:@" and " withString:@", "];
+			NSMutableArray *ids = [NSMutableArray array];
+			for (NSString *each in [listed componentsSeparatedByString:@", "]) {
+				NSString *name = [each stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]];
+				ORMQuery *found = nil;
+				for (ORMQuery *query in [ORMQuery queriesInModel:_editor.model]) {
+					found = query.kind == ORMQueryForm && [query.name isEqualToString:name] ? query : found;
+				}
+				if (found == nil) {
+					_failure = [NSString stringWithFormat:@"Line %lu, \"%@\": no form of the model is named %@.",
+					                                      (unsigned long)line.number, text, name];
+					return nil;
+				}
+				[ids addObject:found.identifier];
+			}
+			header.withFormIds = ids;
+		}
 	} else if (subtypeName != nil) {
 		header.kind = ORMQueryDerivation;
 		header.subtype = [_editor.model objectTypeNamed:subtypeName];
@@ -1052,6 +1138,11 @@ ORMMatchParts(NSString *text, NSArray<ORMOutlineToken *> *tokens, NSUInteger at,
 		return [self fail:why ?: @"the query cannot be made" line:rootLine];
 	}
 	/* A form is one before its nodes are entered, shown or given. */
+	if (_header.kind == ORMQueryForm && [_header.withFormIds count] > 0
+	    && (![_queries setKind:ORMQueryForm ofQuery:_query reason:&why]
+	        || ![_queries setWithForms:_header.withFormIds ofQuery:_query reason:&why])) {
+		return [self fail:why ?: @"the form cannot be made with those" line:_header.line];
+	}
 	if (_header.kind == ORMQueryForm && ![_queries setKind:ORMQueryForm ofQuery:_query reason:&why]) {
 		return [self fail:why ?: @"the query cannot be a form" line:_header.line];
 	}

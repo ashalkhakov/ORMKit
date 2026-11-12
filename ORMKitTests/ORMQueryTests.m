@@ -483,7 +483,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 - (void)testQ1IsAnOutlineOfSteps
 {
 	NSString *q = [self q1];
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee\n"
+	XCTAssertEqualObjects([[self query:q] outlineText], @"Employee (shown)\n"
 	                                                    @"  + lives in City\n"
 	                                                    @"    + is location of Branch = 52\n");
 	XCTAssertEqualObjects([[[self query:q] projectedNodes] valueForKeyPath:@"objectType.name"], (@[ @"Employee" ]));
@@ -572,9 +572,9 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 - (void)testQ2
 {
 	NSString *q = [self q2];
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee\n"
+	XCTAssertEqualObjects([[self query:q] outlineText], @"Employee (shown)\n"
 	                                                    @"  + drives Car\n"
-	                                                    @"  + works for ✓Branch\n");
+	                                                    @"  + works for Branch (shown)\n");
 	XCTAssertEqualObjects([[self plan:q] text], @"read Employee\n"
 	                                              @"where some cars and branch is set\n"
 	                                              @"list self (nr), branch (nr)");
@@ -610,12 +610,12 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 - (void)testQ3
 {
 	NSString *q = [self q3];
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓USbranch\n"
+	XCTAssertEqualObjects([[self query:q] outlineText], @"USbranch (shown)\n"
 	                                                    @"  + not achieved Rank = 1 in Year < 1998\n"
 	                                                    @"  + is Branch\n"
 	                                                    @"    + is headed by Employee\n"
-	                                                    @"      + has ✓EmployeeName\n"
-	                                                    @"      + maybe drives ✓Car\n");
+	                                                    @"      + has EmployeeName (shown)\n"
+	                                                    @"      + maybe drives Car (shown)\n");
 	XCTAssertEqualObjects([[self plan:q] text], @"read USbranch\n"
 	                                              @"where not (some uSbranchAchievedRankInYears as x1 has (x1.rank.nr = 1 "
 	                                              @"and x1.year.ad < 1998)) and employee.employeeName is set and maybe "
@@ -669,7 +669,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 - (void)testQ4Correlates
 {
 	NSString *q = [self q4];
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee1\n"
+	XCTAssertEqualObjects([[self query:q] outlineText], @"Employee1 (shown)\n"
 	                                                    @"  + lives in City1\n"
 	                                                    @"  + was born in Country1\n"
 	                                                    @"  + supervises Employee2\n"
@@ -714,7 +714,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 - (void)testQ5CorrelatesWithASet
 {
 	NSString *q = [self q5];
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Employee\n"
+	XCTAssertEqualObjects([[self query:q] outlineText], @"Employee (shown)\n"
 	                                                    @"  + owns Car1\n"
 	                                                    @"  + not drives Car1\n"
 	                                                    @"    + count(Car1) for Employee > 1\n");
@@ -774,7 +774,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	NSString *reason = nil;
 	XCTAssertTrue([[self queries] setGroupNode:root ofStep:speaks reason:&reason], @"%@", reason);
 	XCTAssertFalse([[self queries] setGroupNode:employee.identifier ofStep:@"no such step" reason:NULL]);
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch\n"
+	XCTAssertEqualObjects([[self query:q] outlineText], @"Branch (shown)\n"
 	                                                    @"  + employs Employee\n"
 	                                                    @"    + speaks Language\n"
 	                                                    @"      + count(Language) for Branch > 1\n");
@@ -819,8 +819,8 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	                                    ofStep:earns reason:&reason], @"%@", reason);
 	XCTAssertTrue([[self queries] setComparedAggregate:ORMQueryAverage group:root ofStep:earns reason:&reason], @"%@",
 	              reason);
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch\n"
-	                                                    @"  + employs ✓Employee\n"
+	XCTAssertEqualObjects([[self query:q] outlineText], @"Branch (shown)\n"
+	                                                    @"  + employs Employee (shown)\n"
 	                                                    @"    + earns Salary\n"
 	                                                    @"      + max(Salary) for Employee > avg(Salary) for Branch\n");
 	ORMQueryPlanner *planner = [[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:[self mapping]];
@@ -1336,7 +1336,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	NSMutableArray *notes = [NSMutableArray array];
 	NSString *expanded = [[[self query:q] expandedInModel:_editor.model notes:notes] outlineText];
 	XCTAssertEqualObjects(notes, @[]);
-	XCTAssertTrue([expanded hasPrefix:@"✓Employee3\n"], @"%@", expanded);
+	XCTAssertTrue([expanded hasPrefix:@"Employee3 (shown)\n"], @"%@", expanded);
 	XCTAssertFalse([expanded containsString:@"Reporting"], @"%@", expanded);
 
 	NSString *named = [[self queries] addQueryNamed:@"Named" from:[self typeId:@"Cityname"] reason:NULL];
@@ -1850,7 +1850,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 - (void)testTotalsAndSorting
 {
 	NSString *q = [self payroll];
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch ↓\n"
+	XCTAssertEqualObjects([[self query:q] outlineText], @"Branch (shown, descending)\n"
 	                                                    @"  + employs Employee\n"
 	                                                    @"    + total(Salary) for Branch > 1000000\n"
 	                                                    @"    + earns Salary\n");
@@ -1961,7 +1961,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	XCTAssertTrue([[self queries] setDeontic:YES ofQuery:q reason:NULL]);
 	XCTAssertEqual([self query:q].kind, ORMQueryConstraint);
 	XCTAssertTrue([self query:q].isDeontic);
-	XCTAssertTrue([[[self query:q] outlineText] hasPrefix:@"It is forbidden that:\n✓Branch\n"], @"%@",
+	XCTAssertTrue([[[self query:q] outlineText] hasPrefix:@"It is forbidden that:\nBranch (shown)\n"], @"%@",
 	              [[self query:q] outlineText]);
 	XCTAssertEqualObjects([self english:q],
 	                      @"It is forbidden that some Branch employs some Employee that earns some Salary.");
@@ -1994,7 +1994,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	/* A list again: no function, no node. */
 	XCTAssertTrue([[self queries] setKind:ORMQueryList ofQuery:q reason:NULL]);
 	XCTAssertNil([self query:q].calculatedNode);
-	XCTAssertEqualObjects([[self query:q] outlineText], @"✓Branch\n  + employs Employee\n    + earns Salary\n");
+	XCTAssertEqualObjects([[self query:q] outlineText], @"Branch (shown)\n  + employs Employee\n    + earns Salary\n");
 	[self.undoManager undo];
 	XCTAssertEqual([self query:q].kind, ORMQueryCalculation);
 }
@@ -2296,7 +2296,7 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	[_editor.elementEditor deleteElements:@[ located.identifier ]];
 	ORMQuery *query = [self query:q];
 	XCTAssertFalse(query.isComplete);
-	XCTAssertEqualObjects([query outlineText], @"✓Employee\n  + lives in City\n");
+	XCTAssertEqualObjects([query outlineText], @"Employee (shown)\n  + lives in City\n");
 	ORMQueryPlan *plan = [[[ORMQueryPlanner alloc] initWithModel:_editor.model mapping:nil] planForQuery:query];
 	XCTAssertTrue([[plan.notes firstObject] rangeOfString:@"no longer in the model"].location != NSNotFound, @"%@", plan.notes);
 }
@@ -3080,10 +3080,10 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 {
 	ORMOutlineReader *reader = [[ORMOutlineReader alloc] initWithEditor:_editor];
 	NSString *reason = nil;
-	NSString *q = [reader addQueryNamed:@"Typed" outline:@"✓Employee1\n"
+	NSString *q = [reader addQueryNamed:@"Typed" outline:@"Employee1 (shown)\n"
 	                                                     @"  + lives in City1\n"
 	                                                     @"  + was born in Country1\n"
-	                                                     @"  + supervises ✓Employee2\n"
+	                                                     @"  + supervises Employee2 (shown)\n"
 	                                                     @"    + lives in City1\n"
 	                                                     @"    + was born in Country2 <> Country1\n"
 	                             reason:&reason];
@@ -3094,10 +3094,41 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	XCTAssertEqualObjects([[self plan:q].notes count] == 0 ? @"planned" : [self plan:q].notes, @"planned");
 
 	NSUInteger queries = [[ORMQuery queriesInModel:_editor.model] count];
-	XCTAssertNil([reader addQueryNamed:nil outline:@"✓Employee\n  + flies to Mars\n" reason:&reason]);
+	XCTAssertNil([reader addQueryNamed:nil outline:@"Employee (shown)\n  + flies to Mars\n" reason:&reason]);
 	XCTAssertEqualObjects(reason, @"Line 2, \"+ flies to Mars\": no fact type of Employee reads so");
 	XCTAssertNil([reader addQueryNamed:nil outline:@"Martian\n" reason:&reason]);
 	XCTAssertEqualObjects(reason, @"Line 1, \"Martian\": no object type of the model is named so.");
+	XCTAssertEqual([[ORMQuery queriesInModel:_editor.model] count], queries, @"nothing made");
+}
+
+/* A node's marks follow it, in words, "(shown, descending)": in the middle
+ * of a reading, after a list or a value typed bare; a pair that cannot both
+ * hold, and the marks once written before a node, are refused. */
+- (void)testANodesMarksFollowIt
+{
+	ORMOutlineReader *reader = [[ORMOutlineReader alloc] initWithEditor:_editor];
+	NSString *reason = nil;
+	NSString *outline = @"USbranch (shown)\n"
+	                    @"  + achieved Rank in (1, 2) (shown) in Year > 1990 (shown, descending)\n";
+	NSString *q = [reader addQueryNamed:@"Ranked" outline:outline reason:&reason];
+	XCTAssertNotNil(q, @"%@", reason);
+	XCTAssertEqualObjects([[self query:q] outlineText], outline);
+	XCTAssertEqualObjects([[[self query:q] projectedNodes] valueForKey:@"designation"], (@[ @"USbranch", @"Rank", @"Year" ]));
+	XCTAssertEqual([self node:@"Year" of:q].sortOrder, ORMQueryDescending);
+	XCTAssertEqual([self node:@"Rank" of:q].sortOrder, ORMQueryUnsorted);
+
+	q = [reader addQueryNamed:@"Bare" outline:@"USbranch\n  + achieved Rank = 1 in Year >1990(ascending)\n" reason:&reason];
+	XCTAssertNotNil(q, @"%@", reason);
+	XCTAssertEqualObjects([[self query:q] outlineText], @"USbranch\n  + achieved Rank = 1 in Year > 1990 (ascending)\n");
+
+	NSUInteger queries = [[ORMQuery queriesInModel:_editor.model] count];
+	XCTAssertNil([reader addQueryNamed:nil outline:@"USbranch (shown, entered)\n" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 1, \"USbranch (shown, entered)\": a node is shown or entered, not both");
+	XCTAssertNil([reader addQueryNamed:nil outline:@"USbranch\n  + achieved Rank (ascending, descending) in Year\n" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 2, \"+ achieved Rank (ascending, descending) in Year\": a node is sorted ascending or "
+	                              @"descending, not both");
+	XCTAssertNil([reader addQueryNamed:nil outline:@"\u2713USbranch\n" reason:&reason]);
+	XCTAssertEqualObjects(reason, @"Line 1, \"\u2713USbranch\": no object type of the model is named so.");
 	XCTAssertEqual([[ORMQuery queriesInModel:_editor.model] count], queries, @"nothing made");
 }
 
@@ -3107,10 +3138,10 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
  * and salary entered, the city shown. */
 static NSString *const ORMHireForm = @"Form HireEmployee:\n"
                                      @"Employee\n"
-                                     @"  + has ✎EmployeeName\n"
+                                     @"  + has EmployeeName (entered)\n"
                                      @"  + works for Branch = ?\n"
-                                     @"  + earns ✎Salary\n"
-                                     @"  + lives in ✓City\n";
+                                     @"  + earns Salary (entered)\n"
+                                     @"  + lives in City (shown)\n";
 
 - (NSString *)hireForm
 {
@@ -3203,10 +3234,10 @@ static NSString *const ORMHireForm = @"Form HireEmployee:\n"
 	NSString *f = [self hireForm];
 	XCTAssertTrue([[self queries] setKind:ORMQueryList ofQuery:f reason:NULL]);
 	XCTAssertEqualObjects([[self query:f] outlineText], @"Employee\n"
-	                                                    @"  + has ✓EmployeeName\n"
+	                                                    @"  + has EmployeeName (shown)\n"
 	                                                    @"  + works for Branch\n"
-	                                                    @"  + earns ✓Salary\n"
-	                                                    @"  + lives in ✓City\n");
+	                                                    @"  + earns Salary (shown)\n"
+	                                                    @"  + lives in City (shown)\n");
 	XCTAssertFalse([self node:@"Branch" of:f].isGiven);
 	[self.undoManager undo];
 	XCTAssertEqualObjects([[self query:f] outlineText], ORMHireForm);
@@ -3222,7 +3253,7 @@ static NSString *const ORMHireForm = @"Form HireEmployee:\n"
 	XCTAssertTrue([[self queries] setFormPart:ORMFormPartEntered ofNode:city reason:&reason], @"%@", reason);
 	XCTAssertEqual([self node:@"City" of:f].formPart, ORMFormPartEntered);
 	XCTAssertTrue([[self queries] setGiven:YES ofNode:city reason:&reason], @"%@", reason);
-	XCTAssertTrue([[[self query:f] outlineText] rangeOfString:@"lives in ✎City = ?"].location != NSNotFound);
+	XCTAssertTrue([[[self query:f] outlineText] rangeOfString:@"lives in City = ? (entered)"].location != NSNotFound);
 	[self.undoManager undo];
 	XCTAssertFalse([self node:@"City" of:f].isGiven);
 	[self.undoManager undo];
@@ -3237,9 +3268,9 @@ static NSString *const ORMHireForm = @"Form HireEmployee:\n"
 	XCTAssertEqual([self root:q].formPart, ORMFormPartNone);
 	/* Nor does an outline enter or give what is no form's. */
 	XCTAssertNil([[[ORMOutlineReader alloc] initWithEditor:_editor] addQueryNamed:nil
-	                                                                      outline:@"Employee\n  + has ✎EmployeeName\n"
+	                                                                      outline:@"Employee\n  + has EmployeeName (entered)\n"
 	                                                                       reason:&reason]);
-	XCTAssertEqualObjects(reason, @"Line 2, \"+ has ✎EmployeeName\": only a form's nodes are entered (✎) or given (= ?)");
+	XCTAssertEqualObjects(reason, @"Line 2, \"+ has EmployeeName (entered)\": only a form's nodes are entered or given (= ?)");
 }
 
 /* A value a form computes is shown, as FORMS.md's price per unit is. */
@@ -3247,8 +3278,8 @@ static NSString *const ORMHireForm = @"Form HireEmployee:\n"
 {
 	NSString *outline = @"Form Pay:\n"
 	                    @"Employee = ?\n"
-	                    @"  + earns ✎Salary\n"
-	                    @"  ✓Yearly = Salary * 12\n";
+	                    @"  + earns Salary (entered)\n"
+	                    @"  Yearly = Salary * 12 (shown)\n";
 	NSString *reason = nil;
 	NSString *q = [[[ORMOutlineReader alloc] initWithEditor:_editor] addQueryNamed:nil outline:outline reason:&reason];
 	XCTAssertNotNil(q, @"%@", reason);

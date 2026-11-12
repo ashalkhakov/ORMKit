@@ -25,7 +25,7 @@
  *   Reference data: km, 1           its facts, when they are reference data
  *   For each Quantity and ...       a constraint over several fact types
  *   Query Name:                     a query, its outline (ORMQuery's
- *   ✓FillUp ...                     outlineText) up to a blank line
+ *   FillUp (shown) ...              outlineText) up to a blank line
  *
  * A section is a diagram, in the model's order; in it, what the diagram
  * shows first, in the order of its shapes. What a statement names is said

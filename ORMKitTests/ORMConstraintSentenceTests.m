@@ -625,7 +625,7 @@ ORMRoleOf(ORMModel *model, NSString *reading, NSString *player)
 	                 @"\n"
 	                 @"Query HighReading:\n"
 	                 @"It is impossible that:\n"
-	                 @"✓Vehicle\n"
+	                 @"Vehicle (shown)\n"
 	                 @"  + Record is of that Vehicle\n"
 	                 @"    + is Event\n"
 	                 @"      + shows Reading > 100\n";
@@ -672,17 +672,17 @@ ORMRoleOf(ORMModel *model, NSString *reading, NSString *player)
 	                 @"\n"
 	                 @"Query Headless:\n"
 	                 @"It is impossible that:\n"
-	                 @"✓Branch\n"
+	                 @"Branch (shown)\n"
 	                 @"  + not is headed by Employee\n"
 	                 @"\n"
 	                 @"Query Payroll:\n"
 	                 @"Payroll of each Branch is total(Salary) of:\n"
-	                 @"✓Branch\n"
+	                 @"Branch (shown)\n"
 	                 @"  + employs Employee\n"
 	                 @"    + earns Salary\n"
 	                 @"\n"
 	                 @"Query Martian:\n"
-	                 @"✓Employee\n"
+	                 @"Employee (shown)\n"
 	                 @"  + flies to Mars\n";
 	NSArray *failures = nil;
 	XCTAssertFalse([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures]);
@@ -692,12 +692,12 @@ ORMRoleOf(ORMModel *model, NSString *reading, NSString *player)
 	XCTAssertEqualObjects([queries valueForKey:@"name"], (@[ @"Headless", @"Payroll" ]));
 	ORMQuery *headless = [queries firstObject];
 	XCTAssertEqual(headless.kind, ORMQueryConstraint);
-	XCTAssertEqualObjects([headless outlineText], @"It is impossible that:\n✓Branch\n  + not is headed by Employee\n");
+	XCTAssertEqualObjects([headless outlineText], @"It is impossible that:\nBranch (shown)\n  + not is headed by Employee\n");
 	XCTAssertEqual(((ORMQuery *)[queries lastObject]).kind, ORMQueryCalculation);
 	/* Queries alone make no diagram. */
 	NSUInteger diagrams = [editor.model.diagrams count];
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor]
-		addFromText:@"Query Headed:\nIt is impossible that:\n✓Branch\n  + is headed by Employee\n" failures:NULL]);
+		addFromText:@"Query Headed:\nIt is impossible that:\nBranch (shown)\n  + is headed by Employee\n" failures:NULL]);
 	XCTAssertEqual([editor.model.diagrams count], diagrams);
 }
 

@@ -47,6 +47,9 @@
 @property (nonatomic, readonly) BOOL buildsFromDiagram;
 /* The FORML, as shown. */
 - (NSString *)verbalizationText;
+/* A node as the outline shows it: "= ?", its condition, its marks; ⚠
+ * before one where the form breaks a rule or lacks it. */
+- (NSString *)textOfNode:(ORMQueryNode *)node;
 /* The OData request, and the plan with how the interpreter runs it against a
  * Core Data store, as the tabs show them. */
 - (NSString *)requestText;

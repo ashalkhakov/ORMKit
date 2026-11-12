@@ -61,6 +61,12 @@ ORMFormSessionError(NSString *text)
 	NSString *_etag;
 	NSDictionary<NSString *, NSString *> *_errors;
 	NSString *_savedKey;
+	/* Each other anchor's, by its form's name. */
+	NSMutableDictionary<NSString *, NSMutableDictionary *> *_partValues;
+	NSMutableDictionary<NSString *, NSString *> *_partKeys;
+	NSMutableDictionary<NSString *, NSDictionary *> *_partOriginals;
+	NSMutableDictionary<NSString *, NSString *> *_partEtags;
+	NSMutableDictionary<NSString *, NSString *> *_partSavedKeys;
 }
 
 - (instancetype)initWithForm:(ORMForm *)form given:(NSDictionary<NSString *, NSString *> *)given
@@ -70,6 +76,14 @@ ORMFormSessionError(NSString *text)
 		_given = [given copy] ?: @{};
 		_values = [[form instanceGiven:_given] mutableCopy];
 		_errors = @{};
+		_partValues = [NSMutableDictionary dictionary];
+		_partKeys = [NSMutableDictionary dictionary];
+		_partOriginals = [NSMutableDictionary dictionary];
+		_partEtags = [NSMutableDictionary dictionary];
+		_partSavedKeys = [NSMutableDictionary dictionary];
+		for (ORMForm *part in form.parts) {
+			[_partValues setObject:[[part instanceGiven:_given] mutableCopy] forKey:part.name ?: @""];
+		}
 	}
 	return self;
 }
@@ -104,9 +118,44 @@ ORMFormSessionError(NSString *text)
 - (void)setValue:(NSString *)value forElement:(NSString *)name
 {
 	[_values setObject:value ?: @"" forKey:name];
-	if ([[_form elementNamed:name].kind isEqualToString:@"reference"]) {
+	/* A value that finds a reference's object (an order's customer, by
+	 * email): found now, and what is shown through it read. */
+	NSString *identifies = [_form elementNamed:name].identifies;
+	if (identifies != nil) {
+		NSString *key = [self identifiedKeyNamed:identifies error:NULL];
+		[_values setObject:key ?: @"" forKey:identifies];
+	}
+	if ([[_form elementNamed:name].kind isEqualToString:@"reference"] || identifies != nil) {
 		[self readThrough];
 	}
+}
+
+/* The key of the object the values find, from the store or the service; ""
+ * for none; nil, and why, where it cannot be read. */
+- (NSString *)identifiedKeyNamed:(NSString *)name error:(NSError **)error
+{
+	return [self identifiedKeyNamed:name form:_form values:_values error:error];
+}
+
+/* The same for one of the anchors and its values. */
+- (NSString *)identifiedKeyNamed:(NSString *)name form:(ORMForm *)form values:(NSDictionary *)values error:(NSError **)error
+{
+	if (_context != nil) {
+		return [form identifiedKeyNamed:name values:values inContext:_context error:error];
+	}
+	BOOL none = YES;
+	for (NSString *each in [form elementsIdentifying:name]) {
+		none = none && [[[values objectForKey:each] description] length] == 0;
+	}
+	if (none) {
+		return @"";
+	}
+	ORMQueryOData *request = [form identifyRequestNamed:name values:values model:_model error:error];
+	NSArray *rows = request != nil ? [self rowsOf:request objects:NULL error:error] : nil;
+	if (rows == nil) {
+		return nil;
+	}
+	return ORMFormText([[rows firstObject] firstObject], [form elementNamed:name].keyName);
 }
 
 /* What is shown through the references (an order's supplier's name), as
@@ -141,7 +190,7 @@ ORMFormSessionError(NSString *text)
 	if ([_key length] == 0) {
 		_values = [[_form instanceGiven:_given] mutableCopy];
 		[self readThrough];
-		return YES;
+		return [self openParts:error];
 	}
 	NSDictionary *read = _context != nil ? [_form readKey:_key inContext:_context error:error] : [self readFromService:_key error:error];
 	if (read == nil) {
@@ -149,6 +198,174 @@ ORMFormSessionError(NSString *text)
 	}
 	_original = _context != nil ? nil : read;
 	_values = [read mutableCopy];
+	return [self openParts:error];
+}
+
+#pragma mark Its other anchors
+
+- (ORMForm *)partNamed:(NSString *)name
+{
+	for (ORMForm *part in _form.parts) {
+		if ([part.name isEqualToString:name]) {
+			return part;
+		}
+	}
+	return nil;
+}
+
+- (void)setKey:(NSString *)key ofForm:(NSString *)name
+{
+	if (key != nil) {
+		[_partKeys setObject:[key copy] forKey:name];
+	} else {
+		[_partKeys removeObjectForKey:name];
+	}
+}
+
+- (NSDictionary<NSString *, id> *)valuesOfForm:(NSString *)name
+{
+	return [[_partValues objectForKey:name] copy];
+}
+
+- (void)setValue:(NSString *)value forElement:(NSString *)element ofForm:(NSString *)name
+{
+	[[_partValues objectForKey:name] setObject:value ?: @"" forKey:element];
+}
+
+- (NSString *)savedKeyOfForm:(NSString *)name
+{
+	return [_partSavedKeys objectForKey:name];
+}
+
+/* Each other anchor's values read: its object's, or a new one's, the
+ * inputs in it. */
+- (BOOL)openParts:(NSError **)error
+{
+	for (ORMForm *part in _form.parts) {
+		NSString *key = [_partKeys objectForKey:part.name ?: @""];
+		NSDictionary *read = [key length] == 0 ? [part instanceGiven:_given]
+			: _context != nil ? [part readKey:key inContext:_context error:error] : [self readFromService:key form:part error:error];
+		if (read == nil) {
+			return NO;
+		}
+		if (_context == nil && [key length] > 0) {
+			[_partOriginals setObject:read forKey:part.name ?: @""];
+		}
+		[_partValues setObject:[read mutableCopy] forKey:part.name ?: @""];
+	}
+	return YES;
+}
+
+/* Every anchor saved as one to the service: a $batch of one change set,
+ * each anchor's request in it; refused, by each one's elements. */
+- (BOOL)saveAnchorsToService:(NSError **)error
+{
+	NSArray<ORMForm *> *forms = [@[ _form ] arrayByAddingObjectsFromArray:_form.parts];
+	NSMutableArray *requests = [NSMutableArray array];
+	NSMutableDictionary *unfound = [NSMutableDictionary dictionary];
+	for (NSUInteger i = 0; i < [forms count]; i++) {
+		ORMForm *form = [forms objectAtIndex:i];
+		NSMutableDictionary *values = i == 0 ? _values : [_partValues objectForKey:form.name ?: @""];
+		/* What values entered find, asked of the service first. */
+		for (NSString *name in [form identifiedNames]) {
+			NSString *key = [self identifiedKeyNamed:name form:form values:values error:error];
+			if (key == nil) {
+				return NO;
+			}
+			[values setObject:key forKey:name];
+			NSString *first = [[form elementsIdentifying:name] firstObject];
+			if ([key length] == 0 && first != nil && [[[values objectForKey:first] description] length] > 0) {
+				[unfound setObject:[form unfoundMessageNamed:name] forKey:i == 0 ? first : [NSString stringWithFormat:@"%@/%@", form.name, first]];
+			}
+		}
+	}
+	if ([unfound count] > 0) {
+		_errors = unfound;
+		return NO;
+	}
+	for (NSUInteger i = 0; i < [forms count]; i++) {
+		ORMForm *form = [forms objectAtIndex:i];
+		NSDictionary *values = i == 0 ? _values : [_partValues objectForKey:form.name ?: @""];
+		NSDictionary *original = i == 0 ? _original : [_partOriginals objectForKey:form.name ?: @""];
+		NSString *etag = i == 0 ? _etag : [_partEtags objectForKey:form.name ?: @""];
+		ORMFormRequest *request = [form saveRequestFor:values original:original etag:etag model:_model error:error];
+		if (request == nil) {
+			return NO;
+		}
+		[requests addObject:@{ @"id" : [NSString stringWithFormat:@"%lu", (unsigned long)i + 1], @"atomicityGroup" : @"anchors",
+		                       @"method" : request.method, @"url" : request.path, @"headers" : request.headers,
+		                       @"body" : request.body }];
+	}
+	NSMutableURLRequest *http = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"$batch" relativeToURL:_root]];
+	http.HTTPMethod = @"POST";
+	http.HTTPBody = [NSJSONSerialization dataWithJSONObject:@{ @"requests" : requests } options:0 error:NULL];
+	[http setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+	[http setValue:@"application/json" forHTTPHeaderField:@"Accept"];
+	ODataExchange *exchange = [[ODataExchange alloc] initWithRequest:http target:nil action:NULL];
+	[_transport startExchange:exchange];
+	ORMFormWait(^BOOL { return exchange.isFinished; });
+	NSInteger status = [(NSHTTPURLResponse *)exchange.URLResponse statusCode];
+	id answer = exchange.data != nil ? [NSJSONSerialization JSONObjectWithData:exchange.data options:0 error:NULL] : nil;
+	NSArray *responses = [answer isKindOfClass:[NSDictionary class]] ? [answer objectForKey:@"responses"] : nil;
+	if (exchange.error != nil || status == 0 || (status >= 400 && ![responses isKindOfClass:[NSArray class]])) {
+		if (status >= 400) {
+			_errors = [_form elementErrorsOfResponse:exchange.data ?: [NSData data] model:_model];
+			return NO;
+		}
+		if (error != NULL) {
+			*error = exchange.error ?: ORMFormSessionError(@"The service did not answer.");
+		}
+		return NO;
+	}
+	NSMutableDictionary *errors = [NSMutableDictionary dictionary];
+	NSMutableArray *keys = [NSMutableArray array];
+	for (NSUInteger i = 0; i < [forms count]; i++) {
+		ORMForm *form = [forms objectAtIndex:i];
+		NSDictionary *response = nil;
+		for (NSDictionary *each in [responses isKindOfClass:[NSArray class]] ? responses : @[]) {
+			response = [[[each objectForKey:@"id"] description] isEqualToString:[NSString stringWithFormat:@"%lu", (unsigned long)i + 1]] ? each : response;
+		}
+		NSInteger code = [[response objectForKey:@"status"] integerValue];
+		id body = [response objectForKey:@"body"];
+		if (code >= 400 || response == nil) {
+			NSData *data = body != nil ? [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL] : nil;
+			NSDictionary *said = data != nil ? [form elementErrorsOfResponse:data model:_model]
+			                                 : @{ @"" : @"The service refused it." };
+			[said enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *text, BOOL *stop) {
+				[errors setObject:text forKey:i == 0 ? key : [NSString stringWithFormat:@"%@/%@", form.name ?: @"", key]];
+			}];
+			[keys addObject:@""];
+			continue;
+		}
+		NSDictionary *values = i == 0 ? _values : [_partValues objectForKey:form.name ?: @""];
+		NSString *key = [values objectForKey:form.keyElement];
+		if ([key length] == 0 && body != nil) {
+			key = ORMFormText(body, form.keyElement);
+		}
+		[keys addObject:key ?: @""];
+	}
+	if ([errors count] > 0) {
+		_errors = errors;
+		return NO;
+	}
+	for (NSUInteger i = 0; i < [forms count]; i++) {
+		ORMForm *form = [forms objectAtIndex:i];
+		NSString *key = [keys objectAtIndex:i];
+		NSDictionary *read = [key length] > 0 ? [self readFromService:key form:form error:NULL] : nil;
+		if (i == 0) {
+			_savedKey = key;
+			_original = read;
+			if (read != nil) {
+				_values = [read mutableCopy];
+			}
+		} else {
+			[_partSavedKeys setObject:key forKey:form.name ?: @""];
+			if (read != nil) {
+				[_partOriginals setObject:read forKey:form.name ?: @""];
+				[_partValues setObject:[read mutableCopy] forKey:form.name ?: @""];
+			}
+		}
+	}
 	return YES;
 }
 
@@ -184,7 +401,14 @@ ORMFormSessionError(NSString *text)
 
 - (NSDictionary<NSString *, id> *)readFromService:(NSString *)key error:(NSError **)error
 {
-	ORMQueryOData *request = [_form readRequestForKey:key model:_model error:error];
+	return [self readFromService:key form:_form error:error];
+}
+
+/* The object of the key as the form reads it from the service: its row,
+ * what is read on its own, its repeats' rows; the form's own ETag kept. */
+- (NSDictionary<NSString *, id> *)readFromService:(NSString *)key form:(ORMForm *)theForm error:(NSError **)error
+{
+	ORMQueryOData *request = [theForm readRequestForKey:key model:_model error:error];
 	NSArray *objects = nil;
 	NSArray *rows = request != nil ? [self rowsOf:request objects:&objects error:error] : nil;
 	if (rows == nil) {
@@ -192,13 +416,58 @@ ORMFormSessionError(NSString *text)
 	}
 	if ([rows count] == 0) {
 		if (error != NULL) {
-			*error = ORMFormSessionError([NSString stringWithFormat:@"There is no %@ %@.", _form.entityName, key]);
+			*error = ORMFormSessionError([NSString stringWithFormat:@"There is no %@ %@.", theForm.entityName, key]);
 		}
 		return nil;
 	}
 	id object = [objects firstObject];
-	_etag = [object isKindOfClass:[NSDictionary class]] ? [object objectForKey:@"@odata.etag"] : nil;
-	return [_form instanceOfRow:[rows firstObject]];
+	NSString *etag = [object isKindOfClass:[NSDictionary class]] ? [object objectForKey:@"@odata.etag"] : nil;
+	if (theForm == _form) {
+		_etag = etag;
+	} else if (etag != nil) {
+		[_partEtags setObject:etag forKey:theForm.name ?: @""];
+	}
+	NSMutableDictionary *instance = [[theForm instanceOfRow:[rows firstObject]] mutableCopy];
+	/* What is read on its own, by the key. */
+	NSMutableDictionary *own = [NSMutableDictionary dictionary];
+	for (ORMFormElement *element in theForm.elements) {
+		if (element.read == nil) {
+			continue;
+		}
+		ORMQueryPlan *plan = [element.read planBinding:@{ theForm.keyElement ?: @"" : key ?: @"" } error:error];
+		ORMQueryOData *ownRequest = plan != nil ? [ORMQueryOData requestForPlan:plan model:_model error:error] : nil;
+		NSArray *ownRows = ownRequest != nil ? [self rowsOf:ownRequest objects:NULL error:error] : nil;
+		if (ownRows == nil) {
+			return nil;
+		}
+		[own setObject:ownRows forKey:element.name];
+	}
+	instance = [[theForm instance:instance withOwnReads:own] mutableCopy];
+	/* Each repeat's rows, linked to the anchor or to what the form reads
+	 * the key of. */
+	for (NSString *name in [theForm repeatNames]) {
+		ORMForm *repeat = [theForm repeatNamed:name];
+		NSString *linked = [theForm repeatFrom:name] != nil ? [[instance objectForKey:[theForm repeatFrom:name]] description] : key;
+		NSMutableArray *found = [NSMutableArray array];
+		if ([linked length] > 0) {
+			ORMQueryOData *rowsRequest = [theForm rowsRequestOfRepeat:name linkedTo:linked model:_model error:error];
+			NSArray *rowsRead = rowsRequest != nil ? [self rowsOf:rowsRequest objects:NULL error:error] : nil;
+			if (rowsRead == nil) {
+				return nil;
+			}
+			NSMutableSet *seen = [NSMutableSet set];
+			for (NSArray *row in rowsRead) {
+				NSDictionary *each = [repeat instanceOfRow:row];
+				NSString *rowKey = [[each objectForKey:repeat.keyElement ?: @""] description] ?: @"";
+				if ([rowKey length] == 0 || ![seen containsObject:rowKey]) {
+					[seen addObject:rowKey];
+					[found addObject:each];
+				}
+			}
+		}
+		[instance setObject:found forKey:name];
+	}
+	return [theForm instanceWithAggregates:instance];
 }
 
 #pragma mark Choices
@@ -237,6 +506,8 @@ ORMFormSessionError(NSString *text)
 - (void)setRows:(NSArray<NSDictionary<NSString *, NSString *> *> *)rows forRepeat:(NSString *)name
 {
 	[_values setObject:[rows copy] ?: @[] forKey:name];
+	/* What is worked out over them (a total of the lines), again. */
+	_values = [[_form instanceWithAggregates:_values] mutableCopy];
 }
 
 - (NSArray<NSString *> *)choicesNamed:(NSString *)name inRepeat:(NSString *)repeat row:(NSUInteger)row error:(NSError **)error
@@ -247,14 +518,28 @@ ORMFormSessionError(NSString *text)
 	}
 	NSArray *rows = [self rowsOfRepeat:repeat];
 	NSDictionary *values = row < [rows count] ? [rows objectAtIndex:row] : @{};
-	if (form == nil || _context == nil) {
+	if (form == nil) {
 		if (error != NULL) {
-			*error = ORMFormSessionError(form == nil ? [NSString stringWithFormat:@"The form has no repeat %@.", repeat]
-			                                         : @"A repeat's choices are read from a store.");
+			*error = ORMFormSessionError([NSString stringWithFormat:@"The form has no repeat %@.", repeat]);
 		}
 		return nil;
 	}
-	return [form choicesNamed:name values:values inContext:_context error:error];
+	if (_context != nil) {
+		return [form choicesNamed:name values:values inContext:_context error:error];
+	}
+	ORMQueryOData *request = [form choicesRequestNamed:name values:values model:_model error:error];
+	NSArray *rowsRead = request != nil ? [self rowsOf:request objects:NULL error:error] : nil;
+	if (rowsRead == nil) {
+		return nil;
+	}
+	NSMutableArray *keys = [NSMutableArray array];
+	for (NSArray *each in rowsRead) {
+		NSString *key = ORMFormText([each firstObject], [form elementNamed:name].keyName);
+		if ([key length] > 0 && ![keys containsObject:key]) {
+			[keys addObject:key];
+		}
+	}
+	return keys;
 }
 
 - (BOOL)save:(NSError **)error
@@ -271,6 +556,39 @@ ORMFormSessionError(NSString *text)
 		_savedKey = [made copy] ?: [_values objectForKey:_form.keyElement];
 		return YES;
 	}
+	if (_context != nil && [_form.parts count] > 0) {
+		/* Every anchor, one save. */
+		NSArray *forms = [@[ _form ] arrayByAddingObjectsFromArray:_form.parts];
+		NSMutableArray *instances = [NSMutableArray arrayWithObject:_values];
+		for (ORMForm *part in _form.parts) {
+			[instances addObject:[_partValues objectForKey:part.name ?: @""] ?: @{}];
+		}
+		NSDictionary *errors = nil;
+		NSError *failure = nil;
+		NSArray *saved = [ORMForm saveForms:forms instances:instances inContext:_context saving:_saving errors:&errors error:&failure];
+		if (saved == nil) {
+			_errors = [errors count] > 0 ? errors : @{ @"" : failure.localizedDescription ?: @"Not saved." };
+			return NO;
+		}
+		for (NSUInteger i = 0; i < [forms count]; i++) {
+			ORMForm *form = [forms objectAtIndex:i];
+			NSString *key = ORMFormText([[saved objectAtIndex:i] valueForKey:form.keyElement], nil);
+			NSDictionary *read = [form readKey:key inContext:_context error:NULL];
+			if (i == 0) {
+				_savedKey = key;
+				_values = read != nil ? [read mutableCopy] : _values;
+			} else {
+				[_partSavedKeys setObject:key forKey:form.name ?: @""];
+				if (read != nil) {
+					[_partValues setObject:[read mutableCopy] forKey:form.name ?: @""];
+				}
+			}
+		}
+		return YES;
+	}
+	if (_context == nil && [_form.parts count] > 0) {
+		return [self saveAnchorsToService:error];
+	}
 	if (_context != nil) {
 		NSDictionary *errors = nil;
 		NSError *failure = nil;
@@ -286,7 +604,27 @@ ORMFormSessionError(NSString *text)
 		}
 		return YES;
 	}
-	ORMFormRequest *save = [_form saveRequestFor:_values original:_original etag:_etag model:_model error:error];
+	/* What values entered find, asked of the service first; none found,
+	 * refused at the first of them. */
+	NSMutableDictionary *unfound = [NSMutableDictionary dictionary];
+	for (NSString *name in [_form identifiedNames]) {
+		NSString *key = [self identifiedKeyNamed:name error:error];
+		if (key == nil) {
+			return NO;
+		}
+		[_values setObject:key forKey:name];
+		NSString *first = [[_form elementsIdentifying:name] firstObject];
+		if ([key length] == 0 && first != nil && [[[_values objectForKey:first] description] length] > 0) {
+			[unfound setObject:[_form unfoundMessageNamed:name] forKey:first];
+		}
+	}
+	if ([unfound count] > 0) {
+		_errors = unfound;
+		return NO;
+	}
+	/* Submitted to the form's action, or saved. */
+	ORMFormRequest *save = _form.action != nil ? [_form actionRequestFor:_values model:_model error:error]
+	                                           : [_form saveRequestFor:_values original:_original etag:_etag model:_model error:error];
 	if (save == nil) {
 		return NO;
 	}
@@ -315,8 +653,13 @@ ORMFormSessionError(NSString *text)
 		return NO;
 	}
 	NSString *key = [_values objectForKey:_form.keyElement];
-	if ([key length] == 0 && exchange.data != nil) {
-		key = ORMFormText([NSJSONSerialization JSONObjectWithData:exchange.data options:0 error:NULL], _form.keyElement);
+	id answer = exchange.data != nil ? [NSJSONSerialization JSONObjectWithData:exchange.data options:0 error:NULL] : nil;
+	if (_form.action != nil) {
+		/* The action's answer: the key of what it did, else the anchor's. */
+		id value = [answer isKindOfClass:[NSDictionary class]] ? [answer objectForKey:@"value"] : nil;
+		key = [value isKindOfClass:[NSString class]] || [value isKindOfClass:[NSNumber class]] ? [value description] : key;
+	} else if ([key length] == 0 && answer != nil) {
+		key = ORMFormText(answer, _form.keyElement);
 	}
 	_savedKey = key;
 	NSDictionary *read = [key length] > 0 ? [self readFromService:key error:NULL] : nil;

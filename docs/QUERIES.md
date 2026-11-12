@@ -50,14 +50,14 @@ added.
 city":
 
 ```
-✓Employee1
+Employee1 (shown)
   + lives in City1
   + was born in Country1
-  + supervises ✓Employee2
+  + supervises Employee2 (shown)
     + lives in City1
     + was born in Country2 <> Country1
-    + has ✓EmployeeName
-  + has ✓EmployeeName
+    + has EmployeeName (shown)
+  + has EmployeeName (shown)
 ```
 
 **The same query in FORML**, read out of its logic:
@@ -171,7 +171,7 @@ leading to the object types that play its other roles. Ticked object types are
 listed in the result. A condition compares a value, or an entity's identifier:
 
 ```
-✓Employee
+Employee (shown)
   + lives in City
     + is location of Branch = 52
 ```
@@ -182,8 +182,8 @@ identified (a name, a state, a country).
 
 | In the outline | Meaning |
 | --- | --- |
-| `✓X` | X is listed; in a form, X is shown ([FORMS.md](FORMS.md)) |
-| `✎X` | in a form, X is entered: the user gives its value |
+| `X (shown)` | X is listed; in a form, X is shown ([FORMS.md](FORMS.md)) |
+| `X (entered)` | in a form, X is entered: the user gives its value |
 | `X = ?` | in a form, X is given: its value comes in as the form is opened |
 | `X = v`, `<>`, `<`, `<=`, `>`, `>=` | a condition on X's value, or on its identifier |
 | `X in ('Maintenance', 'Repair')`, `X in (4, 5)` | X is one of a list: any of its values (planned as equalities, any of them; in NORMA's path, a value range for each) |
@@ -193,13 +193,13 @@ identified (a name, a state, a country).
 | `+ total(Salary) for Branch > 1000000` | an aggregate (count, total, avg, max, min) of a node the step reaches, for each object above it |
 | `+ count(Language) for Branch > 1` | the same for a node further above (ConQuer-II's for-clause): the languages of all a branch's employees |
 | `+ max(Salary) for Employee > avg(Salary) for Branch` | an aggregate compared with another, of the same node, for another node above |
-| `✓Branch ↓` | the results in descending (↑ ascending) order of that node |
+| `Branch (descending)` | the results in descending (`(ascending)`: ascending) order of that node |
 | `+ or ...` | the node's steps are alternatives, not all required |
 | `+ is Professor` | a subtype link, from the supertype or from the subtype |
 | `Session + has Cinema` | a link fact type: from an objectifying type to a player of its fact, or back; planned as the objectified fact type's entity's relationship |
 | `City1` | a label: nodes of one object type with the same label are the same object |
 | `Country2 <> Country1` | a condition comparing two nodes of the same object type |
-| `✓Length = Kilometres2 - Kilometres1 > 100` | a value node: computed from nodes before it, under the node it is for, listed and compared as a node is ([EXPRESSIONS.md](EXPRESSIONS.md)) |
+| `Length = Kilometres2 - Kilometres1 > 100 (shown)` | a value node: computed from nodes before it, under the node it is for, listed and compared as a node is ([EXPRESSIONS.md](EXPRESSIONS.md)) |
 | `Previous = max(Moment2) for FillUp1` | an aggregate as a value node, for the node it is under or above: compared with (`+ was at Moment3 = Previous`), used in arithmetic |
 
 A step reads from the role it enters by: "is location of" is the inverse
@@ -211,8 +211,10 @@ place of the role.
 
 An outline, as `-outlineText` writes it, is read back into the query it
 says (ORMOutlineReader), as one change:
-- The first line is the root. ✓ ticks it, digits after the name are a
-  label, then come a condition and ↑ or ↓.
+- The first line is the root. Digits after the name are a label, then
+  come a condition and the node's marks in parentheses: `(shown)` ticks
+  it, `(ascending)` or `(descending)` sorts by it, `(shown, descending)`
+  both.
 - Each `+` line indented under a node is a step from it. It reads a fact
   type from the role the node's object type plays, with each other role's
   node written in its place, after `or`, `not` or `maybe`. The longest
@@ -242,7 +244,7 @@ employee who lives in the same city as the supervisor but was born in a
 different country?":
 
 ```
-✓Employee1
+Employee1 (shown)
   + lives in City1
   + was born in Country1
   + supervises Employee2
@@ -269,7 +271,7 @@ fetched object. Q5, "who owns a car, and does not drive more than one of
 those cars?":
 
 ```
-✓Employee
+Employee (shown)
   + owns Car1
   + not drives Car1
     + count(Car1) for Employee > 1
@@ -558,7 +560,7 @@ by its own, and an entity among them by its identifier: a City as its name,
 its state's country and its state's code.
 
 ```
-✓Employee                        let join1 = read Branch where nr = 52
+Employee (shown)                 let join1 = read Branch where nr = 52
   + lives in City                read Employee
     + is location of Branch = 52 where cityCityname = cityCityname, cityStateStatecode = ...,
                                    cityStateCountry = cityStateCountry in join1
@@ -589,23 +591,23 @@ store on both platforms; ODataKit's service is checked on macOS. Both return
 the same rows.
 
 ```
-Q1 ✓Employee                        read Employee
+Q1 Employee (shown)                 read Employee
      + lives in City                where some city.branches as x1 has x1.nr = 52
        + is location of Branch = 52
 
-Q2 ✓Employee                        read Employee
+Q2 Employee (shown)                 read Employee
      + drives Car                   where some cars and branch is set
-     + works for ✓Branch            list self (nr), branch (nr)
+     + works for Branch (shown)     list self (nr), branch (nr)
 
-Q3 ✓USbranch                        read USbranch
+Q3 USbranch (shown)                 read USbranch
      + not achieved Rank = 1        where not (some uSbranchAchievedRankInYears as x1 has
          in Year < 1998               (x1.rank.nr = 1 and x1.year.ad < 1998))
      + is Branch                      and employee.employeeName is set
        + is headed by Employee
-         + has ✓EmployeeName
-         + maybe drives ✓Car
+         + has EmployeeName (shown)
+         + maybe drives Car (shown)
 
-Q5 ✓Employee                        read Employee
+Q5 Employee (shown)                 read Employee
      + owns Car1                    where some ownsCars and not (number of cars as x2
      + not drives Car1                having x2 is among ownsCars > 1)
        + count(Car1) > 1

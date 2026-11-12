@@ -12,8 +12,11 @@
  *   ormtool verbalize [--html] model.orm     the model as FORML sentences
  *   ormtool check model.orm                  what the model holds, and whether it reads;
  *                                            its sample population against its
- *                                            constraints and constraint queries
- *                                            (1 when it breaks an alethic one)
+ *                                            constraints and constraint queries,
+ *                                            and each form whole (1 when it
+ *                                            breaks an alethic one, or a form
+ *                                            lacks an element the model has
+ *                                            in it)
  *   ormtool normalize model.orm [out.orm]    NORMA's derived data brought up to date
  *   ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]
  *                                            the model mapped to Core Data, with the mapping's report;
@@ -42,7 +45,9 @@
  *                                            population (ORMFlowWalk): each list's first row
  *                                            chosen, each form submitted as it opens, each way
  *                                            taken once; what happened, a line a step
- *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]
+ *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]
+ *   ormtool contract model.orm Form copy.xhtml  a customized copy against the form: errors (1), warnings, what is provisional
+ *   ormtool propose model.orm Form copy.xhtml [sample.xml]  the fact types its provisional elements ask for, as FORML
  *                                            each form (or the named one) as an XForms document,
  *                                            <Form>.xhtml in dir/ (docs/FORMS.md): generated, never
  *                                            edited; beside it <Form>.ormform, what an app runs it
@@ -84,14 +89,16 @@ static int
 ORMUsage(void)
 {
 	fputs("usage: ormtool verbalize [--html] model.orm\n"
-	      "       ormtool check model.orm      (1 when the sample population breaks an alethic constraint)\n"
+	      "       ormtool check model.orm      (1 when the sample population breaks an alethic constraint, or a form lacks an element the model has in it)\n"
 	      "       ormtool normalize model.orm [out.orm]\n"
 	      "       ormtool coredata model.orm Out.xcdatamodeld [mapping name] [--validation dir/]\n"
 	      "       ormtool validation model.orm dir/ [mapping name]\n"
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
 	      "       ormtool flow model.orm file.flow [walk [entry name]]\n"
-	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]\n"
+	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]\n"
+	      "       ormtool contract model.orm Form copy.xhtml   (1 when the customized copy breaks the form's contract)\n"
+	      "       ormtool propose model.orm Form copy.xhtml [sample.xml]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
 	      "       ormtool forml model.orm [out.forml]\n"
 	      "       ormtool apply model.orm changes.forml [out.orm]\n"
@@ -416,6 +423,34 @@ main(int argc, const char *argv[])
 			for (NSString *note in [checker unchecked]) {
 				ORMPrint([NSString stringWithFormat:@"not checked: %@\n", note]);
 			}
+			/* Each form well formed (docs/FORMS.md, The definition), each
+			 * rule it breaks on a line, and whole: an element for everything
+			 * the model has in it (what ormtool xforms refuses to write
+			 * without). */
+			ORMCoreDataMapping *formMapping = [model.coreDataMappings firstObject];
+			for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
+				if (query.kind != ORMQueryForm) {
+					continue;
+				}
+				NSArray *problems = [ORMFormDefinition definitionOfForm:query model:model mapping:formMapping].problems;
+				for (ORMFormProblem *problem in problems) {
+					ORMPrint([NSString stringWithFormat:@"form %@: %@\n", query.name, problem.text]);
+					broken += 1;
+				}
+				if ([problems count] > 0) {
+					continue;
+				}
+				NSString *reason = nil;
+				ORMFormDocument *form = [ORMFormDocument documentForForm:query model:model mapping:formMapping reason:&reason];
+				if (form == nil) {
+					ORMPrint([NSString stringWithFormat:@"form %@: cannot be made: %@\n", query.name, reason]);
+					broken += 1;
+				}
+				for (NSString *missing in form.missing) {
+					ORMPrint([NSString stringWithFormat:@"form %@: %@\n", query.name, missing]);
+					broken += 1;
+				}
+			}
 			return broken > 0 ? 1 : 0;
 		}
 		if ([command isEqualToString:@"normalize"]) {
@@ -574,6 +609,43 @@ main(int argc, const char *argv[])
 			}
 			return [problems count] > 0 ? 1 : 0;
 		}
+		/* A customized copy of a form's document, against the form as a
+		 * contract; the fact types what it adds asks for. */
+		if (([command isEqualToString:@"contract"] || [command isEqualToString:@"propose"]) && [args count] >= 4) {
+			ORMQuery *found = nil;
+			for (ORMQuery *query in [ORMQuery queriesInModel:model]) {
+				found = query.kind == ORMQueryForm && [query.name isEqualToString:[args objectAtIndex:2]] ? query : found;
+			}
+			NSString *reason = nil;
+			ORMFormDocument *form = found != nil ? [ORMFormDocument documentForForm:found model:model
+			                                                                 mapping:[model.coreDataMappings firstObject] reason:&reason]
+			                                     : nil;
+			NSData *data = [NSData dataWithContentsOfFile:[args objectAtIndex:3]];
+			NSXMLDocument *copy = data != nil ? [[NSXMLDocument alloc] initWithData:data options:0 error:NULL] : nil;
+			if (form == nil || copy == nil) {
+				fprintf(stderr, "ormtool: %s\n", form == nil ? [(found == nil ? @"no form of that name" : reason) UTF8String]
+				                                              : "the copy is no XML document");
+				return 1;
+			}
+			ORMFormCustomization *customization = [ORMFormCustomization customization:copy ofForm:form];
+			if ([command isEqualToString:@"propose"]) {
+				NSData *sampleData = [args count] > 4 ? [NSData dataWithContentsOfFile:[args objectAtIndex:4]] : nil;
+				NSXMLDocument *sample = sampleData != nil ? [[NSXMLDocument alloc] initWithData:sampleData options:0 error:NULL] : nil;
+				ORMPrint([customization proposalGiven:sample]);
+				return 0;
+			}
+			for (NSString *error in customization.errors) {
+				ORMPrint([NSString stringWithFormat:@"error: %@\n", error]);
+			}
+			for (NSString *warning in customization.warnings) {
+				ORMPrint([NSString stringWithFormat:@"warning: %@\n", warning]);
+			}
+			if ([customization isUnderConstruction]) {
+				ORMPrint([NSString stringWithFormat:@"under construction: %@ (ormtool propose says the fact types they ask for)\n",
+				                                    [customization.provisionalElements componentsJoinedByString:@", "]]);
+			}
+			return [customization.errors count] > 0 ? 1 : 0;
+		}
 		if ([command isEqualToString:@"xforms"] && [args count] >= 3) {
 			/* A flow's screens: their forms' ways on, in their actions. */
 			ORMFlow *flow = nil;
@@ -589,6 +661,34 @@ main(int argc, const char *argv[])
 				}
 				NSMutableArray *rest = [args mutableCopy];
 				[rest removeObjectsInRange:NSMakeRange(flowAt, 2)];
+				args = rest;
+			}
+			/* The actions forms are submitted to: --action Form=Action, each. */
+			NSMutableDictionary *actions = [NSMutableDictionary dictionary];
+			for (NSUInteger at = [args indexOfObject:@"--action"]; at != NSNotFound; at = [args indexOfObject:@"--action"]) {
+				NSArray *pair = at + 1 < [args count] ? [[args objectAtIndex:at + 1] componentsSeparatedByString:@"="] : nil;
+				if ([pair count] != 2 || [[pair firstObject] length] == 0 || [[pair lastObject] length] == 0) {
+					fprintf(stderr, "ormtool: --action: give Form=Action\n");
+					return 1;
+				}
+				[actions setObject:[pair lastObject] forKey:[pair firstObject]];
+				NSMutableArray *rest = [args mutableCopy];
+				[rest removeObjectsInRange:NSMakeRange(at, 2)];
+				args = rest;
+			}
+			/* The app's words for its rules: --messages file.plist, a
+			 * dictionary of texts by constraint or rule name or id. */
+			NSDictionary *messages = nil;
+			NSUInteger messagesAt = [args indexOfObject:@"--messages"];
+			if (messagesAt != NSNotFound) {
+				NSData *data = messagesAt + 1 < [args count] ? [NSData dataWithContentsOfFile:[args objectAtIndex:messagesAt + 1]] : nil;
+				messages = data != nil ? [NSPropertyListSerialization propertyListWithData:data options:0 format:NULL error:NULL] : nil;
+				if (![messages isKindOfClass:[NSDictionary class]]) {
+					fprintf(stderr, "ormtool: --messages: give a property list of texts by name\n");
+					return 1;
+				}
+				NSMutableArray *rest = [args mutableCopy];
+				[rest removeObjectsInRange:NSMakeRange(messagesAt, 2)];
 				args = rest;
 			}
 			ORMCoreDataMapping *mapping = nil;
@@ -615,12 +715,26 @@ main(int argc, const char *argv[])
 					status = 1;
 					continue;
 				}
+				/* A form without what the model has in it is not written:
+				 * an app built on it would lack those elements. */
+				if ([form.missing count] > 0) {
+					for (NSString *missing in form.missing) {
+						fprintf(stderr, "ormtool: %s: error: %s\n", [query.name UTF8String], [missing UTF8String]);
+					}
+					for (NSString *note in form.notes) {
+						fprintf(stderr, "ormtool: %s: note: %s\n", [query.name UTF8String], [note UTF8String]);
+					}
+					status = 1;
+					continue;
+				}
 				for (ORMFlowScreen *screen in flow.screens) {
 					if ([screen.formId isEqualToString:query.identifier]) {
 						[form setFlow:flow screen:screen];
 						break;
 					}
 				}
+				form.action = [actions objectForKey:query.name];
+				form.messages = messages;
 				NSString *path = [directory stringByAppendingPathComponent:[query.name stringByAppendingPathExtension:@"xhtml"]];
 				NSData *data = [[form document] XMLDataWithOptions:NSXMLNodePrettyPrint];
 				if (![data writeToFile:path atomically:YES]) {

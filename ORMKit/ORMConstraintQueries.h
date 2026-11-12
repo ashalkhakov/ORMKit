@@ -13,7 +13,7 @@
  * is the rule
  *
  *   It is impossible that:
- *   ✓Event
+ *   Event (shown)
  *     + had driver User1
  *     + is of Vehicle
  *       + not User1 drives that Vehicle

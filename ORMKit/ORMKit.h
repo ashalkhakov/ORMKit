@@ -59,6 +59,8 @@
 #import "ORMRuntime.h"
 #endif
 #import "ORMQueryPlanner.h"
+#import "ORMFormCustomization.h"
+#import "ORMFormDefinition.h"
 #import "ORMFormDocument.h"
 #import "ORMFlow.h"
 #import "ORMFlowEditor.h"

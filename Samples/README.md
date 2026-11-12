@@ -63,9 +63,9 @@ by hand.
   something a form does:
   - Vehicles: a list, each van with its plate.
   - RecordFillUp: a fill-up of a van given to it (`= ?`), the van's plate
-    shown through it (✓, read from the van), its moment, litres (above 0),
+    shown through it (`(shown)`, read from the van), its moment, litres (above 0),
     fuel (a value list), station, cost (money: an amount and a currency)
-    and driver entered (✎). The driver's choices are the van's drivers
+    and driver entered (`(entered)`). The driver's choices are the van's drivers
     (`+ drives Vehicle1`). "filled the tank" is a flag.
   - NewStation: a station and its address, an object the form owns: made
     with the station, where anything of it is entered, its lines then

@@ -1860,11 +1860,14 @@ ORMTupleIsAlso(NSArray *tuple, NSArray<NSArray *> *also)
 	if (base == nil) {
 		return @[ [NSNull null] ];
 	}
+	/* As a subentity, what is not one is nothing (a service's fill-up's
+	 * money), as -valueOf: has it. */
 	NSArray *values = @[ base ];
-	for (NSString *key in path.keys) {
+	for (ORMPlanStep *step in path.steps) {
 		NSMutableArray *next = [NSMutableArray array];
 		for (id value in values) {
-			[next addObjectsFromArray:ORMMembers([value valueForKey:key])];
+			[next addObjectsFromArray:step.key != nil ? ORMMembers([value valueForKey:step.key])
+			                                          : ORMMembers(ORMAsEntity(value, step.entityName))];
 		}
 		values = next;
 	}

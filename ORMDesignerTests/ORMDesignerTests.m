@@ -1003,6 +1003,10 @@
 	XCTAssertEqual(form.kind, ORMQueryForm);
 	XCTAssertNotNil([[queries valueForKey:@"queryPopUp"] itemWithTitle:[form.name stringByAppendingString:@" (form)"]]);
 	ORMQueryNode *location = [[[form.root.steps firstObject] nodes] firstObject];
+	/* Unmarked, leading to nothing: no form (E6), said at its node. */
+	XCTAssertTrue([[queries textOfNode:location] hasPrefix:@"\u26A0 "], @"%@", [queries textOfNode:location]);
+	XCTAssertTrue([[[queries valueForKey:@"statusLabel"] stringValue] hasPrefix:@"This outline is no form: E6: Location: "],
+	              @"%@", [[queries valueForKey:@"statusLabel"] stringValue]);
 	[queries selectElement:location.identifier];
 	XCTAssertFalse([part isHidden]);
 	XCTAssertFalse([given isHidden]);
@@ -1016,11 +1020,15 @@
 	XCTAssertTrue(location.isGiven);
 	XCTAssertEqual([part indexOfSelectedItem], (NSInteger)ORMFormPartEntered, @"shown as it is");
 	XCTAssertTrue([[queries verbalizationText] hasPrefix:@"The form "], @"%@", [queries verbalizationText]);
-	/* Undone, given no more. */
+	/* A warehouse has many locations: one given is no form (E3). */
+	XCTAssertTrue([[[queries valueForKey:@"statusLabel"] stringValue] hasPrefix:@"This outline is no form: E3: Location: "],
+	              @"%@", [[queries valueForKey:@"statusLabel"] stringValue]);
+	/* Undone, given no more: entered, a repeat's (D8), a form again. */
 	[[_document undoManager] undo];
 	location = [[[[ORMQuery queryWithId:query inModel:editor.model].root.steps firstObject] nodes] firstObject];
 	XCTAssertFalse(location.isGiven);
 	XCTAssertEqual(location.formPart, ORMFormPartEntered);
+	XCTAssertFalse([[queries textOfNode:location] hasPrefix:@"\u26A0 "], @"%@", [[queries valueForKey:@"statusLabel"] stringValue]);
 	[queries close];
 }
 
@@ -1056,7 +1064,7 @@
 	[queries performSelector:@selector(formPartChanged:) withObject:part];
 	ORMQuery *form = [ORMQuery queryWithId:query inModel:editor.model];
 	XCTAssertEqual([form.root.steps.firstObject formPart], ORMFormPartEntered);
-	XCTAssertTrue([[form outlineText] rangeOfString:@"is open ✎"].location != NSNotFound, @"%@", [form outlineText]);
+	XCTAssertTrue([[form outlineText] rangeOfString:@"is open (entered)"].location != NSNotFound, @"%@", [form outlineText]);
 	[queries close];
 }
 
@@ -1356,12 +1364,12 @@
 	/* Branch's role of "Employee works for Branch": to the branch. */
 	NSString *branch = [queries followRole:roleOf(@"Employee works for Branch", @"Branch")];
 	XCTAssertEqualObjects([[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText],
-	                      @"✓Employee\n  + works for Branch\n");
+	                      @"Employee (shown)\n  + works for Branch\n");
 	XCTAssertEqualObjects(queries.selectedId, branch);
 	/* Then City's role of "Branch is located in City", from the branch. */
 	[queries followRole:roleOf(@"Branch is located in City", @"City")];
 	XCTAssertEqualObjects([[ORMQuery queryWithId:query inModel:_document.editor.model] outlineText],
-	                      @"✓Employee\n  + works for Branch\n    + is located in City\n");
+	                      @"Employee (shown)\n  + works for Branch\n    + is located in City\n");
 	/* A role the node's object type cannot reach from there: refused. */
 	XCTAssertNil([queries followRole:roleOf(@"Car is of CarModel", @"CarModel")]);
 	/* From the canvas, the checkbox on. */
@@ -1710,13 +1718,13 @@
 	                 @"Each FillUp took at most one Litres.\n"
 	                 @"\n"
 	                 @"Query Vehicles:\n"
-	                 @"✓Vehicle\n"
+	                 @"Vehicle (shown)\n"
 	                 @"\n"
 	                 @"Query RecordFillUp:\n"
 	                 @"Form RecordFillUp:\n"
 	                 @"FillUp\n"
 	                 @"  + is of Vehicle = ?\n"
-	                 @"  + took ✎Litres\n";
+	                 @"  + took Litres (entered)\n";
 	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:text failures:&failures], @"%@", failures);
 	/* Its sample: two cars, to play the flow over. */
 	NSString *reason = nil;
@@ -1970,6 +1978,42 @@
 	XCTAssertTrue([player.walk submit:&error], @"%@ %@", player.walk.session.errors, error);
 	XCTAssertTrue([[player.walk.log componentsJoinedByString:@"\n"] rangeOfString:@"NewRecord saved"].location != NSNotFound, @"%@",
 	              player.walk.log);
+
+	/* A service: its day, and its lines, rows added and taken away, each
+	 * part chosen and counted; saved with it. */
+	[player startOver:nil];
+	XCTAssertTrue([player.walk take:way(@"record") row:0 error:&error], @"%@", error);
+	[player.values reloadData];
+	XCTAssertEqual(rowOf(@"ServiceLine"), -1, @"no kind yet: no lines");
+	[player setValue:@"Service" ofRow:rowOf(@"Kind")];
+	NSInteger serviceLines = rowOf(@"ServiceLine");
+	XCTAssertTrue(serviceLines >= 0, @"a service's lines");
+	XCTAssertEqualObjects([player editorOfRow:serviceLines], @"rows");
+	XCTAssertEqualObjects([player shownValueOfRow:serviceLines], @"0 rows");
+	XCTAssertEqual(rowOf(@"Part"), -1, @"no row yet");
+	[player addRowAt:serviceLines];
+	[player addRowAt:serviceLines];
+	XCTAssertEqualObjects([player shownValueOfRow:serviceLines], @"2 rows");
+	NSInteger second = rowOf(@"ServiceLine 2");
+	XCTAssertEqualObjects([player editorOfRow:second], @"row");
+	[player removeRowAt:second];
+	XCTAssertEqual(rowOf(@"ServiceLine 2"), -1);
+	NSInteger part = rowOf(@"Part"), count = rowOf(@"Count");
+	XCTAssertTrue(part > rowOf(@"ServiceLine 1") && count > part, @"the row's elements under it");
+	XCTAssertEqualObjects([player editorOfRow:part], @"choice");
+	XCTAssertEqualObjects([player editorOfRow:count], @"number");
+	NSArray *parts = [player.walk.session choicesNamed:@"part" inRepeat:@"serviceLines" row:0 error:&error];
+	XCTAssertTrue([parts count] > 0, @"%@", error);
+	[player setValue:[parts firstObject] ofRow:part];
+	[player setValue:@"2" ofRow:count];
+	[player setValue:@"2026-11-12" ofRow:rowOf(@"Day")];
+	ORMFormSession *service = player.walk.session;
+	XCTAssertTrue([player.walk submit:&error], @"%@ %@", service.errors, error);
+	service.key = service.savedKey;
+	XCTAssertTrue([service open:&error], @"%@", error);
+	NSArray *saved = [service rowsOfRepeat:@"serviceLines"];
+	XCTAssertEqual([saved count], 1u, @"%@", saved);
+	XCTAssertEqualObjects([[saved firstObject] objectForKey:@"count"], @"2");
 }
 
 /* Played from its window: Play's window, from its XIB, connected; the cars

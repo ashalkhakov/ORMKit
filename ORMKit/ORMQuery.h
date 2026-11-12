@@ -9,8 +9,8 @@
  * on the way, so that it is said in the model's own terms and not in the
  * store's (Core Data's entities, attributes and key paths).
  *
- *   ✓Academic
- *     + was awarded ✓Degree in Year
+ *   Academic (shown)
+ *     + was awarded Degree (shown) in Year
  *       + has Rating > 5
  *
  * lists each academic, and the degrees, for the academics awarded a degree
@@ -108,7 +108,7 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, weak) ORMQueryStep *step;
 /* Ticked: listed in the result. A form's entered and shown nodes are. */
 @property (nonatomic, readonly) BOOL isProjected;
-/* In a form: entered (✎), shown (✓) or neither; and given ("X = ?"), its
+/* In a form: entered, shown or neither; and given ("X = ?"), its
  * value coming in with the form as it is opened. None and NO elsewhere. */
 @property (nonatomic, readonly) ORMQueryFormPart formPart;
 @property (nonatomic, readonly) BOOL isGiven;
@@ -156,6 +156,11 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, strong) ORMRole *entryRole;
 @property (nonatomic, readonly, weak) ORMQueryNode *parent;
 @property (nonatomic, readonly) ORMQueryOperator operatorKind;
+/* What it reads as: its operator, but maybe for a form's part (a step down
+ * to a subtype, docs/FORMS.md D12) and each plain step beneath one, its
+ * nodes counting where the object is one, so that a form's parts ("is
+ * FillUp", "is Service") are not all asked of each object. */
+@property (nonatomic, readonly) ORMQueryOperator readOperator;
 /* The object types playing its other roles, in the fact type's order. */
 @property (nonatomic, readonly, copy) NSArray<ORMQueryNode *> *nodes;
 /* An aggregate condition, for each node above: "count(Language) > 1",
@@ -179,8 +184,8 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 @property (nonatomic, readonly, weak) ORMQueryNode *comparedGroupNode;
 /* Through a subtype link: "is Professor". */
 - (BOOL)isSubtyping;
-/* In a form, a unary step entered (✎: whether it holds is the user's to
- * say) or shown (✓); none elsewhere. A unary step has no node to mark. */
+/* In a form, a unary step entered (whether it holds is the user's to
+ * say) or shown; none elsewhere. A unary step has no node to mark. */
 @property (nonatomic, readonly) ORMQueryFormPart formPart;
 @end
 
@@ -205,6 +210,9 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
 /* A derivation's subtype: its rows are the instances of its root's type
  * that are of the subtype (nil: it derives a fact type, or none yet). */
 @property (nonatomic, readonly, weak) ORMObjectType *derivedSubtype;
+/* A form's further anchors (docs/FORMS.md): the forms made or changed with
+ * it, one change set, by id, in order; empty for one anchor. */
+@property (nonatomic, readonly, copy) NSArray<NSString *> *withFormIds;
 /* "value", "count", "total", "avg", "max", "min". */
 + (NSString *)nameOfCalculationFunction:(ORMQueryCalculationFunction)function;
 
@@ -293,6 +301,10 @@ typedef NS_ENUM(NSInteger, ORMQuerySort) {
  * stored stays. NO for a query of another kind, a fact type another query
  * derives, or one with NORMA's own rule. */
 - (BOOL)setDerivedFactType:(NSString *)factTypeId ofQuery:(NSString *)queryId reason:(NSString **)reason;
+/* The forms a form is made or changed with, one change set: each a form of
+ * the model's of one anchor, not the form itself. NO for a query that is no
+ * form, or forms that are not so. */
+- (BOOL)setWithForms:(NSArray<NSString *> *)formIds ofQuery:(NSString *)queryId reason:(NSString **)reason;
 /* The subtype a derivation derives: each instance of the query's root
  * type that it finds is one. Its root is a supertype of it. The subtype
  * keeps its rule's words, or is given the query's name for them, as

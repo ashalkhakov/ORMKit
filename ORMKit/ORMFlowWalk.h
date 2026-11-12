@@ -40,6 +40,8 @@
  * station's name), else its first text, else the key itself; a kind's
  * as a reader says it ("Fill up"). */
 - (NSString *)labelOfKey:(NSString *)key element:(NSString *)name;
+/* The same of a repeat's row's element (a service line's part). */
+- (NSString *)labelOfKey:(NSString *)key element:(NSString *)name inRepeat:(NSString *)repeat;
 /* The ways on from here, in the flow's order. */
 - (NSArray<ORMFlowTransition *> *)transitions;
 
