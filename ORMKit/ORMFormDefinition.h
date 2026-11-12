@@ -69,9 +69,11 @@ typedef NS_ENUM(NSInteger, ORMFormPlace) {
 
 /* What the generator needs of each node beyond its rule: a choice it is
  * beneath (D5, D6, D7 through it), the nodes the choice's identification
- * is (D6), and whether a step is a repeat (D8) or a list (D9). */
+ * is (D6), and whether a step is a repeat (D8), a list (D9) or a set of
+ * choices (D17). */
 - (ORMQueryNode *)choiceAbove:(ORMQueryNode *)node;
 - (BOOL)identifiesChoice:(ORMQueryNode *)node;
 - (BOOL)isRepeat:(ORMQueryStep *)step;
 - (BOOL)isList:(ORMQueryStep *)step;
+- (BOOL)isChoiceSet:(ORMQueryStep *)step;
 @end

@@ -56,6 +56,10 @@ extern NSString * const ORMFormErrorDomain;
 @property (nonatomic, readonly, copy) NSString *entityName;
 @property (nonatomic, readonly, copy) NSString *keyName;
 @property (nonatomic, readonly) BOOL written;
+/* A set of choices (FORMS.md, D17): the keys of the objects picked (an
+ * answer's options), space separated, in order, as an XForms select holds
+ * them; written as the whole of its to-many relationship. */
+@property (nonatomic, readonly) BOOL many;
 /* What it is to whoever opens the form: "key" (the object's own), "given"
  * (it comes in, and is not entered), "entered", "shown", "calculated", or
  * "hidden" (read only to compute with). */

@@ -30,7 +30,8 @@
 
 /* The control a row's value is shown in, its prototype's identifier in the
  * XIB: "shown" (not entered: a key, a given value, a list's row), "text",
- * "number", "date", "dateTime", "flag" or "choice"; a repeat's heading
+ * "number", "date", "dateTime", "flag", "choice" or "choices" (a set of
+ * choices: each picked or not); a repeat's heading
  * "rows" (its Add), a row's "row" (its Remove). */
 - (NSString *)editorOfRow:(NSInteger)row;
 /* A row's value as it is shown: a reference by its label, a flag Yes or
@@ -46,6 +47,9 @@
 /* An empty date's Set: given today, its picker shown to change it (a
  * picker shown always holds its row's value). */
 - (IBAction)setDate:(id)sender;
+/* A set of choices' item picked, or no longer: its key in the row's
+ * value, or out of it. */
+- (IBAction)toggleChoice:(id)sender;
 /* Its row's value emptied: a date's Clear. */
 - (IBAction)clearValue:(id)sender;
 /* A repeat's heading's Add: an empty row after its others. */

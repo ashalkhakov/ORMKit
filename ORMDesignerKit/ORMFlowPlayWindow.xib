@@ -225,6 +225,22 @@
 </subviews>
 <connections></connections>
 </tableCellView>
+<tableCellView identifier="choices" id="choicesView">
+<rect key="frame" x="1" y="1" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES"/>
+<subviews>
+<popUpButton verticalHuggingPriority="750" id="choicesPullDown">
+<rect key="frame" x="0" y="0" width="300" height="24"/>
+<autoresizingMask key="autoresizingMask" widthSizable="YES" flexibleMinY="YES"/>
+<popUpButtonCell key="cell" type="push" title="(none)" bezelStyle="rounded" alignment="left" controlSize="small" lineBreakMode="truncatingTail" borderStyle="border" imageScaling="proportionallyDown" inset="2" pullsDown="YES" id="choicesPullDownCell">
+<behavior key="behavior" lightByBackground="YES" lightByGray="YES"/><font key="font" metaFont="smallSystem"/>
+<menu key="menu" id="choicesMenu"><items><menuItem title="(none)" id="choicesTitle"/></items></menu>
+</popUpButtonCell>
+<connections><action selector="toggleChoice:" target="-2" id="choicesPullDownAction"/></connections>
+</popUpButton>
+</subviews>
+<connections></connections>
+</tableCellView>
 <tableCellView identifier="rows" id="rowsView">
 <rect key="frame" x="1" y="1" width="300" height="24"/>
 <autoresizingMask key="autoresizingMask" widthSizable="YES"/>

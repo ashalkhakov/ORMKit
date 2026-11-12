@@ -24,6 +24,7 @@ ORMFormError(NSString *text)
 @property (nonatomic, readwrite, copy) NSString *entityName;
 @property (nonatomic, readwrite, copy) NSString *keyName;
 @property (nonatomic, readwrite) BOOL written;
+@property (nonatomic, readwrite) BOOL many;
 @property (nonatomic, readwrite, copy) NSString *role;
 @property (nonatomic, readwrite) BOOL given;
 @property (nonatomic, readwrite, copy) NSArray<NSString *> *items;
@@ -180,6 +181,26 @@ ORMFormValue(NSString *text, NSAttributeDescription *attribute, NSString **probl
 
 static NSManagedObject *ORMFormFind(NSEntityDescription *entity, NSString *key, id value, NSManagedObjectContext *context);
 
+/* A set of choices' keys as its element holds them: in order, space
+ * separated; and its text as the keys, none for "". */
+static NSString *
+ORMFormKeysText(NSArray<NSString *> *keys)
+{
+	return [[keys sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@" "];
+}
+
+static NSArray<NSString *> *
+ORMFormKeysOf(NSString *text)
+{
+	NSMutableArray *keys = [NSMutableArray array];
+	for (NSString *each in [text componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]]) {
+		if ([each length] > 0 && ![keys containsObject:each]) {
+			[keys addObject:each];
+		}
+	}
+	return [keys sortedArrayUsingSelector:@selector(compare:)];
+}
+
 /* What an error says of a property, for the user (below). */
 static NSString *ORMFormMessage(NSError *error);
 
@@ -264,6 +285,7 @@ static NSString *ORMFormMessage(NSError *error);
 		element.entityName = [item objectForKey:@"entity"];
 		element.keyName = [item objectForKey:@"key"];
 		element.written = [[item objectForKey:@"written"] boolValue];
+		element.many = [[item objectForKey:@"many"] boolValue];
 		element.given = [[item objectForKey:@"given"] boolValue];
 		element.label = [item objectForKey:@"label"] ?: element.name;
 		element.items = [[item objectForKey:@"items"] isKindOfClass:[NSArray class]] ? [item objectForKey:@"items"] : nil;
@@ -564,6 +586,19 @@ ORMRegisteredForms(void)
 		if (element.read == nil) {
 			continue;
 		}
+		if (element.many) {
+			/* A set of choices: each row's object picked, by its key. */
+			NSMutableArray *keys = [NSMutableArray array];
+			for (NSArray *each in [rows objectForKey:element.name]) {
+				NSString *key = ORMFormText(element.readColumn < [each count] ? [each objectAtIndex:element.readColumn] : nil, nil,
+				                            element.keyName);
+				if ([key length] > 0 && ![keys containsObject:key]) {
+					[keys addObject:key];
+				}
+			}
+			[read setObject:ORMFormKeysText(keys) forKey:element.name];
+			continue;
+		}
 		id value = element.readColumn < [row count] ? [row objectAtIndex:element.readColumn] : nil;
 		[read setObject:ORMFormText(value, element.schemaType, element.keyName) forKey:element.name];
 	}
@@ -662,20 +697,11 @@ ORMFormCollect(id value, NSArray<NSString *> *path, NSMutableArray<NSString *> *
 		}
 		return nil;
 	}
-	NSMutableDictionary *instance = [[self instanceOfRow:[result.rows firstObject]] mutableCopy];
-	/* What is read on its own, by the key. */
-	NSMutableDictionary *own = [NSMutableDictionary dictionary];
-	for (ORMFormElement *element in _elements) {
-		ORMQueryPlan *plan = element.read != nil ? [element.read planBinding:@{ _keyElement ?: @"" : key ?: @"" } error:error] : nil;
-		ORMQueryResult *read = plan != nil ? [interpreter executePlan:plan inContext:context error:error] : nil;
-		if (element.read != nil && read == nil) {
-			return nil;
-		}
-		if (read != nil) {
-			[own setObject:read.rows forKey:element.name];
-		}
+	NSMutableDictionary *instance = [[self instance:[self instanceOfRow:[result.rows firstObject]] readOwnOf:key
+	                                     interpreter:interpreter inContext:context error:error] mutableCopy];
+	if (instance == nil) {
+		return nil;
 	}
-	instance = [[self instance:instance withOwnReads:own] mutableCopy];
 	ORMFormElement *kind = [self subtypeElement];
 	if (kind != nil) {
 		NSEntityDescription *entity = [NSEntityDescription entityForName:_entityName inManagedObjectContext:context];
@@ -699,6 +725,28 @@ ORMFormCollect(id value, NSArray<NSString *> *path, NSMutableArray<NSString *> *
 	return [self instanceWithAggregates:instance];
 }
 
+/* The instance with what is read on its own, by the key: a derived value,
+ * a set of choices. */
+- (NSDictionary *)instance:(NSDictionary *)instance
+                 readOwnOf:(NSString *)key
+               interpreter:(ORMQueryInterpreter *)interpreter
+                 inContext:(NSManagedObjectContext *)context
+                     error:(NSError **)error
+{
+	NSMutableDictionary *own = [NSMutableDictionary dictionary];
+	for (ORMFormElement *element in _elements) {
+		ORMQueryPlan *plan = element.read != nil ? [element.read planBinding:@{ _keyElement ?: @"" : key ?: @"" } error:error] : nil;
+		ORMQueryResult *read = plan != nil ? [interpreter executePlan:plan inContext:context error:error] : nil;
+		if (element.read != nil && read == nil) {
+			return nil;
+		}
+		if (read != nil) {
+			[own setObject:read.rows forKey:element.name];
+		}
+	}
+	return [self instance:instance withOwnReads:own];
+}
+
 - (NSArray<NSDictionary *> *)rowsLinkedTo:(NSString *)key inContext:(NSManagedObjectContext *)context error:(NSError **)error
 {
 	ORMQueryPlan *plan = [_readPlan planBinding:@{ _linkElement ?: @"": key ?: @"" } error:error];
@@ -716,6 +764,11 @@ ORMFormCollect(id value, NSArray<NSString *> *path, NSMutableArray<NSString *> *
 			continue;
 		}
 		[seen addObject:rowKey];
+		/* Each row's own reads, by its key (an answer's options). */
+		instance = [self instance:instance readOwnOf:rowKey interpreter:interpreter inContext:context error:error];
+		if (instance == nil) {
+			return nil;
+		}
 		[rows addObject:instance];
 	}
 	return rows;
@@ -924,6 +977,32 @@ ORMFormNewKey(NSEntityDescription *entity, NSAttributeDescription *key, NSManage
 	NSEntityDescription *entity = [object entity];
 	NSString *problem = nil;
 	id value = nil;
+	if (element.many) {
+		/* A set of choices: the objects of its keys, the whole of the
+		 * relationship. */
+		NSRelationshipDescription *relationship = [[entity relationshipsByName] objectForKey:property];
+		NSEntityDescription *destination = [relationship destinationEntity];
+		NSAttributeDescription *destinationKey = [[destination attributesByName] objectForKey:element.keyName ?: @""];
+		NSMutableSet *picked = [NSMutableSet set];
+		for (NSString *key in ORMFormKeysOf(text)) {
+			id typed = ORMFormValue(key, destinationKey, &problem);
+			NSManagedObject *one = typed != nil ? ORMFormFind(destination, element.keyName, typed, context) : nil;
+			if (one == nil) {
+				problem = problem ?: [NSString stringWithFormat:@"There is no %@ %@.", [destination name] ?: element.entityName, key];
+				break;
+			}
+			[picked addObject:one];
+		}
+		if (relationship == nil || ![relationship isToMany]) {
+			problem = [NSString stringWithFormat:@"%@ has no %@.", [entity name], property];
+		}
+		if (problem != nil) {
+			return problem;
+		}
+		[before setObject:[[object valueForKey:property] copy] ?: [NSNull null] forKey:property];
+		[object setValue:picked forKey:property];
+		return nil;
+	}
 	if ([element.kind isEqualToString:@"reference"]) {
 		NSRelationshipDescription *relationship = [[entity relationshipsByName] objectForKey:property];
 		NSEntityDescription *destination = [relationship destinationEntity];
@@ -1446,6 +1525,47 @@ ORMFormMessage(NSError *error)
 		if (into == nil) {
 			problem = [NSString stringWithFormat:@"%@ has no %@.", _entityName, element.group];
 			break;
+		}
+		if (element.many) {
+			/* A set of choices: new, each object bound; changed, a delta of
+			 * those picked and those no longer. */
+			NSRelationshipDescription *relationship = [[of relationshipsByName] objectForKey:property];
+			NSEntityDescription *destination = [relationship destinationEntity];
+			NSAttributeDescription *destinationKey = [[destination attributesByName] objectForKey:element.keyName ?: @""];
+			if (relationship == nil || ![relationship isToMany]) {
+				problem = [NSString stringWithFormat:@"%@ has no %@.", [of name], property];
+				break;
+			}
+			NSArray *now = ORMFormKeysOf(text);
+			NSArray *had = isNew ? @[] : ORMFormKeysOf([[original objectForKey:element.name] description]);
+			NSMutableArray *bound = [NSMutableArray array];
+			NSMutableArray *delta = [NSMutableArray array];
+			for (NSString *key in [now arrayByAddingObjectsFromArray:had]) {
+				id typed = ORMFormValue(key, destinationKey, &problem);
+				if (problem != nil) {
+					break;
+				}
+				NSString *path = [NSString stringWithFormat:@"%@(%@)", [mapper entitySetForEntity:destination],
+				                                              [coder literalForValue:typed attribute:destinationKey]];
+				BOOL picked = [now containsObject:key], was = [had containsObject:key];
+				if (isNew && picked) {
+					[bound addObject:path];
+				} else if (picked && !was) {
+					[delta addObject:@{ @"@id" : path }];
+				} else if (!picked && was) {
+					[delta addObject:@{ @"@removed" : @{ @"reason" : @"changed" }, @"@id" : path }];
+				}
+			}
+			if (problem != nil) {
+				break;
+			}
+			NSString *wire = [mapper propertyForRelationship:relationship];
+			if (isNew) {
+				[into setObject:bound forKey:[wire stringByAppendingString:@"@odata.bind"]];
+			} else if ([delta count] > 0) {
+				[into setObject:delta forKey:[wire stringByAppendingString:@"@delta"]];
+			}
+			continue;
 		}
 		if ([element.kind isEqualToString:@"reference"]) {
 			NSRelationshipDescription *relationship = [[of relationshipsByName] objectForKey:property];

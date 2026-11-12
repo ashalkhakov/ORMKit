@@ -399,6 +399,26 @@ ORMFormSessionError(NSString *text)
 	return rows;
 }
 
+/* The instance with what the form reads on its own, by the key, from the
+ * service: a derived value, a set of choices. */
+- (NSDictionary *)instance:(NSDictionary *)instance of:(ORMForm *)theForm readOwnOf:(NSString *)key error:(NSError **)error
+{
+	NSMutableDictionary *own = [NSMutableDictionary dictionary];
+	for (ORMFormElement *element in theForm.elements) {
+		if (element.read == nil) {
+			continue;
+		}
+		ORMQueryPlan *plan = [element.read planBinding:@{ theForm.keyElement ?: @"" : key ?: @"" } error:error];
+		ORMQueryOData *ownRequest = plan != nil ? [ORMQueryOData requestForPlan:plan model:_model error:error] : nil;
+		NSArray *ownRows = ownRequest != nil ? [self rowsOf:ownRequest objects:NULL error:error] : nil;
+		if (ownRows == nil) {
+			return nil;
+		}
+		[own setObject:ownRows forKey:element.name];
+	}
+	return [theForm instance:instance withOwnReads:own];
+}
+
 - (NSDictionary<NSString *, id> *)readFromService:(NSString *)key error:(NSError **)error
 {
 	return [self readFromService:key form:_form error:error];
@@ -427,22 +447,11 @@ ORMFormSessionError(NSString *text)
 	} else if (etag != nil) {
 		[_partEtags setObject:etag forKey:theForm.name ?: @""];
 	}
-	NSMutableDictionary *instance = [[theForm instanceOfRow:[rows firstObject]] mutableCopy];
-	/* What is read on its own, by the key. */
-	NSMutableDictionary *own = [NSMutableDictionary dictionary];
-	for (ORMFormElement *element in theForm.elements) {
-		if (element.read == nil) {
-			continue;
-		}
-		ORMQueryPlan *plan = [element.read planBinding:@{ theForm.keyElement ?: @"" : key ?: @"" } error:error];
-		ORMQueryOData *ownRequest = plan != nil ? [ORMQueryOData requestForPlan:plan model:_model error:error] : nil;
-		NSArray *ownRows = ownRequest != nil ? [self rowsOf:ownRequest objects:NULL error:error] : nil;
-		if (ownRows == nil) {
-			return nil;
-		}
-		[own setObject:ownRows forKey:element.name];
+	NSMutableDictionary *instance = [[self instance:[theForm instanceOfRow:[rows firstObject]] of:theForm readOwnOf:key
+	                                          error:error] mutableCopy];
+	if (instance == nil) {
+		return nil;
 	}
-	instance = [[theForm instance:instance withOwnReads:own] mutableCopy];
 	/* Each repeat's rows, linked to the anchor or to what the form reads
 	 * the key of. */
 	for (NSString *name in [theForm repeatNames]) {
@@ -461,6 +470,11 @@ ORMFormSessionError(NSString *text)
 				NSString *rowKey = [[each objectForKey:repeat.keyElement ?: @""] description] ?: @"";
 				if ([rowKey length] == 0 || ![seen containsObject:rowKey]) {
 					[seen addObject:rowKey];
+					/* Each row's own reads, by its key (an answer's options). */
+					each = [self instance:each of:repeat readOwnOf:rowKey error:error];
+					if (each == nil) {
+						return nil;
+					}
 					[found addObject:each];
 				}
 			}
