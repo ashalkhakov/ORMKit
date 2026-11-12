@@ -41,6 +41,7 @@ typedef NS_ENUM(NSInteger, ORMFormRegion) {
 	NSMutableSet<NSString *> *_identifying;
 	NSMutableSet<NSString *> *_repeats;
 	NSMutableSet<NSString *> *_lists;
+	NSMutableSet<NSString *> *_choiceSets;
 	/* The nodes a value node computes with. */
 	NSMutableSet<NSString *> *_operands;
 	NSMutableArray<ORMFormProblem *> *_problems;
@@ -71,6 +72,7 @@ typedef NS_ENUM(NSInteger, ORMFormRegion) {
 	_identifying = [NSMutableSet set];
 	_repeats = [NSMutableSet set];
 	_lists = [NSMutableSet set];
+	_choiceSets = [NSMutableSet set];
 	_operands = [NSMutableSet set];
 	_problems = [NSMutableArray array];
 	for (ORMQueryNode *node in [form nodes]) {
@@ -177,7 +179,11 @@ static BOOL ORMMarkedBeneath(ORMQueryNode *node);
 		BOOL marked = [self marksBeneathStep:step entered:NO];
 		ORMFormRegion beneath = region;
 		if (toMany && marked) {
-			if (entered && region == ORMFormRegionOwn) {
+			if (entered && region == ORMFormRegionOwn && [self picksMany:step]) {
+				/* D17: the objects the facts are about, picked. */
+				[_choiceSets addObject:step.identifier];
+				[self rule:@"D17" of:step.identifier why:nil];
+			} else if (entered && region == ORMFormRegionOwn) {
 				/* D8: rows the form writes, each item made, changed or deleted. */
 				[_repeats addObject:step.identifier];
 				[self rule:@"D8" of:step.identifier why:nil];
@@ -194,6 +200,24 @@ static BOOL ORMMarkedBeneath(ORMQueryNode *node);
 			[self node:child step:step region:beneath choice:choice many:many || toMany above:node];
 		}
 	}
+}
+
+/* A step to many through a fact of many to many (an answer's options)
+ * to an object entered, with only its conditions beneath: the objects
+ * picked, each pairing a fact, not rows of their own. */
+- (BOOL)picksMany:(ORMQueryStep *)step
+{
+	ORMQueryNode *picked = [step.nodes firstObject];
+	if ([step.nodes count] != 1 || picked.formPart != ORMFormPartEntered || picked.role.isUnique
+	    || [[step.factType visibleRoles] count] != 2 || [self placeOfType:picked] != ORMFormPlaceReferenced) {
+		return NO;
+	}
+	for (ORMQueryStep *each in picked.steps) {
+		if ([self marksBeneathStep:each entered:YES]) {
+			return NO;
+		}
+	}
+	return YES;
 }
 
 /* D10: a flag on what the form makes or changes; shown, read anywhere; a
@@ -574,6 +598,11 @@ ORMMarkedBeneath(ORMQueryNode *node)
 - (BOOL)isList:(ORMQueryStep *)step
 {
 	return [_lists containsObject:step.identifier ?: @""];
+}
+
+- (BOOL)isChoiceSet:(ORMQueryStep *)step
+{
+	return [_choiceSets containsObject:step.identifier ?: @""];
 }
 
 @end

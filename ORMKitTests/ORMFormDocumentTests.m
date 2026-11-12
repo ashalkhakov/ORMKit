@@ -564,19 +564,38 @@ static NSString *const ORMCarEight = @"00000000-0000-4000-8000-000000000008";
 	XCTAssertTrue([[error localizedDescription] rangeOfString:@"bind them first"].location != NSNotFound, @"%@", error);
 }
 
-/* What the model has in a form and the document cannot place is said as
- * missing, by name: never a form quietly without it (ormtool xforms
- * refuses to write one). Here a driver's vehicles entered, rows that are
- * facts of "drives", not objects linked to one owner. */
-- (void)testWhatCannotBePlacedIsMissingNotDropped
+/* A driver's vehicles entered, facts of "drives", not objects linked to
+ * one owner: a set of choices (D17), one element of the vehicles' keys,
+ * nothing missing. */
+- (void)testADriversVehiclesEnteredAreASetOfChoices
 {
 	ORMEditor *editor = nil;
 	ORMFormDefinition *definition = [self definitionOf:@"Drives" outline:@"User\n  + drives Vehicle (entered)\n" editor:&editor];
-	XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[], @"well formed: rows of choices (D8)");
+	XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[], @"well formed");
+	ORMQueryStep *drives = [definition.form.root.steps firstObject];
+	XCTAssertEqualObjects([definition ruleOf:drives.identifier], @"D17");
 	NSString *reason = nil;
 	ORMFormDocument *document = [ORMFormDocument documentForForm:definition.form model:editor.model mapping:nil reason:&reason];
 	XCTAssertNotNil(document, @"%@", reason);
-	XCTAssertEqualObjects(document.missing, (@[ @"vehicles: rows entered that are not each of one User, but facts of many: not written by a repeat." ]),
+	XCTAssertEqualObjects(document.missing, @[], @"(notes: %@)", document.notes);
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertTrue([form elementNamed:@"vehicles"].many, @"%@", [form.elements valueForKey:@"name"]);
+	XCTAssertEqual([[form repeatNames] count], 0u);
+}
+
+/* What the model has in a form and the document cannot place is said as
+ * missing, by name: never a form quietly without it (ormtool xforms
+ * refuses to write one). Here a user's languages entered, values of many,
+ * not objects picked (D17) nor linked to one owner. */
+- (void)testWhatCannotBePlacedIsMissingNotDropped
+{
+	ORMEditor *editor = nil;
+	ORMFormDefinition *definition = [self definitionOf:@"Speaks" outline:@"User\n  + speaks Language (entered)\n" editor:&editor];
+	XCTAssertEqualObjects([definition.problems valueForKey:@"text"], @[], @"well formed: rows of values (D8)");
+	NSString *reason = nil;
+	ORMFormDocument *document = [ORMFormDocument documentForForm:definition.form model:editor.model mapping:nil reason:&reason];
+	XCTAssertNotNil(document, @"%@", reason);
+	XCTAssertEqualObjects(document.missing, (@[ @"languages: rows entered that are not each of one User, but facts of many: not written by a repeat." ]),
 	                      @"(notes: %@)", document.notes);
 }
 
@@ -1853,7 +1872,10 @@ static NSString *const ORMEvents = @"Vehicle is an entity type.\n"
 
 /* FORMS.md's definition, each rule: the fill-up model with a vehicle's
  * plate (its key), colour and seats, and a form of each outline after. */
-static NSString *const ORMVehicleFacts = @"Plate is a value type.\n"
+static NSString *const ORMVehicleFacts = @"Language is a value type.\n"
+                                         @"User speaks Language\n"
+                                         @"In each population of User speaks Language, each User, Language combination occurs at most once.\n"
+                                         @"Plate is a value type.\n"
                                          @"Vehicle has Plate\n"
                                          @"Each Vehicle has exactly one Plate.\n"
                                          @"For each Plate, at most one Vehicle has that Plate.\n"
@@ -2461,10 +2483,18 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
  * of each outline after. */
 - (ORMEditor *)fillUpsRuledWith:(NSString *)forms
 {
-	NSString *facts = @"UnitPrice is a value type.\n"
-	                  @"Portable data type: Numeric: Decimal(19, 4)\n"
-	                  @"FillUp has UnitPrice\n"
-	                  @"Each FillUp has at most one UnitPrice.\n";
+	return [self fillUpsRuledWith:forms priceStored:NO];
+}
+
+/* The same, the unit price stored once derived where stored. */
+- (ORMEditor *)fillUpsRuledWith:(NSString *)forms priceStored:(BOOL)stored
+{
+	NSString *facts = [NSString stringWithFormat:@"UnitPrice is a value type.\n"
+	                                             @"Portable data type: Numeric: Decimal(19, 4)\n"
+	                                             @"FillUp has UnitPrice\n"
+	                                             @"%@"
+	                                             @"Each FillUp has at most one UnitPrice.\n",
+	                                             stored ? @"** By query UnitPriceOf.\n" : @""];
 	NSString *queries = @"Query TooMuch:\n"
 	                    @"It is impossible that:\n"
 	                    @"FillUp\n"
@@ -2530,6 +2560,236 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	XCTAssertTrue([context save:&error], @"%@", error);
 	NSDictionary *read = [form readKey:[[fill valueForKey:@"id"] UUIDString] inContext:context error:&error];
 	XCTAssertEqualObjects([read objectForKey:@"unitPrice"], @"500", @"%@ %@", read, error);
+}
+
+/* A derived fact type shown and stored is read with the anchor, from its
+ * column: not read on its own, though its derivation branches (Logbook's
+ * service total, worked out as it is saved). */
+- (void)testADerivedValueStoredIsReadWithTheAnchor
+{
+	ORMEditor *editor = [self fillUpsRuledWith:@"Query PricedFillUp:\n"
+	                                           @"Form PricedFillUp:\n"
+	                                           @"FillUp\n"
+	                                           @"  + is of Vehicle = ?\n"
+	                                           @"  + cost Money (entered)\n"
+	                                           @"  + was of Volume (entered)\n"
+	                                           @"  + has UnitPrice (shown)\n"
+	                                 priceStored:YES];
+	ORMFormDocument *document = [self form:@"PricedFillUp" of:editor];
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertNotNil([form elementNamed:@"unitPrice"], @"named as the mapping names it: %@", [[form elements] valueForKey:@"name"]);
+	XCTAssertNil([form elementNamed:@"unitPrice"].read, @"read with the fill-up");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *fill = [self insertWhole:@"FillUp" values:@{ @"unitPrice" : [NSDecimalNumber decimalNumberWithString:@"500"] } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *read = [form readKey:[[fill valueForKey:@"id"] UUIDString] inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"unitPrice"], @"500", @"%@ %@", read, error);
+}
+
+#pragma mark Through a supertype, to a derived subtype
+
+/* A document is a record; a record that cost something is by definition a
+ * cost (Logbook's), and a cost was charged: a document's form enters what it
+ * was charged through them. */
+static NSString *const ORMDocuments = @"Record is an entity type.\n"
+                                      @"Reference Mode: .id\n"
+                                      @"Portable data type: Other: Object ID\n"
+                                      @"Amount is a value type.\n"
+                                      @"Portable data type: Numeric: Decimal(19, 4)\n"
+                                      @"Number is a value type.\n"
+                                      @"Portable data type: Text: Variable Length\n"
+                                      @"Record cost Amount (as Total)\n"
+                                      @"Each Record cost at most one Amount.\n"
+                                      @"Each Cost is by definition a Record that cost some Amount.\n"
+                                      @"\n"
+                                      @"Query CostRule:\n"
+                                      @"Derivation of Cost:\n"
+                                      @"Record (shown)\n"
+                                      @"  + cost Amount\n"
+                                      @"\n"
+                                      @"Cost was charged Amount (as Charged)\n"
+                                      @"Each Cost was charged at most one Amount.\n"
+                                      @"Each Document is a Record.\n"
+                                      @"Document has Number\n"
+                                      @"Each Document has exactly one Number.\n"
+                                      @"\n"
+                                      @"Query RecordDocument:\n"
+                                      @"Form RecordDocument:\n"
+                                      @"Document\n"
+                                      @"  + has Number (entered)\n"
+                                      @"  + cost Amount1 (entered)\n"
+                                      @"  + is Record\n"
+                                      @"    + is Cost\n"
+                                      @"      + was charged Amount2 (entered)\n";
+
+/* Through its supertype to a subtype a rule derives: no part to choose,
+ * the same object; what it was charged entered as the document's own, and
+ * read again. */
+- (void)testAPartOfADerivedSubtypeIsTheAnchorsOwn
+{
+	ORMEditor *editor = [self editorOf:ORMDocuments];
+	ORMFormDocument *document = [self form:@"RecordDocument" of:editor];
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertNil([form elementNamed:@"isA"], @"no kind to choose: %@", [form.elements valueForKey:@"name"]);
+	ORMFormElement *charged = [form elementNamed:@"charged"];
+	XCTAssertNotNil(charged, @"%@", [form.elements valueForKey:@"name"]);
+	XCTAssertEqualObjects(charged.role, @"entered");
+	XCTAssertNil(charged.subtype, @"the document's own");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSMutableDictionary *instance = [[form instanceGiven:@{}] mutableCopy];
+	[instance setObject:@"00000000-0000-4000-8000-000000000071" forKey:form.keyElement];
+	[instance setObject:@"POL-1" forKey:@"number"];
+	[instance setObject:@"40" forKey:@"total"];
+	[instance setObject:@"38.5" forKey:@"charged"];
+	NSDictionary *errors = nil;
+	NSError *error = nil;
+	XCTAssertNotNil([form save:instance inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *read = [form readKey:[instance objectForKey:form.keyElement] inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"charged"], @"38.5", @"%@ %@", read, error);
+}
+
+#pragma mark A set of choices
+
+/* An inspection's answers, each of its question, the options it chose of
+ * the question's (Logbook's checklists): a fact of many to many entered. */
+static NSString *const ORMInspections = @"Inspection is an entity type.\n"
+                                        @"Reference Mode: .id\n"
+                                        @"Portable data type: Other: Object ID\n"
+                                        @"Question is an entity type.\n"
+                                        @"Reference Mode: .code\n"
+                                        @"Option is an entity type.\n"
+                                        @"Reference Mode: .code\n"
+                                        @"Remark is a value type.\n"
+                                        @"Portable data type: Text: Variable Length\n"
+                                        @"Option is in Question\n"
+                                        @"Each Option is in exactly one Question.\n"
+                                        @"Inspection has Remark\n"
+                                        @"Each Inspection has at most one Remark.\n"
+                                        @"Answer is where Inspection answered Question.\n"
+                                        @"Answer chose Option\n"
+                                        @"In each population of Answer chose Option, each Answer, Option combination occurs at most once.\n"
+                                        @"\n"
+                                        @"Query Inspect:\n"
+                                        @"Form Inspect:\n"
+                                        @"Inspection\n"
+                                        @"  + has Remark (entered)\n"
+                                        @"  + is involved in Answer\n"
+                                        @"    + involves Question1 (entered)\n"
+                                        @"    + chose Option (entered)\n"
+                                        @"      + is in Question1\n";
+
+- (ORMFormDocument *)inspectOf:(ORMEditor *)editor
+{
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:ORMInspections failures:&failures], @"%@", failures);
+	return [self form:@"Inspect" of:editor];
+}
+
+/* Each answer's options, one element of the row (D17): the objects picked
+ * by their keys, a select of the question's options; the row keyed by the
+ * answer's own key, not by its inspection. */
+- (void)testASetOfChoicesIsOneElement
+{
+	ORMEditor *editor = [self newEditor];
+	ORMFormDocument *document = [self inspectOf:editor];
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	ORMForm *answers = [form repeatNamed:@"answers"];
+	XCTAssertNotNil(answers, @"%@", [form repeatNames]);
+	ORMFormElement *options = [answers elementNamed:@"options"];
+	XCTAssertTrue(options.many);
+	XCTAssertTrue(options.written);
+	XCTAssertEqualObjects(options.role, @"entered");
+	XCTAssertEqualObjects(options.entityName, @"Option");
+	XCTAssertNotEqualObjects(answers.keyElement, @"inspection", @"its own key");
+	XCTAssertEqualObjects(answers.linkElement, @"inspection");
+	NSXMLDocument *xforms = [document document];
+	NSXMLNode *select = [[self nodes:@"//*[local-name()='select'][@appearance='full']" in:xforms] firstObject];
+	XCTAssertNotNil(select, @"%@", [xforms XMLStringWithOptions:NSXMLNodePrettyPrint]);
+}
+
+/* Saved, the facts of the options picked; read again, their keys; picked
+ * again, the facts of those no longer gone. */
+- (void)testASetOfChoicesIsSavedAndReadAgain
+{
+	ORMEditor *editor = [self newEditor];
+	ORMForm *form = [ORMForm formWithPropertyList:[[self inspectOf:editor] tablePropertyList] error:NULL];
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *question = [self insert:@"Question" values:@{ @"code" : @"tyres" } in:context];
+	for (NSString *code in @[ @"worn", @"cut", @"bulge" ]) {
+		[self insert:@"Option" values:@{ @"code" : code, @"question" : question } in:context];
+	}
+	NSManagedObject *lights = [self insert:@"Question" values:@{ @"code" : @"lights" } in:context];
+	for (NSString *code in @[ @"dim", @"out" ]) {
+		[self insert:@"Option" values:@{ @"code" : code, @"question" : lights } in:context];
+	}
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSMutableDictionary *instance = [[form instanceGiven:@{}] mutableCopy];
+	[instance setObject:@"00000000-0000-4000-8000-000000000051" forKey:form.keyElement];
+	[instance setObject:@"after the trip" forKey:@"remark"];
+	ORMForm *answers = [form repeatNamed:@"answers"];
+	NSMutableDictionary *answer = [[answers instanceGiven:@{}] mutableCopy];
+	[answer setObject:@"tyres" forKey:@"question"];
+	[answer setObject:@"worn cut" forKey:@"options"];
+	NSMutableDictionary *other = [[answers instanceGiven:@{}] mutableCopy];
+	[other setObject:@"lights" forKey:@"question"];
+	[other setObject:@"out" forKey:@"options"];
+	[instance setObject:@[ answer, other ] forKey:@"answers"];
+	NSDictionary *errors = nil;
+	NSManagedObject *saved = [form save:instance inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(saved, @"%@ %@", errors, error);
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *(^rowOf)(NSDictionary *, NSString *) = ^NSDictionary *(NSDictionary *read, NSString *code) {
+		for (NSDictionary *each in [read objectForKey:@"answers"]) {
+			if ([[each objectForKey:@"question"] isEqualToString:code]) {
+				return each;
+			}
+		}
+		return nil;
+	};
+	for (NSManagedObject *chosen in [saved valueForKey:@"answers"]) {
+		NSString *code = [chosen valueForKeyPath:@"question.code"];
+		XCTAssertEqual([[chosen valueForKey:@"options"] count], [code isEqualToString:@"tyres"] ? 2u : 1u, @"%@", code);
+	}
+	/* Each answer's own options, read again: not every answer's. */
+	NSDictionary *read = [form readKey:[instance objectForKey:form.keyElement] inContext:context error:&error];
+	XCTAssertEqualObjects([rowOf(read, @"tyres") objectForKey:@"options"], @"cut worn", @"%@ %@", read, error);
+	XCTAssertEqualObjects([rowOf(read, @"lights") objectForKey:@"options"], @"out", @"%@ %@", read, error);
+	NSMutableDictionary *again = [read mutableCopy];
+	NSMutableDictionary *changed = [rowOf(read, @"tyres") mutableCopy];
+	[changed setObject:@"bulge" forKey:@"options"];
+	[again setObject:@[ changed, rowOf(read, @"lights") ] forKey:@"answers"];
+	saved = [form save:again inContext:context errors:&errors error:&error];
+	XCTAssertNotNil(saved, @"%@ %@", errors, error);
+	XCTAssertTrue([context save:&error], @"%@", error);
+	read = [form readKey:[instance objectForKey:form.keyElement] inContext:context error:&error];
+	XCTAssertEqualObjects([rowOf(read, @"tyres") objectForKey:@"options"], @"bulge", @"%@ %@", read, error);
+	XCTAssertEqualObjects([rowOf(read, @"lights") objectForKey:@"options"], @"out", @"%@ %@", read, error);
+}
+
+/* To the service: new, each option bound; changed, a delta of those picked
+ * and those no longer. */
+- (void)testASetOfChoicesIsSentAsBindsAndDeltas
+{
+	ORMEditor *editor = [self newEditor];
+	ORMForm *answers = [[ORMForm formWithPropertyList:[[self inspectOf:editor] tablePropertyList] error:NULL] repeatNamed:@"answers"];
+	NSManagedObjectModel *model = [[[[ORMCoreDataMapper alloc] initWithModel:editor.model mapping:nil] map] managedObjectModel];
+	NSMutableDictionary *answer = [[answers instanceGiven:@{}] mutableCopy];
+	[answer setObject:@"00000000-0000-4000-8000-000000000061" forKey:answers.keyElement];
+	[answer setObject:@"tyres" forKey:@"question"];
+	[answer setObject:@"worn cut" forKey:@"options"];
+	NSError *error = nil;
+	ORMFormRequest *post = [answers saveRequestFor:answer original:nil etag:nil model:model error:&error];
+	XCTAssertNotNil(post, @"%@", error);
+	XCTAssertEqualObjects([post.body objectForKey:@"Options@odata.bind"], (@[ @"Options('cut')", @"Options('worn')" ]), @"%@", post.body);
+	NSMutableDictionary *changed = [answer mutableCopy];
+	[changed setObject:@"bulge cut" forKey:@"options"];
+	ORMFormRequest *patch = [answers saveRequestFor:changed original:answer etag:nil model:model error:&error];
+	XCTAssertEqualObjects([patch.body objectForKey:@"Options@delta"],
+	                      (@[ @{ @"@id" : @"Options('bulge')" },
+	                          @{ @"@removed" : @{ @"reason" : @"changed" }, @"@id" : @"Options('worn')" } ]), @"%@", patch.body);
 }
 
 /* An object of the entity with the values, every other property the store
