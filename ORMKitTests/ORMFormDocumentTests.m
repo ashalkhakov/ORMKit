@@ -2720,6 +2720,10 @@ static NSString *const ORMInspections = @"Inspection is an entity type.\n"
 	for (NSString *code in @[ @"worn", @"cut", @"bulge" ]) {
 		[self insert:@"Option" values:@{ @"code" : code, @"question" : question } in:context];
 	}
+	NSManagedObject *lights = [self insert:@"Question" values:@{ @"code" : @"lights" } in:context];
+	for (NSString *code in @[ @"dim", @"out" ]) {
+		[self insert:@"Option" values:@{ @"code" : code, @"question" : lights } in:context];
+	}
 	NSError *error = nil;
 	XCTAssertTrue([context save:&error], @"%@", error);
 	NSMutableDictionary *instance = [[form instanceGiven:@{}] mutableCopy];
@@ -2729,25 +2733,40 @@ static NSString *const ORMInspections = @"Inspection is an entity type.\n"
 	NSMutableDictionary *answer = [[answers instanceGiven:@{}] mutableCopy];
 	[answer setObject:@"tyres" forKey:@"question"];
 	[answer setObject:@"worn cut" forKey:@"options"];
-	[instance setObject:@[ answer ] forKey:@"answers"];
+	NSMutableDictionary *other = [[answers instanceGiven:@{}] mutableCopy];
+	[other setObject:@"lights" forKey:@"question"];
+	[other setObject:@"out" forKey:@"options"];
+	[instance setObject:@[ answer, other ] forKey:@"answers"];
 	NSDictionary *errors = nil;
 	NSManagedObject *saved = [form save:instance inContext:context errors:&errors error:&error];
 	XCTAssertNotNil(saved, @"%@ %@", errors, error);
 	XCTAssertTrue([context save:&error], @"%@", error);
-	NSManagedObject *chosen = [[saved valueForKey:@"answers"] anyObject];
-	XCTAssertEqual([[chosen valueForKey:@"options"] count], 2u);
+	NSDictionary *(^rowOf)(NSDictionary *, NSString *) = ^NSDictionary *(NSDictionary *read, NSString *code) {
+		for (NSDictionary *each in [read objectForKey:@"answers"]) {
+			if ([[each objectForKey:@"question"] isEqualToString:code]) {
+				return each;
+			}
+		}
+		return nil;
+	};
+	for (NSManagedObject *chosen in [saved valueForKey:@"answers"]) {
+		NSString *code = [chosen valueForKeyPath:@"question.code"];
+		XCTAssertEqual([[chosen valueForKey:@"options"] count], [code isEqualToString:@"tyres"] ? 2u : 1u, @"%@", code);
+	}
+	/* Each answer's own options, read again: not every answer's. */
 	NSDictionary *read = [form readKey:[instance objectForKey:form.keyElement] inContext:context error:&error];
-	NSDictionary *row = [[read objectForKey:@"answers"] firstObject];
-	XCTAssertEqualObjects([row objectForKey:@"options"], @"cut worn", @"%@ %@", read, error);
+	XCTAssertEqualObjects([rowOf(read, @"tyres") objectForKey:@"options"], @"cut worn", @"%@ %@", read, error);
+	XCTAssertEqualObjects([rowOf(read, @"lights") objectForKey:@"options"], @"out", @"%@ %@", read, error);
 	NSMutableDictionary *again = [read mutableCopy];
-	NSMutableDictionary *changed = [row mutableCopy];
+	NSMutableDictionary *changed = [rowOf(read, @"tyres") mutableCopy];
 	[changed setObject:@"bulge" forKey:@"options"];
-	[again setObject:@[ changed ] forKey:@"answers"];
+	[again setObject:@[ changed, rowOf(read, @"lights") ] forKey:@"answers"];
 	saved = [form save:again inContext:context errors:&errors error:&error];
 	XCTAssertNotNil(saved, @"%@ %@", errors, error);
 	XCTAssertTrue([context save:&error], @"%@", error);
 	read = [form readKey:[instance objectForKey:form.keyElement] inContext:context error:&error];
-	XCTAssertEqualObjects([[[read objectForKey:@"answers"] firstObject] objectForKey:@"options"], @"bulge", @"%@ %@", read, error);
+	XCTAssertEqualObjects([rowOf(read, @"tyres") objectForKey:@"options"], @"bulge", @"%@ %@", read, error);
+	XCTAssertEqualObjects([rowOf(read, @"lights") objectForKey:@"options"], @"out", @"%@ %@", read, error);
 }
 
 /* To the service: new, each option bound; changed, a delta of those picked

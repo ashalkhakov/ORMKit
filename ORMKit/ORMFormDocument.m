@@ -210,19 +210,6 @@ ORMIsPartStep(ORMQueryStep *step, NSArray<ORMRole *> *parts)
 	return NO;
 }
 
-/* The entity's own key, as OData serves it (an objectified fact type's
- * id); nil where it has none of its own. */
-static NSString *
-ORMODataKeyOf(ORMCDModel *coreData, NSString *entityName)
-{
-	for (ORMCDAttribute *attribute in [coreData entityNamed:entityName ?: @""].attributes) {
-		if ([[attribute.userInfo objectForKey:@"OData.key"] isEqualToString:@"YES"]) {
-			return attribute.name;
-		}
-	}
-	return nil;
-}
-
 /* The entity's property of the name, its parents' too. */
 static ORMCDProperty *
 ORMPropertyOf(ORMCDModel *coreData, NSString *entityName, NSString *name)
@@ -388,6 +375,8 @@ ORMSharedNodes(ORMQuery *form, ORMQueryNode *node)
 	_repeatSteps = [NSMutableDictionary dictionary];
 	_repeats = [NSMutableDictionary dictionary];
 	_planner = [[ORMQueryPlanner alloc] initWithModel:model mapping:mapping];
+	/* A form reads and saves a store's objects, each with its own key. */
+	_planner.identifiesByOwnKeys = YES;
 	_verbalizer = [[ORMVerbalizer alloc] initWithModel:model];
 	_fields = [NSMutableArray array];
 	_notes = [NSMutableArray array];
@@ -1074,10 +1063,7 @@ ORMListsBeneath(ORMQueryPart *part, NSSet<NSString *> *listed)
 			continue;
 		}
 		if (node == _form.root) {
-			/* Identified by roles (an answer, of its inspection and its
-			 * question): its own key, where the mapping gives it one. */
-			NSString *keyName = column.identifierKey ?: ORMODataKeyOf(coreData, _entityName)
-			                                        ?: [[column.identifierParts firstObject] firstObject];
+			NSString *keyName = column.identifierKey ?: [[column.identifierParts firstObject] firstObject];
 			if (keyName != nil) {
 				ORMCDAttribute *attribute = (ORMCDAttribute *)ORMPropertyOf(coreData, _entityName, keyName);
 				[self addField:node.identifier name:keyName kind:ORMFormFieldValue
