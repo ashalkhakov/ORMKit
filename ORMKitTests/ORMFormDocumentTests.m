@@ -2587,6 +2587,69 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	XCTAssertEqualObjects([read objectForKey:@"unitPrice"], @"500", @"%@ %@", read, error);
 }
 
+#pragma mark Through a supertype, to a derived subtype
+
+/* A document is a record; a record that cost something is by definition a
+ * cost (Logbook's), and a cost was charged: a document's form enters what it
+ * was charged through them. */
+static NSString *const ORMDocuments = @"Record is an entity type.\n"
+                                      @"Reference Mode: .id\n"
+                                      @"Portable data type: Other: Object ID\n"
+                                      @"Amount is a value type.\n"
+                                      @"Portable data type: Numeric: Decimal(19, 4)\n"
+                                      @"Number is a value type.\n"
+                                      @"Portable data type: Text: Variable Length\n"
+                                      @"Record cost Amount (as Total)\n"
+                                      @"Each Record cost at most one Amount.\n"
+                                      @"Each Cost is by definition a Record that cost some Amount.\n"
+                                      @"\n"
+                                      @"Query CostRule:\n"
+                                      @"Derivation of Cost:\n"
+                                      @"Record (shown)\n"
+                                      @"  + cost Amount\n"
+                                      @"\n"
+                                      @"Cost was charged Amount (as Charged)\n"
+                                      @"Each Cost was charged at most one Amount.\n"
+                                      @"Each Document is a Record.\n"
+                                      @"Document has Number\n"
+                                      @"Each Document has exactly one Number.\n"
+                                      @"\n"
+                                      @"Query RecordDocument:\n"
+                                      @"Form RecordDocument:\n"
+                                      @"Document\n"
+                                      @"  + has Number (entered)\n"
+                                      @"  + cost Amount1 (entered)\n"
+                                      @"  + is Record\n"
+                                      @"    + is Cost\n"
+                                      @"      + was charged Amount2 (entered)\n";
+
+/* Through its supertype to a subtype a rule derives: no part to choose,
+ * the same object; what it was charged entered as the document's own, and
+ * read again. */
+- (void)testAPartOfADerivedSubtypeIsTheAnchorsOwn
+{
+	ORMEditor *editor = [self editorOf:ORMDocuments];
+	ORMFormDocument *document = [self form:@"RecordDocument" of:editor];
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertNil([form elementNamed:@"isA"], @"no kind to choose: %@", [form.elements valueForKey:@"name"]);
+	ORMFormElement *charged = [form elementNamed:@"charged"];
+	XCTAssertNotNil(charged, @"%@", [form.elements valueForKey:@"name"]);
+	XCTAssertEqualObjects(charged.role, @"entered");
+	XCTAssertNil(charged.subtype, @"the document's own");
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSMutableDictionary *instance = [[form instanceGiven:@{}] mutableCopy];
+	[instance setObject:@"00000000-0000-4000-8000-000000000071" forKey:form.keyElement];
+	[instance setObject:@"POL-1" forKey:@"number"];
+	[instance setObject:@"40" forKey:@"total"];
+	[instance setObject:@"38.5" forKey:@"charged"];
+	NSDictionary *errors = nil;
+	NSError *error = nil;
+	XCTAssertNotNil([form save:instance inContext:context errors:&errors error:&error], @"%@ %@", errors, error);
+	XCTAssertTrue([context save:&error], @"%@", error);
+	NSDictionary *read = [form readKey:[instance objectForKey:form.keyElement] inContext:context error:&error];
+	XCTAssertEqualObjects([read objectForKey:@"charged"], @"38.5", @"%@ %@", read, error);
+}
+
 #pragma mark A set of choices
 
 /* An inspection's answers, each of its question, the options it chose of

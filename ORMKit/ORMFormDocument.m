@@ -1285,11 +1285,30 @@ ORMEntersBeneath(ORMQueryNode *node)
 			break;
 		}
 		NSString *entity = [_planner entityNameOfType:each.objectType];
-		if (entity != nil && ![entity isEqualToString:_entityName]) {
+		if ([self isSubentity:entity]) {
 			found = entity;
 		}
 	}
 	return found;
+}
+
+/* Whether the entity is one of the anchor's subentities (a Service of the
+ * Records): a part to choose. A supertype of the anchor's (+ is Record from
+ * a Document), or a subtype a rule derives and does not store (+ is Cost:
+ * a record that cost money), is none: the same object, its facts the
+ * anchor's. */
+- (BOOL)isSubentity:(NSString *)entity
+{
+	if (entity == nil || [entity isEqualToString:_entityName ?: @""]) {
+		return NO;
+	}
+	ORMCDModel *coreData = _planner.coreData;
+	for (ORMCDEntity *each = [coreData entityNamed:entity]; each != nil; each = [coreData entityNamed:each.parentName ?: @""]) {
+		if ([each.parentName isEqualToString:_entityName ?: @""]) {
+			return YES;
+		}
+	}
+	return NO;
 }
 
 /* Whether the node's facts are the anchor's own: it, or a subtype of it
@@ -1455,7 +1474,7 @@ ORMEntersBeneath(ORMQueryNode *node)
 		return nil;
 	}
 	NSString *entity = [_planner entityNameOfType:step.parent.objectType];
-	return [entity isEqualToString:_entityName] ? nil : entity;
+	return [self isSubentity:entity] ? entity : nil;
 }
 
 /* A value node's element: its name, as a property's is. */
