@@ -327,12 +327,17 @@ ORMFlowWalkIsKind(ORMForm *form, NSString *subtype, NSDictionary *values, NSMana
 
 - (NSString *)labelOfKey:(NSString *)key element:(NSString *)name
 {
-	return [self labelOfKey:key element:name session:[self session]];
+	return [self labelOfKey:key element:name form:[self session].form];
 }
 
-- (NSString *)labelOfKey:(NSString *)key element:(NSString *)name session:(ORMFormSession *)session
+- (NSString *)labelOfKey:(NSString *)key element:(NSString *)name inRepeat:(NSString *)repeat
 {
-	ORMFormElement *element = [session.form elementNamed:name];
+	return [self labelOfKey:key element:name form:[[self session].form repeatNamed:repeat]];
+}
+
+- (NSString *)labelOfKey:(NSString *)key element:(NSString *)name form:(ORMForm *)form
+{
+	ORMFormElement *element = [form elementNamed:name];
 	if ([key length] == 0 || ![element.kind isEqualToString:@"reference"] || _context == nil) {
 		return element != nil ? [element labelOfItem:key] : key;
 	}
@@ -341,7 +346,7 @@ ORMFlowWalkIsKind(ORMForm *form, NSString *subtype, NSDictionary *values, NSMana
 	 * fill-up's station) or an owned object's. */
 	NSDictionary *entities = [_store.managedObjectModel entitiesByName];
 	NSEntityDescription *destination = [entities objectForKey:element.entityName ?: @""]
-	                                       ?: [[[[entities objectForKey:session.form.entityName ?: @""] relationshipsByName] objectForKey:name]
+	                                       ?: [[[[entities objectForKey:form.entityName ?: @""] relationshipsByName] objectForKey:name]
 	                                              destinationEntity];
 	NSDictionary *attributes = [destination attributesByName];
 	NSAttributeDescription *keyAttribute = [attributes objectForKey:element.keyName ?: @""];
@@ -410,7 +415,7 @@ ORMFlowWalkIsKind(ORMForm *form, NSString *subtype, NSDictionary *values, NSMana
 	for (NSString *element in [[frame.session.given allKeys] sortedArrayUsingSelector:@selector(compare:)]) {
 		NSString *value = [frame.session.given objectForKey:element];
 		[given addObject:[NSString stringWithFormat:@"%@ = %@", element,
-		                                            [self labelOfKey:value element:element session:frame.session]]];
+		                                            [self labelOfKey:value element:element form:frame.session.form]]];
 	}
 	return [given count] > 0 ? [NSString stringWithFormat:@"%@, given %@", name, [given componentsJoinedByString:@", "]] : name;
 }

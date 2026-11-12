@@ -149,6 +149,9 @@ extern NSString * const ORMFormErrorDomain;
 @property (nonatomic, readonly, copy) NSString *linkElement;
 /* A repeat that is a list (docs/FORMS.md, D9): its rows read, never written. */
 @property (nonatomic, readonly) BOOL isList;
+/* A repeat in a subtype's part (+ is Service: its lines): the subentity
+ * the object is to be for its rows; nil for one of every object. */
+@property (nonatomic, readonly, copy) NSString *subtype;
 /* The element of the form whose value the repeat's rows are linked to (an
  * owned object's key, "contact/id"; a reference's, "driver"); nil for the
  * anchor's key. */

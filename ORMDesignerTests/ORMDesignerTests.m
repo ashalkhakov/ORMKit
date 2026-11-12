@@ -1978,6 +1978,42 @@
 	XCTAssertTrue([player.walk submit:&error], @"%@ %@", player.walk.session.errors, error);
 	XCTAssertTrue([[player.walk.log componentsJoinedByString:@"\n"] rangeOfString:@"NewRecord saved"].location != NSNotFound, @"%@",
 	              player.walk.log);
+
+	/* A service: its day, and its lines, rows added and taken away, each
+	 * part chosen and counted; saved with it. */
+	[player startOver:nil];
+	XCTAssertTrue([player.walk take:way(@"record") row:0 error:&error], @"%@", error);
+	[player.values reloadData];
+	XCTAssertEqual(rowOf(@"ServiceLine"), -1, @"no kind yet: no lines");
+	[player setValue:@"Service" ofRow:rowOf(@"Kind")];
+	NSInteger serviceLines = rowOf(@"ServiceLine");
+	XCTAssertTrue(serviceLines >= 0, @"a service's lines");
+	XCTAssertEqualObjects([player editorOfRow:serviceLines], @"rows");
+	XCTAssertEqualObjects([player shownValueOfRow:serviceLines], @"0 rows");
+	XCTAssertEqual(rowOf(@"Part"), -1, @"no row yet");
+	[player addRowAt:serviceLines];
+	[player addRowAt:serviceLines];
+	XCTAssertEqualObjects([player shownValueOfRow:serviceLines], @"2 rows");
+	NSInteger second = rowOf(@"ServiceLine 2");
+	XCTAssertEqualObjects([player editorOfRow:second], @"row");
+	[player removeRowAt:second];
+	XCTAssertEqual(rowOf(@"ServiceLine 2"), -1);
+	NSInteger part = rowOf(@"Part"), count = rowOf(@"Count");
+	XCTAssertTrue(part > rowOf(@"ServiceLine 1") && count > part, @"the row's elements under it");
+	XCTAssertEqualObjects([player editorOfRow:part], @"choice");
+	XCTAssertEqualObjects([player editorOfRow:count], @"number");
+	NSArray *parts = [player.walk.session choicesNamed:@"part" inRepeat:@"serviceLines" row:0 error:&error];
+	XCTAssertTrue([parts count] > 0, @"%@", error);
+	[player setValue:[parts firstObject] ofRow:part];
+	[player setValue:@"2" ofRow:count];
+	[player setValue:@"2026-11-12" ofRow:rowOf(@"Day")];
+	ORMFormSession *service = player.walk.session;
+	XCTAssertTrue([player.walk submit:&error], @"%@ %@", service.errors, error);
+	service.key = service.savedKey;
+	XCTAssertTrue([service open:&error], @"%@", error);
+	NSArray *saved = [service rowsOfRepeat:@"serviceLines"];
+	XCTAssertEqual([saved count], 1u, @"%@", saved);
+	XCTAssertEqualObjects([[saved firstObject] objectForKey:@"count"], @"2");
 }
 
 /* Played from its window: Play's window, from its XIB, connected; the cars

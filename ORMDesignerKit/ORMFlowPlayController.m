@@ -5,6 +5,27 @@
 #import "ORMForm.h"
 #import "ORMFormSession.h"
 
+/* A line of a form's values: an element of the form's; a repeat's heading
+ * (no element, no row); one of its rows (no element); an element of a row. */
+@interface ORMFlowPlayEntry : NSObject
+@property (nonatomic, strong) ORMFormElement *element;
+@property (nonatomic, copy) NSString *repeat;
+@property (nonatomic) NSUInteger row;
+@end
+
+@implementation ORMFlowPlayEntry
+@end
+
+static ORMFlowPlayEntry *
+ORMFlowPlayEntryOf(ORMFormElement *element, NSString *repeat, NSUInteger row)
+{
+	ORMFlowPlayEntry *entry = [[ORMFlowPlayEntry alloc] init];
+	entry.element = element;
+	entry.repeat = repeat;
+	entry.row = row;
+	return entry;
+}
+
 @implementation ORMFlowPlayController {
 	ORMFlow *_flow;
 	ORMModel *_model;
@@ -123,7 +144,7 @@
 	if (tableView == self.log) {
 		return (NSInteger)[[self lines] count];
 	}
-	return (NSInteger)(_walk.session != nil ? [[self elementsShown] count] : [_walk.rows count]);
+	return (NSInteger)(_walk.session != nil ? [[self entriesShown] count] : [_walk.rows count]);
 }
 
 - (id)tableView:(NSTableView *)tableView objectValueForTableColumn:(NSTableColumn *)column row:(NSInteger)row
@@ -139,15 +160,15 @@
 		return [NSString stringWithFormat:@"%@ → %@%@", on, where, [way.kind isEqualToString:ORMFlowKindOverlay] ? @" (over it)" : @""];
 	}
 	if (_walk.session != nil) {
-		ORMFormElement *element = [self elementOfRow:row];
 		if ([[column identifier] isEqualToString:@"value"]) {
 			return [self shownValueOfRow:row];
 		}
 		/* What the last save refused of it, beside its name. */
-		NSString *error = [_walk.session.errors objectForKey:element.name];
+		ORMFlowPlayEntry *entry = [self entryOfRow:row];
+		NSString *error = [_walk.session.errors objectForKey:[self errorKeyOf:entry] ?: @""];
 		/* Its role is its control's to show (a field to enter, a given
 		 * value's text), and its tooltip's to say. */
-		NSString *name = element.label ?: element.name;
+		NSString *name = [self nameOf:entry];
 		return error != nil ? [NSString stringWithFormat:@"⚠︎ %@: %@", name, error] : name;
 	}
 	if ([[column identifier] isEqualToString:@"value"]) {
@@ -168,15 +189,16 @@
 	NSTableCellView *view = [tableView makeViewWithIdentifier:editor owner:self];
 	NSString *shown = [self tableView:tableView objectValueForTableColumn:column row:row];
 	if (!isValue) {
-		NSString *refused = _walk.session != nil ? [_walk.session.errors objectForKey:[self elementOfRow:row].name] : nil;
+		NSString *refused = _walk.session != nil ? [_walk.session.errors objectForKey:[self errorKeyOf:[self entryOfRow:row]] ?: @""] : nil;
 		[view.textField setStringValue:shown];
 		[view.textField setTextColor:refused != nil ? [NSColor systemRedColor] : [NSColor controlTextColor]];
 		NSString *role = _walk.session != nil ? [self elementOfRow:row].role : nil;
 		[view setToolTip:refused != nil ? shown : role != nil ? [NSString stringWithFormat:@"%@ (%@)", shown, role] : nil];
 		return view;
 	}
-	ORMFormElement *element = [self elementOfRow:row];
-	NSString *value = element != nil ? [_walk.session valueForElement:element.name] ?: @"" : @"";
+	ORMFlowPlayEntry *entry = [self entryOfRow:row];
+	ORMFormElement *element = entry.element;
+	NSString *value = [self valueOf:entry];
 	if ([editor isEqualToString:@"number"]) {
 		NSNumberFormatter *formatter = [view.textField formatter];
 		BOOL whole = [element.schemaType hasSuffix:@"integer"] || [element.schemaType hasSuffix:@"int"] ||
@@ -186,7 +208,7 @@
 		[view.textField setObjectValue:[value length] > 0 ? [NSDecimalNumber decimalNumberWithString:value
 		                                                                                      locale:@{ NSLocaleDecimalSeparator : @"." }]
 		                                                  : nil];
-	} else if ([editor isEqualToString:@"text"] || [editor isEqualToString:@"shown"]) {
+	} else if ([editor isEqualToString:@"text"] || [editor isEqualToString:@"shown"] || [editor isEqualToString:@"rows"]) {
 		[view.textField setStringValue:[editor isEqualToString:@"text"] ? value : shown];
 	} else if ([editor isEqualToString:@"date"] || [editor isEqualToString:@"dateTime"]) {
 		NSDatePicker *picker = nil;
@@ -212,12 +234,13 @@
 		NSPopUpButton *popUp = [[view subviews] firstObject];
 		[popUp removeAllItems];
 		[popUp addItemWithTitle:@"(none)"];
-		NSArray *keys = [_walk.session choicesNamed:element.name error:NULL] ?: @[];
+		NSArray *keys = (entry.repeat != nil ? [_walk.session choicesNamed:element.name inRepeat:entry.repeat row:entry.row error:NULL]
+		                                     : [_walk.session choicesNamed:element.name error:NULL]) ?: @[];
 		if ([value length] > 0 && ![keys containsObject:value]) {
 			keys = [keys arrayByAddingObject:value];
 		}
 		for (NSString *key in keys) {
-			NSString *label = [_walk labelOfKey:key element:element.name];
+			NSString *label = [self labelOfKey:key entry:entry];
 			/* Two of the same label kept apart. */
 			NSString *title = [popUp itemWithTitle:label] != nil ? [NSString stringWithFormat:@"%@ (%@)", label, key] : label;
 			[popUp addItemWithTitle:title];
@@ -231,34 +254,107 @@
 
 #pragma mark Values
 
-/* The form's elements, a subtype's only where the object is of it (a
- * fill-up's litres once it is one). */
-- (NSArray<ORMFormElement *> *)elementsShown
+/* The form's elements, then each repeat's rows (a service's lines): its
+ * heading, each row and the row's elements; a subtype's only where the
+ * object is of it (a fill-up's litres, a service's lines, once it is one). */
+- (NSArray<ORMFlowPlayEntry *> *)entriesShown
 {
+	ORMForm *form = _walk.session.form;
 	NSString *kind = nil;
-	for (ORMFormElement *element in _walk.session.form.elements) {
+	for (ORMFormElement *element in form.elements) {
 		if ([element.kind isEqualToString:@"subtype"]) {
 			kind = [_walk.session valueForElement:element.name] ?: @"";
 		}
 	}
 	NSMutableArray *shown = [NSMutableArray array];
-	for (ORMFormElement *element in _walk.session.form.elements) {
+	for (ORMFormElement *element in form.elements) {
 		if (element.subtype == nil || [element.subtype isEqualToString:kind]) {
-			[shown addObject:element];
+			[shown addObject:ORMFlowPlayEntryOf(element, nil, NSNotFound)];
+		}
+	}
+	for (NSString *name in [form repeatNames]) {
+		ORMForm *repeat = [form repeatNamed:name];
+		if (repeat.subtype != nil && ![repeat.subtype isEqualToString:kind]) {
+			continue;
+		}
+		[shown addObject:ORMFlowPlayEntryOf(nil, name, NSNotFound)];
+		NSUInteger rows = [[_walk.session rowsOfRepeat:name] count];
+		for (NSUInteger row = 0; row < rows; row++) {
+			[shown addObject:ORMFlowPlayEntryOf(nil, name, row)];
+			/* Its own elements: not its key (the row says it) nor its link. */
+			for (ORMFormElement *element in repeat.elements) {
+				if (![element.role isEqualToString:@"key"] && ![element.name isEqualToString:repeat.linkElement ?: @""]) {
+					[shown addObject:ORMFlowPlayEntryOf(element, name, row)];
+				}
+			}
 		}
 	}
 	return shown;
 }
 
+- (ORMFlowPlayEntry *)entryOfRow:(NSInteger)row
+{
+	NSArray *entries = [self entriesShown];
+	return row >= 0 && row < (NSInteger)[entries count] ? [entries objectAtIndex:(NSUInteger)row] : nil;
+}
+
 - (ORMFormElement *)elementOfRow:(NSInteger)row
 {
-	NSArray *elements = [self elementsShown];
-	return row >= 0 && row < (NSInteger)[elements count] ? [elements objectAtIndex:(NSUInteger)row] : nil;
+	return [self entryOfRow:row].element;
+}
+
+/* As a line names it: the element's label, a repeat's what its rows are
+ * of, a row numbered. */
+- (NSString *)nameOf:(ORMFlowPlayEntry *)entry
+{
+	if (entry.element != nil) {
+		return entry.element.label ?: entry.element.name;
+	}
+	NSString *of = [_walk.session.form repeatNamed:entry.repeat].entityName ?: entry.repeat;
+	return entry.row == NSNotFound ? of : [NSString stringWithFormat:@"%@ %lu", of, (unsigned long)entry.row + 1];
+}
+
+/* What a save's refusal is said under: the element's name, a row's
+ * "serviceLines[0].part". */
+- (NSString *)errorKeyOf:(ORMFlowPlayEntry *)entry
+{
+	if (entry.element == nil) {
+		return entry.row == NSNotFound ? entry.repeat : nil;
+	}
+	return entry.repeat != nil ? [NSString stringWithFormat:@"%@[%lu].%@", entry.repeat, (unsigned long)entry.row, entry.element.name]
+	                           : entry.element.name;
+}
+
+- (NSString *)valueOf:(ORMFlowPlayEntry *)entry
+{
+	if (entry.element == nil) {
+		return @"";
+	}
+	if (entry.repeat != nil) {
+		NSArray *rows = [_walk.session rowsOfRepeat:entry.repeat];
+		return entry.row < [rows count] ? [[rows objectAtIndex:entry.row] objectForKey:entry.element.name] ?: @"" : @"";
+	}
+	return [_walk.session valueForElement:entry.element.name] ?: @"";
+}
+
+- (NSString *)labelOfKey:(NSString *)key entry:(ORMFlowPlayEntry *)entry
+{
+	return entry.repeat != nil ? [_walk labelOfKey:key element:entry.element.name inRepeat:entry.repeat]
+	                           : [_walk labelOfKey:key element:entry.element.name];
 }
 
 - (NSString *)editorOfRow:(NSInteger)row
 {
-	ORMFormElement *element = [self elementOfRow:row];
+	ORMFlowPlayEntry *entry = [self entryOfRow:row];
+	if (entry != nil && entry.element == nil) {
+		/* A repeat's heading adds a row, a row is taken away; a list's
+		 * rows are only read. */
+		if ([_walk.session.form repeatNamed:entry.repeat].isList) {
+			return @"shown";
+		}
+		return entry.row == NSNotFound ? @"rows" : @"row";
+	}
+	ORMFormElement *element = entry.element;
 	if (element == nil || ![element.role isEqualToString:@"entered"]) {
 		return @"shown";
 	}
@@ -319,12 +415,18 @@ ORMFlowPlayFormatter(NSString *format)
 		}
 		return [texts componentsJoinedByString:@", "];
 	}
-	NSString *value = element != nil ? [_walk.session valueForElement:element.name] ?: @"" : @"";
+	ORMFlowPlayEntry *entry = [self entryOfRow:row];
+	if (entry != nil && element == nil) {
+		/* A heading: how many rows. */
+		NSUInteger rows = [[_walk.session rowsOfRepeat:entry.repeat] count];
+		return entry.row == NSNotFound ? [NSString stringWithFormat:@"%lu %@", (unsigned long)rows, rows == 1 ? @"row" : @"rows"] : @"";
+	}
+	NSString *value = [self valueOf:entry];
 	if ([value length] == 0) {
 		return [element.role isEqualToString:@"key"] ? @"(new)" : @"";
 	}
 	if ([element.kind isEqualToString:@"reference"]) {
-		return [_walk labelOfKey:value element:element.name];
+		return [self labelOfKey:value entry:entry];
 	}
 	if ([element.schemaType hasSuffix:@":boolean"]) {
 		return [value isEqualToString:@"true"] ? @"Yes" : @"No";
@@ -343,11 +445,23 @@ ORMFlowPlayFormatter(NSString *format)
 
 - (void)setValue:(NSString *)value ofRow:(NSInteger)row
 {
-	ORMFormElement *element = [self elementOfRow:row];
+	ORMFlowPlayEntry *entry = [self entryOfRow:row];
+	ORMFormElement *element = entry.element;
 	if (element == nil) {
 		return;
 	}
-	[_walk.session setValue:value ?: @"" forElement:element.name];
+	if (entry.repeat != nil) {
+		NSMutableArray *rows = [[_walk.session rowsOfRepeat:entry.repeat] mutableCopy];
+		if (entry.row >= [rows count]) {
+			return;
+		}
+		NSMutableDictionary *changed = [[rows objectAtIndex:entry.row] mutableCopy];
+		[changed setObject:value ?: @"" forKey:element.name];
+		[rows replaceObjectAtIndex:entry.row withObject:changed];
+		[_walk.session setRows:rows forRepeat:entry.repeat];
+	} else {
+		[_walk.session setValue:value ?: @"" forElement:element.name];
+	}
 	/* A kind chosen shows its part; a reference chosen, what is shown
 	 * through it. */
 	if ([element.kind isEqualToString:@"subtype"] || [element.kind isEqualToString:@"reference"]) {
@@ -364,7 +478,7 @@ ORMFlowPlayFormatter(NSString *format)
 	}
 	NSMutableIndexSet *rows = [editor hasPrefix:@"date"] && [value length] > 0 ? [NSMutableIndexSet indexSet]
 	                                                                         : [NSMutableIndexSet indexSetWithIndex:(NSUInteger)row];
-	for (NSUInteger i = 0; i < [[self elementsShown] count]; i++) {
+	for (NSUInteger i = 0; i < [[self entriesShown] count]; i++) {
 		if ([[self editorOfRow:(NSInteger)i] isEqualToString:@"choice"]) {
 			[rows addIndex:i];
 		}
@@ -416,6 +530,42 @@ ORMFlowPlayFormatter(NSString *format)
 	if (row >= 0) {
 		[self setValue:@"" ofRow:row];
 	}
+}
+
+- (IBAction)addRow:(id)sender
+{
+	[self addRowAt:[self.values rowForView:sender]];
+}
+
+- (void)addRowAt:(NSInteger)line
+{
+	ORMFlowPlayEntry *entry = [self entryOfRow:line];
+	ORMForm *repeat = entry.element == nil ? [_walk.session.form repeatNamed:entry.repeat] : nil;
+	if (repeat == nil || repeat.isList) {
+		NSBeep();
+		return;
+	}
+	NSArray *rows = [_walk.session rowsOfRepeat:entry.repeat] ?: @[];
+	[_walk.session setRows:[rows arrayByAddingObject:[repeat instanceGiven:@{}]] forRepeat:entry.repeat];
+	[self.values reloadData];
+}
+
+- (IBAction)removeRow:(id)sender
+{
+	[self removeRowAt:[self.values rowForView:sender]];
+}
+
+- (void)removeRowAt:(NSInteger)line
+{
+	ORMFlowPlayEntry *entry = [self entryOfRow:line];
+	NSMutableArray *rows = [[_walk.session rowsOfRepeat:entry.repeat ?: @""] mutableCopy];
+	if (entry.element != nil || entry.row >= [rows count]) {
+		NSBeep();
+		return;
+	}
+	[rows removeObjectAtIndex:entry.row];
+	[_walk.session setRows:rows forRepeat:entry.repeat];
+	[self.values reloadData];
 }
 
 @end

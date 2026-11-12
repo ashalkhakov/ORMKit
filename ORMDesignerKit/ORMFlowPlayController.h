@@ -10,7 +10,9 @@
  * elements and their values, each entered with the control its type wants
  * (a date's picker, its calendar beside it on macOS; a flag's checkbox; a
  * number's field, which takes only numbers; a reference's choices, named
- * as a reader knows them, a van by its plate); beside it the
+ * as a reader knows them, a van by its plate), then each repeat's rows (a
+ * service's lines: a row added at its heading, taken away at its own line,
+ * its elements entered as the form's are); beside it the
  * ways on, a list's row chosen first; Submit saves the form, a refusal said
  * in the rule's words in the log at the bottom, and goes on as the flow
  * says; Start Over begins at its first entry again. */
@@ -28,7 +30,8 @@
 
 /* The control a row's value is shown in, its prototype's identifier in the
  * XIB: "shown" (not entered: a key, a given value, a list's row), "text",
- * "number", "date", "dateTime", "flag" or "choice". */
+ * "number", "date", "dateTime", "flag" or "choice"; a repeat's heading
+ * "rows" (its Add), a row's "row" (its Remove). */
 - (NSString *)editorOfRow:(NSInteger)row;
 /* A row's value as it is shown: a reference by its label, a flag Yes or
  * No, a date in the user's way. */
@@ -45,6 +48,12 @@
 - (IBAction)setDate:(id)sender;
 /* Its row's value emptied: a date's Clear. */
 - (IBAction)clearValue:(id)sender;
+/* A repeat's heading's Add: an empty row after its others. */
+- (IBAction)addRow:(id)sender;
+- (void)addRowAt:(NSInteger)line;
+/* A row's Remove: the row taken away. */
+- (IBAction)removeRow:(id)sender;
+- (void)removeRowAt:(NSInteger)line;
 /* The chosen way taken: for a row chosen, the row chosen in values. */
 - (IBAction)takeWay:(id)sender;
 - (IBAction)submit:(id)sender;
