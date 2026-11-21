@@ -531,7 +531,10 @@ ORMFormSessionError(NSString *text)
 		return [form elementNamed:name].items;
 	}
 	NSArray *rows = [self rowsOfRepeat:repeat];
-	NSDictionary *values = row < [rows count] ? [rows objectAtIndex:row] : @{};
+	/* The row's values, over the form's: what its choices compare with may
+	 * be the form's (a line's items, of the order's catalog). */
+	NSMutableDictionary *values = [_values mutableCopy] ?: [NSMutableDictionary dictionary];
+	[values addEntriesFromDictionary:row < [rows count] ? [rows objectAtIndex:row] : @{}];
 	if (form == nil) {
 		if (error != NULL) {
 			*error = ORMFormSessionError([NSString stringWithFormat:@"The form has no repeat %@.", repeat]);

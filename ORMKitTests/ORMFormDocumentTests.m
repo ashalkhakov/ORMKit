@@ -2587,6 +2587,64 @@ static NSString *const ORMCustomerOrders = @"Customer is an entity type.\n"
 	XCTAssertEqualObjects([read objectForKey:@"unitPrice"], @"500", @"%@ %@", read, error);
 }
 
+#pragma mark A row's choices, of the form's values
+
+/* An order of a catalog; its lines' items, of the order's catalog. */
+static NSString *const ORMCatalogOrders = @"Catalog is an entity type.\n"
+                                          @"Reference Mode: .name\n"
+                                          @"PurchaseOrder is an entity type.\n"
+                                          @"Reference Mode: .number\n"
+                                          @"PurchaseLine is an entity type.\n"
+                                          @"Reference Mode: .id\n"
+                                          @"Portable data type: Other: Object ID\n"
+                                          @"StockItem is an entity type.\n"
+                                          @"Reference Mode: .sku\n"
+                                          @"Quantity is a value type.\n"
+                                          @"Portable data type: Numeric: Decimal(19, 4)\n"
+                                          @"PurchaseOrder is of Catalog\n"
+                                          @"Each PurchaseOrder is of exactly one Catalog.\n"
+                                          @"StockItem is of Catalog\n"
+                                          @"Each StockItem is of exactly one Catalog.\n"
+                                          @"PurchaseLine is of PurchaseOrder\n"
+                                          @"Each PurchaseLine is of exactly one PurchaseOrder.\n"
+                                          @"PurchaseLine is for StockItem\n"
+                                          @"Each PurchaseLine is for exactly one StockItem.\n"
+                                          @"PurchaseLine wants Quantity\n"
+                                          @"Each PurchaseLine wants at most one Quantity.\n"
+                                          @"\n"
+                                          @"Query EditOrder:\n"
+                                          @"Form EditOrder:\n"
+                                          @"PurchaseOrder\n"
+                                          @"  + is of Catalog1 = ?\n"
+                                          @"  + PurchaseLine is of that PurchaseOrder\n"
+                                          @"    + is for StockItem (entered)\n"
+                                          @"      + is of Catalog1\n"
+                                          @"    + wants Quantity (entered)\n";
+
+/* A line's items are those of the order's catalog: the row's choices
+ * compare with the form's value, not only the row's. */
+- (void)testARowsChoicesCompareWithTheFormsValues
+{
+	ORMEditor *editor = [self editorOf:ORMCatalogOrders];
+	ORMFormDocument *document = [self form:@"EditOrder" of:editor];
+	ORMForm *form = [ORMForm formWithPropertyList:[document tablePropertyList] error:NULL];
+	XCTAssertEqualObjects([[form repeatNamed:@"purchaseLines"] elementsChoicesDependOn:@"stockItem"], @[ @"catalog" ]);
+	NSManagedObjectContext *context = [self contextOf:editor];
+	NSManagedObject *workshop = [self insert:@"Catalog" values:@{ @"name" : @"Workshop" } in:context];
+	NSManagedObject *shop = [self insert:@"Catalog" values:@{ @"name" : @"Shop" } in:context];
+	[self insert:@"StockItem" values:@{ @"sku" : @"BOLT", @"catalog" : workshop } in:context];
+	[self insert:@"StockItem" values:@{ @"sku" : @"NUT", @"catalog" : workshop } in:context];
+	[self insert:@"StockItem" values:@{ @"sku" : @"MUG", @"catalog" : shop } in:context];
+	NSError *error = nil;
+	XCTAssertTrue([context save:&error], @"%@", error);
+	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:@{ @"catalog" : @"Workshop" }];
+	[session useContext:context saving:nil];
+	XCTAssertTrue([session open:&error], @"%@", error);
+	[session setRows:@[ @{} ] forRepeat:@"purchaseLines"];
+	NSArray *items = [session choicesNamed:@"stockItem" inRepeat:@"purchaseLines" row:0 error:&error];
+	XCTAssertEqualObjects([items sortedArrayUsingSelector:@selector(compare:)], (@[ @"BOLT", @"NUT" ]), @"%@", error);
+}
+
 #pragma mark Through a supertype, to a derived subtype
 
 /* A document is a record; a record that cost something is by definition a

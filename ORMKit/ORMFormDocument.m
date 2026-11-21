@@ -174,6 +174,11 @@ static NSString * const ORMSchemaNamespace = @"http://www.w3.org/2001/XMLSchema"
 	/* The steps to the objects a set of choices picks (D17), by id: read
 	 * each on its own, by the key, as the rows of the facts. */
 	NSMutableSet<NSString *> *_choiceSets;
+	/* A repeat's: the labelled nodes of the forms it is in, each with the
+	 * elements they are there ({ label, type, elements }), which its rows'
+	 * choices compare with (an order's lines' items, of the order's
+	 * catalog). */
+	NSArray<NSDictionary *> *_outer;
 }
 
 #pragma mark The form's parts
@@ -731,6 +736,7 @@ ORMThroughName(NSArray<NSString *> *keys)
 			repeat->_from = [self elementOfNode:of.identifier];
 		}
 		repeat->_repeatPath = _repeatPath != nil ? [NSString stringWithFormat:@"%@/%@", _repeatPath, name] : name;
+		repeat->_outer = [self outerOfRepeats];
 		repeat->_subtype = [self subtypeEntityOf:reachedNode];
 		NSString *why = query != nil ? [repeat makeForm:query stored:stored model:_model mapping:_mapping] : @"it cannot be read";
 		if (why != nil) {
@@ -756,6 +762,20 @@ ORMThroughName(NSArray<NSString *> *keys)
 		[_missingIds unionSet:repeat.missingIds];
 		[_repeats setObject:repeat forKey:name];
 	}
+}
+
+/* What a repeat of this form compares its rows' choices with: this
+ * form's labelled nodes with elements, and those of the forms it is in. */
+- (NSArray<NSDictionary *> *)outerOfRepeats
+{
+	NSMutableArray *outer = [NSMutableArray arrayWithArray:_outer ?: @[]];
+	for (ORMQueryNode *node in [_form nodes]) {
+		NSArray *names = [[self fieldsOfNode:node.identifier] valueForKey:@"elementName"];
+		if (node.label != nil && node.objectType != nil && [names count] > 0) {
+			[outer addObject:@{ @"label" : node.label, @"type" : node.objectType, @"elements" : names }];
+		}
+	}
+	return outer;
 }
 
 - (NSDictionary<NSString *, ORMFormDocument *> *)repeats
@@ -2638,15 +2658,42 @@ ORMNoneGiven(ORMFormField *from, NSArray<ORMFormField *> *fields)
 	return [self plan:query];
 }
 
+/* The nodes beneath the node it shares with the form, or with the forms a
+ * repeat is in: each with the elements that hold the other's value. */
+- (NSArray<NSArray *> *)sharesOf:(ORMQueryNode *)node
+{
+	NSMutableArray *shares = [NSMutableArray array];
+	for (NSArray *pair in node != nil ? ORMSharedNodes(_form, node) : @[]) {
+		[shares addObject:@[ [pair firstObject], [[self fieldsOfNode:[[pair lastObject] identifier]] valueForKey:@"elementName"] ]];
+	}
+	NSMutableArray *stack = node != nil ? [NSMutableArray arrayWithObject:node] : [NSMutableArray array];
+	while ([stack count] > 0) {
+		ORMQueryNode *each = [stack lastObject];
+		[stack removeLastObject];
+		for (ORMQueryStep *step in each.steps) {
+			[stack addObjectsFromArray:step.nodes];
+		}
+		if (each == node || each.label == nil) {
+			continue;
+		}
+		for (NSDictionary *outer in _outer) {
+			if ([[outer objectForKey:@"label"] isEqualToString:each.label] && [outer objectForKey:@"type"] == each.objectType) {
+				[shares addObject:@[ each, [outer objectForKey:@"elements"] ]];
+			}
+		}
+	}
+	return shares;
+}
+
 - (NSArray<NSString *> *)elementsChoicesDependOn:(NSString *)elementName
 {
 	ORMFormField *field = [self fieldNamed:elementName];
 	ORMQueryNode *node = field.isPart ? nil : [self nodeWithId:field.nodeId];
 	NSMutableArray *names = [NSMutableArray array];
-	for (NSArray *pair in node != nil ? ORMSharedNodes(_form, node) : @[]) {
-		for (ORMFormField *outside in [self fieldsOfNode:[[pair lastObject] identifier]]) {
-			if (![names containsObject:outside.elementName]) {
-				[names addObject:outside.elementName];
+	for (NSArray *share in [self sharesOf:node]) {
+		for (NSString *name in [share lastObject]) {
+			if (![names containsObject:name]) {
+				[names addObject:name];
 			}
 		}
 	}
@@ -2672,15 +2719,16 @@ ORMNoneGiven(ORMFormField *from, NSArray<ORMFormField *> *fields)
 				[step detach];
 			}
 		}
-		/* A node it shares with the form: that one's value, where there is. */
-		for (NSArray *pair in ORMSharedNodes(_form, [self nodeWithId:field.nodeId])) {
+		/* A node it shares with the form, or the forms a repeat is in: that
+		 * one's value, where there is. */
+		for (NSArray *share in [self sharesOf:[self nodeWithId:field.nodeId]]) {
 			ORMQueryPart *inside = nil;
 			for (ORMQueryPart *each in [root tree]) {
-				inside = !each.isStep && [each.identifier isEqualToString:[[pair firstObject] identifier]] ? each : inside;
+				inside = !each.isStep && [each.identifier isEqualToString:[[share firstObject] identifier]] ? each : inside;
 			}
 			NSString *value = nil;
-			for (ORMFormField *outside in [self fieldsOfNode:[[pair lastObject] identifier]]) {
-				value = value ?: [values objectForKey:outside.elementName];
+			for (NSString *name in [share lastObject]) {
+				value = value ?: [values objectForKey:name];
 			}
 			inside.label = nil;
 			if ([value length] > 0) {
