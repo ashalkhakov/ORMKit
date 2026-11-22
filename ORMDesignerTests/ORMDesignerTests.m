@@ -1929,6 +1929,27 @@
 	[player setValue:@"Ring Road 5" ofRow:lines];
 	XCTAssertFalse([player.walk submit:&error], @"no name yet");
 	[player setValue:@"Qazaq Oil" ofRow:name];
+	/* The fuels it sells, a set of choices: each picked, or no longer. */
+	NSInteger fuels = -1;
+	for (NSInteger row = 0; row < [player.values numberOfRows]; row++) {
+		fuels = [[player editorOfRow:row] isEqualToString:@"choices"] ? row : fuels;
+	}
+	XCTAssertTrue(fuels >= 0, @"%@", [player.walk.session.form.elements valueForKey:@"name"]);
+	NSTableCellView *picks = [player.values viewAtColumn:[player.values columnWithIdentifier:@"value"] row:fuels makeIfNecessary:YES];
+	XCTAssertEqualObjects([picks identifier], @"choices", @"its prototype in the XIB");
+	NSPopUpButton *pullDown = [[picks subviews] firstObject];
+	XCTAssertTrue([pullDown pullsDown]);
+	NSString *fuelsName = [player.walk.session.form.elements objectAtIndex:(NSUInteger)fuels].name;
+	NSString *(^pick)(NSString *) = ^NSString *(NSString *fuel) {
+		NSTableCellView *now = [player.values viewAtColumn:[player.values columnWithIdentifier:@"value"] row:fuels makeIfNecessary:YES];
+		NSPopUpButton *each = [[now subviews] firstObject];
+		[each selectItemAtIndex:[each indexOfItemWithRepresentedObject:fuel]];
+		[player toggleChoice:each];
+		return [player.walk.session valueForElement:fuelsName];
+	};
+	XCTAssertEqualObjects(pick(@"Diesel"), @"Diesel");
+	XCTAssertEqualObjects(pick(@"Petrol"), @"Diesel Petrol");
+	XCTAssertEqualObjects(pick(@"Diesel"), @"Petrol");
 	XCTAssertTrue([player.walk submit:&error], @"%@ %@", player.walk.session.errors, error);
 
 	/* A record: a fill-up, its own part shown once it is one. */

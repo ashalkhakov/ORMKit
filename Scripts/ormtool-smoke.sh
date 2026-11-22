@@ -37,6 +37,18 @@ run contract Samples/Fleet.orm RecordFillUp "$out/forms/RecordFillUp.xhtml" > /d
 sed 's|<id></id>|<id></id><colour xmlns:ormf="urn:ormkit:forms" ormf:provisional="true"></colour>|' "$out/forms/RecordFillUp.xhtml" > "$out/custom.xhtml"
 run contract Samples/Fleet.orm RecordFillUp "$out/custom.xhtml" | grep -q '^under construction: colour'
 run propose Samples/Fleet.orm RecordFillUp "$out/custom.xhtml" | grep -q '^FillUp has Colour$'
+# Flows: each one's contract beside the forms (<Flow>.ormflow); one with a
+# placeholder screen gets none, and ormtool says why and fails.
+sed 's/Name="Fleet"/Name="Fleet2"/' Samples/Fleet.flow > "$out/Fleet2.flow"
+run xforms Samples/Fleet.orm "$out/flows" --flow Samples/Fleet.flow --flow "$out/Fleet2.flow" > /dev/null
+test -s "$out/flows/Fleet.ormflow"
+test -s "$out/flows/Fleet2.ormflow"
+sed 's|</flow:Flow>|<flow:Screen id="later" Name="Later"></flow:Screen></flow:Flow>|' Samples/Fleet.flow > "$out/Unfinished.flow"
+if run xforms Samples/Fleet.orm "$out/unfinished" --flow "$out/Unfinished.flow" > /dev/null 2> "$out/unfinished.txt"; then
+  echo "ormtool-smoke: xforms wrote a flow with a placeholder"; exit 1
+fi
+grep -q 'Later is a placeholder' "$out/unfinished.txt"
+test ! -e "$out/unfinished/Fleet.ormflow"
 run coredata "$sample" "$out/StockMate.xcdatamodeld"
 test -s "$out/StockMate.xcdatamodeld/StockMate.xcdatamodel/contents"
 run import "$out/StockMate.xcdatamodeld" "$out/imported.orm"
@@ -48,4 +60,4 @@ run svg "$sample" "$out/diagrams/"
 test -s "$out/diagrams/Products.svg"
 if command -v xmllint > /dev/null; then xmllint --noout "$out"/diagrams/*.svg; fi
 if command -v xcrun > /dev/null; then xcrun momc "$out/StockMate.xcdatamodeld" "$out/StockMate.momd"; fi
-echo "ormtool-smoke: check, verbalize, normalize, forml, apply, xforms, contract, propose, coredata, import, sync, svg"
+echo "ormtool-smoke: check, verbalize, normalize, forml, apply, xforms, flows, contract, propose, coredata, import, sync, svg"

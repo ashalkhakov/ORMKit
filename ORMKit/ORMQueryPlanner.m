@@ -234,6 +234,16 @@ ORMThrough(ORMPlanPath *path, ORMPlanCondition *beyond)
 
 #pragma mark Planning
 
+- (BOOL)identifiesByOwnKeys
+{
+	return _places.identifiesByOwnKeys;
+}
+
+- (void)setIdentifiesByOwnKeys:(BOOL)identifies
+{
+	_places.identifiesByOwnKeys = identifies;
+}
+
 - (ORMQueryPlan *)planForQuery:(ORMQuery *)query
 {
 	/* Steps through derived fact types put as their derivations' paths

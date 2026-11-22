@@ -45,7 +45,7 @@
  *                                            population (ORMFlowWalk): each list's first row
  *                                            chosen, each form submitted as it opens, each way
  *                                            taken once; what happened, a line a step
- *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]
+ *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]... [--action Form=Action]... [--messages file.plist]
  *   ormtool contract model.orm Form copy.xhtml  a customized copy against the form: errors (1), warnings, what is provisional
  *   ormtool propose model.orm Form copy.xhtml [sample.xml]  the fact types its provisional elements ask for, as FORML
  *                                            each form (or the named one) as an XForms document,
@@ -55,7 +55,9 @@
  *                                            it leaves to where it is submitted, and the plans its
  *                                            reads stand for printed; with a flow, each of its
  *                                            screens' forms with the flow's ways on from it in its
- *                                            actions (xf:load of the next form, given its values)
+ *                                            actions (xf:load of the next form, given its values),
+ *                                            and <Flow>.ormflow, what an app runs the flow with
+ *                                            (ORMRuntime's ORMFlowSession; 1 where it does not hold)
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -96,7 +98,7 @@ ORMUsage(void)
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
 	      "       ormtool flow model.orm file.flow [walk [entry name]]\n"
-	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]\n"
+	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]... [--action Form=Action]... [--messages file.plist]\n"
 	      "       ormtool contract model.orm Form copy.xhtml   (1 when the customized copy breaks the form's contract)\n"
 	      "       ormtool propose model.orm Form copy.xhtml [sample.xml]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
@@ -647,18 +649,19 @@ main(int argc, const char *argv[])
 			return [customization.errors count] > 0 ? 1 : 0;
 		}
 		if ([command isEqualToString:@"xforms"] && [args count] >= 3) {
-			/* A flow's screens: their forms' ways on, in their actions. */
-			ORMFlow *flow = nil;
-			NSUInteger flowAt = [args indexOfObject:@"--flow"];
-			if (flowAt != NSNotFound) {
+			/* Flows' screens: their forms' ways on, in their actions;
+			 * --flow file.flow, each. */
+			NSMutableArray<ORMFlow *> *flows = [NSMutableArray array];
+			for (NSUInteger flowAt = [args indexOfObject:@"--flow"]; flowAt != NSNotFound; flowAt = [args indexOfObject:@"--flow"]) {
 				NSError *error = nil;
-				flow = flowAt + 1 < [args count] ? [ORMFlow flowWithContentsOfURL:[NSURL fileURLWithPath:[args objectAtIndex:flowAt + 1]]
-				                                                            error:&error]
-				                                 : nil;
+				ORMFlow *flow = flowAt + 1 < [args count]
+					? [ORMFlow flowWithContentsOfURL:[NSURL fileURLWithPath:[args objectAtIndex:flowAt + 1]] error:&error]
+					: nil;
 				if (flow == nil) {
 					fprintf(stderr, "ormtool: --flow: %s\n", [[error localizedDescription] ?: @"names no file" UTF8String]);
 					return 1;
 				}
+				[flows addObject:flow];
 				NSMutableArray *rest = [args mutableCopy];
 				[rest removeObjectsInRange:NSMakeRange(flowAt, 2)];
 				args = rest;
@@ -727,10 +730,15 @@ main(int argc, const char *argv[])
 					status = 1;
 					continue;
 				}
-				for (ORMFlowScreen *screen in flow.screens) {
-					if ([screen.formId isEqualToString:query.identifier]) {
-						[form setFlow:flow screen:screen];
-						break;
+				/* The first flow that shows it, its ways on in its
+				 * document. */
+				BOOL shown = NO;
+				for (ORMFlow *flow in flows) {
+					for (ORMFlowScreen *screen in flow.screens) {
+						if (!shown && [screen.formId isEqualToString:query.identifier]) {
+							[form setFlow:flow screen:screen];
+							shown = YES;
+						}
 					}
 				}
 				form.action = [actions objectForKey:query.name];
@@ -769,6 +777,26 @@ main(int argc, const char *argv[])
 			if (!found) {
 				fprintf(stderr, "ormtool: %s\n", [args count] > 3 ? "no form of that name" : "the model has no forms");
 				return 1;
+			}
+			/* The flow's own, beside its forms': what an app runs it with
+			 * (ORMRuntime's ORMFlowSession). Not written where it does not
+			 * hold. */
+			for (ORMFlow *flow in flows) {
+				NSArray *problems = nil;
+				NSDictionary *contract = [flow contractInModel:model mapping:mapping problems:&problems];
+				for (NSString *problem in problems) {
+					fprintf(stderr, "ormtool: %s: error: %s\n", [flow.name UTF8String], [problem UTF8String]);
+				}
+				if (contract == nil) {
+					return 1;
+				}
+				NSString *flowPath = [directory stringByAppendingPathComponent:[flow.name stringByAppendingPathExtension:@"ormflow"]];
+				NSData *data = [NSPropertyListSerialization dataWithPropertyList:contract format:NSPropertyListXMLFormat_v1_0 options:0 error:NULL];
+				if (![data writeToFile:flowPath atomically:YES]) {
+					fprintf(stderr, "ormtool: cannot write %s\n", [flowPath UTF8String]);
+					return 1;
+				}
+				ORMPrint([NSString stringWithFormat:@"%@: %@\n", flow.name, flowPath]);
 			}
 			return status;
 		}

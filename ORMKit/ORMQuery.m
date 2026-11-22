@@ -1143,6 +1143,33 @@ ORMExpandSubtypeStep(ORMQueryPart *step, ORMObjectType *subtype, ORMStoredQuery 
 	for (NSString *key in ORMStepQualifiers()) {
 		qualified = qualified || [step valueForKey:key] != nil;
 	}
+	/* A maybe, and nothing else said of the step: what is said beneath, each
+	 * a maybe of its own from the same object, the rule no condition (a
+	 * form's part of a derived subtype: a cost's charge, where there is one). */
+	BOOL maybe = [step.operatorName isEqualToString:@"Maybe"];
+	for (NSString *key in ORMStepQualifiers()) {
+		maybe = maybe && ([key isEqualToString:@"operatorName"] || [step valueForKey:key] == nil);
+	}
+	BOOL said = NO;
+	for (NSString *key in @[ @"projected", @"comparison", @"value", @"compareTo", @"sort" ]) {
+		said = said || [node valueForKey:key] != nil;
+	}
+	if (maybe && !said && ([[node steps] count] > 0 || [[node values] count] > 0)) {
+		if ([node.label length] > 0) {
+			ORMMergeLabel(from, node, from.label, from);
+		}
+		ORMRenameNode(from, node.identifier, from.identifier);
+		NSUInteger at = [step index];
+		[step detach];
+		for (ORMQueryPart *each in [[node steps] arrayByAddingObjectsFromArray:[node values]]) {
+			[each detach];
+			if (each.isStep && each.operatorName == nil) {
+				each.operatorName = @"Maybe";
+			}
+			[from insertPart:each atIndex:at++];
+		}
+		return nil;
+	}
 	if (qualified) {
 		BOOL bare = [[node steps] count] == 0 && [[node values] count] == 0;
 		for (NSString *key in @[ @"projected", @"comparison", @"value", @"compareTo", @"sort", @"label" ]) {

@@ -1,7 +1,7 @@
 /* Copyright (c) 2026 the ORMKit contributors. LGPL 2.1. */
 #import <Foundation/Foundation.h>
 
-@class ORMModel, ORMQuery;
+@class ORMModel, ORMQuery, ORMCoreDataMapping;
 
 /* A flow (docs/FORMS.md, Flows): an actor's way through the model's forms
  * and lists, kept in a .flow file of its own beside the .orm it names.
@@ -20,8 +20,9 @@
  *     <flow:Transition From="_s3" On="SubmitDone" Kind="Back"/>
  *   </flow:Flow>
  *
- * What it gives is a given node of the next screen's form (its = ?), and
- * where it comes from: "row" (the list's row chosen, its anchor), "result"
+ * What it gives is a given node of the next screen's form (its = ?), or
+ * its anchor (the form opened on that object, one there is: an order to
+ * confirm), and where it comes from: "row" (the list's row chosen, its anchor), "result"
  * (what the screen before saved), or "<screen id>.<node id>" (a value a
  * screen before had). It does not keep what is inside a screen: that is the
  * form's. A screen whose query the model no longer has, or a value given
@@ -57,7 +58,8 @@ extern NSString * const ORMFlowKindClose;
 @interface ORMFlowGive : NSObject
 /* The given node of the next screen's form. */
 @property (nonatomic, copy) NSString *nodeId;
-/* "row", "result", or "<screen id>.<node id>". A Close's gives a node of
+/* (Or the form's anchor, its root: the form opens on that object.)
+ * "row", "result", or "<screen id>.<node id>". A Close's gives a node of
  * the form the overlay is over: what the overlay made, returned to it. */
 @property (nonatomic, copy) NSString *from;
 @end
@@ -106,6 +108,22 @@ extern NSString * const ORMFlowKindClose;
 /* The next form's inputs a transition leaves to the app (who is signed
  * in), by node id: neither given by it nor problems. */
 - (NSArray<NSString *> *)inputsLeftBy:(ORMFlowTransition *)transition inModel:(ORMModel *)model;
+/* What an app runs it with (ORMRuntime's ORMFlowSession), as ormtool
+ * xforms --flow writes it beside the forms' (<Flow>.ormflow): its screens
+ * by their forms' and lists' names, its ways, and what each gives by the
+ * element of the form it gives to (a form's anchor its key, "anchor"):
+ *
+ *   { format = 1; flow = Purchasing;
+ *     entries = ( { name = Confirm; screen = confirm; } );
+ *     screens = { order = { name = Order; form = EditPurchaseOrder; };
+ *                 confirm = { name = Confirm; form = ConfirmPurchaseOrder; }; };
+ *     transitions = ( { from = order; on = Trigger; control = confirm; to = confirm; kind = Overlay;
+ *                       gives = ( { element = id; anchor = 1; from = result; } ); } ); }
+ *
+ * A give's "from" is "row", "result", or "<screen>.<element>" (an element
+ * of that screen's form). nil, and the problems, where it does not hold
+ * (-problemsInModel:), or a screen is no form or list yet. */
+- (NSDictionary *)contractInModel:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping problems:(NSArray<NSString *> **)problems;
 /* The flow as a reader reads it, a line a screen and a transition:
  *
  *   Flow Records (Logbook.orm)

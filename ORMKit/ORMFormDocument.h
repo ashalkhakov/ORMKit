@@ -78,6 +78,9 @@ typedef NS_ENUM(NSInteger, ORMFormFieldKind) {
  * reference element it finds the object of (an order's customer by email);
  * nil for others. */
 @property (nonatomic, readonly, copy) NSString *identifies;
+/* A set of choices (D17): the keys of the objects picked (an answer's
+ * options), space separated as an XForms select holds them. */
+@property (nonatomic, readonly) BOOL isMany;
 /* Its id in the document: the node's, a part's index after it. */
 - (NSString *)fieldId;
 @end

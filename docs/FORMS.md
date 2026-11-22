@@ -183,11 +183,12 @@ Each node's place is decided from the steps above it, before its mark:
 | D9 | a step to many with only shown nodes beneath, from anywhere | a list in the report | a read-only repeat: rows read, never written |
 | D10 | a unary, on the anchor, an owned object or a part | a flag asserted (entered) or read (shown) | an `xsd:boolean` element at its owner's path |
 | D11 | an absorbed value, wherever its owner may be | its parts, whole or not given | an element per part at its owner's path (`volumeQuantity`, `volumeVolumeUnit`) |
-| D12 | a part (subtype step) | its nodes count where the object is of that subtype | on the anchor or an owned object: a kind element choosing it, its elements `relevant` where chosen; on a referenced object: shown where it is one |
+| D12 | a part (subtype step) | its nodes count where the object is of that subtype | on the anchor or an owned object: a kind element choosing it, its elements `relevant` where chosen; on a referenced object: shown where it is one. A step up to a supertype (+ is Record, from a Document) or down to a subtype a rule derives and does not store (+ is Cost, a record that cost money) is no part to choose: the same object, its elements the anchor's own, read as maybes |
 | D13 | a computed value (`X = expr (shown)`) over nodes at its own level or above by steps to one | a value worked out from the form's values | an element `calculate`d, read-only; also worked out by ORMRuntime when it reads the form |
 | D14 | a computed value whose operand is beneath a step to many, under an aggregate (count, total, avg, max, min) | an aggregate over the rows | `calculate` over the repeat's or list's rows (`sum(purchaseLines/amount)`); ORMRuntime the same |
 | D15 | a constraint or rule whose roles are all in the form | checked as the form is filled in | a bind (see [Binds](#binds-the-constraints-that-apply)) |
 | D16 | any other constraint or rule on the form's fact types | checked where the submission is saved | `checkedWhereSubmitted`, refused in its words at its element |
+| D17 | an entered entity reached by a step to many through a fact type of many to many, on the anchor, an owned object or a repeat's row, with only its conditions (D5) beneath | a set of choices: the objects the facts are about are picked (an answer's options, the fuels a station sells) | one element holding the chosen objects' keys, space separated, `many`; an `xf:select`; read on its own by the key; saved as the whole of the relationship (to the service: bound when new, a delta of those picked and those no longer when changed) |
 
 ### What is no form (refused where it is drawn)
 
@@ -225,10 +226,10 @@ Written down, the definition shows what the generator does not do yet,
 each with the rule it falls short of; each is an error where it is met,
 never a form without it:
 
-- D8 for rows that are facts of many rather than objects of one owner (a
-  driver's vehicles, entered): reported missing ("rows entered that are
-  not each of one User, but facts of many"); read as a list (D9), they
-  are made.
+- D8 for rows that are facts of many rather than objects of one owner,
+  other than objects picked (D17): values of many entered (a user's
+  languages) are reported missing ("rows entered that are not each of one
+  User, but facts of many"); read as a list (D9), they are made.
 - A list read through a reference (D9, the driver's vehicles) is read as
   the form opens and with its object; a session does not read it again
   when the reference changes, as it does a value shown through it.
@@ -359,7 +360,7 @@ constraint's own statement; the bind names it in `ormf:constraints`.
 | a value node's expression | `calculate` (`number(../totalAmount) div number(../volumeQuantity)`), empty until its operands are given |
 | deontic | XFormsKit's `xfk:warning`: shown at its element, never invalid, never in the way of a submission |
 | a rule over the form's own values ("It is impossible that: FillUp + was of Volume + has Quantity > 200") | `constraint` at the first of them entered: `not(../volumeQuantity != '' and number(../volumeQuantity) > 200)`; deontic, a warning |
-| a derived fact type shown (a unit price, its derivation over the cost and the volume) | `calculate`, as the derivation says over the form's elements; where the read cannot take it (its derivation branches), read on its own by the key |
+| a derived fact type shown (a unit price, its derivation over the cost and the volume) | `calculate`, as the derivation says over the form's elements; where the read cannot take it (its derivation branches), read on its own by the key; stored once derived (a service's total), read with the anchor from its column |
 
 An owned object's and a subtype part's constraints are bound as the
 anchor's are, each path from the element's own place
@@ -488,7 +489,7 @@ A flow is what a design tool's prototype is, in the model's terms:
 | --- | --- |
 | a frame | a **screen**: a form, or a list (a query whose rows lead somewhere) |
 | a connection, on a click | a **transition**, on an action: `RowChosen`, `Trigger` (a control of the form), `SubmitDone`, `SubmitError`, `Cancel` |
-| what the next frame shows | what the transition **gives** the next form: its given nodes, from the row chosen, what the screen saved, or a value a screen before had |
+| what the next frame shows | what the transition **gives** the next form: its given nodes, or its anchor (the form opened on that object: an order to confirm), from the row chosen, what the screen saved, or a value a screen before had |
 | navigate, overlay, back | its **kind**: navigate; overlay (a modal form over this one); back; close the overlay, giving the form under it what it made |
 | a flow's starting point | an **entry**: where the app, or a task, begins |
 
@@ -516,9 +517,10 @@ one the model no longer has is reported:
 ```
 
 (An excerpt of [Samples/Fleet.flow](../Samples/Fleet.flow). A `Give`'s
-`Node` is a given node of the next screen's form; `From` is `row` (the
-list's row chosen), `result` (what the screen before saved), or
-`<screen id>.<node id>` (a value a screen before had).)
+`Node` is a given node of the next screen's form, or its anchor (its
+root: the form opens on that object, read and changed, not a new one);
+`From` is `row` (the list's row chosen), `result` (what the screen before
+saved), or `<screen id>.<node id>` (a value a screen before had).)
 
 What is inside a screen is not in the flow: a form's controls, and where
 they are, are the form's and its customization's. A flow draws each screen
@@ -538,6 +540,21 @@ forms themselves do not name each other; `ormtool xforms model.orm dir/
 | `form:list/<Query>` | the next list |
 | `form:back` | the screen before |
 | `form:close?<element>=<value>&...` | the overlay closed, the values given to the form it is over |
+
+**Run by an app.** Beside the forms, `ormtool xforms ... --flow
+Fleet.flow` writes `Fleet.ormflow`, the flow as an app runs it: its
+screens by their forms' and lists' names, its ways, and what each gives
+by the element of the form it gives to (the anchor said so, its value
+the form's key). ORMRuntime's `ORMFlowSession` goes through it: begun at
+an entry (on an object, for a task's), it says the screen to show, the
+form's inputs and the object it is on; each way taken (a row chosen, a
+trigger, a save done or refused, a cancel) says the next, an overlay
+over the screen it came from and closed back to it with what it gave,
+until it goes back past the first: ended. It opens no view and saves
+nothing; the app's views show each screen (a window, a sheet, a list),
+and its form sessions save them. A flow that does not hold, or a screen
+that is still a placeholder, gets no `.ormflow`: ormtool says why and
+exits 1.
 
 **Played before an app exists.** `ORMFlowWalk` runs a flow over the
 model's sample population ([POPULATIONS.md](POPULATIONS.md)), in a store
@@ -621,9 +638,11 @@ committing what is typed. XFormsKit still needs decimal arithmetic for
 
 ## Commands
 
-- `ormtool xforms model.orm dir/ [form] [mapping] [--flow file.flow]
+- `ormtool xforms model.orm dir/ [form] [mapping] [--flow file.flow]...
   [--action Form=Action]... [--messages file.plist]` writes each form's
-  `<Form>.xhtml` and `<Form>.ormform`, never edited, and prints what it
+  `<Form>.xhtml` and `<Form>.ormform`, never edited (with flows, each
+  `<Flow>.ormflow` too; a form two flows show has the first's ways on), and
+  prints what it
   leaves to its submission and the plans `form:read` and each
   `form:choices/<name>` stand for; a form that breaks a rule of the
   definition, or that lacks an element the model has in it, is not written

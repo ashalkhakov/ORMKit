@@ -262,13 +262,18 @@ ORMFlowWalkIsKind(ORMForm *form, NSString *subtype, NSDictionary *values, NSMana
 		return nil;
 	}
 	NSMutableDictionary *elements = [NSMutableDictionary dictionary];
+	NSString *anchor = nil;
 	for (NSString *nodeId in given) {
 		NSString *element = [document elementOfNode:nodeId];
-		if (element != nil) {
+		if ([nodeId isEqualToString:query.root.identifier ?: @""]) {
+			anchor = [given objectForKey:nodeId];
+		} else if (element != nil) {
 			[elements setObject:[given objectForKey:nodeId] forKey:element];
 		}
 	}
 	ORMFormSession *session = [[ORMFormSession alloc] initWithForm:form given:elements];
+	/* Given its anchor: opened on that object. */
+	session.key = anchor;
 	/* The population's store asks for nothing (a sample need not be
 	 * whole), so what the form asks of each value is asked here, said in
 	 * the constraint's own words at its element, as the form would say it

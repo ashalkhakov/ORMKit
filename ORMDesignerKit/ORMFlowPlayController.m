@@ -248,6 +248,28 @@ ORMFlowPlayEntryOf(ORMFormElement *element, NSString *repeat, NSUInteger row)
 		}
 		NSInteger chosen = [popUp indexOfItemWithRepresentedObject:value];
 		[popUp selectItemAtIndex:chosen >= 0 ? chosen : 0];
+	} else if ([editor isEqualToString:@"choices"]) {
+		/* Its title the ones picked; each item ticked where it is one. */
+		NSPopUpButton *pullDown = [[view subviews] firstObject];
+		NSArray *picked = [self keysOf:value];
+		NSArray *keys = (entry.repeat != nil ? [_walk.session choicesNamed:element.name inRepeat:entry.repeat row:entry.row error:NULL]
+		                                     : [_walk.session choicesNamed:element.name error:NULL]) ?: @[];
+		for (NSString *key in picked) {
+			keys = [keys containsObject:key] ? keys : [keys arrayByAddingObject:key];
+		}
+		NSMutableArray *labels = [NSMutableArray array];
+		[pullDown removeAllItems];
+		[pullDown addItemWithTitle:@""];
+		for (NSString *key in keys) {
+			NSString *label = [self labelOfKey:key entry:entry];
+			[pullDown addItemWithTitle:[pullDown itemWithTitle:label] != nil ? [NSString stringWithFormat:@"%@ (%@)", label, key] : label];
+			[[pullDown lastItem] setRepresentedObject:key];
+			[[pullDown lastItem] setState:[picked containsObject:key] ? NSControlStateValueOn : NSControlStateValueOff];
+			if ([picked containsObject:key]) {
+				[labels addObject:label];
+			}
+		}
+		[[pullDown itemAtIndex:0] setTitle:[labels count] > 0 ? [labels componentsJoinedByString:@", "] : @"(none)"];
 	}
 	return view;
 }
@@ -359,6 +381,9 @@ ORMFlowPlayEntryOf(ORMFormElement *element, NSString *repeat, NSUInteger row)
 		return @"shown";
 	}
 	NSString *type = element.schemaType ?: @"";
+	if (element.many) {
+		return @"choices";
+	}
 	if ([element.kind isEqualToString:@"reference"] || element.items != nil) {
 		return @"choice";
 	}
@@ -479,11 +504,39 @@ ORMFlowPlayFormatter(NSString *format)
 	NSMutableIndexSet *rows = [editor hasPrefix:@"date"] && [value length] > 0 ? [NSMutableIndexSet indexSet]
 	                                                                         : [NSMutableIndexSet indexSetWithIndex:(NSUInteger)row];
 	for (NSUInteger i = 0; i < [[self entriesShown] count]; i++) {
-		if ([[self editorOfRow:(NSInteger)i] isEqualToString:@"choice"]) {
+		if ([[self editorOfRow:(NSInteger)i] hasPrefix:@"choice"]) {
 			[rows addIndex:i];
 		}
 	}
 	[self.values reloadDataForRowIndexes:rows columnIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, 2)]];
+}
+
+/* A set of choices' keys, as its value holds them. */
+- (NSArray<NSString *> *)keysOf:(NSString *)value
+{
+	NSMutableArray *keys = [NSMutableArray array];
+	for (NSString *each in [value ?: @"" componentsSeparatedByCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]) {
+		if ([each length] > 0 && ![keys containsObject:each]) {
+			[keys addObject:each];
+		}
+	}
+	return keys;
+}
+
+- (IBAction)toggleChoice:(id)sender
+{
+	NSInteger row = [self.values rowForView:sender];
+	NSString *key = [[sender selectedItem] representedObject];
+	if (row < 0 || key == nil) {
+		return;
+	}
+	NSMutableArray *keys = [[self keysOf:[self valueOf:[self entryOfRow:row]]] mutableCopy];
+	if ([keys containsObject:key]) {
+		[keys removeObject:key];
+	} else {
+		[keys addObject:key];
+	}
+	[self setValue:[[keys sortedArrayUsingSelector:@selector(compare:)] componentsJoinedByString:@" "] ofRow:row];
 }
 
 - (IBAction)valueChanged:(id)sender

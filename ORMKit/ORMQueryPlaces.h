@@ -8,6 +8,11 @@
 @interface ORMQueryPlaces : NSObject
 - (instancetype)initWithCoreData:(ORMCDModel *)coreData;
 @property (nonatomic, readonly, strong) ORMCDModel *coreData;
+/* An object identified by roles (an answer, of its inspection and its
+ * question) identified by the key of its own the mapping gives it, as
+ * OData serves it: for a store whose objects have it (a form's), not a
+ * sample population's. NO by default. */
+@property (nonatomic) BOOL identifiesByOwnKeys;
 
 /* The entity an object type's instances are: its own, or its nearest
  * supertype's when it was flattened into it. */

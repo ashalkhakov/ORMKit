@@ -1106,6 +1106,10 @@
 			isa = PBXBuildFile;
 			fileRef = 3F80E56331C5A2FF542182AE /* ORMSubtypeDerivationTests.m */;
 		};
+		C92680D49668D85090CD6435 /* ORMFlowSession.m */ = {
+			isa = PBXBuildFile;
+			fileRef = BC37C147954F78826758BB8F /* ORMFlowSession.m */;
+		};
 		CA487547267B63669045A97A /* ORMCoreDataValidation.h */ = {
 			isa = PBXBuildFile;
 			fileRef = 8AA4CEDDA923B6706D18D22E /* ORMCoreDataValidation.h */;
@@ -1241,6 +1245,11 @@
 		E52B26FB64C401B90CCE14B1 /* ORMReadingText.m */ = {
 			isa = PBXBuildFile;
 			fileRef = 2FEE1243254FC55B16E53D18 /* ORMReadingText.m */;
+		};
+		E60254272C7FF1B8BEC8AE2E /* ORMFlowSession.h */ = {
+			isa = PBXBuildFile;
+			fileRef = 5C013CD1D8BE1A4EB943010A /* ORMFlowSession.h */;
+			settings = {ATTRIBUTES = (Public, ); };
 		};
 		E69F2A18227919B8B406125D /* ORMSearchNavigator.m */ = {
 			isa = PBXBuildFile;
@@ -2065,6 +2074,12 @@
 			path = ORMValueConstraintParser.h;
 			sourceTree = "<group>";
 		};
+		5C013CD1D8BE1A4EB943010A /* ORMFlowSession.h */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.h;
+			path = ORMFlowSession.h;
+			sourceTree = "<group>";
+		};
 		5C86A6DC7A399335168B3B21 /* ORMPopulationGenerator.m */ = {
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.objc;
@@ -2651,6 +2666,12 @@
 			isa = PBXFileReference;
 			lastKnownFileType = sourcecode.c.h;
 			path = ORMSampleMenu.h;
+			sourceTree = "<group>";
+		};
+		BC37C147954F78826758BB8F /* ORMFlowSession.m */ = {
+			isa = PBXFileReference;
+			lastKnownFileType = sourcecode.c.objc;
+			path = ORMFlowSession.m;
 			sourceTree = "<group>";
 		};
 		BC4FC4457D03EB06CA2CC9EB /* ORMDerivationPathTests.m */ = {
@@ -3451,6 +3472,8 @@
 			children = (
 				5B02C3D66BEF9643289A0BCF /* ORMCursor.h */,
 				3991801820FA2F22C806039D /* ORMCursor.m */,
+				5C013CD1D8BE1A4EB943010A /* ORMFlowSession.h */,
+				BC37C147954F78826758BB8F /* ORMFlowSession.m */,
 				D40F1C519B53B6FF1EA8465A /* ORMForm.h */,
 				FFD03C0F744DC3CB47AB4472 /* ORMForm.m */,
 				16CC7F92E855BE4273340FC3 /* ORMFormSession.h */,
@@ -3681,6 +3704,7 @@
 				714B833787B90E162ED7FDF2 /* ORMJoinedObject.h */,
 				7250F4188ABEF11C5D1B3415 /* ORMForm.h */,
 				77E3E31ED1E397A100FB447B /* ORMFormSession.h */,
+				E60254272C7FF1B8BEC8AE2E /* ORMFlowSession.h */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -4097,6 +4121,7 @@
 				C2D367794895ADB136F15656 /* ORMJoinedObject.m */,
 				D3270C5D747A9B92AE619087 /* ORMForm.m */,
 				67263836DE92ABA4BF0F5E8D /* ORMFormSession.m */,
+				C92680D49668D85090CD6435 /* ORMFlowSession.m */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

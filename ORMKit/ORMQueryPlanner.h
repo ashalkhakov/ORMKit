@@ -37,6 +37,9 @@
 /* Through the mapping (the defaults for nil). */
 - (instancetype)initWithModel:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping;
 @property (nonatomic, readonly, strong) ORMCDModel *coreData;
+/* An object identified by roles identified by its own key, where the
+ * mapping gives it one (ORMQueryPlaces): a form's planner's. */
+@property (nonatomic) BOOL identifiesByOwnKeys;
 - (ORMQueryPlan *)planForQuery:(ORMQuery *)query;
 /* The attribute a unary step's fact is kept in, of the entity its node
  * maps to: "fullTank" for "FillUp filled the tank". nil for a step that is

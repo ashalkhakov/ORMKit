@@ -165,6 +165,14 @@
 			}
 		}
 	}
+	/* Identified by roles (an answer, of its inspection and its question),
+	 * and given a key of its own by the mapping, as OData serves it: that
+	 * key, one value for the roles' values, where the store has it. */
+	for (ORMCDAttribute *attribute in _identifiesByOwnKeys ? entity.attributes : @[]) {
+		if ([[attribute.userInfo objectForKey:@"OData.key"] isEqualToString:@"YES"]) {
+			return attribute;
+		}
+	}
 	return nil;
 }
 
