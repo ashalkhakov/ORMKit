@@ -14,3 +14,4 @@
 #import "ORMJoinedObject.h"
 #import "ORMForm.h"
 #import "ORMFormSession.h"
+#import "ORMFlowSession.h"

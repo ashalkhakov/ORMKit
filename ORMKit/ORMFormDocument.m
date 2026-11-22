@@ -3667,7 +3667,9 @@ ORMXPathLiteral(NSString *text)
 	NSMutableArray *parts = [NSMutableArray array];
 	NSString *separator = @"?";
 	for (ORMFlowGive *give in transition.gives) {
-		NSString *element = [named elementOfNode:give.nodeId] ?: give.nodeId;
+		/* The anchor given: the next form's key, the object it opens on. */
+		NSString *element = [named elementOfNode:give.nodeId]
+			?: ([give.nodeId isEqualToString:named.form.root.identifier ?: @""] ? [named keyField].elementName : nil) ?: give.nodeId;
 		[parts addObject:ORMXPathLiteral([NSString stringWithFormat:@"%@%@=", separator, element])];
 		[parts addObject:[self valueOf:give]];
 		separator = @"&";

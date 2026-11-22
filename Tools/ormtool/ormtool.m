@@ -55,7 +55,9 @@
  *                                            it leaves to where it is submitted, and the plans its
  *                                            reads stand for printed; with a flow, each of its
  *                                            screens' forms with the flow's ways on from it in its
- *                                            actions (xf:load of the next form, given its values)
+ *                                            actions (xf:load of the next form, given its values),
+ *                                            and <Flow>.ormflow, what an app runs the flow with
+ *                                            (ORMRuntime's ORMFlowSession; 1 where it does not hold)
  *   ormtool import Model.xcdatamodeld [model.orm]
  *                                            the Core Data model in ORM: added to the .orm when it
  *                                            exists, else a new model, written there or to standard
@@ -769,6 +771,26 @@ main(int argc, const char *argv[])
 			if (!found) {
 				fprintf(stderr, "ormtool: %s\n", [args count] > 3 ? "no form of that name" : "the model has no forms");
 				return 1;
+			}
+			/* The flow's own, beside its forms': what an app runs it with
+			 * (ORMRuntime's ORMFlowSession). Not written where it does not
+			 * hold. */
+			if (flow != nil) {
+				NSArray *problems = nil;
+				NSDictionary *contract = [flow contractInModel:model mapping:mapping problems:&problems];
+				for (NSString *problem in problems) {
+					fprintf(stderr, "ormtool: %s: error: %s\n", [flow.name UTF8String], [problem UTF8String]);
+				}
+				if (contract == nil) {
+					return 1;
+				}
+				NSString *flowPath = [directory stringByAppendingPathComponent:[flow.name stringByAppendingPathExtension:@"ormflow"]];
+				NSData *data = [NSPropertyListSerialization dataWithPropertyList:contract format:NSPropertyListXMLFormat_v1_0 options:0 error:NULL];
+				if (![data writeToFile:flowPath atomically:YES]) {
+					fprintf(stderr, "ormtool: cannot write %s\n", [flowPath UTF8String]);
+					return 1;
+				}
+				ORMPrint([NSString stringWithFormat:@"%@: %@\n", flow.name, flowPath]);
 			}
 			return status;
 		}

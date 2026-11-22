@@ -489,7 +489,7 @@ A flow is what a design tool's prototype is, in the model's terms:
 | --- | --- |
 | a frame | a **screen**: a form, or a list (a query whose rows lead somewhere) |
 | a connection, on a click | a **transition**, on an action: `RowChosen`, `Trigger` (a control of the form), `SubmitDone`, `SubmitError`, `Cancel` |
-| what the next frame shows | what the transition **gives** the next form: its given nodes, from the row chosen, what the screen saved, or a value a screen before had |
+| what the next frame shows | what the transition **gives** the next form: its given nodes, or its anchor (the form opened on that object: an order to confirm), from the row chosen, what the screen saved, or a value a screen before had |
 | navigate, overlay, back | its **kind**: navigate; overlay (a modal form over this one); back; close the overlay, giving the form under it what it made |
 | a flow's starting point | an **entry**: where the app, or a task, begins |
 
@@ -517,9 +517,10 @@ one the model no longer has is reported:
 ```
 
 (An excerpt of [Samples/Fleet.flow](../Samples/Fleet.flow). A `Give`'s
-`Node` is a given node of the next screen's form; `From` is `row` (the
-list's row chosen), `result` (what the screen before saved), or
-`<screen id>.<node id>` (a value a screen before had).)
+`Node` is a given node of the next screen's form, or its anchor (its
+root: the form opens on that object, read and changed, not a new one);
+`From` is `row` (the list's row chosen), `result` (what the screen before
+saved), or `<screen id>.<node id>` (a value a screen before had).)
 
 What is inside a screen is not in the flow: a form's controls, and where
 they are, are the form's and its customization's. A flow draws each screen
@@ -539,6 +540,21 @@ forms themselves do not name each other; `ormtool xforms model.orm dir/
 | `form:list/<Query>` | the next list |
 | `form:back` | the screen before |
 | `form:close?<element>=<value>&...` | the overlay closed, the values given to the form it is over |
+
+**Run by an app.** Beside the forms, `ormtool xforms ... --flow
+Fleet.flow` writes `Fleet.ormflow`, the flow as an app runs it: its
+screens by their forms' and lists' names, its ways, and what each gives
+by the element of the form it gives to (the anchor said so, its value
+the form's key). ORMRuntime's `ORMFlowSession` goes through it: begun at
+an entry (on an object, for a task's), it says the screen to show, the
+form's inputs and the object it is on; each way taken (a row chosen, a
+trigger, a save done or refused, a cancel) says the next, an overlay
+over the screen it came from and closed back to it with what it gave,
+until it goes back past the first: ended. It opens no view and saves
+nothing; the app's views show each screen (a window, a sheet, a list),
+and its form sessions save them. A flow that does not hold, or a screen
+that is still a placeholder, gets no `.ormflow`: ormtool says why and
+exits 1.
 
 **Played before an app exists.** `ORMFlowWalk` runs a flow over the
 model's sample population ([POPULATIONS.md](POPULATIONS.md)), in a store
@@ -624,7 +640,8 @@ committing what is typed. XFormsKit still needs decimal arithmetic for
 
 - `ormtool xforms model.orm dir/ [form] [mapping] [--flow file.flow]
   [--action Form=Action]... [--messages file.plist]` writes each form's
-  `<Form>.xhtml` and `<Form>.ormform`, never edited, and prints what it
+  `<Form>.xhtml` and `<Form>.ormform`, never edited (with a flow, its
+  `<Flow>.ormflow` too), and prints what it
   leaves to its submission and the plans `form:read` and each
   `form:choices/<name>` stand for; a form that breaks a rule of the
   definition, or that lacks an element the model has in it, is not written

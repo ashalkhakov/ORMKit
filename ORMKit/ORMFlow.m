@@ -2,6 +2,7 @@
 #import "ORMFlow.h"
 #import "ORMModel.h"
 #import "ORMQuery.h"
+#import "ORMFormDocument.h"
 
 NSString * const ORMFlowNamespace = @"http://schemas.ormkit.org/2026-10/Flows";
 
@@ -210,6 +211,18 @@ ORMFlowInputs(ORMQuery *form)
 	return inputs;
 }
 
+/* What a way may give the form: its given nodes, and its anchor (the
+ * object it opens on, one there is: an order to confirm). */
+static NSDictionary<NSString *, ORMQueryNode *> *
+ORMFlowGivable(ORMQuery *form)
+{
+	NSMutableDictionary *givable = [ORMFlowInputs(form) mutableCopy];
+	if (form.root.identifier != nil) {
+		[givable setObject:form.root forKey:form.root.identifier];
+	}
+	return givable;
+}
+
 - (ORMFlowScreen *)openerOf:(ORMFlowScreen *)overlay
 {
 	for (ORMFlowTransition *transition in _transitions) {
@@ -285,7 +298,7 @@ ORMFlowInputs(ORMQuery *form)
 			                                               [transition.kind lowercaseString]]];
 		}
 		ORMQuery *form = to.formId != nil ? [self queryOf:to inModel:model] : nil;
-		NSDictionary *inputs = form != nil ? ORMFlowInputs(form) : @{};
+		NSDictionary *inputs = form != nil ? ORMFlowGivable(form) : @{};
 		/* An overlay closed gives what it made to the form it was over:
 		 * any of that form's nodes (the expense kind just made, chosen). */
 		ORMFlowScreen *opener = [transition.kind isEqualToString:ORMFlowKindClose] ? [self openerOf:from] : nil;
@@ -346,6 +359,102 @@ ORMFlowInputs(ORMQuery *form)
 	}
 	[left sortUsingSelector:@selector(compare:)];
 	return left;
+}
+
+- (NSDictionary *)contractInModel:(ORMModel *)model mapping:(ORMCoreDataMapping *)mapping problems:(NSArray<NSString *> **)problems
+{
+	NSMutableArray *wrong = [[self problemsInModel:model] mutableCopy];
+	NSMutableDictionary *screens = [NSMutableDictionary dictionary];
+	NSMutableDictionary<NSString *, ORMFormDocument *> *documents = [NSMutableDictionary dictionary];
+	for (ORMFlowScreen *screen in _screens) {
+		ORMQuery *query = [self queryOf:screen inModel:model];
+		if (query == nil) {
+			if (screen.formId == nil && screen.queryId == nil) {
+				[wrong addObject:[NSString stringWithFormat:@"%@ is a placeholder, no form or list an app can open.", ORMFlowScreenName(screen)]];
+			}
+			continue;
+		}
+		NSMutableDictionary *entry = [NSMutableDictionary dictionaryWithObject:ORMFlowScreenName(screen) forKey:@"name"];
+		if (screen.formId != nil) {
+			NSString *reason = nil;
+			ORMFormDocument *document = [ORMFormDocument documentForForm:query model:model mapping:mapping reason:&reason];
+			if (document == nil) {
+				[wrong addObject:[NSString stringWithFormat:@"%@ is no form to open: %@", ORMFlowScreenName(screen), reason ?: @"?"]];
+				continue;
+			}
+			[documents setObject:document forKey:screen.identifier];
+			[entry setObject:query.name ?: @"" forKey:@"form"];
+		} else {
+			[entry setObject:query.name ?: @"" forKey:@"list"];
+		}
+		[screens setObject:entry forKey:screen.identifier];
+	}
+	/* A node of a screen's form, by the element it is: its key for the
+	 * anchor. */
+	NSString *(^elementOf)(NSString *, NSString *, BOOL *) = ^NSString *(NSString *screenId, NSString *nodeId, BOOL *anchor) {
+		ORMFormDocument *document = screenId != nil ? [documents objectForKey:screenId] : nil;
+		if (document == nil || nodeId == nil) {
+			return nil;
+		}
+		if ([nodeId isEqualToString:document.form.root.identifier ?: @""]) {
+			if (anchor != NULL) {
+				*anchor = YES;
+			}
+			return [[document tablePropertyList] objectForKey:@"key"];
+		}
+		return [document elementOfNode:nodeId];
+	};
+	NSMutableArray *transitions = [NSMutableArray array];
+	for (ORMFlowTransition *transition in _transitions) {
+		NSMutableDictionary *way = [NSMutableDictionary dictionary];
+		[way setObject:transition.fromScreen ?: @"" forKey:@"from"];
+		[way setObject:transition.on ?: @"" forKey:@"on"];
+		[way setObject:transition.kind ?: ORMFlowKindNavigate forKey:@"kind"];
+		if (transition.control != nil) {
+			[way setObject:transition.control forKey:@"control"];
+		}
+		if (transition.toScreen != nil) {
+			[way setObject:transition.toScreen forKey:@"to"];
+		}
+		/* A Close gives to the form the overlay is over. */
+		NSString *givenTo = [transition.kind isEqualToString:ORMFlowKindClose]
+			? [self openerOf:[self screenWithId:transition.fromScreen]].identifier : transition.toScreen;
+		NSMutableArray *gives = [NSMutableArray array];
+		for (ORMFlowGive *give in transition.gives) {
+			BOOL anchor = NO;
+			NSString *element = elementOf(givenTo, give.nodeId, &anchor);
+			NSString *from = give.from ?: @"";
+			NSRange dot = [from rangeOfString:@"."];
+			if (dot.location != NSNotFound) {
+				NSString *screen = [from substringToIndex:dot.location];
+				NSString *had = elementOf(screen, [from substringFromIndex:NSMaxRange(dot)], NULL);
+				from = had != nil ? [NSString stringWithFormat:@"%@.%@", screen, had] : nil;
+			}
+			if (element == nil || from == nil) {
+				[wrong addObject:[NSString stringWithFormat:@"%@ —%@→: %@ from %@ is no element of a form.", transition.fromScreen ?: @"?",
+				                                            transition.on ?: @"?", give.nodeId ?: @"?", give.from ?: @"?"]];
+				continue;
+			}
+			NSMutableDictionary *given = [NSMutableDictionary dictionaryWithObjectsAndKeys:element, @"element", from, @"from", nil];
+			if (anchor) {
+				[given setObject:@YES forKey:@"anchor"];
+			}
+			[gives addObject:given];
+		}
+		[way setObject:gives forKey:@"gives"];
+		[transitions addObject:way];
+	}
+	NSMutableArray *entries = [NSMutableArray array];
+	for (ORMFlowEntry *entry in _entries) {
+		[entries addObject:@{ @"name" : entry.name ?: @"", @"screen" : entry.screen ?: @"" }];
+	}
+	if (problems != NULL) {
+		*problems = wrong;
+	}
+	if ([wrong count] > 0) {
+		return nil;
+	}
+	return @{ @"format" : @1, @"flow" : _name ?: @"", @"entries" : entries, @"screens" : screens, @"transitions" : transitions };
 }
 
 - (NSString *)textInModel:(ORMModel *)model

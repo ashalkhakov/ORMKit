@@ -1261,6 +1261,173 @@ static NSString *const ORMOrders = @"PurchaseOrder is an entity type.\n"
 	XCTAssertEqualObjects([self attribute:@"resource" of:over], @"form:open/NewVehicle");
 }
 
+/* A car's own form (NewVehicle: its nickname), the cars, and the fill-ups. */
+- (ORMEditor *)fillUpsWithCarsForm
+{
+	ORMEditor *editor = [self fillUpsWithPopulation];
+	NSArray *failures = nil;
+	XCTAssertTrue([[[ORMSentenceEditor alloc] initWithEditor:editor] addFromText:@"Nickname is a value type.\n"
+	                                                                             @"Portable data type: Text: Variable Length(40)\n"
+	                                                                             @"Vehicle has Nickname\n"
+	                                                                             @"Each Vehicle has at most one Nickname.\n"
+	                                                                             @"\n"
+	                                                                             @"Query NewVehicle:\n"
+	                                                                             @"Form NewVehicle:\n"
+	                                                                             @"Vehicle\n"
+	                                                                             @"  + has Nickname (entered)\n"
+	                                                                    failures:&failures],
+	              @"%@", failures);
+	return editor;
+}
+
+/* The cars; a car chosen opens its own form on it (the anchor given: the
+ * row); its trigger opens a fill-up over it, given the car the form is on;
+ * the fill-up saved opens the car's form on its car (the anchor given from
+ * a screen's value), cancelled closes. */
+- (NSString *)carsFlowXMLIn:(ORMModel *)model
+{
+	ORMQuery *vehicles = [self query:@"Vehicles" in:model], *fillUp = [self formIn:model], *car = [self query:@"NewVehicle" in:model];
+	ORMQueryNode *vehicle = [self givenNodeOf:fillUp type:@"Vehicle"];
+	return [NSString stringWithFormat:
+	                     @"<flow:Flow xmlns:flow=\"http://schemas.ormkit.org/2026-10/Flows\" Name=\"Cars\" Model=\"Logbook.orm\">"
+	                     @"<flow:Entry Name=\"Start\" Screen=\"s1\"/>"
+	                     @"<flow:Entry Name=\"Car\" Screen=\"s4\"/>"
+	                     @"<flow:Screen id=\"s1\" Query=\"%@\" Name=\"Vehicles\"/>"
+	                     @"<flow:Screen id=\"s4\" Form=\"%@\" Name=\"Car\"/>"
+	                     @"<flow:Screen id=\"s2\" Form=\"%@\" Name=\"RecordFillUp\"/>"
+	                     @"<flow:Transition From=\"s1\" On=\"RowChosen\" To=\"s4\"><flow:Give Node=\"%@\" From=\"row\"/></flow:Transition>"
+	                     @"<flow:Transition From=\"s4\" On=\"Trigger\" Control=\"fillUp\" To=\"s2\" Kind=\"Overlay\">"
+	                     @"<flow:Give Node=\"%@\" From=\"s4.%@\"/></flow:Transition>"
+	                     @"<flow:Transition From=\"s4\" On=\"SubmitDone\" Kind=\"Back\"/>"
+	                     @"<flow:Transition From=\"s2\" On=\"SubmitDone\" To=\"s4\"><flow:Give Node=\"%@\" From=\"s2.%@\"/></flow:Transition>"
+	                     @"<flow:Transition From=\"s2\" On=\"Cancel\" Kind=\"Close\"/>"
+	                     @"</flow:Flow>",
+	                     vehicles.identifier, car.identifier, fillUp.identifier, car.root.identifier, vehicle.identifier, car.root.identifier,
+	                     car.root.identifier, vehicle.identifier];
+}
+
+/* A way may give the next form its anchor: the form opens on that object
+ * (a car chosen, its own form on it), in the walk, in its document's way
+ * (the key's element given), and said so in the flow's contract. */
+- (void)testAFlowOpensAFormOnTheObjectItGives
+{
+	ORMEditor *editor = [self fillUpsWithCarsForm];
+	NSError *error = nil;
+	ORMFlow *flow = [ORMFlow flowWithData:[[self carsFlowXMLIn:editor.model] dataUsingEncoding:NSUTF8StringEncoding] error:&error];
+	XCTAssertNotNil(flow, @"%@", error);
+	XCTAssertEqualObjects([flow problemsInModel:editor.model], @[], @"the anchor is the form's to be given");
+	NSString *reason = nil;
+	ORMFormDocument *car = [ORMFormDocument documentForForm:[self query:@"NewVehicle" in:editor.model] model:editor.model mapping:nil reason:&reason];
+	NSString *key = [[car tablePropertyList] objectForKey:@"key"];
+	XCTAssertTrue([key length] > 0, @"%@", reason);
+
+	ORMFlowWalk *walk = [[ORMFlowWalk alloc] initWithFlow:flow model:editor.model mapping:nil];
+	XCTAssertTrue([walk beginAt:@"Start" error:&error], @"%@", error);
+	NSUInteger seven = [walk.rowKeys indexOfObject:ORMCarSeven];
+	XCTAssertTrue([walk take:[[walk transitions] firstObject] row:seven error:&error], @"%@", error);
+	XCTAssertEqualObjects(walk.screen.identifier, @"s4");
+	XCTAssertEqualObjects(walk.session.key, ORMCarSeven, @"opened on the car chosen: %@", walk.log);
+	XCTAssertEqualObjects([walk.session valueForElement:key], ORMCarSeven, @"read: %@", walk.session.values);
+	[walk.session setValue:@"Bluebird" forElement:@"nickname"];
+	XCTAssertTrue([walk submit:&error], @"%@ %@", walk.session.errors, error);
+	XCTAssertTrue([walk.log containsObject:[@"Car saved: " stringByAppendingString:ORMCarSeven]], @"the car itself, no new one: %@", walk.log);
+	XCTAssertEqualObjects(walk.screen.identifier, @"s1", @"%@", walk.log);
+
+	/* In the fill-up's document: its save opens the car's form, given its key. */
+	ORMFormDocument *fillUp = [self documentOf:editor];
+	[fillUp setFlow:flow screen:[flow screenWithId:@"s2"]];
+	NSXMLNode *resource = [[self nodes:@"//*[local-name()='submission'][@id='save']//*[local-name()='resource']" in:[fillUp document]] firstObject];
+	XCTAssertEqualObjects([self attribute:@"value" of:resource],
+	                      ([NSString stringWithFormat:@"concat('form:open/NewVehicle', '?%@=', instance('form')/vehicle)", key]));
+
+	/* The contract: screens by name, gives by element, the anchor said. */
+	NSArray *problems = nil;
+	NSDictionary *contract = [flow contractInModel:editor.model mapping:nil problems:&problems];
+	XCTAssertNotNil(contract, @"%@", problems);
+	XCTAssertEqualObjects([contract objectForKey:@"flow"], @"Cars");
+	XCTAssertEqualObjects([[contract objectForKey:@"screens"] objectForKey:@"s1"], (@{ @"name" : @"Vehicles", @"list" : @"Vehicles" }));
+	XCTAssertEqualObjects([[contract objectForKey:@"screens"] objectForKey:@"s4"], (@{ @"name" : @"Car", @"form" : @"NewVehicle" }));
+	NSArray *ways = [contract objectForKey:@"transitions"];
+	XCTAssertEqualObjects([ways[0] objectForKey:@"gives"], (@[ @{ @"element" : key, @"anchor" : @YES, @"from" : @"row" } ]));
+	XCTAssertEqualObjects([ways[1] objectForKey:@"gives"], (@[ @{ @"element" : @"vehicle", @"from" : [@"s4." stringByAppendingString:key] } ]));
+	XCTAssertEqualObjects([ways[1] objectForKey:@"kind"], @"Overlay");
+	XCTAssertEqualObjects([ways[1] objectForKey:@"control"], @"fillUp");
+	XCTAssertEqualObjects([ways[3] objectForKey:@"gives"], (@[ @{ @"element" : key, @"anchor" : @YES, @"from" : @"s2.vehicle" } ]));
+	XCTAssertEqualObjects([contract objectForKey:@"entries"], (@[ @{ @"name" : @"Start", @"screen" : @"s1" }, @{ @"name" : @"Car", @"screen" : @"s4" } ]));
+	NSData *written = [NSPropertyListSerialization dataWithPropertyList:contract format:NSPropertyListXMLFormat_v1_0 options:0 error:&error];
+	XCTAssertNotNil(written, @"a property list: %@", error);
+
+	/* A placeholder is no screen an app can open: no contract. */
+	NSString *placeholder = [[self carsFlowXMLIn:editor.model] stringByReplacingOccurrencesOfString:@"</flow:Flow>"
+	                                                                                    withString:@"<flow:Screen id=\"s9\" Name=\"Later\"/></flow:Flow>"];
+	ORMFlow *unfinished = [ORMFlow flowWithData:[placeholder dataUsingEncoding:NSUTF8StringEncoding] error:&error];
+	XCTAssertNil([unfinished contractInModel:editor.model mapping:nil problems:&problems]);
+	XCTAssertEqualObjects(problems, @[ @"Later is a placeholder, no form or list an app can open." ]);
+}
+
+/* A flow gone through as an app goes through it (ORMRuntime's
+ * ORMFlowSession, from the contract): the screen to show and what it is
+ * given or on, each way's values worked out, an overlay over the screen it
+ * was opened from and closed back to it, and back past the first: ended. */
+- (void)testAFlowSessionSaysTheScreensAsTheWaysAreTaken
+{
+	ORMEditor *editor = [self fillUpsWithCarsForm];
+	NSError *error = nil;
+	ORMFlow *flow = [ORMFlow flowWithData:[[self carsFlowXMLIn:editor.model] dataUsingEncoding:NSUTF8StringEncoding] error:&error];
+	NSArray *problems = nil;
+	NSDictionary *contract = [flow contractInModel:editor.model mapping:nil problems:&problems];
+	XCTAssertNotNil(contract, @"%@", problems);
+	NSString *key = [[[[contract objectForKey:@"transitions"] firstObject] objectForKey:@"gives"][0] objectForKey:@"element"];
+	ORMFlowSession *session = [[ORMFlowSession alloc] initWithPropertyList:contract error:&error];
+	XCTAssertNotNil(session, @"%@", error);
+	XCTAssertEqualObjects(session.entryNames, (@[ @"Start", @"Car" ]));
+	XCTAssertNil([session beginAt:@"Nowhere" key:nil error:&error]);
+	XCTAssertEqualObjects(error.localizedDescription, @"The flow Cars has no entry Nowhere.");
+
+	ORMFlowStep *step = [session beginAt:nil key:nil error:&error];
+	XCTAssertEqualObjects(step.listName, @"Vehicles", @"%@", error);
+	XCTAssertNil(step.formName);
+	XCTAssertEqualObjects([[session ways] valueForKey:@"on"], @[ @"RowChosen" ]);
+	step = [session take:[session wayOn:@"RowChosen" control:nil] row:ORMCarSeven result:nil values:nil];
+	XCTAssertEqualObjects(step.formName, @"NewVehicle");
+	XCTAssertEqualObjects(step.key, ORMCarSeven, @"on the car chosen");
+	XCTAssertEqualObjects(step.given, @{});
+	XCTAssertFalse(step.overlay);
+	XCTAssertNil([session wayOn:@"Trigger" control:@"other"], @"no such control's");
+	step = [session take:[session wayOn:@"Trigger" control:@"fillUp"] row:nil result:nil
+	              values:@{ key : ORMCarSeven, @"nickname" : @"Bluebird" }];
+	XCTAssertEqualObjects(step.formName, @"RecordFillUp");
+	XCTAssertTrue(step.overlay, @"over the car's form");
+	XCTAssertNil(step.key, @"a new fill-up");
+	XCTAssertEqualObjects(step.given, @{ @"vehicle" : ORMCarSeven }, @"given the car the form under it had");
+	XCTAssertEqual([session.steps count], 3u);
+	step = [session take:[session wayOn:@"Cancel" control:nil] row:nil result:nil values:@{ @"vehicle" : ORMCarSeven }];
+	XCTAssertEqualObjects(step.screen, @"s4", @"closed back to the car's form");
+	XCTAssertEqualObjects(step.key, ORMCarSeven, @"still on its car");
+	XCTAssertEqualObjects(step.returned, @{}, @"the Close gives nothing");
+	step = [session take:[session wayOn:@"Trigger" control:@"fillUp"] row:nil result:nil values:@{ key : ORMCarSeven }];
+	step = [session take:[session wayOn:@"SubmitDone" control:nil] row:nil result:@"fill-up-1" values:@{ @"vehicle" : ORMCarEight }];
+	XCTAssertEqualObjects(step.formName, @"NewVehicle", @"the fill-up saved: its car's form");
+	XCTAssertEqualObjects(step.key, ORMCarEight, @"on the car the fill-up had");
+	XCTAssertEqual([session.steps count], 4u, @"on top: back comes back");
+	step = [session take:[session wayOn:@"SubmitDone" control:nil] row:nil result:ORMCarEight values:nil];
+	XCTAssertEqualObjects(step.screen, @"s2", @"back to the fill-up");
+	XCTAssertTrue(step.overlay);
+	XCTAssertFalse(session.ended);
+
+	step = [session beginAt:@"Car" key:ORMCarEight error:&error];
+	XCTAssertEqualObjects(step.key, ORMCarEight, @"a task's entry, on its object");
+	XCTAssertEqual([session.steps count], 1u, @"begun again");
+	XCTAssertNil([session take:[session wayOn:@"SubmitDone" control:nil] row:nil result:ORMCarEight values:nil]);
+	XCTAssertTrue(session.ended, @"back past the first");
+	XCTAssertEqualObjects([session ways], @[]);
+
+	XCTAssertNil([[ORMFlowSession alloc] initWithPropertyList:@{ @"format" : @2 } error:&error]);
+	XCTAssertTrue([error.localizedDescription hasPrefix:@"Not a flow's contract"], @"%@", error);
+	XCTAssertNil([ORMFlowSession flowNamed:@"NoSuchFlow" error:&error]);
+	XCTAssertEqualObjects(error.localizedDescription, @"No bundle has NoSuchFlow.ormflow.");
+}
+
 /* What a flow says wrong of the model, each said. */
 - (void)testAFlowSaysWhatIsWrongOfIt
 {
