@@ -45,7 +45,7 @@
  *                                            population (ORMFlowWalk): each list's first row
  *                                            chosen, each form submitted as it opens, each way
  *                                            taken once; what happened, a line a step
- *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]
+ *   ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]... [--action Form=Action]... [--messages file.plist]
  *   ormtool contract model.orm Form copy.xhtml  a customized copy against the form: errors (1), warnings, what is provisional
  *   ormtool propose model.orm Form copy.xhtml [sample.xml]  the fact types its provisional elements ask for, as FORML
  *                                            each form (or the named one) as an XForms document,
@@ -98,7 +98,7 @@ ORMUsage(void)
 	      "       ormtool svg [--dark] model.orm [out.svg | dir/] [diagram name]\n"
 	      "       ormtool query model.orm [query name] [mapping name]\n"
 	      "       ormtool flow model.orm file.flow [walk [entry name]]\n"
-	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow] [--action Form=Action]... [--messages file.plist]\n"
+	      "       ormtool xforms model.orm dir/ [form name] [mapping name] [--flow file.flow]... [--action Form=Action]... [--messages file.plist]\n"
 	      "       ormtool contract model.orm Form copy.xhtml   (1 when the customized copy breaks the form's contract)\n"
 	      "       ormtool propose model.orm Form copy.xhtml [sample.xml]\n"
 	      "       ormtool import Model.xcdatamodeld [model.orm]\n"
@@ -649,18 +649,19 @@ main(int argc, const char *argv[])
 			return [customization.errors count] > 0 ? 1 : 0;
 		}
 		if ([command isEqualToString:@"xforms"] && [args count] >= 3) {
-			/* A flow's screens: their forms' ways on, in their actions. */
-			ORMFlow *flow = nil;
-			NSUInteger flowAt = [args indexOfObject:@"--flow"];
-			if (flowAt != NSNotFound) {
+			/* Flows' screens: their forms' ways on, in their actions;
+			 * --flow file.flow, each. */
+			NSMutableArray<ORMFlow *> *flows = [NSMutableArray array];
+			for (NSUInteger flowAt = [args indexOfObject:@"--flow"]; flowAt != NSNotFound; flowAt = [args indexOfObject:@"--flow"]) {
 				NSError *error = nil;
-				flow = flowAt + 1 < [args count] ? [ORMFlow flowWithContentsOfURL:[NSURL fileURLWithPath:[args objectAtIndex:flowAt + 1]]
-				                                                            error:&error]
-				                                 : nil;
+				ORMFlow *flow = flowAt + 1 < [args count]
+					? [ORMFlow flowWithContentsOfURL:[NSURL fileURLWithPath:[args objectAtIndex:flowAt + 1]] error:&error]
+					: nil;
 				if (flow == nil) {
 					fprintf(stderr, "ormtool: --flow: %s\n", [[error localizedDescription] ?: @"names no file" UTF8String]);
 					return 1;
 				}
+				[flows addObject:flow];
 				NSMutableArray *rest = [args mutableCopy];
 				[rest removeObjectsInRange:NSMakeRange(flowAt, 2)];
 				args = rest;
@@ -729,10 +730,15 @@ main(int argc, const char *argv[])
 					status = 1;
 					continue;
 				}
-				for (ORMFlowScreen *screen in flow.screens) {
-					if ([screen.formId isEqualToString:query.identifier]) {
-						[form setFlow:flow screen:screen];
-						break;
+				/* The first flow that shows it, its ways on in its
+				 * document. */
+				BOOL shown = NO;
+				for (ORMFlow *flow in flows) {
+					for (ORMFlowScreen *screen in flow.screens) {
+						if (!shown && [screen.formId isEqualToString:query.identifier]) {
+							[form setFlow:flow screen:screen];
+							shown = YES;
+						}
 					}
 				}
 				form.action = [actions objectForKey:query.name];
@@ -775,7 +781,7 @@ main(int argc, const char *argv[])
 			/* The flow's own, beside its forms': what an app runs it with
 			 * (ORMRuntime's ORMFlowSession). Not written where it does not
 			 * hold. */
-			if (flow != nil) {
+			for (ORMFlow *flow in flows) {
 				NSArray *problems = nil;
 				NSDictionary *contract = [flow contractInModel:model mapping:mapping problems:&problems];
 				for (NSString *problem in problems) {

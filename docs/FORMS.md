@@ -638,10 +638,11 @@ committing what is typed. XFormsKit still needs decimal arithmetic for
 
 ## Commands
 
-- `ormtool xforms model.orm dir/ [form] [mapping] [--flow file.flow]
+- `ormtool xforms model.orm dir/ [form] [mapping] [--flow file.flow]...
   [--action Form=Action]... [--messages file.plist]` writes each form's
-  `<Form>.xhtml` and `<Form>.ormform`, never edited (with a flow, its
-  `<Flow>.ormflow` too), and prints what it
+  `<Form>.xhtml` and `<Form>.ormform`, never edited (with flows, each
+  `<Flow>.ormflow` too; a form two flows show has the first's ways on), and
+  prints what it
   leaves to its submission and the plans `form:read` and each
   `form:choices/<name>` stand for; a form that breaks a rule of the
   definition, or that lacks an element the model has in it, is not written
