@@ -112,9 +112,10 @@ extern const NSUInteger ORMTablesFormat;
 @end
 
 /* A rule an entity's objects are checked by: the constraint's name, what
- * it says, the properties it is about, whether it is an obligation to be
- * told of (deontic) rather than enforced, and its check, which a valid
- * object meets. */
+ * it says, the properties it is about (a rule query's: the object's own
+ * properties it reads, so a form can show it at their fields), whether it
+ * is an obligation to be told of (deontic) rather than enforced, and its
+ * check, which a valid object meets. */
 @interface ORMRule : NSObject
 + (instancetype)ruleNamed:(NSString *)constraint
                      text:(NSString *)text
