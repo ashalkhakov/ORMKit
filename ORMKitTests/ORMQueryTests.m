@@ -2169,6 +2169,8 @@ static NSDictionary<NSString *, NSArray<NSString *> *> *ORMCompanyFacts;
 	ORMTables *tables = [generator tables];
 	ORMRule *rule = [[tables.rules objectForKey:@"Employee"] lastObject];
 	XCTAssertEqualObjects(rule.constraint, @"Lives near work");
+	/* Its keys: the Employee's own properties it reads. */
+	XCTAssertEqualObjects(rule.keys, (@[ @"branch", @"city" ]));
 	XCTAssertEqualObjects(rule.check.kind, @"not");
 	XCTAssertEqualObjects([[rule.check.operands firstObject] kind], @"plan");
 	/* At save, again for each Employee a change reaches (docs/DERIVATION.md). */

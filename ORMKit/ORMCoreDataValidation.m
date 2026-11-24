@@ -886,15 +886,24 @@ ORMSeedValueOf(id value)
 		return nil;
 	}
 	ORMCDEntity *entity = [_coreData entityNamed:plan.entityName];
+	/* Its keys: the object's own properties it reads (the first step of
+	 * each path from it), so a form can show the rule at their fields. */
+	NSArray *trails = [plan trailsFromRead];
+	NSMutableOrderedSet *keys = [NSMutableOrderedSet orderedSet];
+	for (NSArray *trail in trails) {
+		if ([trail count] > 0) {
+			[keys addObject:[trail firstObject]];
+		}
+	}
 	/* Its rows are what must not be: a valid object is none of them. */
 	ORMRule *rule = [self add:@{ @"not": @{ @"plan": [plan propertyList] } }
 	                       to:entity
 	                    named:name
 	                     text:text
-	                     keys:@[]
+	                     keys:[[keys array] sortedArrayUsingSelector:@selector(compare:)]
 	                  deontic:deontic];
 	/* At save, again for each object a change reaches it from. */
-	NSArray *backs = [self backsFrom:entity trails:[plan trailsFromRead]];
+	NSArray *backs = [self backsFrom:entity trails:trails];
 	if (backs != nil) {
 		NSMutableOrderedSet *all = [_ruleBacks objectForKey:entity.name] ?: [NSMutableOrderedSet orderedSet];
 		[all addObjectsFromArray:backs];
