@@ -4,6 +4,7 @@
 #import "ORMFlowWalk.h"
 #import "ORMForm.h"
 #import "ORMFormSession.h"
+#import <objc/runtime.h>
 
 /* A line of a form's values: an element of the form's; a repeat's heading
  * (no element, no row); one of its rows (no element); an element of a row. */
@@ -224,7 +225,7 @@ ORMFlowPlayEntryOf(ORMFormElement *element, NSString *repeat, NSUInteger row)
 		/* Empty: Set alone, where the picker goes; a picker shown always
 		 * holds the value, Clear beside it. */
 		for (NSView *each in [view subviews]) {
-			BOOL set = [each isKindOfClass:[NSButton class]] && [(NSButton *)each action] == @selector(setDate:);
+			BOOL set = [each isKindOfClass:[NSButton class]] && sel_isEqual([(NSButton *)each action], @selector(setDate:));
 			[each setHidden:set == (date != nil)];
 		}
 	} else if ([editor isEqualToString:@"flag"]) {
