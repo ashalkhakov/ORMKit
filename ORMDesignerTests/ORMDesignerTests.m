@@ -14,6 +14,7 @@
 #import "ORMPopulationView.h"
 #import "ORMSampleMenu.h"
 #import "ORMWindowController.h"
+#import <objc/runtime.h>
 
 /* The designer driven as a modeller would: a NORMA file opened, elements
  * picked, the fact editor typed into, constraints toggled, the diagram
@@ -138,7 +139,7 @@
 	XCTAssertEqualObjects(titles, (@[ @"Company", @"Customers", @"Fleet", @"UMLandORM", @"University", @"StockMate", @"-", @"ActiveFacts" ]));
 	XCTAssertEqual([[[menu itemWithTitle:@"ActiveFacts"] submenu] numberOfItems], (NSInteger)29);
 	NSMenuItem *company = [menu itemWithTitle:@"Company"];
-	XCTAssertEqual([company action], @selector(openSample:));
+	XCTAssertTrue(sel_isEqual([company action], @selector(openSample:)));
 
 	NSUInteger before = [[[NSDocumentController sharedDocumentController] documents] count];
 	[[[ORMAppDelegate alloc] init] openSample:company];
